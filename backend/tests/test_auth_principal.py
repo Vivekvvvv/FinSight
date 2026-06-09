@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+
+def _set_prod_env(monkeypatch):
+    monkeypatch.setenv("DEV_MODE", "0")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_BASE", "https://example.invalid/v1")
+    monkeypatch.setenv("POSTGRES_DB", "test")
+    monkeypatch.setenv("POSTGRES_USER", "test")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "test")
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    monkeypatch.setenv("API_AUTH_KEYS", "release-key-1")
+    monkeypatch.setenv("API_AUTH_PRINCIPALS", '{"release-key-1":{"user_id":"alice","email":"alice@example.invalid","role":"user"}}')
+
+
+def test_user_route_rejects_forged_user_id(monkeypatch):
+    from backend.api import main
+
+    _set_prod_env(monkeypatch)
+    monkeypatch.setattr(main, "_rate_limiter", main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False))
+
+    with TestClient(main.app) as client:
+        response = client.get(
+            "/api/user/profile",
+            params={"user_id": "bob"},
+            headers={"x-api-key": "release-key-1"},
+        )
+
+    assert response.status_code == 403
+
+
+def test_portfolio_route_rejects_forged_session_id(monkeypatch):
+    from backend.api import main
+
+    _set_prod_env(monkeypatch)
+    monkeypatch.setattr(main, "_rate_limiter", main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False))
+
+    with TestClient(main.app) as client:
+        response = client.get(
+            "/api/portfolio/summary",
+            params={"session_id": "private:bob:default"},
+            headers={"x-api-key": "release-key-1"},
+        )
+
+    assert response.status_code == 403
+
+
+def test_subscription_route_rejects_forged_email(monkeypatch):
+    from backend.api import main
+
+    _set_prod_env(monkeypatch)
+    monkeypatch.setattr(main, "_rate_limiter", main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False))
+
+    with TestClient(main.app) as client:
+        response = client.get(
+            "/api/subscriptions",
+            params={"email": "bob@example.invalid"},
+            headers={"x-api-key": "release-key-1"},
+        )
+
+    assert response.status_code == 403
