@@ -1,0 +1,5 @@
+﻿services:
+  backend:
+    image: finsight-smoke-backend:updated
+  frontend:
+    image: finsight-smoke-frontend:updated

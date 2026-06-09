@@ -1,0 +1,33 @@
+# FinSight local compose smoke override.
+# Use only for isolated smoke verification; it avoids default container names,
+# named volumes, and host port 80 so it cannot collide with a local deployment.
+
+services:
+  postgres:
+    container_name: finsight-smoke-postgres
+
+  backend:
+    container_name: finsight-smoke-backend
+    environment:
+      DEV_MODE: "1"
+      RAG_EMBEDDING: hash
+      RAG_V2_ALLOW_MEMORY_FALLBACK: "true"
+
+  frontend:
+    container_name: finsight-smoke-frontend
+    ports: !override
+      - "18080:80"
+
+volumes:
+  postgres_data:
+    name: finsight_smoke_postgres_data
+  backend_data:
+    name: finsight_smoke_backend_data
+  backend_logs:
+    name: finsight_smoke_backend_logs
+  model_cache:
+    name: finsight_smoke_model_cache
+
+networks:
+  finsight-net:
+    name: finsight-smoke-net

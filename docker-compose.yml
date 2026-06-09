@@ -1,0 +1,137 @@
+# FinSight — Production Docker Compose
+# One-command deploy: docker compose --env-file .env.server up -d --build
+#
+# 默认链路:
+#   browser -> frontend (Vue + nginx, :80)
+#           -> backend (Python FastAPI / AI / RAG, internal :8000)
+#
+# Services:
+#   postgres        — pgvector 0.8.x (vector similarity search)
+#   backend         — Python FastAPI / uvicorn
+#   frontend        — Nginx serving Vite-built Vue SPA
+#
+# Ports exposed to host:
+#   80    frontend         (HTTP, SPA + API proxy)
+#   backend:8000 and postgres:5432 are compose-internal by default.
+#   Use docker-compose.dev.yml for local host port exposure.
+
+services:
+
+  # ── PostgreSQL + pgvector ───────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: finsight-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER:     ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER is required}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finsight-net
+
+  # ── Backend (Python FastAPI / AI / RAG) ─────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finsight-backend
+    restart: unless-stopped
+    env_file:
+      - path: .env.server    # real secrets on the server (NOT committed)
+        required: false
+    environment:
+      # User config is stored in the data volume so it persists across container restarts.
+      # Settings UI changes (LLM keys, etc.) are saved to /app/data/user_config.json.
+      FINSIGHT_CONFIG_DIR:          /app/data
+      POSTGRES_DB:                  ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER:                ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD:            ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      OPENAI_COMPATIBLE_API_KEY:    ${OPENAI_COMPATIBLE_API_KEY:?OPENAI_COMPATIBLE_API_KEY is required}
+      OPENAI_COMPATIBLE_API_BASE:   ${OPENAI_COMPATIBLE_API_BASE:?OPENAI_COMPATIBLE_API_BASE is required}
+      OPENAI_COMPATIBLE_MODEL:      ${OPENAI_COMPATIBLE_MODEL:?OPENAI_COMPATIBLE_MODEL is required}
+      JWT_SECRET:                   ${JWT_SECRET:?JWT_SECRET is required}
+      API_AUTH_KEYS:                ${API_AUTH_KEYS:?API_AUTH_KEYS is required}
+      API_AUTH_ADMIN_KEYS:          ${API_AUTH_ADMIN_KEYS:-}
+      API_AUTH_DEFAULT_USER_ID:     ${API_AUTH_DEFAULT_USER_ID:-}
+      API_AUTH_DEFAULT_EMAIL:       ${API_AUTH_DEFAULT_EMAIL:-}
+      # HuggingFace mirror (bypasses GFW, used by BGE-M3 / reranker model downloads)
+      HF_ENDPOINT:                  https://hf-mirror.com
+      # Override RAG to use Postgres pgvector
+      RAG_V2_BACKEND:               postgres
+      RAG_V2_ALLOW_MEMORY_FALLBACK: "true"
+      RAG_EMBEDDING:                ${RAG_EMBEDDING:-bge-m3}
+      RAG_V2_POSTGRES_DSN:          postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      LANGGRAPH_CHECKPOINT_POSTGRES_DSN: postgresql://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      # Supabase runtime auth for /diagnostics/rag/*
+      # Keep these values aligned with frontend VITE_SUPABASE_* so backend can validate Bearer access tokens.
+      SUPABASE_URL:                 ${SUPABASE_URL:-}
+      SUPABASE_PUBLISHABLE_KEY:     ${SUPABASE_PUBLISHABLE_KEY:-}
+      RAG_OBSERVABILITY_AUTH_CACHE_SECONDS: ${RAG_OBSERVABILITY_AUTH_CACHE_SECONDS:-60}
+    volumes:
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+      - model_cache:/app/.cache
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s      # allow model loading time
+    networks:
+      - finsight-net
+
+  # ── Frontend (Nginx + Vue SPA) ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend-vue
+      dockerfile: Dockerfile
+      args:
+        # 留空时前端运行时按浏览器 origin 自动推导; 本地 5174 dev 时自动改打 8000。
+        VITE_API_BASE_URL: ${VITE_VUE_API_BASE_URL:-}
+    container_name: finsight-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    healthcheck:
+      # Use 127.0.0.1 — alpine wget resolves 'localhost' to ::1 (IPv6) but nginx
+      # only listens on IPv4; connecting directly to 127.0.0.1 bypasses the issue
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - finsight-net
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    name: finsight_postgres_data
+  backend_data:
+    name: finsight_backend_data
+  backend_logs:
+    name: finsight_backend_logs
+  model_cache:
+    name: finsight_model_cache   # persists bge-m3 / reranker weights (~2 GB)
+
+# ── Networks ───────────────────────────────────────────────────────────────────
+networks:
+  finsight-net:
+    name: finsight-net
+    driver: bridge

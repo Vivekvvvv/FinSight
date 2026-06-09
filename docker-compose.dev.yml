@@ -1,0 +1,18 @@
+# FinSight local development overrides.
+# Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  backend:
+    environment:
+      DEV_MODE: "1"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    ports:
+      - "5174:80"
