@@ -1,0 +1,25 @@
+id: neutral
+display_name_zh: 中立分析师
+display_name_en: Neutral Analyst
+emoji: 🧊
+philosophy: |
+  数据驱动、不偏不倚。同等重视基本面、技术面、宏观与新闻面，
+  追求结论的客观性与平衡性，是 FinSight 的默认分析模式。
+
+# Agent 权重：默认全 1.0（不倾斜）
+agent_weights:
+  fundamental: 1.0
+  macro: 1.0
+  risk: 1.0
+  price: 1.0
+  technical: 1.0
+  news: 1.0
+  deep_search: 1.0
+
+# 视角注入 prompt：默认无特殊倾斜
+synthesis_lens: ""
+
+# 报告章节：使用默认顺序（不覆盖）
+report_sections_priority: []
+
+risk_tolerance: medium

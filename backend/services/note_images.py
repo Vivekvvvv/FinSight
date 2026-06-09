@@ -1,0 +1,222 @@
+# -*- coding: utf-8 -*-
+"""Note Images Storage Service
+
+支持笔记图片上传、存储和访问。
+"""
+from __future__ import annotations
+
+import hashlib
+import os
+import secrets
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from fastapi import UploadFile
+
+# 图片存储根目录
+_IMAGES_ROOT = Path("./data/notes")
+
+# 允许的图片类型
+ALLOWED_CONTENT_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+}
+
+ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+# 限制
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_IMAGES_PER_NOTE = 20
+
+
+def _get_image_dir(user_id: str, note_id: str) -> Path:
+    """获取笔记图片存储目录"""
+    # 安全检查：防止路径遍历攻击
+    if ".." in user_id or "/" in user_id or "\\" in user_id:
+        raise ValueError(f"Invalid user_id: {user_id}")
+    if ".." in note_id or "/" in note_id or "\\" in note_id:
+        raise ValueError(f"Invalid note_id: {note_id}")
+
+    return _IMAGES_ROOT / user_id / note_id
+
+
+def _generate_filename(original_filename: str) -> str:
+    """生成安全的文件名
+
+    格式: image_{timestamp}_{random}.{ext}
+    """
+    ext = Path(original_filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        ext = ".png"
+
+    timestamp = int(datetime.now().timestamp() * 1000)
+    random_suffix = secrets.token_hex(4)
+
+    return f"image_{timestamp}_{random_suffix}{ext}"
+
+
+async def save_image(
+    user_id: str,
+    note_id: str,
+    file: UploadFile,
+) -> str:
+    """保存图片
+
+    Args:
+        user_id: 用户 ID
+        note_id: 笔记 ID
+        file: 上传的文件对象
+
+    Returns:
+        图片 URL 路径（相对路径）
+
+    Raises:
+        ValueError: 文件类型或大小不符合要求
+    """
+    # 验证文件类型
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise ValueError(f"Unsupported file type: {file.content_type}")
+
+    # 读取文件内容
+    content = await file.read()
+
+    # 验证文件大小
+    if len(content) > MAX_FILE_SIZE:
+        raise ValueError(f"File size exceeds {MAX_FILE_SIZE / 1024 / 1024}MB")
+
+    # 获取存储目录
+    image_dir = _get_image_dir(user_id, note_id)
+    image_dir.mkdir(parents=True, exist_ok=True)
+
+    # 检查图片数量限制
+    existing_images = list(image_dir.glob("image_*"))
+    if len(existing_images) >= MAX_IMAGES_PER_NOTE:
+        raise ValueError(f"Maximum {MAX_IMAGES_PER_NOTE} images per note")
+
+    # 生成文件名
+    filename = _generate_filename(file.filename or "image.png")
+    file_path = image_dir / filename
+
+    # 保存文件
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # 返回 URL 路径
+    return f"/api/notes/images/{user_id}/{note_id}/{filename}"
+
+
+def get_image_path(user_id: str, note_id: str, filename: str) -> Optional[Path]:
+    """获取图片文件路径
+
+    Args:
+        user_id: 用户 ID
+        note_id: 笔记 ID
+        filename: 文件名
+
+    Returns:
+        文件路径，如果不存在返回 None
+    """
+    # 安全检查
+    if ".." in filename or "/" in filename or "\\" in filename:
+        return None
+
+    image_dir = _get_image_dir(user_id, note_id)
+    file_path = image_dir / filename
+
+    if file_path.exists() and file_path.is_file():
+        return file_path
+
+    return None
+
+
+def list_images(user_id: str, note_id: str) -> list[dict[str, any]]:
+    """列出笔记的所有图片
+
+    Args:
+        user_id: 用户 ID
+        note_id: 笔记 ID
+
+    Returns:
+        图片信息列表
+    """
+    image_dir = _get_image_dir(user_id, note_id)
+
+    if not image_dir.exists():
+        return []
+
+    result = []
+    for img_path in sorted(image_dir.glob("image_*")):
+        if img_path.is_file():
+            stat = img_path.stat()
+            result.append({
+                "filename": img_path.name,
+                "url": f"/api/notes/images/{user_id}/{note_id}/{img_path.name}",
+                "size": stat.st_size,
+                "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            })
+
+    return result
+
+
+def delete_image(user_id: str, note_id: str, filename: str) -> bool:
+    """删除图片
+
+    Args:
+        user_id: 用户 ID
+        note_id: 笔记 ID
+        filename: 文件名
+
+    Returns:
+        删除是否成功
+    """
+    file_path = get_image_path(user_id, note_id, filename)
+
+    if file_path and file_path.exists():
+        file_path.unlink()
+        return True
+
+    return False
+
+
+def delete_all_images(user_id: str, note_id: str) -> int:
+    """删除笔记的所有图片
+
+    Args:
+        user_id: 用户 ID
+        note_id: 笔记 ID
+
+    Returns:
+        删除的图片数量
+    """
+    image_dir = _get_image_dir(user_id, note_id)
+
+    if not image_dir.exists():
+        return 0
+
+    count = 0
+    for img_path in image_dir.glob("image_*"):
+        if img_path.is_file():
+            img_path.unlink()
+            count += 1
+
+    # 删除空目录
+    try:
+        image_dir.rmdir()
+    except OSError:
+        pass
+
+    return count
+
+
+__all__ = [
+    "save_image",
+    "get_image_path",
+    "list_images",
+    "delete_image",
+    "delete_all_images",
+    "MAX_FILE_SIZE",
+    "MAX_IMAGES_PER_NOTE",
+]
