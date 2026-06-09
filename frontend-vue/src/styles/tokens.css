@@ -1,0 +1,71 @@
+/* FinSight Vue 终端式研究工作台设计变量 */
+:root {
+  --fin-bg: #111715;
+  --fin-card: #f7f3e8;
+  --fin-card-dark: #131b18;
+  --fin-border: rgba(25, 45, 36, 0.16);
+  --fin-border-dark: rgba(214, 255, 226, 0.12);
+  --fin-text: #17211d;
+  --fin-text-2: #4e5f56;
+  --fin-muted: #7b8a82;
+  --fin-primary: #2f6f57;
+  --fin-primary-deep: #174936;
+  --fin-primary-soft: #dff7df;
+  --fin-accent: #d7ff72;
+  --fin-cyan: #2dd4bf;
+  --fin-success: #168a54;
+  --fin-danger: #c44545;
+  --fin-warning: #d97706;
+  --fin-radius: 18px;
+  --fin-font: 'Aptos', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color-scheme: dark;
+  font-size: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-height: 100%;
+  background: var(--fin-bg);
+  color: var(--fin-text);
+  font-family: var(--fin-font);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease, opacity 0.14s ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+a {
+  color: var(--fin-primary);
+  text-decoration: none;
+}
+
+.page-card {
+  background: #f7f3e8;
+  border: 1px solid rgba(23, 33, 29, 0.1);
+  border-radius: 28px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.18);
+}
