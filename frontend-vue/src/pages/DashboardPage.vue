@@ -23,6 +23,8 @@ const theme = useThemeStore();
 const symbolInput = ref(String(route.params.symbol || 'AAPL').toUpperCase());
 const activeTab = ref('overview');
 const loading = ref(false);
+const quotePending = ref(false);
+const slowLoading = ref(false);
 const deepLoading = ref(false);
 const errorMsg = ref<string | null>(null);
 const quote = ref<any>(null);
@@ -33,6 +35,7 @@ const insights = ref<DashboardInsightsResponse | null>(null);
 const changes = ref<WhatChangedItem[]>([]);
 const deepAnalysis = ref('');
 const deepEvidence = ref<any>(null);
+let refreshRunId = 0;
 
 const tabs = [
   ['overview', '综合分析'],
@@ -43,33 +46,50 @@ const tabs = [
   ['peers', '同行对比'],
 ];
 
-const q = computed(() => quote.value?.data || {});
+const q = computed(() => {
+  const raw = quote.value?.data || {};
+  return {
+    ...raw,
+    shortName: raw.shortName || raw.longName || raw.name || quote.value?.ticker || symbolInput.value,
+    currentPrice: raw.currentPrice ?? raw.regularMarketPrice ?? raw.price,
+    regularMarketPrice: raw.regularMarketPrice ?? raw.currentPrice ?? raw.price,
+    regularMarketChange: raw.regularMarketChange ?? raw.change,
+    regularMarketChangePercent: raw.regularMarketChangePercent ?? raw.change_percent,
+    freshness_status: raw.freshness_status ?? raw.freshnessStatus,
+  };
+});
 const chartPalette = computed(() => theme.resolved === 'dark'
   ? {
-      axis: '#789085',
-      grid: 'rgba(214,255,226,0.1)',
-      up: '#8cffb6',
-      down: '#ff8f8f',
-      line: '#d7ff72',
-      primary: '#d7ff72',
-      card: '#17251f',
-      text: '#eef8ef',
+      axis: '#aab8c7',
+      grid: 'rgba(148,163,184,0.18)',
+      up: '#34d399',
+      down: '#ff6b6b',
+      line: '#ffb020',
+      primary: '#ffb020',
+      card: '#162236',
+      text: '#f5f7fb',
     }
   : {
-      axis: '#66746c',
-      grid: 'rgba(23,33,29,0.12)',
-      up: '#168a54',
-      down: '#c44545',
-      line: '#245f49',
-      primary: '#245f49',
-      card: '#fffaf0',
-      text: '#16221d',
+      axis: '#526174',
+      grid: 'rgba(51,65,85,0.16)',
+      up: '#087f5b',
+      down: '#c24141',
+      line: '#b56700',
+      primary: '#b56700',
+      card: '#ffffff',
+      text: '#101827',
     });
 
 const insightCards = computed(() => Object.entries(insights.value?.insights || {}).map(([key, value]: [string, any]) => ({ key, ...value })));
 const primaryScore = computed(() => {
   const scores = insightCards.value.map((item: any) => Number(item.score || 0)).filter(Boolean);
   return scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 7.4;
+});
+
+const syncHint = computed(() => {
+  if (quotePending.value) return '报价源响应较慢，页面会在后台自动回填；当前先展示已有图表和研究结构。';
+  if (slowLoading.value) return '行情、财务、新闻和 AI 洞察正在后台同步；外部数据源较慢时会自动保留当前可用数据。';
+  return '';
 });
 
 const metricStrip = computed(() => [
@@ -157,31 +177,83 @@ function fmt(value: unknown): string {
   return String(value);
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(`${label} timeout`)), ms);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function keepLatest<T>(promise: Promise<T>, runId: number, apply: (value: T) => void, onSettled?: () => void) {
+  promise.then((value) => {
+    if (runId === refreshRunId) apply(value);
+  }).catch(() => undefined).finally(() => {
+    if (runId === refreshRunId) onSettled?.();
+  });
+}
+
 async function refresh() {
   const symbol = symbolInput.value.trim().toUpperCase() || 'AAPL';
+  const runId = ++refreshRunId;
   symbolInput.value = symbol;
   loading.value = true;
+  quotePending.value = true;
   errorMsg.value = null;
   try {
-    const [quoteResp, klineResp, financialsResp, insightsResp, newsResp, changesResp] = await Promise.allSettled([
-      apiClient.getQuote(symbol),
-      apiClient.getKline(symbol),
-      apiClient.getFinancials(symbol),
-      apiClient.getDashboardInsights(symbol),
-      apiClient.getNews(symbol),
-      apiClient.getWhatChanged({ sessionId: identity.sessionId, userId: identity.userId, symbol, limit: 3 }),
-    ]);
-    quote.value = quoteResp.status === 'fulfilled' ? quoteResp.value : null;
-    kline.value = klineResp.status === 'fulfilled' ? klineResp.value : null;
-    financials.value = financialsResp.status === 'fulfilled' ? financialsResp.value : null;
-    insights.value = insightsResp.status === 'fulfilled' ? insightsResp.value : null;
-    news.value = newsResp.status === 'fulfilled' && Array.isArray(newsResp.value?.data) ? newsResp.value.data : [];
-    changes.value = changesResp.status === 'fulfilled' ? changesResp.value.items || [] : [];
     await router.replace(`/dashboard/${encodeURIComponent(symbol)}`);
+    const quotePromise = apiClient.getQuote(symbol);
+    const changesPromise = apiClient.getWhatChanged({ sessionId: identity.sessionId, userId: identity.userId, symbol, limit: 3 });
+
+    keepLatest(quotePromise, runId, (value) => { quote.value = value; }, () => { quotePending.value = false; });
+    keepLatest(changesPromise, runId, (value) => { changes.value = value.items || []; });
+
+    await Promise.allSettled([
+      withTimeout(quotePromise, 4500, 'quote'),
+      withTimeout(changesPromise, 4500, 'what-changed'),
+    ]);
   } catch (error) {
     errorMsg.value = error instanceof Error ? error.message : String(error);
+    if (runId === refreshRunId) quotePending.value = false;
   } finally {
-    loading.value = false;
+    if (runId === refreshRunId) {
+      loading.value = false;
+      void refreshSlowData(symbol, runId);
+    }
+  }
+}
+
+async function refreshSlowData(symbol: string, runId: number) {
+  slowLoading.value = true;
+  try {
+    const klinePromise = apiClient.getKline(symbol);
+    const financialsPromise = apiClient.getFinancials(symbol);
+    const insightsPromise = apiClient.getDashboardInsights(symbol);
+    const newsPromise = apiClient.getNews(symbol);
+
+    keepLatest(klinePromise, runId, (value) => { kline.value = value; });
+    keepLatest(financialsPromise, runId, (value) => { financials.value = value; });
+    keepLatest(insightsPromise, runId, (value) => { insights.value = value; });
+    keepLatest(newsPromise, runId, (value) => {
+      if (Array.isArray(value?.data)) news.value = value.data;
+    });
+
+    await Promise.allSettled([
+      withTimeout(klinePromise, 6500, 'kline'),
+      withTimeout(financialsPromise, 6500, 'financials'),
+      withTimeout(insightsPromise, 6500, 'dashboard-insights'),
+      withTimeout(newsPromise, 6500, 'news'),
+    ]);
+  } finally {
+    if (runId === refreshRunId) slowLoading.value = false;
   }
 }
 
@@ -233,12 +305,13 @@ watch(() => route.params.symbol, (value) => {
       </div>
       <form class="search-box" @submit.prevent="refresh">
         <input v-model="symbolInput" placeholder="输入股票代码，如 AAPL">
-        <button :disabled="loading">{{ loading ? '刷新中...' : '查询' }}</button>
+        <button :disabled="loading">{{ loading ? '刷新中...' : slowLoading ? '后台同步中' : '查询' }}</button>
         <button type="button" @click="router.push(`/timeline/${symbolInput}`)">证据时间线</button>
       </form>
     </div>
 
     <p v-if="errorMsg" class="error-banner">{{ errorMsg }}</p>
+    <p v-if="syncHint && !loading" class="sync-hint">{{ syncHint }}</p>
 
     <div class="metric-strip">
       <article v-for="[label, value] in metricStrip" :key="label" class="page-card metric-card">
@@ -364,7 +437,7 @@ watch(() => route.params.symbol, (value) => {
   margin: 0 0 6px;
   color: var(--fin-primary);
   font-family: var(--fin-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -415,6 +488,12 @@ h4 {
   font-weight: 900;
 }
 
+.search-box button:disabled,
+.primary:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .metric-strip {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -437,7 +516,7 @@ h4 {
   display: block;
   margin-top: 4px;
   color: var(--fin-text);
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .main-grid {
@@ -465,7 +544,7 @@ h4 {
   background: var(--fin-success-soft);
   color: var(--fin-success);
   font-family: var(--fin-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -508,6 +587,7 @@ h4 {
   color: var(--fin-text-2);
   cursor: pointer;
   font-weight: 800;
+  font-size: 14px;
 }
 
 .tab-row button.active {
@@ -541,8 +621,20 @@ pre {
   padding: 4px 9px;
   background: var(--fin-primary-soft);
   color: var(--fin-primary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
+}
+
+.insight-card h4,
+.news-card h4 {
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.insight-card li,
+.news-card p,
+.data-row span {
+  font-size: 14px;
 }
 
 .insight-card ul {
@@ -578,6 +670,15 @@ pre {
   padding: 12px 16px;
   background: var(--fin-danger-soft);
   color: var(--fin-danger);
+}
+
+.sync-hint {
+  margin: 0;
+  border-radius: 18px;
+  padding: 12px 16px;
+  background: var(--fin-warning-soft);
+  color: var(--fin-warning);
+  font-size: 13px;
 }
 
 @media (max-width: 1180px) {

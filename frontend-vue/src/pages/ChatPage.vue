@@ -263,7 +263,7 @@ onMounted(() => {
   margin: 0 0 6px;
   color: var(--fin-primary);
   font-family: var(--fin-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -292,7 +292,7 @@ label {
 label {
   display: grid;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -365,7 +365,7 @@ textarea {
   background: var(--fin-primary);
   color: var(--fin-bg);
   font-family: var(--fin-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -386,12 +386,14 @@ textarea {
   gap: 10px;
   margin-bottom: 8px;
   color: var(--fin-text-2);
+  font-size: 13px;
 }
 
 pre {
   margin: 0;
   white-space: pre-wrap;
   color: var(--fin-text);
+  font-size: 15px;
   line-height: 1.75;
   font-family: inherit;
 }

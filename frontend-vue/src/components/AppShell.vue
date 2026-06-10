@@ -187,7 +187,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  background: color-mix(in srgb, var(--fin-bg) 84%, transparent);
+  background: color-mix(in srgb, var(--fin-bg) 90%, transparent);
   backdrop-filter: blur(24px);
 }
 
@@ -221,7 +221,7 @@ onMounted(() => {
 .muted {
   display: block;
   color: var(--fin-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .nav-stack {
@@ -235,7 +235,7 @@ onMounted(() => {
   grid-template-columns: 56px 1fr;
   align-items: center;
   gap: 10px;
-  padding: 11px 12px;
+  padding: 12px 13px;
   border-radius: 16px;
   color: var(--fin-text-2);
   border: 1px solid transparent;
@@ -245,21 +245,24 @@ onMounted(() => {
 .rail-kicker,
 .terminal-kicker {
   font-family: var(--fin-mono);
-  font-size: 10px;
-  letter-spacing: 0.16em;
+  font-size: 11px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--fin-primary);
 }
 
 .nav-link strong {
-  font-size: 14px;
+  font-size: 15px;
+  letter-spacing: 0.01em;
 }
 
 .nav-link:hover,
 .nav-link.active {
   color: var(--fin-text);
   border-color: var(--fin-border-strong);
-  background: var(--fin-primary-soft);
+  background:
+    linear-gradient(90deg, var(--fin-primary-soft), transparent 80%),
+    var(--fin-card-soft);
 }
 
 .rail-card,
@@ -290,7 +293,7 @@ onMounted(() => {
 }
 
 .terminal-bar {
-  min-height: 72px;
+  min-height: 76px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -299,7 +302,7 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: color-mix(in srgb, var(--fin-bg) 86%, transparent);
+  background: color-mix(in srgb, var(--fin-bg) 92%, transparent);
   backdrop-filter: blur(20px);
 }
 
@@ -309,8 +312,9 @@ onMounted(() => {
 
 .terminal-bar h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
   color: var(--fin-text);
+  letter-spacing: -0.01em;
 }
 
 .terminal-kicker {
@@ -339,7 +343,7 @@ onMounted(() => {
 
 .ticker-pill {
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 9px 13px;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -348,7 +352,7 @@ onMounted(() => {
 
 .ticker-pill span,
 .ticker-pill em {
-  font-size: 12px;
+  font-size: 13px;
   font-style: normal;
 }
 
@@ -415,7 +419,7 @@ onMounted(() => {
   display: block;
   margin-top: 2px;
   color: var(--fin-muted);
-  font-size: 12px;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

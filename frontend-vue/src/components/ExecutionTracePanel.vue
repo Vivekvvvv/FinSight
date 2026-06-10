@@ -96,10 +96,10 @@ function fmtTime(value?: string | null): string {
 
 <style scoped>
 .trace-panel {
-  border: 1px solid rgba(214, 255, 226, 0.12);
+  border: 1px solid var(--fin-border);
   border-radius: 22px;
-  background: rgba(9, 15, 13, 0.72);
-  color: #eef7ee;
+  background: var(--fin-card-inset);
+  color: var(--fin-text);
   padding: 18px;
 }
 
@@ -118,15 +118,15 @@ function fmtTime(value?: string | null): string {
 .trace-head p,
 .phase-name {
   margin: 0 0 4px;
-  color: #d7ff72;
-  font-size: 10px;
+  color: var(--fin-primary);
+  font-size: 12px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .trace-head h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .trace-stats {
@@ -137,26 +137,26 @@ function fmtTime(value?: string | null): string {
 }
 
 .trace-stats span {
-  border: 1px solid rgba(214, 255, 226, 0.14);
+  border: 1px solid var(--fin-border);
   border-radius: 999px;
   padding: 5px 9px;
-  font-size: 11px;
-  color: rgba(238, 247, 238, 0.72);
+  font-size: 12px;
+  color: var(--fin-text-2);
 }
 
 .pulse {
-  color: #8cffb6 !important;
-  box-shadow: 0 0 0 0 rgba(140, 255, 182, 0.4);
+  color: var(--fin-success) !important;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--fin-success) 40%, transparent);
   animation: pulse 1.4s infinite;
 }
 
 .danger {
-  color: #ff8f8f !important;
+  color: var(--fin-danger) !important;
 }
 
 .trace-empty {
-  color: rgba(238, 247, 238, 0.56);
-  font-size: 13px;
+  color: var(--fin-muted);
+  font-size: 14px;
   line-height: 1.7;
 }
 
@@ -166,10 +166,10 @@ function fmtTime(value?: string | null): string {
 }
 
 .phase-card {
-  border: 1px solid rgba(214, 255, 226, 0.1);
+  border: 1px solid var(--fin-border);
   border-radius: 18px;
   padding: 12px;
-  background: rgba(238, 247, 238, 0.04);
+  background: var(--fin-card-soft);
 }
 
 ol {
@@ -190,35 +190,35 @@ li {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #d7ff72;
+  background: var(--fin-primary);
   margin-top: 8px;
-  box-shadow: 0 0 18px rgba(215, 255, 114, 0.6);
+  box-shadow: 0 0 18px var(--fin-primary-soft);
 }
 
 li.s-error .dot {
-  background: #ff8f8f;
+  background: var(--fin-danger);
 }
 
 li.s-running .dot {
-  background: #8cffb6;
+  background: var(--fin-success);
   animation: pulse 1.4s infinite;
 }
 
 strong {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 p {
   margin: 2px 0;
-  color: rgba(238, 247, 238, 0.68);
-  font-size: 12px;
+  color: var(--fin-text-2);
+  font-size: 13px;
   line-height: 1.6;
 }
 
 small {
-  color: rgba(238, 247, 238, 0.42);
-  font-size: 11px;
+  color: var(--fin-muted);
+  font-size: 12px;
 }
 
 @keyframes pulse {

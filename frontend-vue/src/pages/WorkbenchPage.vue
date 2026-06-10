@@ -274,7 +274,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
   margin: 0 0 6px;
   color: var(--fin-primary);
   font-family: var(--fin-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -369,7 +369,7 @@ label {
   background: var(--fin-primary-soft);
   color: var(--fin-primary);
   padding: 4px 9px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -441,6 +441,7 @@ input[type="range"] {
 .watch-panel span {
   display: block;
   font-weight: 500;
+  font-size: 14px;
 }
 
 .error-banner {

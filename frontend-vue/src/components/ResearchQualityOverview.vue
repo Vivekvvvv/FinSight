@@ -130,26 +130,26 @@ function handleIssueClick(issue: ResearchQualityIssue) {
   align-items: center;
   gap: 2rem;
   padding: 1.5rem;
-  background: #fff;
+  background: var(--fin-card);
   border-radius: 8px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--fin-border);
   transition: border-color 0.2s;
 }
 
 .health-score-card.health-excellent {
-  border-color: #10b981;
+  border-color: var(--fin-success);
 }
 
 .health-score-card.health-good {
-  border-color: #3b82f6;
+  border-color: var(--fin-accent);
 }
 
 .health-score-card.health-fair {
-  border-color: #f59e0b;
+  border-color: var(--fin-warning);
 }
 
 .health-score-card.health-poor {
-  border-color: #ef4444;
+  border-color: var(--fin-danger);
 }
 
 .score-circle {
@@ -161,35 +161,35 @@ function handleIssueClick(issue: ResearchQualityIssue) {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #f0f9ff 0%, #dbeafe 100%);
+  background: linear-gradient(135deg, var(--fin-accent-soft), var(--fin-card-soft));
 }
 
 .health-excellent .score-circle {
-  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  background: linear-gradient(135deg, var(--fin-success-soft), var(--fin-card-soft));
 }
 
 .health-good .score-circle {
-  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  background: linear-gradient(135deg, var(--fin-accent-soft), var(--fin-card-soft));
 }
 
 .health-fair .score-circle {
-  background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+  background: linear-gradient(135deg, var(--fin-warning-soft), var(--fin-card-soft));
 }
 
 .health-poor .score-circle {
-  background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+  background: linear-gradient(135deg, var(--fin-danger-soft), var(--fin-card-soft));
 }
 
 .score-value {
   font-size: 2.5rem;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--fin-text);
   line-height: 1;
 }
 
 .score-label {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--fin-muted);
   margin-top: 0.25rem;
 }
 
@@ -208,21 +208,21 @@ function handleIssueClick(issue: ResearchQualityIssue) {
 
 .stat-label {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--fin-muted);
 }
 
 .stat-value {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--fin-text);
 }
 
 .stat-item.warning .stat-value {
-  color: #f59e0b;
+  color: var(--fin-warning);
 }
 
 .stat-item.error .stat-value {
-  color: #ef4444;
+  color: var(--fin-danger);
 }
 
 /* 质量问题列表 */
@@ -235,7 +235,7 @@ function handleIssueClick(issue: ResearchQualityIssue) {
 .issues-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--fin-text);
   margin: 0;
 }
 
@@ -247,32 +247,32 @@ function handleIssueClick(issue: ResearchQualityIssue) {
 
 .issue-card {
   padding: 1rem;
-  background: #fff;
+  background: var(--fin-card-inset);
   border-radius: 6px;
-  border-left: 3px solid #e5e7eb;
+  border-left: 3px solid var(--fin-border);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .issue-card:hover {
-  background: #f9fafb;
+  background: var(--fin-card-soft);
   transform: translateX(4px);
 }
 
 .issue-card.severity-critical {
-  border-left-color: #dc2626;
+  border-left-color: var(--fin-danger);
 }
 
 .issue-card.severity-high {
-  border-left-color: #ea580c;
+  border-left-color: var(--fin-warning);
 }
 
 .issue-card.severity-medium {
-  border-left-color: #d97706;
+  border-left-color: var(--fin-primary);
 }
 
 .issue-card.severity-low {
-  border-left-color: #84cc16;
+  border-left-color: var(--fin-success);
 }
 
 .issue-header {
@@ -286,46 +286,46 @@ function handleIssueClick(issue: ResearchQualityIssue) {
 .issue-type-badge {
   padding: 0.125rem 0.5rem;
   border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .badge-critical {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--fin-danger-soft);
+  color: var(--fin-danger);
 }
 
 .badge-high {
-  background: #ffedd5;
-  color: #ea580c;
+  background: var(--fin-warning-soft);
+  color: var(--fin-warning);
 }
 
 .badge-medium {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary);
 }
 
 .badge-low {
-  background: #ecfccb;
-  color: #65a30d;
+  background: var(--fin-success-soft);
+  color: var(--fin-success);
 }
 
 .issue-type-badge {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--fin-card-soft);
+  color: var(--fin-text-2);
 }
 
 .issue-title {
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: #1f2937;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--fin-text);
   margin-bottom: 0.25rem;
 }
 
 .issue-reason {
-  font-size: 0.875rem;
-  color: #6b7280;
-  line-height: 1.4;
+  font-size: 0.9375rem;
+  color: var(--fin-text-2);
+  line-height: 1.55;
 }
 
 .issue-meta {
@@ -336,11 +336,11 @@ function handleIssueClick(issue: ResearchQualityIssue) {
 
 .meta-tag {
   padding: 0.125rem 0.5rem;
-  background: #f3f4f6;
+  background: var(--fin-card-soft);
   border-radius: 4px;
-  font-size: 0.75rem;
-  color: #6b7280;
-  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+  color: var(--fin-muted);
+  font-family: var(--fin-mono);
 }
 
 /* 空态 */
@@ -350,7 +350,7 @@ function handleIssueClick(issue: ResearchQualityIssue) {
   align-items: center;
   justify-content: center;
   padding: 3rem 1.5rem;
-  background: #f9fafb;
+  background: var(--fin-card-inset);
   border-radius: 8px;
   text-align: center;
 }
@@ -363,12 +363,12 @@ function handleIssueClick(issue: ResearchQualityIssue) {
 .empty-message {
   font-size: 1rem;
   font-weight: 500;
-  color: #1f2937;
+  color: var(--fin-text);
   margin-bottom: 0.5rem;
 }
 
 .empty-hint {
-  font-size: 0.875rem;
-  color: #9ca3af;
+  font-size: 0.9375rem;
+  color: var(--fin-muted);
 }
 </style>

@@ -165,12 +165,12 @@ const citationBadge = props.citationCount != null ? {
 .evidence {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 7px 12px;
-  background: var(--fin-bg);
+  gap: 8px;
+  padding: 9px 13px;
+  background: var(--fin-card-inset);
   border-radius: 8px;
   border: 1px solid var(--fin-border);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .evidence.compact {
@@ -196,7 +196,7 @@ const citationBadge = props.citationCount != null ? {
   border-radius: 20px;
   border: 1px solid;
   font-weight: 700;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -227,16 +227,16 @@ const citationBadge = props.citationCount != null ? {
 .ev-label::after { content: ':'; }
 
 .ev-val {
-  color: var(--fin-text-2);
-  font-weight: 500;
+  color: var(--fin-text);
+  font-weight: 650;
 }
 
-.conf.high { color: #27ae60; font-weight: 700; }
-.conf.mid  { color: #d97706; font-weight: 700; }
-.conf.low  { color: #e74c3c; font-weight: 700; }
+.conf.high { color: var(--fin-success); font-weight: 800; }
+.conf.mid  { color: var(--fin-warning); font-weight: 800; }
+.conf.low  { color: var(--fin-danger); font-weight: 800; }
 
 .ev-subtle { opacity: 0.6; }
-.ev-pass .ev-val { color: #27ae60; font-weight: 700; }
+.ev-pass .ev-val { color: var(--fin-success); font-weight: 800; }
 
 /* 降级警告 */
 .ev-warnings {
@@ -249,24 +249,24 @@ const citationBadge = props.citationCount != null ? {
   display: flex;
   align-items: flex-start;
   gap: 5px;
-  padding: 4px 8px;
-  border-radius: 5px;
-  font-size: 11px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
-.ev-warning.level-error { background: #fff1f0; color: #cf1322; border: 1px solid #ffccc7; }
-.ev-warning.level-warn  { background: #fffbe6; color: #854d0e; border: 1px solid #fed7aa; }
-.ev-warning.level-info  { background: #e8f4fd; color: #0c5460; border: 1px solid #bee3f8; }
+.ev-warning.level-error { background: var(--fin-danger-soft); color: var(--fin-danger); border: 1px solid color-mix(in srgb, var(--fin-danger) 45%, transparent); }
+.ev-warning.level-warn  { background: var(--fin-warning-soft); color: var(--fin-warning); border: 1px solid color-mix(in srgb, var(--fin-warning) 45%, transparent); }
+.ev-warning.level-info  { background: var(--fin-accent-soft); color: var(--fin-accent); border: 1px solid color-mix(in srgb, var(--fin-accent) 42%, transparent); }
 
 .w-icon { flex-shrink: 0; }
 .w-text { flex: 1; }
 
 /* compact 降级 badge */
 .ev-compact-warn {
-  font-size: 11px;
-  padding: 1px 7px;
-  border-radius: 4px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 8px;
   border: 1px solid;
   white-space: nowrap;
   cursor: default;
@@ -275,7 +275,7 @@ const citationBadge = props.citationCount != null ? {
   text-overflow: ellipsis;
 }
 
-.cw-error { background: #fff1f0; color: #cf1322; border-color: #ffccc7; }
-.cw-warn  { background: #fffbe6; color: #854d0e; border-color: #fed7aa; }
-.cw-info  { background: #e8f4fd; color: #0c5460; border-color: #bee3f8; }
+.cw-error { background: var(--fin-danger-soft); color: var(--fin-danger); border-color: color-mix(in srgb, var(--fin-danger) 45%, transparent); }
+.cw-warn  { background: var(--fin-warning-soft); color: var(--fin-warning); border-color: color-mix(in srgb, var(--fin-warning) 45%, transparent); }
+.cw-info  { background: var(--fin-accent-soft); color: var(--fin-accent); border-color: color-mix(in srgb, var(--fin-accent) 42%, transparent); }
 </style>

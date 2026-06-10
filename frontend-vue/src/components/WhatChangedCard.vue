@@ -140,7 +140,7 @@ function handleClick() {
 .type-badge .icon {
   color: var(--fin-primary);
   font-family: var(--fin-mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -210,7 +210,7 @@ function handleClick() {
   padding: 2px 8px;
   background: var(--fin-card-soft);
   color: var(--fin-text-2);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
 }
