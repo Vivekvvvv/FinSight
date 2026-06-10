@@ -1555,9 +1555,9 @@ def _stub_render_vars(state: GraphState) -> dict[str, str]:
             if isinstance(tech_out, dict) and tech_out.get("summary"):
                 ts_lower = str(tech_out["summary"]).lower()
                 if "overbought" in ts_lower or "bearish" in ts_lower:
-                    watch_items.append("设定止损位，控制回撤风险")
+                    watch_items.append("复查回撤风险和关键技术位，降低结论确定性")
                 elif "oversold" in ts_lower or "bullish" in ts_lower:
-                    watch_items.append("可考虑分批建仓，关注成交量配合")
+                    watch_items.append("复查成交量配合和反弹证据，避免仅凭单一技术信号下结论")
             watch_items.append("跟踪行业政策和竞争格局变化")
 
             if watch_items:

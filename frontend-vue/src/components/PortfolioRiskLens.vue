@@ -343,7 +343,7 @@ function formatCurrency(value: number) {
 
       <!-- Next Actions -->
       <div v-if="riskLens.next_actions.length > 0" class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">推荐操作</h3>
+        <h3 class="font-semibold mb-3 text-gray-800">复查动作</h3>
         <div class="space-y-2">
           <div
             v-for="action in riskLens.next_actions.slice(0, 5)"

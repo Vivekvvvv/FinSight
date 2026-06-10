@@ -86,7 +86,7 @@ def test_report_validator_risks_recommendation():
 
     assert "Valuation risk" in result["risks"]
     assert "Macro risk" in result["risks"]
-    assert result["recommendation"] == "BUY"
+    assert result["recommendation"] == "继续观察并复查证据"
 
 
 def test_report_validator_citations_fields():

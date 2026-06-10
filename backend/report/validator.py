@@ -15,6 +15,7 @@ from backend.report.evidence_policy import (
     normalize_quality_state,
 )
 from backend.report.quality_engine import merge_report_quality_payload
+from backend.research_policy import sanitize_research_stance
 
 logger = logging.getLogger(__name__)
 
@@ -155,8 +156,7 @@ class ReportValidator:
             risks_raw = data.get("risks", [])
             risks = [str(r) for r in risks_raw] if isinstance(risks_raw, list) else []
             recommendation = data.get("recommendation")
-            if recommendation is not None:
-                recommendation = str(recommendation)
+            recommendation = sanitize_research_stance(recommendation)
 
             meta = data.get("meta", {})
             if not isinstance(meta, dict):

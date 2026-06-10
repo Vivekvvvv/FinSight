@@ -1703,7 +1703,7 @@ def build_report_payload(*, state: dict[str, Any], query: str, thread_id: str) -
             ],
             "citations": [],
             "risks": ["报告已降级，请稍后重试或检查上游数据源与 LLM 通道。"],
-            "recommendation": "HOLD",
+            "recommendation": "继续观察并复查证据",
             "meta": {
                 "source": "langgraph",
                 "thread_id": thread_id,
@@ -1711,7 +1711,7 @@ def build_report_payload(*, state: dict[str, Any], query: str, thread_id: str) -
                 "builder_fallback": True,
                 "builder_error": _safe_str(exc)[:500],
             },
-            "synthesis_report": "## 投资摘要\n- 报告生成过程中发生异常，已返回最小可用结果。",
+            "synthesis_report": "## 研究摘要\n- 报告生成过程中发生异常，已返回最小可用结果。",
             "agent_status": {},
             "report_hints": {},
         }
@@ -2153,7 +2153,7 @@ def _build_report_payload_impl(*, state: dict[str, Any], query: str, thread_id: 
         "sections": sections,
         "citations": citations,
         "risks": risks,
-        "recommendation": "HOLD",
+        "recommendation": "继续观察并复查证据",
         "meta": {
             "source": "langgraph",
             "thread_id": thread_id,

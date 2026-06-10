@@ -17,6 +17,8 @@ import traceback
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
+from backend.research_policy import append_research_disclaimer, research_boundary_prompt
+
 logger = logging.getLogger(__name__)
 
 
@@ -1261,14 +1263,20 @@ class ChatHandler:
         query: str,
         context: Optional[Any] = None
     ) -> Dict[str, Any]:
-        """处理投资建议查询"""
+        """处理交易意图查询，但只输出研究复查建议。"""
         
         if not self.llm or not LANGCHAIN_AVAILABLE:
+            response = (
+                f"关于 {ticker}：我不能给出买入、卖出或持有指令。"
+                "可以先按技术面、基本面、新闻催化、估值和风险暴露做研究复查；"
+                "若已有持仓，优先核验最新财报、重大新闻和持仓集中度。"
+            )
             return {
                 'success': True, 
-                'response': f"关于 {ticker}：建议采用定投策略，分散风险。请注意，投资有风险。",
-                'intent': 'advice',
-                'thinking': "LLM/LangChain unavailable, returned generic advice."
+                'response': append_research_disclaimer(response),
+                'data': {'ticker': ticker, 'query_type': 'research_review'},
+                'intent': 'research_review',
+                'thinking': "LLM/LangChain unavailable, returned research review boundary response."
             }
 
         # 尝试获取当前价格作为参考（可选）
@@ -1287,10 +1295,10 @@ class ChatHandler:
             if context and hasattr(context, 'current_focus') and context.current_focus:
                 context_info += f"\nCurrently Focused Asset: {context.current_focus}"
             
-            # 使用 LLM 生成建议
-            prompt = f"""<role>专业金融投资顾问</role>
+            # 使用 LLM 生成研究复查建议
+            prompt = f"""<role>专业金融研究助手</role>
 
-<task>基于用户问题和已有数据，为 {ticker} 提供具体、可操作的投资建议。</task>
+<task>基于用户问题和已有数据，为 {ticker} 提供结构化研究复查建议。</task>
 
 <input>
 用户问题: {query}
@@ -1298,61 +1306,58 @@ class ChatHandler:
 </input>
 
 <requirements>
-1. 判断用户意图（已持仓 vs 准备入场），针对性建议
-2. 提供具体可执行的操作建议（如"建议分 3-5 批建仓"、"持有观望"）
-3. 附 2-3 句简明市场分析，引用具体数据点
-4. 末尾包含风险提示
+1. 明确说明不能替用户做交易决策
+2. 覆盖技术面、基本面、新闻催化、估值、风险暴露和需要补充核验的证据
+3. 输出 3-5 条下一步研究动作，例如复查财报、查看时间线、设置提醒、补充笔记
+4. 数据不足时明确标注，不得编造价格、收益或目标价
 </requirements>
 
 <constraints>
 - 使用简体中文，友好专业的语气
-- 禁止开场白，直接输出建议
-- 建议必须具体，避免"建议关注"等模糊表述
-- 末尾必须附加以下文字:
-
-⚠️ **AI生成建议提示**：以上建议由AI生成，仅供参考，不构成投资建议。投资有风险，请根据自身情况谨慎决策。
+- 禁止开场白，直接输出研究复查结论
+- {research_boundary_prompt()}
 </constraints>
 """
             response = self.llm.invoke([HumanMessage(content=prompt)])
             
             return {
                 'success': True,
-                'response': response.content,
-                'data': {'ticker': ticker, 'query_type': 'advice', 'price_info': current_price_info},
-                'intent': 'advice',
-                'thinking': "Used LLM to generate specific investment advice."
+                'response': append_research_disclaimer(response.content),
+                'data': {'ticker': ticker, 'query_type': 'research_review', 'price_info': current_price_info},
+                'intent': 'research_review',
+                'thinking': "Used LLM to generate research review guidance within advice boundary."
             }
         except Exception as e:
             traceback.print_exc()
             return {
                 'success': False,
-                'response': f"生成投资建议时失败: {str(e)}",
+                'response': f"生成研究复查建议时失败: {str(e)}",
                 'error': str(e),
                 'intent': 'chat',
-                'thinking': f"LLM advice generation failed: {str(e)}"
+                'thinking': f"LLM research review generation failed: {str(e)}"
             }
 
     def _handle_generic_recommendation(self, query: str) -> Dict[str, Any]:
         """
-        无 ticker 的泛化推荐，确保“推荐几只股票”类问题可用。
+        无 ticker 的泛化候选研究标的，避免输出交易推荐。
         """
         picks = [
-            {"ticker": "NVDA", "reason": "AI 硬件龙头，盈利高增长", "risk": "估值偏高，波动较大"},
-            {"ticker": "MSFT", "reason": "云/AI 双驱动，订阅业务稳定", "risk": "宏观与估值压力"},
-            {"ticker": "AAPL", "reason": "消费电子龙头，现金流稳健", "risk": "硬件周期与监管"},
-            {"ticker": "VOO", "reason": "S&P500 ETF，被动分散低成本", "risk": "跟随美股整体波动"},
+            {"ticker": "NVDA", "reason": "AI 硬件链代表，适合观察盈利增速与订单兑现", "risk": "估值、供给周期和波动较高"},
+            {"ticker": "MSFT", "reason": "云与 AI 业务代表，适合复查订阅收入和资本开支", "risk": "宏观、估值和 AI 投入回报周期"},
+            {"ticker": "AAPL", "reason": "消费电子与服务收入代表，适合跟踪现金流和产品周期", "risk": "硬件周期、监管和区域需求"},
+            {"ticker": "VOO", "reason": "宽基市场样本，适合观察美股整体风险偏好", "risk": "跟随指数和宏观波动"},
         ]
         lines = [f"- {p['ticker']}: {p['reason']}（风险：{p['risk']}）" for p in picks]
         response = (
-            "示例关注标的（非投资建议，请自评风险）：\n"
+            "候选研究标的池（仅用于继续研究，不构成投资推荐）：\n"
             + "\n".join(lines)
-            + "\n\n建议：分批建仓，单票不超过总仓 5%-10%，总仓位控制在 50% 以下。投资有风险，入市需谨慎。"
+            + "\n\n下一步研究动作：先加入自选，分别生成报告、查看证据时间线，并记录需要核验的关键假设。"
         )
         return {
             'success': True,
-            'response': response,
-            'intent': 'advice',
-            'thinking': "Generic recommendation fallback (no ticker).",
+            'response': append_research_disclaimer(response),
+            'intent': 'research_discovery',
+            'thinking': "Generic candidate discovery fallback without trading recommendation.",
         }
 
     def _handle_with_search(
