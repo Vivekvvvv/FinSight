@@ -18,7 +18,6 @@ const rebalanceStyle = ref('balanced');
 const maxPosition = ref(25);
 const minCash = ref(8);
 const useAiEnhance = ref(true);
-const lastRefresh = ref('');
 
 const today = computed(() => new Date().toLocaleDateString('zh-CN', { weekday: 'long', month: 'long', day: 'numeric' }));
 const positions = computed(() => portfolio.value?.positions || []);
@@ -58,8 +57,8 @@ function fmt(value: number | null | undefined): string {
 
 function fmtTime(value?: string | null): string {
   if (!value) return '未知时间';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString('zh-CN', { hour12: false });
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
 }
 
 async function refresh() {
@@ -78,7 +77,6 @@ async function refresh() {
     if (results[2].status === 'fulfilled') tasks.value = results[2].value.tasks || [];
     if (results[3].status === 'fulfilled') alerts.value = (results[3].value as any).events || [];
     if (results[4].status === 'fulfilled') watchlist.value = results[4].value.items || [];
-    lastRefresh.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
   } catch (error) {
     errorMsg.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -88,11 +86,11 @@ async function refresh() {
 
 function generateRebalancePrompt() {
   const prompt = [
-    `请基于当前持仓生成一份研究复查清单，不要给买入或卖出建议。`,
+    '请基于当前持仓生成一份研究复查清单，不要给买入或卖出建议。',
     `风险偏好：${rebalanceStyle.value}`,
     `单一标的上限：${maxPosition.value}%`,
     `最低现金比例：${minCash.value}%`,
-    `AI 增强：${useAiEnhance.value ? '开启' : '关闭'}`,
+    `AI 证据增强：${useAiEnhance.value ? '开启' : '关闭'}`,
   ].join('\n');
   router.push({ path: '/chat', query: { prefill: prompt, symbol: largestPosition.value?.ticker || 'AAPL' } });
 }
@@ -106,10 +104,10 @@ watch(() => identity.sessionId, () => { void refresh(); });
     <header class="page-card workbench-hero">
       <div>
         <p class="kicker">DAILY RESEARCH LAB</p>
-        <h2>{{ today }} · 30 秒知道今天该复查什么</h2>
+        <h2>{{ today }} / 30 秒知道今天该复查什么</h2>
         <p>整合持仓、任务、报告、告警和自选标的，把研究动作排成优先级。</p>
       </div>
-      <button :disabled="loading" @click="refresh">{{ loading ? '刷新中…' : '刷新工作台' }}</button>
+      <button :disabled="loading" @click="refresh">{{ loading ? '刷新中...' : '刷新工作台' }}</button>
     </header>
 
     <p v-if="errorMsg" class="error-banner">{{ errorMsg }}</p>
@@ -122,12 +120,12 @@ watch(() => identity.sessionId, () => { void refresh(); });
       </article>
       <article class="page-card">
         <span>总市值</span>
-        <strong>¥{{ fmt(portfolio?.total_value) }}</strong>
+        <strong>${{ fmt(portfolio?.total_value) }}</strong>
       </article>
       <article class="page-card">
-        <span>今日/总盈亏</span>
+        <span>总盈亏</span>
         <strong :class="Number(portfolio?.total_pnl || 0) >= 0 ? 'gain' : 'loss'">
-          {{ Number(portfolio?.total_pnl || 0) >= 0 ? '+' : '' }}¥{{ fmt(portfolio?.total_pnl) }}
+          {{ Number(portfolio?.total_pnl || 0) >= 0 ? '+' : '' }}${{ fmt(portfolio?.total_pnl) }}
         </strong>
       </article>
       <article class="page-card">
@@ -207,14 +205,14 @@ watch(() => identity.sessionId, () => { void refresh(); });
           <div class="section-head">
             <div>
               <p class="kicker">RESEARCH TIMELINE</p>
-              <h3>近期研究报告 · 研究时间线</h3>
+              <h3>近期研究报告 / 研究时间线</h3>
             </div>
             <button @click="router.push(`/timeline/${largestPosition?.ticker || 'AAPL'}`)">打开时间线</button>
           </div>
           <article v-for="item in timelineItems.slice(0, 8)" :key="item.id" class="timeline-row" @click="router.push(item.route)">
             <span>{{ item.type }}</span>
             <strong>{{ item.title }}</strong>
-            <p>{{ item.symbol }} · {{ fmtTime(item.time) }} · 置信度 {{ item.confidence == null ? '--' : Math.round(item.confidence * 100) + '%' }}</p>
+            <p>{{ item.symbol }} / {{ fmtTime(item.time) }} / 置信度 {{ item.confidence == null ? '--' : Math.round(item.confidence * 100) + '%' }}</p>
           </article>
           <p v-if="timelineItems.length === 0" class="empty">暂无报告或告警时间线。</p>
         </section>
@@ -234,6 +232,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
 
 <style scoped>
 .workbench-page {
+  width: 100%;
   display: grid;
   gap: 18px;
 }
@@ -250,7 +249,11 @@ watch(() => identity.sessionId, () => { void refresh(); });
 }
 
 .workbench-hero {
-  padding: 26px;
+  padding: 28px;
+  background:
+    linear-gradient(135deg, var(--fin-primary-soft), transparent 38%),
+    radial-gradient(circle at 88% 16%, var(--fin-accent-soft), transparent 30%),
+    var(--fin-card);
 }
 
 .workbench-hero button,
@@ -261,31 +264,37 @@ watch(() => identity.sessionId, () => { void refresh(); });
   border: 0;
   border-radius: 16px;
   padding: 11px 14px;
-  background: #17211d;
-  color: #d7ff72;
+  background: var(--fin-primary);
+  color: var(--fin-bg);
   font-weight: 900;
   cursor: pointer;
 }
 
 .kicker {
   margin: 0 0 6px;
-  color: #2f6f57;
+  color: var(--fin-primary);
+  font-family: var(--fin-mono);
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-h2, h3 {
+h2,
+h3 {
   margin: 0;
-  color: #17211d;
+  color: var(--fin-text);
 }
 
 .workbench-hero p,
 .task-row p,
 .timeline-row p,
 .fine-print,
-.empty {
-  color: #66746c;
+.empty,
+.summary-strip span,
+.watch-panel span,
+label {
+  color: var(--fin-muted);
 }
 
 .summary-strip {
@@ -296,6 +305,7 @@ h2, h3 {
 
 .strip-title {
   grid-column: 1 / -1;
+  margin: 0;
 }
 
 .summary-strip article,
@@ -307,24 +317,17 @@ h2, h3 {
   padding: 20px;
 }
 
-.summary-strip span {
-  color: #66746c;
-  font-size: 12px;
-}
-
 .summary-strip strong {
   display: block;
   margin-top: 6px;
-  font-size: 28px;
+  color: var(--fin-text);
+  font-size: 30px;
   letter-spacing: -0.05em;
 }
 
-.gain { color: #168a54; }
-.loss { color: #c44545; }
-
 .workbench-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
   gap: 18px;
 }
 
@@ -338,24 +341,33 @@ h2, h3 {
 .task-row,
 .timeline-row,
 .risk-row {
-  border: 1px solid rgba(23, 33, 29, 0.1);
+  border: 1px solid var(--fin-border);
   border-radius: 18px;
   padding: 14px;
   margin-top: 12px;
-  background: #fffaf0;
+  background: var(--fin-card-inset);
   cursor: pointer;
+}
+
+.task-row:hover,
+.timeline-row:hover,
+.risk-row:hover {
+  border-color: var(--fin-border-strong);
+  background: var(--fin-card-soft);
 }
 
 .task-row strong,
 .timeline-row strong,
 .risk-row strong {
-  color: #17211d;
+  color: var(--fin-text);
 }
 
-.task-row span {
+.task-row span,
+.section-head > span,
+.timeline-row span {
   border-radius: 999px;
-  background: #dff7df;
-  color: #174936;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary);
   padding: 4px 9px;
   font-size: 12px;
   font-weight: 900;
@@ -368,13 +380,14 @@ h2, h3 {
 }
 
 .risk-style button {
-  background: #efe9d8;
-  color: #17211d;
+  background: var(--fin-card-inset);
+  color: var(--fin-text);
+  border: 1px solid var(--fin-border);
 }
 
 .risk-style button.active {
-  background: #17211d;
-  color: #d7ff72;
+  background: var(--fin-primary);
+  color: var(--fin-bg);
 }
 
 .constraint-grid {
@@ -386,12 +399,11 @@ h2, h3 {
 label {
   display: grid;
   gap: 8px;
-  color: #405047;
   font-weight: 800;
 }
 
 input[type="range"] {
-  accent-color: #2f6f57;
+  accent-color: var(--fin-primary);
 }
 
 .check-row {
@@ -402,7 +414,7 @@ input[type="range"] {
 }
 
 .risk-row em {
-  color: #c44545;
+  color: var(--fin-danger);
   font-style: normal;
   font-weight: 900;
 }
@@ -413,12 +425,6 @@ input[type="range"] {
 
 .timeline-row span {
   display: inline-flex;
-  border-radius: 999px;
-  padding: 3px 8px;
-  background: #dff7df;
-  color: #174936;
-  font-size: 11px;
-  font-weight: 900;
   margin-bottom: 6px;
 }
 
@@ -427,25 +433,24 @@ input[type="range"] {
   display: block;
   text-align: left;
   margin-top: 10px;
-  background: #fffaf0;
-  color: #17211d;
-  border: 1px solid rgba(23, 33, 29, 0.1);
+  background: var(--fin-card-inset);
+  color: var(--fin-text);
+  border: 1px solid var(--fin-border);
 }
 
 .watch-panel span {
   display: block;
-  color: #66746c;
   font-weight: 500;
 }
 
 .error-banner {
   border-radius: 18px;
   padding: 12px 16px;
-  background: rgba(196, 69, 69, 0.12);
-  color: #ffb4b4;
+  background: var(--fin-danger-soft);
+  color: var(--fin-danger);
 }
 
-@media (max-width: 1060px) {
+@media (max-width: 1100px) {
   .workbench-grid {
     grid-template-columns: 1fr;
   }

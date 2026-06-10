@@ -29,13 +29,13 @@ const messages = ref<ChatStreamMessage[]>([
   {
     id: 'welcome',
     role: 'assistant',
-    content: '欢迎使用 FinSight 研究对话。你可以要求我生成复查摘要、解释风险变化、整理报告证据。所有输出仅用于研究，不构成投资建议。',
+    content: '欢迎使用 FinSight 研究对话。你可以要求本系统生成复查摘要、解释风险变化、整理报告证据。所有输出仅用于研究，不构成投资建议。',
     status: 'done',
   },
 ]);
 
 const canSend = computed(() => input.value.trim().length > 0 && !sending.value);
-const lastAssistant = computed(() => [...messages.value].reverse().find((m) => m.role === 'assistant' && m.id !== 'welcome'));
+const lastAssistant = computed(() => [...messages.value].reverse().find((message) => message.role === 'assistant' && message.id !== 'welcome'));
 
 async function scrollToBottom() {
   await nextTick();
@@ -48,7 +48,7 @@ function seedTrace(query: string) {
       id: `prepare-${Date.now()}`,
       type: 'thinking',
       stage: 'prepare_context',
-      title: '准备空间',
+      title: '准备上下文',
       message: `读取会话、标的 ${activeSymbol.value} 与输出模式 ${outputMode.value}`,
       status: 'done',
       timestamp: new Date().toISOString(),
@@ -57,7 +57,7 @@ function seedTrace(query: string) {
       id: `plan-${Date.now()}`,
       type: 'thinking',
       stage: 'plan_research',
-      title: '规划策略',
+      title: '规划研究路径',
       message: `用户问题已拆解为可复查研究任务，长度 ${query.length} 字。`,
       status: 'running',
       timestamp: new Date().toISOString(),
@@ -203,7 +203,7 @@ onMounted(() => {
                 <span v-if="item.status === 'streaming'" class="running">生成中</span>
                 <span v-if="item.status === 'error'" class="failed">失败</span>
               </div>
-              <pre class="bubble-body">{{ item.content || (item.status === 'streaming' ? '正在组织证据…' : '') }}</pre>
+              <pre class="bubble-body">{{ item.content || (item.status === 'streaming' ? '正在组织证据...' : '') }}</pre>
               <EvidencePanel
                 v-if="item.role === 'assistant' && item.status === 'done' && item.evidence"
                 v-bind="item.evidence"
@@ -222,11 +222,11 @@ onMounted(() => {
         <footer class="composer">
           <textarea
             v-model="input"
-            placeholder="问点什么，例如：AAPL 今天相比上次查看什么变了？"
+            placeholder="问点什么，例如：AAPL 今天相比上次查看有什么变化？"
             @keydown.ctrl.enter.prevent="send()"
             @keydown.meta.enter.prevent="send()"
           />
-          <button :disabled="!canSend" @click="send()">{{ sending ? '执行中…' : '发送研究任务' }}</button>
+          <button :disabled="!canSend" @click="send()">{{ sending ? '执行中...' : '发送研究任务' }}</button>
         </footer>
       </main>
 
@@ -244,6 +244,7 @@ onMounted(() => {
 
 <style scoped>
 .chat-page {
+  width: 100%;
   display: grid;
   gap: 18px;
 }
@@ -252,30 +253,38 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 22px;
-  padding: 24px;
+  padding: 26px;
+  background:
+    linear-gradient(135deg, var(--fin-primary-soft), transparent 38%),
+    var(--fin-card);
 }
 
 .kicker {
   margin: 0 0 6px;
-  color: #2f6f57;
+  color: var(--fin-primary);
+  font-family: var(--fin-mono);
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-h2, h3 {
+h2,
+h3 {
   margin: 0;
-  color: #17211d;
+  color: var(--fin-text);
 }
 
 .chat-hero p,
-.report-card p {
-  color: #66746c;
+.report-card p,
+label {
+  color: var(--fin-muted);
 }
 
 .controls {
   display: flex;
   align-items: end;
+  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -283,7 +292,6 @@ h2, h3 {
 label {
   display: grid;
   gap: 6px;
-  color: #66746c;
   font-size: 12px;
   font-weight: 800;
 }
@@ -291,11 +299,8 @@ label {
 input,
 select,
 textarea {
-  border: 1px solid rgba(23, 33, 29, 0.14);
   border-radius: 14px;
   padding: 11px 12px;
-  background: #fffaf0;
-  color: #17211d;
 }
 
 .controls button,
@@ -304,21 +309,21 @@ textarea {
   border: 0;
   border-radius: 14px;
   padding: 11px 14px;
-  background: #17211d;
-  color: #d7ff72;
+  background: var(--fin-primary);
+  color: var(--fin-bg);
   cursor: pointer;
   font-weight: 900;
 }
 
 .chat-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
   gap: 18px;
 }
 
 .chat-thread {
   padding: 18px;
-  min-height: 640px;
+  min-height: 660px;
   display: grid;
   grid-template-rows: 1fr auto auto auto;
   gap: 14px;
@@ -326,7 +331,7 @@ textarea {
 
 .thread-scroll {
   overflow-y: auto;
-  max-height: 58vh;
+  max-height: 62vh;
   display: grid;
   align-content: start;
   gap: 16px;
@@ -357,21 +362,22 @@ textarea {
   border-radius: 14px;
   display: grid;
   place-items: center;
-  background: #17211d;
-  color: #d7ff72;
+  background: var(--fin-primary);
+  color: var(--fin-bg);
+  font-family: var(--fin-mono);
   font-size: 11px;
   font-weight: 900;
 }
 
 .message-body {
-  border: 1px solid rgba(23, 33, 29, 0.1);
+  border: 1px solid var(--fin-border);
   border-radius: 20px;
   padding: 14px;
-  background: #fffaf0;
+  background: var(--fin-card-inset);
 }
 
 .message.user .message-body {
-  background: #dff7df;
+  background: var(--fin-primary-soft);
 }
 
 .message-meta {
@@ -379,24 +385,24 @@ textarea {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
-  color: #405047;
+  color: var(--fin-text-2);
 }
 
 pre {
   margin: 0;
   white-space: pre-wrap;
-  color: #17211d;
+  color: var(--fin-text);
   line-height: 1.75;
   font-family: inherit;
 }
 
 .running {
-  color: #168a54;
+  color: var(--fin-success);
 }
 
 .failed,
 .error-banner {
-  color: #c44545;
+  color: var(--fin-danger);
 }
 
 .suggestions {
@@ -406,9 +412,9 @@ pre {
 }
 
 .suggestions button {
-  background: #efe9d8;
-  color: #17211d;
-  border: 1px solid rgba(23, 33, 29, 0.1);
+  background: var(--fin-card-inset);
+  color: var(--fin-text);
+  border: 1px solid var(--fin-border);
 }
 
 .composer {
@@ -418,7 +424,7 @@ pre {
 }
 
 textarea {
-  min-height: 86px;
+  min-height: 92px;
   resize: vertical;
 }
 
@@ -435,14 +441,18 @@ textarea {
 .error-banner {
   border-radius: 14px;
   padding: 10px 12px;
-  background: rgba(196, 69, 69, 0.08);
+  background: var(--fin-danger-soft);
 }
 
-@media (max-width: 1040px) {
+@media (max-width: 1080px) {
   .chat-hero,
   .chat-grid {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .controls {
+    justify-content: flex-start;
   }
 }
 

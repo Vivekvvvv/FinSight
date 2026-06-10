@@ -3,12 +3,15 @@ import { computed, onMounted } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import AppShell from '@/components/AppShell.vue';
 import { useIdentityStore } from '@/stores/identity';
+import { useThemeStore } from '@/stores/theme';
 
 const route = useRoute();
 const identity = useIdentityStore();
+const theme = useThemeStore();
 const isLogin = computed(() => route.path === '/login');
 
 onMounted(() => {
+  theme.init();
   identity.bootstrap().catch(() => undefined);
 });
 </script>

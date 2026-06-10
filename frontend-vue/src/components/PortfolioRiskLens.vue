@@ -371,8 +371,8 @@ function formatCurrency(value: number) {
 
 <style scoped>
 .portfolio-risk-lens {
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   padding: 1rem;
 }
 </style>

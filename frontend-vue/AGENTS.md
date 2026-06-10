@@ -1,0 +1,33 @@
+# frontend-vue 架构说明
+
+当前前端主线是 Vue 3 + Pinia + Vue Router + ECharts，负责把 FastAPI 提供的研究、报告、时间线、风险和对话能力组织成一个金融终端式工作台。
+
+## 目录骨架
+
+```text
+frontend-vue/
+  public/
+    logo.svg              # FinSight 公共 Logo 与 favicon 来源
+  src/
+    api/                  # 后端 API 类型与调用封装
+    components/           # 可复用展示组件
+    pages/                # 路由页面
+    router/               # 页面路由
+    stores/               # 全局状态：身份、权益、主题
+    styles/               # 全局设计 token 与 Tailwind 入口
+```
+
+## 关键边界
+
+- `src/stores/theme.ts` 是主题单一真相源，负责 `dark | light | system`、本地持久化和根节点 `data-theme`。
+- `src/styles/tokens.css` 是视觉 token 层，页面和组件应优先使用 `--fin-*` 变量，不再硬编码大面积背景、文字、边框和状态色。
+- `src/components/AppShell.vue` 是应用框架层，只处理导航、顶栏、上下文抽屉和主内容承载，不写具体业务规则。
+- `src/components/ThemeToggle.vue` 只负责主题切换 UI，不复制主题解析逻辑。
+- `src/pages/*` 是业务编排层，调用 `apiClient` 获取数据，把结果传给组件展示。
+
+## 设计原则
+
+- 主题、身份、权益这类横切状态放在 `stores/`，避免页面间重复实现。
+- 页面应填满 `workspace-main` 的可用宽度；需要窄阅读宽度时只限制具体正文块，不限制整页根容器。
+- 交易相关文案只能输出研究复查建议，不输出买入、卖出或收益承诺。
+- 新增视觉组件必须先复用 `tokens.css`，除图表 palette 外不要散落孤立色值。

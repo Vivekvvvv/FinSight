@@ -195,8 +195,8 @@ function getQualityBadgeLabel(badge: string): string {
 <style scoped>
 .evidence-timeline {
   width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
 }
 
 .filter-bar {

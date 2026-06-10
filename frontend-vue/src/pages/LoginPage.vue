@@ -37,8 +37,8 @@ async function handleLogin() {
     });
     await identity.bootstrap();
     await router.push('/welcome');
-  } catch (e: any) {
-    errorMsg.value = e.response?.data?.detail || e.message || '登录失败，请检查后端服务或账号配置';
+  } catch (error: any) {
+    errorMsg.value = error.response?.data?.detail || error.message || '登录失败，请检查后端服务或账号配置';
   } finally {
     loading.value = false;
   }
@@ -63,6 +63,14 @@ function fillDemo(role: 'admin' | 'user') {
 <template>
   <main class="login-terminal">
     <section class="hero-panel">
+      <div class="brand-row">
+        <img src="/logo.svg" alt="FinSight" class="login-logo">
+        <div>
+          <strong>FinSight</strong>
+          <span>Research Terminal</span>
+        </div>
+      </div>
+
       <div class="terminal-line">
         <span>FINSIGHT TERMINAL</span>
         <span>SESSION / RESEARCH</span>
@@ -115,7 +123,7 @@ function fillDemo(role: 'admin' | 'user') {
           <p v-if="errorMsg" class="error-box">{{ errorMsg }}</p>
 
           <button class="primary-action" type="submit" :disabled="loading">
-            {{ loading ? '正在登录…' : '登录并进入工作台' }}
+            {{ loading ? '正在登录...' : '登录并进入工作台' }}
           </button>
         </form>
 
@@ -137,10 +145,10 @@ function fillDemo(role: 'admin' | 'user') {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(380px, 0.85fr);
   background:
-    linear-gradient(135deg, rgba(215, 255, 114, 0.18), transparent 32%),
-    radial-gradient(circle at 85% 20%, rgba(45, 212, 191, 0.18), transparent 28%),
-    #0e1412;
-  color: #eef7ee;
+    linear-gradient(135deg, var(--fin-primary-soft), transparent 32%),
+    radial-gradient(circle at 85% 20%, var(--fin-accent-soft), transparent 28%),
+    var(--fin-bg);
+  color: var(--fin-text);
 }
 
 .hero-panel,
@@ -152,8 +160,31 @@ function fillDemo(role: 'admin' | 'user') {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  gap: 34px;
   min-height: 100vh;
-  border-right: 1px solid rgba(214, 255, 226, 0.12);
+  border-right: 1px solid var(--fin-border);
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.login-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 20px;
+}
+
+.brand-row strong {
+  display: block;
+  font-size: 20px;
+}
+
+.brand-row span {
+  color: var(--fin-muted);
+  font-size: 12px;
 }
 
 .terminal-line,
@@ -167,42 +198,42 @@ function fillDemo(role: 'admin' | 'user') {
 .terminal-line span,
 .market-footer span,
 .capability-strip span {
-  border: 1px solid rgba(214, 255, 226, 0.18);
+  border: 1px solid var(--fin-border);
   border-radius: 999px;
   padding: 8px 12px;
-  color: rgba(238, 247, 238, 0.66);
-  background: rgba(238, 247, 238, 0.045);
+  color: var(--fin-text-2);
+  background: var(--fin-card-soft);
   font-size: 12px;
 }
 
 .eyebrow {
   margin: 0 0 12px;
-  color: #d7ff72;
+  color: var(--fin-primary);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   font-size: 11px;
 }
 
 .hero-copy {
-  max-width: 820px;
+  max-width: 860px;
 }
 
 .hero-copy h1 {
   margin: 0;
-  font-size: clamp(40px, 6vw, 76px);
+  font-size: clamp(40px, 6vw, 78px);
   line-height: 0.96;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.07em;
 }
 
 .subcopy,
 .auth-note,
 .risk-note {
-  color: rgba(238, 247, 238, 0.64);
+  color: var(--fin-muted);
   line-height: 1.8;
 }
 
 .subcopy {
-  max-width: 640px;
+  max-width: 680px;
   font-size: 17px;
 }
 
@@ -210,24 +241,23 @@ function fillDemo(role: 'admin' | 'user') {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  margin: 36px 0;
 }
 
 .stat-grid article {
-  border: 1px solid rgba(214, 255, 226, 0.12);
+  border: 1px solid var(--fin-border);
   border-radius: 24px;
   padding: 18px;
-  background: rgba(238, 247, 238, 0.05);
+  background: var(--fin-card-soft);
 }
 
 .stat-grid strong {
   display: block;
   font-size: 30px;
-  color: #d7ff72;
+  color: var(--fin-primary);
 }
 
 .stat-grid span {
-  color: rgba(238, 247, 238, 0.62);
+  color: var(--fin-muted);
 }
 
 .auth-panel {
@@ -237,26 +267,17 @@ function fillDemo(role: 'admin' | 'user') {
 
 .auth-card {
   width: min(100%, 460px);
-  border: 1px solid rgba(214, 255, 226, 0.14);
+  border: 1px solid var(--fin-border);
   border-radius: 32px;
   padding: 32px;
-  background: rgba(247, 243, 232, 0.94);
-  color: #17211d;
-  box-shadow: 0 30px 120px rgba(0, 0, 0, 0.36);
-}
-
-.auth-card .eyebrow {
-  color: #2f6f57;
+  background: var(--fin-card);
+  color: var(--fin-text);
+  box-shadow: var(--fin-shadow);
 }
 
 .auth-card h2 {
   margin: 0 0 8px;
   font-size: 30px;
-}
-
-.auth-note,
-.risk-note {
-  color: #66746c;
 }
 
 form {
@@ -270,30 +291,27 @@ label span {
   margin-bottom: 8px;
   font-size: 13px;
   font-weight: 800;
-  color: #405047;
+  color: var(--fin-text-2);
 }
 
 input {
   width: 100%;
-  border: 1px solid rgba(23, 33, 29, 0.14);
   border-radius: 16px;
   padding: 14px 16px;
-  background: #fffaf0;
-  color: #17211d;
 }
 
 input:focus {
-  outline: 2px solid rgba(47, 111, 87, 0.22);
-  border-color: #2f6f57;
+  outline: 2px solid var(--fin-primary-soft);
+  border-color: var(--fin-border-strong);
 }
 
 .error-box {
   margin: 0;
-  border: 1px solid rgba(196, 69, 69, 0.22);
+  border: 1px solid var(--fin-danger-soft);
   border-radius: 14px;
   padding: 12px;
-  color: #9f2f2f;
-  background: rgba(196, 69, 69, 0.08);
+  color: var(--fin-danger);
+  background: var(--fin-danger-soft);
 }
 
 .primary-action,
@@ -306,8 +324,8 @@ input:focus {
 }
 
 .primary-action {
-  background: #17211d;
-  color: #d7ff72;
+  background: var(--fin-primary);
+  color: var(--fin-bg);
   font-weight: 900;
 }
 
@@ -319,15 +337,15 @@ input:focus {
 }
 
 .demo-actions button {
-  border: 1px solid rgba(23, 33, 29, 0.12);
-  background: #efe9d8;
-  color: #17211d;
+  border: 1px solid var(--fin-border);
+  background: var(--fin-card-inset);
+  color: var(--fin-text);
 }
 
 .demo-actions .ghost-action {
   grid-column: 1 / -1;
-  background: #dff7df;
-  color: #174936;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary);
   font-weight: 900;
 }
 
@@ -339,7 +357,6 @@ input:focus {
   .hero-panel {
     min-height: auto;
     border-right: 0;
-    gap: 34px;
   }
 
   .stat-grid {

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import IdentityPanel from '@/components/IdentityPanel.vue';
+import ThemeToggle from '@/components/ThemeToggle.vue';
 import { useIdentityStore } from '@/stores/identity';
 import type { PortfolioSummary, WatchlistItem } from '@/api/types';
 
@@ -10,6 +11,7 @@ const route = useRoute();
 const router = useRouter();
 const identity = useIdentityStore();
 const sidebarOpen = ref(false);
+const contextOpen = ref(false);
 const portfolio = ref<PortfolioSummary | null>(null);
 const watchlist = ref<WatchlistItem[]>([]);
 
@@ -37,6 +39,8 @@ const routeTitle = computed(() => {
   if (route.path.startsWith('/chat')) return 'Research Copilot';
   if (route.path.startsWith('/workbench')) return 'Daily Research Lab';
   if (route.path.startsWith('/reports')) return 'Report Archive';
+  if (route.path.startsWith('/timeline')) return 'Evidence Timeline';
+  if (route.path.startsWith('/notes')) return 'Research Notebook';
   return 'FinSight AI';
 });
 
@@ -65,7 +69,7 @@ onMounted(() => {
   <div class="app-shell">
     <aside class="side-rail" :class="{ open: sidebarOpen }">
       <button class="brand-lockup" @click="router.push('/welcome')">
-        <span class="brand-mark">FS</span>
+        <img src="/logo.svg" alt="FinSight" class="brand-logo">
         <span>
           <strong>FinSight</strong>
           <small>Research Terminal</small>
@@ -88,7 +92,7 @@ onMounted(() => {
 
       <div class="rail-card">
         <p class="rail-kicker">PORTFOLIO</p>
-        <strong>{{ totalValue ? `¥${totalValue.toLocaleString('zh-CN', { maximumFractionDigits: 0 })}` : '暂无持仓' }}</strong>
+        <strong>{{ totalValue ? `$${totalValue.toLocaleString('zh-CN', { maximumFractionDigits: 0 })}` : '暂无持仓' }}</strong>
         <span :class="totalPnl >= 0 ? 'pos' : 'neg'">
           {{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toLocaleString('zh-CN', { maximumFractionDigits: 0 }) }}
         </span>
@@ -99,8 +103,8 @@ onMounted(() => {
 
     <div class="workspace">
       <header class="terminal-bar">
-        <button class="mobile-menu" @click="sidebarOpen = !sidebarOpen">☰</button>
-        <div>
+        <button class="mobile-menu" type="button" @click="sidebarOpen = !sidebarOpen">菜单</button>
+        <div class="route-title">
           <p class="terminal-kicker">FINSIGHT TERMINAL / {{ routeTitle }}</p>
           <h1>{{ routeTitle }}</h1>
         </div>
@@ -109,6 +113,7 @@ onMounted(() => {
             v-for="item in marketStrip"
             :key="item.symbol"
             class="ticker-pill"
+            type="button"
             @click="router.push(`/dashboard/${item.symbol}`)"
           >
             <strong>{{ item.symbol }}</strong>
@@ -116,6 +121,8 @@ onMounted(() => {
             <em :class="item.change.startsWith('+') ? 'pos' : 'neg'">{{ item.change }}</em>
           </button>
         </div>
+        <ThemeToggle />
+        <button class="context-button" type="button" @click="contextOpen = true">上下文</button>
       </header>
 
       <main class="workspace-main">
@@ -123,19 +130,28 @@ onMounted(() => {
       </main>
     </div>
 
-    <aside class="context-rail">
+    <aside v-if="contextOpen" class="context-drawer open" aria-label="研究上下文">
+      <div class="drawer-head">
+        <div>
+          <p class="rail-kicker">CONTEXT</p>
+          <strong>研究上下文</strong>
+        </div>
+        <button type="button" @click="contextOpen = false">关闭</button>
+      </div>
+
       <section class="context-card">
         <p class="rail-kicker">WATCHLIST</p>
         <button
           v-for="item in watchlist.slice(0, 6)"
           :key="item.ticker"
           class="watch-chip"
+          type="button"
           @click="router.push(`/dashboard/${item.ticker}`)"
         >
-          <strong>{{ item.name || '重点标的' }}</strong>
-          <span>{{ item.name || item.watch_reason || '研究关注' }}</span>
+          <strong>{{ item.ticker }}</strong>
+          <span>{{ item.watch_reason || item.name || '研究关注' }}</span>
         </button>
-        <button v-if="watchlist.length === 0" class="empty-action" @click="router.push('/watchlist')">
+        <button v-if="watchlist.length === 0" class="empty-action" type="button" @click="router.push('/watchlist')">
           添加重点标的
         </button>
       </section>
@@ -148,6 +164,7 @@ onMounted(() => {
     </aside>
 
     <div v-if="sidebarOpen" class="mobile-mask" @click="closeSidebar" />
+    <div v-if="contextOpen" class="drawer-mask" @click="contextOpen = false" />
   </div>
 </template>
 
@@ -155,36 +172,23 @@ onMounted(() => {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 280px;
+  grid-template-columns: 260px minmax(0, 1fr);
   background:
-    radial-gradient(circle at 10% 0%, rgba(16, 185, 129, 0.16), transparent 32%),
-    radial-gradient(circle at 90% 20%, rgba(245, 158, 11, 0.12), transparent 30%),
-    #0f1412;
-  color: #eef7ee;
-}
-
-.side-rail,
-.context-rail {
-  min-height: 100vh;
-  border-color: rgba(214, 255, 226, 0.12);
-  background: rgba(8, 14, 12, 0.78);
-  backdrop-filter: blur(24px);
+    radial-gradient(circle at 8% 0%, var(--fin-accent-soft), transparent 32%),
+    radial-gradient(circle at 96% 10%, var(--fin-primary-soft), transparent 30%),
+    var(--fin-bg);
+  color: var(--fin-text);
 }
 
 .side-rail {
-  border-right: 1px solid rgba(214, 255, 226, 0.12);
+  min-height: 100vh;
+  border-right: 1px solid var(--fin-border);
   padding: 22px 18px;
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-
-.context-rail {
-  border-left: 1px solid rgba(214, 255, 226, 0.12);
-  padding: 84px 18px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  background: color-mix(in srgb, var(--fin-bg) 84%, transparent);
+  backdrop-filter: blur(24px);
 }
 
 .brand-lockup {
@@ -199,21 +203,16 @@ onMounted(() => {
   text-align: left;
 }
 
-.brand-mark {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(214, 255, 226, 0.28);
-  border-radius: 16px;
-  background: linear-gradient(135deg, #d7ff72, #2dd4bf);
-  color: #0f1412;
-  font-weight: 900;
-  letter-spacing: -0.06em;
+.brand-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 17px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 
 .brand-lockup strong,
-.context-card strong {
+.context-card strong,
+.drawer-head strong {
   display: block;
   font-size: 16px;
 }
@@ -221,7 +220,7 @@ onMounted(() => {
 .brand-lockup small,
 .muted {
   display: block;
-  color: rgba(238, 247, 238, 0.58);
+  color: var(--fin-muted);
   font-size: 12px;
 }
 
@@ -238,17 +237,18 @@ onMounted(() => {
   gap: 10px;
   padding: 11px 12px;
   border-radius: 16px;
-  color: rgba(238, 247, 238, 0.68);
+  color: var(--fin-text-2);
   border: 1px solid transparent;
 }
 
 .nav-link span,
 .rail-kicker,
 .terminal-kicker {
+  font-family: var(--fin-mono);
   font-size: 10px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(215, 255, 114, 0.72);
+  color: var(--fin-primary);
 }
 
 .nav-link strong {
@@ -257,17 +257,17 @@ onMounted(() => {
 
 .nav-link:hover,
 .nav-link.active {
-  color: #f8fff8;
-  border-color: rgba(215, 255, 114, 0.28);
-  background: rgba(215, 255, 114, 0.08);
+  color: var(--fin-text);
+  border-color: var(--fin-border-strong);
+  background: var(--fin-primary-soft);
 }
 
 .rail-card,
 .context-card {
-  border: 1px solid rgba(214, 255, 226, 0.12);
+  border: 1px solid var(--fin-border);
   border-radius: 22px;
   padding: 16px;
-  background: rgba(238, 247, 238, 0.055);
+  background: var(--fin-card-soft);
 }
 
 .rail-card {
@@ -279,9 +279,6 @@ onMounted(() => {
   font-size: 22px;
 }
 
-.pos { color: #8cffb6; }
-.neg { color: #ff8f8f; }
-
 .identity-block {
   border-radius: 18px;
   overflow: hidden;
@@ -289,26 +286,31 @@ onMounted(() => {
 
 .workspace {
   min-width: 0;
+  width: 100%;
 }
 
 .terminal-bar {
-  height: 72px;
+  min-height: 72px;
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 0 28px;
-  border-bottom: 1px solid rgba(214, 255, 226, 0.12);
+  gap: 16px;
+  padding: 0 clamp(20px, 2.2vw, 34px);
+  border-bottom: 1px solid var(--fin-border);
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(15, 20, 18, 0.86);
-  backdrop-filter: blur(18px);
+  background: color-mix(in srgb, var(--fin-bg) 86%, transparent);
+  backdrop-filter: blur(20px);
+}
+
+.route-title {
+  min-width: 190px;
 }
 
 .terminal-bar h1 {
   margin: 0;
   font-size: 18px;
-  color: #f8fff8;
+  color: var(--fin-text);
 }
 
 .terminal-kicker {
@@ -320,20 +322,23 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  max-width: 56vw;
+  max-width: 42vw;
 }
 
 .ticker-pill,
 .watch-chip,
-.empty-action {
-  border: 1px solid rgba(214, 255, 226, 0.12);
-  border-radius: 999px;
-  background: rgba(238, 247, 238, 0.055);
-  color: #eef7ee;
+.empty-action,
+.context-button,
+.mobile-menu,
+.drawer-head button {
+  border: 1px solid var(--fin-border);
+  background: var(--fin-card-soft);
+  color: var(--fin-text);
   cursor: pointer;
 }
 
 .ticker-pill {
+  border-radius: 999px;
   padding: 8px 12px;
   display: flex;
   gap: 8px;
@@ -348,7 +353,54 @@ onMounted(() => {
 }
 
 .workspace-main {
-  padding: 28px;
+  width: 100%;
+  max-width: none;
+  padding: clamp(20px, 2.4vw, 36px);
+}
+
+.context-button,
+.mobile-menu,
+.drawer-head button {
+  border-radius: 14px;
+  padding: 9px 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.context-drawer {
+  position: fixed;
+  z-index: 50;
+  inset: 0 0 0 auto;
+  width: min(380px, calc(100vw - 36px));
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-left: 1px solid var(--fin-border);
+  background: var(--fin-card);
+  box-shadow: -28px 0 90px rgba(0, 0, 0, 0.28);
+  transform: translateX(104%);
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.22s var(--fin-ease);
+}
+
+.context-drawer:not(.open) {
+  display: none;
+}
+
+.context-drawer.open {
+  display: flex;
+  transform: translateX(0);
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .watch-chip {
@@ -362,7 +414,7 @@ onMounted(() => {
 .watch-chip span {
   display: block;
   margin-top: 2px;
-  color: rgba(238, 247, 238, 0.56);
+  color: var(--fin-muted);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -373,19 +425,24 @@ onMounted(() => {
   width: 100%;
   padding: 12px;
   margin-top: 10px;
+  border-radius: 16px;
 }
 
 .mobile-menu,
-.mobile-mask {
+.mobile-mask,
+.drawer-mask {
   display: none;
 }
 
-@media (max-width: 1160px) {
-  .app-shell {
-    grid-template-columns: 240px minmax(0, 1fr);
-  }
+.drawer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: var(--fin-overlay);
+}
 
-  .context-rail {
+@media (max-width: 1120px) {
+  .ticker-tape {
     display: none;
   }
 }
@@ -399,9 +456,9 @@ onMounted(() => {
     position: fixed;
     inset: 0 auto 0 0;
     width: 280px;
-    z-index: 40;
+    z-index: 60;
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
+    transition: transform 0.2s var(--fin-ease);
   }
 
   .side-rail.open {
@@ -410,27 +467,21 @@ onMounted(() => {
 
   .mobile-menu {
     display: inline-flex;
-    border: 1px solid rgba(214, 255, 226, 0.2);
-    border-radius: 12px;
-    background: rgba(238, 247, 238, 0.08);
-    color: #eef7ee;
-    padding: 8px 12px;
-  }
-
-  .ticker-tape {
-    display: none;
   }
 
   .workspace-main {
     padding: 18px;
   }
 
-  .mobile-mask {
+  .mobile-mask,
+  .drawer-mask {
     display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    background: rgba(0, 0, 0, 0.56);
+  }
+}
+
+@media (min-width: 821px) {
+  .drawer-mask {
+    display: block;
   }
 }
 </style>

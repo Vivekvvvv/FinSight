@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
-import type { TodayWorkspaceResponse, WhatChangedItem, ResearchQualitySummary, ResearchQualityIssue } from '@/api/types';
+import type { ResearchQualityIssue, ResearchQualitySummary, TodayWorkspaceResponse, WhatChangedItem } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
 import ResearchQualityOverview from '@/components/ResearchQualityOverview.vue';
@@ -27,26 +27,38 @@ const qualityIssues = ref<ResearchQualityIssue[]>([]);
 const loading = ref(false);
 const errorMsg = ref<string | null>(null);
 
-const todayStr = computed(() => {
-  return new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-});
+const todayStr = computed(() => new Date().toLocaleDateString('zh-CN', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+  weekday: 'long',
+}));
 
-function fmt(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return '—';
-  return v.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+const userName = computed(() => identity.email ? identity.email.split('@')[0] : '研究员');
+
+function fmt(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '--';
+  return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 }
 
-function fmtDate(v?: string | null): string {
-  if (!v) return '—';
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? v : d.toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function fmtDate(value?: string | null): string {
+  if (!value) return '--';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-const SEVERITY_ICONS: Record<string, string> = {
-  critical: '🔴',
-  high: '🟠',
-  medium: '🟡',
-  low: '🟢',
+function riskPercent(position: { unrealized_pnl?: number | null; cost_basis?: number | null }): string {
+  if (!position.unrealized_pnl || !position.cost_basis) return '--';
+  return `${((position.unrealized_pnl / position.cost_basis) * 100).toFixed(2)}%`;
+}
+
+const severityIcons: Record<string, string> = {
+  critical: 'CR',
+  high: 'HI',
+  medium: 'MD',
+  low: 'LO',
 };
 
 async function refresh(): Promise<void> {
@@ -55,22 +67,15 @@ async function refresh(): Promise<void> {
   try {
     const [workspaceData, changesData, qualityData] = await Promise.all([
       apiClient.getTodayWorkspace(identity.sessionId, identity.userId),
-      apiClient.getWhatChanged({
-        sessionId: identity.sessionId,
-        userId: identity.userId,
-        limit: 5,
-      }),
-      apiClient.getResearchQuality({
-        sessionId: identity.sessionId,
-        userId: identity.userId,
-      }),
+      apiClient.getWhatChanged({ sessionId: identity.sessionId, userId: identity.userId, limit: 5 }),
+      apiClient.getResearchQuality({ sessionId: identity.sessionId, userId: identity.userId }),
     ]);
     workspace.value = workspaceData;
     whatChanged.value = changesData.items;
     qualitySummary.value = qualityData.summary;
     qualityIssues.value = qualityData.top_issues;
-  } catch (e) {
-    errorMsg.value = e instanceof Error ? e.message : String(e);
+  } catch (error) {
+    errorMsg.value = error instanceof Error ? error.message : String(error);
   } finally {
     loading.value = false;
   }
@@ -82,36 +87,35 @@ watch(() => identity.sessionId, () => { void refresh(); });
 
 <template>
   <section class="page">
-    <!-- Today 头部 -->
-    <div class="today-hero">
-      <div class="today-left">
-        <div class="today-greeting">
-          {{ identity.email ? `你好，${identity.email.split('@')[0]}` : '欢迎回来' }}
-        </div>
-        <div class="today-date">{{ todayStr }}</div>
-        <div v-if="workspace" class="today-summary">{{ workspace.summary }}</div>
+    <div class="today-hero page-card">
+      <div class="hero-copy">
+        <p class="kicker">TODAY COMMAND CENTER</p>
+        <h2>你好，{{ userName }}</h2>
+        <p class="today-date">{{ todayStr }}</p>
+        <p v-if="workspace" class="today-summary">{{ workspace.summary }}</p>
       </div>
-      <button class="btn-refresh" :disabled="loading" @click="refresh">
-        <span :class="{ spinning: loading }">↻</span>
-        {{ loading ? '加载中…' : '刷新数据' }}
-      </button>
+      <div class="hero-actions">
+        <span class="live-dot">LIVE</span>
+        <button class="btn-refresh" :disabled="loading" @click="refresh">
+          {{ loading ? '加载中...' : '刷新数据' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="errorMsg" class="error-banner">{{ errorMsg }}</div>
 
-    <!-- 加载态 -->
     <div v-if="loading && !workspace" class="loading-state">
-      <div class="spinner">↻</div>
-      <div>加载今日工作台...</div>
+      <div class="spinner"></div>
+      <div>正在加载今日工作台...</div>
     </div>
 
-    <!-- 主内容 -->
     <template v-else-if="workspace">
-
-      <!-- What Changed 模块 -->
       <div v-if="whatChanged.length > 0" class="panel what-changed-panel" data-testid="what-changed-panel">
         <div class="panel-header">
-          <h2 class="panel-title">🔍 今日重要变化</h2>
+          <div>
+            <p class="kicker">WHAT CHANGED</p>
+            <h2 class="panel-title">今日重要变化</h2>
+          </div>
           <span class="panel-subtitle">最需要关注的 {{ whatChanged.length }} 个变化</span>
         </div>
         <div class="what-changed-grid">
@@ -119,23 +123,24 @@ watch(() => identity.sessionId, () => { void refresh(); });
         </div>
       </div>
 
-      <!-- Research Quality 模块 (Phase 4.5) -->
       <div v-if="qualitySummary.total_reports > 0" class="panel quality-panel">
         <div class="panel-header">
-          <h2 class="panel-title">📊 研究库健康度</h2>
-          <button class="panel-link" @click="router.push('/reports')">查看全部 →</button>
+          <div>
+            <p class="kicker">RESEARCH QUALITY</p>
+            <h2 class="panel-title">研究库健康度</h2>
+          </div>
+          <button class="panel-link" @click="router.push('/reports')">查看全部</button>
         </div>
-        <ResearchQualityOverview
-          :summary="qualitySummary"
-          :top-issues="qualityIssues.slice(0, 3)"
-        />
+        <ResearchQualityOverview :summary="qualitySummary" :top-issues="qualityIssues.slice(0, 3)" />
       </div>
 
-      <!-- 持仓风险快照 -->
-      <div class="panel">
+      <div class="panel portfolio-panel">
         <div class="panel-header">
-          <h2 class="panel-title">💼 持仓快照</h2>
-          <button class="panel-link" @click="router.push('/portfolio')">管理持仓 →</button>
+          <div>
+            <p class="kicker">PORTFOLIO SNAPSHOT</p>
+            <h2 class="panel-title">持仓快照</h2>
+          </div>
+          <button class="panel-link" @click="router.push('/portfolio')">管理持仓</button>
         </div>
 
         <template v-if="workspace.portfolio_snapshot.position_count === 0">
@@ -153,98 +158,104 @@ watch(() => identity.sessionId, () => { void refresh(); });
             </div>
             <div class="sum-card">
               <div class="sum-label">总成本</div>
-              <div class="sum-val">¥{{ fmt(workspace.portfolio_snapshot.total_cost) }}</div>
+              <div class="sum-val">${{ fmt(workspace.portfolio_snapshot.total_cost) }}</div>
             </div>
-            <div class="sum-card" :class="(workspace.portfolio_snapshot.total_pnl || 0) > 0 ? 'gain' : (workspace.portfolio_snapshot.total_pnl || 0) < 0 ? 'loss' : ''">
+            <div class="sum-card" :class="(workspace.portfolio_snapshot.total_pnl || 0) >= 0 ? 'gain' : 'loss'">
               <div class="sum-label">总盈亏</div>
               <div class="sum-val">
-                {{ workspace.portfolio_snapshot.total_pnl == null ? '—' : (workspace.portfolio_snapshot.total_pnl >= 0 ? '+' : '') + '¥' + fmt(workspace.portfolio_snapshot.total_pnl) }}
+                {{ workspace.portfolio_snapshot.total_pnl == null ? '--' : (workspace.portfolio_snapshot.total_pnl >= 0 ? '+' : '') + '$' + fmt(workspace.portfolio_snapshot.total_pnl) }}
               </div>
             </div>
           </div>
 
-          <!-- 风险仓位 -->
           <div v-if="workspace.portfolio_snapshot.risk_positions.length > 0" class="risk-section">
-            <div class="risk-title">⚠ 持仓风险提示（亏损 &gt;5%）</div>
-            <div v-for="p in workspace.portfolio_snapshot.risk_positions.slice(0, 3)" :key="p.ticker" class="risk-item" @click="router.push(`/dashboard/${p.ticker}`)">
-              <span class="risk-ticker">{{ p.ticker }}</span>
-              <span v-if="p.name" class="risk-name">{{ p.name }}</span>
-              <span class="risk-pct">
-                {{ p.avg_cost && p.unrealized_pnl && p.cost_basis ? (((p.unrealized_pnl) / p.cost_basis) * 100).toFixed(2) + '%' : '—' }}
-              </span>
+            <div class="risk-title">持仓风险提示：亏损超过 5% 的标的</div>
+            <div
+              v-for="position in workspace.portfolio_snapshot.risk_positions.slice(0, 3)"
+              :key="position.ticker"
+              class="risk-item"
+              @click="router.push(`/dashboard/${position.ticker}`)"
+            >
+              <span class="risk-ticker">{{ position.ticker }}</span>
+              <span v-if="position.name" class="risk-name">{{ position.name }}</span>
+              <span class="risk-pct">{{ riskPercent(position) }}</span>
             </div>
           </div>
         </template>
       </div>
 
-      <!-- 网格布局：自选 + 提醒 + 待复查 -->
       <div class="main-grid">
-
-        <!-- 自选动态 -->
         <div class="panel">
           <div class="panel-header">
-            <h2 class="panel-title">⭐ 自选清单</h2>
-            <button class="panel-link" @click="router.push('/watchlist')">管理 →</button>
+            <h2 class="panel-title">自选清单</h2>
+            <button class="panel-link" @click="router.push('/watchlist')">管理</button>
           </div>
           <div v-if="workspace.watchlist_movers.length === 0" class="panel-empty">
             还没有自选标的
             <button class="link-btn" @click="router.push('/watchlist')">去添加</button>
           </div>
           <div v-else class="simple-list">
-            <div v-for="item in workspace.watchlist_movers.slice(0, 5)" :key="item.ticker" class="simple-item" @click="router.push(`/dashboard/${item.ticker}`)">
+            <div
+              v-for="item in workspace.watchlist_movers.slice(0, 5)"
+              :key="item.ticker"
+              class="simple-item"
+              @click="router.push(`/dashboard/${item.ticker}`)"
+            >
               <span class="si-ticker">{{ item.ticker }}</span>
               <span v-if="item.name" class="si-name">{{ item.name }}</span>
-              <span class="si-arrow">→</span>
+              <span class="si-arrow">打开</span>
             </div>
           </div>
         </div>
 
-        <!-- 最新提醒 -->
         <div class="panel">
           <div class="panel-header">
-            <h2 class="panel-title">🔔 最新提醒</h2>
-            <button class="panel-link" @click="router.push('/alerts')">全部 →</button>
+            <h2 class="panel-title">最新提醒</h2>
+            <button class="panel-link" @click="router.push('/alerts')">全部</button>
           </div>
           <div v-if="workspace.alert_feed.length === 0" class="panel-empty">暂无触发提醒</div>
-          <div v-for="ev in workspace.alert_feed.slice(0, 4)" :key="ev.id" class="alert-item">
-            <span class="alert-ticker">{{ ev.ticker }}</span>
+          <div v-for="event in workspace.alert_feed.slice(0, 4)" :key="event.id" class="alert-item">
+            <span class="alert-ticker">{{ event.ticker }}</span>
             <div class="alert-body">
-              <div class="alert-title">{{ ev.title }}</div>
-              <div class="alert-time">{{ fmtDate(ev.triggered_at) }}</div>
+              <div class="alert-title">{{ event.title }}</div>
+              <div class="alert-time">{{ fmtDate(event.triggered_at) }}</div>
             </div>
-            <span class="alert-sev" :class="`sev-${ev.severity}`">{{ ev.severity }}</span>
+            <span class="alert-sev" :class="`sev-${event.severity}`">{{ event.severity }}</span>
           </div>
         </div>
 
-        <!-- 待复查报告 -->
         <div class="panel">
           <div class="panel-header">
-            <h2 class="panel-title">📋 待复查报告</h2>
-            <button class="panel-link" @click="router.push('/reports')">报告库 →</button>
+            <h2 class="panel-title">待复查报告</h2>
+            <button class="panel-link" @click="router.push('/reports')">报告库</button>
           </div>
-          <div v-if="workspace.reports_to_review.length === 0" class="panel-empty">
-            暂无需要复查的报告
-          </div>
+          <div v-if="workspace.reports_to_review.length === 0" class="panel-empty">暂无需要复查的报告</div>
           <div v-else class="report-list">
-            <div v-for="r in workspace.reports_to_review.slice(0, 4)" :key="r.report_id" class="report-item" @click="router.push(`/reports?highlight=${r.report_id}`)">
-              <span class="rep-ticker">{{ r.ticker || '—' }}</span>
+            <div
+              v-for="report in workspace.reports_to_review.slice(0, 4)"
+              :key="report.report_id"
+              class="report-item"
+              @click="router.push(`/reports?highlight=${report.report_id}`)"
+            >
+              <span class="rep-ticker">{{ report.ticker || '--' }}</span>
               <div class="rep-body">
-                <div class="rep-title">{{ r.title || r.report_id.slice(0, 20) + '...' }}</div>
+                <div class="rep-title">{{ report.title || `${report.report_id.slice(0, 20)}...` }}</div>
                 <div class="rep-meta">
-                  <span v-if="r.as_of">{{ fmtDate(r.as_of) }}</span>
-                  <span v-if="r.review_status" class="rep-status">{{ r.review_status }}</span>
+                  <span v-if="report.as_of">{{ fmtDate(report.as_of) }}</span>
+                  <span v-if="report.review_status" class="rep-status">{{ report.review_status }}</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
 
-      </div><!-- /main-grid -->
-
-      <!-- 下一步操作建议 -->
       <div class="panel full-width">
         <div class="panel-header">
-          <h2 class="panel-title">✨ 建议操作</h2>
+          <div>
+            <p class="kicker">NEXT ACTIONS</p>
+            <h2 class="panel-title">建议操作</h2>
+          </div>
           <span class="panel-count">{{ workspace.next_actions.length }}</span>
         </div>
         <div v-if="workspace.next_actions.length === 0" class="panel-empty">暂无操作建议</div>
@@ -256,195 +267,397 @@ watch(() => identity.sessionId, () => { void refresh(); });
             :class="`sev-${action.severity}`"
             @click="router.push(action.target_route)"
           >
-            <div class="ac-icon">{{ SEVERITY_ICONS[action.severity] || '💡' }}</div>
+            <div class="ac-icon">{{ severityIcons[action.severity] || 'GO' }}</div>
             <div class="ac-body">
               <div class="ac-title">{{ action.title }}</div>
               <div class="ac-reason">{{ action.reason }}</div>
             </div>
-            <span class="ac-arrow">→</span>
+            <span class="ac-arrow">复查</span>
           </div>
         </div>
       </div>
-
     </template>
-
   </section>
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 16px; max-width: 1200px; }
+.page {
+  width: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
 
-/* Today 头部 */
 .today-hero {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 28px 32px;
-  background: linear-gradient(135deg, #cc785c 0%, #d88a6f 100%);
-  border-radius: 20px;
-  color: #fff;
+  gap: 24px;
+  padding: clamp(26px, 3vw, 42px);
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, var(--fin-primary-soft), transparent 40%),
+    radial-gradient(circle at 92% 10%, var(--fin-accent-soft), transparent 32%),
+    var(--fin-card);
 }
 
-.today-greeting { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
-.today-date { font-size: 14px; color: rgba(255,255,255,0.75); margin-bottom: 8px; }
-.today-summary { font-size: 14px; color: rgba(255,255,255,0.9); font-weight: 500; max-width: 600px; line-height: 1.5; }
+.kicker {
+  margin: 0 0 8px;
+  color: var(--fin-primary);
+  font-family: var(--fin-mono);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
 
-.btn-refresh {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 22px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.15);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
+.today-hero h2 {
+  margin: 0;
+  color: var(--fin-text);
+  font-size: clamp(34px, 4.4vw, 64px);
+  line-height: 0.96;
+  letter-spacing: -0.06em;
+}
+
+.today-date {
+  margin: 12px 0 0;
+  color: var(--fin-text-2);
+}
+
+.today-summary {
+  max-width: 900px;
+  margin: 12px 0 0;
+  color: var(--fin-text);
+  font-size: 17px;
+}
+
+.hero-actions {
+  display: grid;
+  justify-items: end;
+  gap: 12px;
   flex-shrink: 0;
 }
-.btn-refresh:hover:not(:disabled) { background: rgba(255,255,255,0.25); }
-.btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
-.spinning { display: inline-block; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
-.error-banner { padding: 14px 18px; background: #fff1f0; border: 1.5px solid #ffccc7; border-radius: 12px; color: #cf1322; font-size: 14px; }
+.live-dot {
+  border: 1px solid var(--fin-border-strong);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--fin-primary);
+  font-family: var(--fin-mono);
+  font-size: 11px;
+  font-weight: 900;
+  background: var(--fin-primary-soft);
+}
+
+.btn-refresh,
+.panel-link,
+.link-btn {
+  border: 0;
+  border-radius: 14px;
+  background: var(--fin-primary);
+  color: var(--fin-bg);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.btn-refresh {
+  padding: 12px 22px;
+}
+
+.panel-link,
+.link-btn {
+  padding: 8px 12px;
+}
+
+.error-banner,
+.loading-state,
+.panel {
+  border: 1px solid var(--fin-border);
+  border-radius: var(--fin-radius-lg);
+  background: var(--fin-card);
+}
+
+.error-banner {
+  padding: 14px 18px;
+  color: var(--fin-danger);
+  background: var(--fin-danger-soft);
+}
 
 .loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   gap: 12px;
-  padding: 60px 20px;
+  min-height: 260px;
   color: var(--fin-muted);
-  font-size: 14px;
 }
-.spinner { font-size: 32px; animation: spin 1s linear infinite; }
 
-/* 面板 */
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--fin-border);
+  border-top-color: var(--fin-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .panel {
-  background: var(--fin-card);
-  border: 1.5px solid var(--fin-border);
-  border-radius: 16px;
-  padding: 20px 22px;
+  padding: 22px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.08);
 }
-.panel.full-width { grid-column: 1 / -1; }
 
-/* What Changed 面板 */
-.what-changed-panel { margin-bottom: 20px; }
-.panel-subtitle { font-size: 13px; color: var(--fin-muted); font-weight: 500; }
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.panel-title {
+  margin: 0;
+  color: var(--fin-text);
+  font-size: 20px;
+}
+
+.panel-subtitle,
+.panel-empty,
+.sum-label,
+.si-name,
+.alert-time,
+.rep-meta,
+.ac-reason {
+  color: var(--fin-muted);
+}
+
 .what-changed-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 14px;
 }
 
-@media (max-width: 900px) {
-  .what-changed-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.panel-title { font-size: 16px; font-weight: 700; margin: 0; color: var(--fin-text); }
-.panel-count { font-size: 12px; font-weight: 600; color: var(--fin-primary); background: var(--fin-primary-soft); padding: 3px 10px; border-radius: 20px; }
-.panel-link { border: none; background: transparent; font-size: 13px; color: var(--fin-primary); cursor: pointer; font-weight: 600; transition: opacity 0.15s; }
-.panel-link:hover { opacity: 0.75; }
-.panel-empty { font-size: 14px; color: var(--fin-muted); padding: 20px 0; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
-.link-btn { border: none; background: transparent; color: var(--fin-primary); cursor: pointer; font-size: 14px; font-weight: 600; text-decoration: underline; }
-
-/* 持仓快照 */
-.summary-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
-.sum-card { padding: 12px 14px; background: var(--fin-bg); border-radius: 10px; }
-.sum-card.gain { background: #f0faf4; }
-.sum-card.loss { background: #fff4f4; }
-.sum-label { font-size: 12px; color: var(--fin-muted); margin-bottom: 6px; font-weight: 600; }
-.sum-val { font-size: 18px; font-weight: 700; color: var(--fin-text); }
-.sum-card.gain .sum-val { color: #27ae60; }
-.sum-card.loss .sum-val { color: #e74c3c; }
-
-.risk-section { padding: 12px 14px; background: #fff8e6; border: 1.5px solid #f9c74f; border-radius: 10px; }
-.risk-title { font-size: 13px; font-weight: 700; color: #856404; margin-bottom: 8px; }
-.risk-item { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fin-text); padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
-.risk-item:hover { background: rgba(249, 199, 79, 0.2); }
-.risk-ticker { font-weight: 700; min-width: 56px; }
-.risk-name { flex: 1; color: var(--fin-muted); }
-.risk-pct { color: #e74c3c; font-weight: 700; font-size: 14px; }
-
-/* 主网格 */
+.summary-cards,
 .main-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: 14px;
 }
 
-/* 简单列表（自选） */
-.simple-list { display: flex; flex-direction: column; gap: 4px; }
-.simple-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--fin-bg); border-radius: 8px; cursor: pointer; transition: background 0.15s; }
-.simple-item:hover { background: var(--fin-primary-soft); }
-.si-ticker { font-size: 14px; font-weight: 700; color: var(--fin-primary); min-width: 56px; }
-.si-name { font-size: 13px; color: var(--fin-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.si-arrow { color: var(--fin-muted); font-size: 14px; }
-
-/* 提醒 */
-.alert-item { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--fin-border); }
-.alert-item:last-child { border-bottom: none; }
-.alert-ticker { font-size: 12px; font-weight: 700; color: var(--fin-primary); background: var(--fin-primary-soft); padding: 3px 8px; border-radius: 6px; flex-shrink: 0; }
-.alert-body { flex: 1; min-width: 0; }
-.alert-title { font-size: 13px; color: var(--fin-text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.alert-time { font-size: 11px; color: var(--fin-muted); margin-top: 2px; }
-.alert-sev { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; text-transform: uppercase; }
-.sev-high { background: #fce4e4; color: #c44545; }
-.sev-medium { background: #fef3cd; color: #856404; }
-.sev-low { background: #e6f4ec; color: #2d7d46; }
-
-/* 报告列表 */
-.report-list { display: flex; flex-direction: column; gap: 6px; }
-.report-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--fin-bg); border-radius: 8px; cursor: pointer; transition: background 0.15s; }
-.report-item:hover { background: var(--fin-primary-soft); }
-.rep-ticker { font-size: 12px; font-weight: 700; color: var(--fin-primary); background: var(--fin-primary-soft); padding: 3px 8px; border-radius: 6px; flex-shrink: 0; min-width: 56px; text-align: center; }
-.rep-body { flex: 1; min-width: 0; }
-.rep-title { font-size: 13px; font-weight: 600; color: var(--fin-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rep-meta { font-size: 11px; color: var(--fin-muted); margin-top: 3px; display: flex; gap: 8px; }
-.rep-status { padding: 1px 6px; background: var(--fin-primary-soft); color: var(--fin-primary); border-radius: 4px; font-weight: 600; }
-
-/* 操作建议网格 */
-.actions-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+.summary-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.main-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sum-card,
+.simple-item,
+.report-item,
+.action-card,
+.risk-section {
+  border: 1px solid var(--fin-border);
+  border-radius: 18px;
+  background: var(--fin-card-inset);
+}
+
+.sum-card {
+  padding: 16px;
+}
+
+.sum-val {
+  color: var(--fin-text);
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.sum-card.gain .sum-val {
+  color: var(--fin-success);
+}
+
+.sum-card.loss .sum-val {
+  color: var(--fin-danger);
+}
+
+.risk-section {
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--fin-warning-soft);
+}
+
+.risk-title {
+  margin-bottom: 10px;
+  color: var(--fin-warning);
+  font-weight: 900;
+}
+
+.risk-item,
+.simple-item,
+.report-item,
+.alert-item,
 .action-card {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
-  background: var(--fin-bg);
-  border: 1.5px solid var(--fin-border);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
 }
-.action-card:hover { border-color: var(--fin-primary); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(204,120,92,0.12); }
 
-.ac-icon { font-size: 22px; flex-shrink: 0; }
-.ac-body { flex: 1; min-width: 0; }
-.ac-title { font-size: 14px; font-weight: 600; color: var(--fin-text); margin-bottom: 3px; }
-.ac-reason { font-size: 12px; color: var(--fin-muted); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ac-arrow { color: var(--fin-muted); font-size: 16px; flex-shrink: 0; }
+.risk-item {
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.risk-ticker,
+.si-ticker,
+.rep-ticker,
+.alert-ticker {
+  min-width: 58px;
+  color: var(--fin-primary);
+  font-weight: 900;
+}
+
+.risk-name,
+.alert-body,
+.rep-body,
+.ac-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.risk-pct {
+  color: var(--fin-danger);
+  font-weight: 900;
+}
+
+.panel-empty {
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.simple-list,
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.simple-item,
+.report-item {
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.si-name,
+.rep-title,
+.alert-title,
+.ac-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alert-item {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--fin-border);
+}
+
+.alert-item:last-child {
+  border-bottom: 0;
+}
+
+.alert-sev,
+.rep-status,
+.panel-count {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary);
+}
+
+.sev-high,
+.sev-critical {
+  background: var(--fin-danger-soft);
+  color: var(--fin-danger);
+}
+
+.sev-medium {
+  background: var(--fin-warning-soft);
+  color: var(--fin-warning);
+}
+
+.sev-low {
+  background: var(--fin-success-soft);
+  color: var(--fin-success);
+}
+
+.actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.action-card {
+  padding: 16px;
+  cursor: pointer;
+}
+
+.action-card:hover,
+.simple-item:hover,
+.report-item:hover,
+.risk-item:hover {
+  border-color: var(--fin-border-strong);
+  background: var(--fin-card-soft);
+}
+
+.ac-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary);
+  font-family: var(--fin-mono);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ac-title {
+  color: var(--fin-text);
+  font-weight: 900;
+}
+
+.ac-arrow {
+  color: var(--fin-primary);
+  font-weight: 900;
+}
 
 @media (max-width: 1100px) {
-  .main-grid { grid-template-columns: 1fr; }
-  .actions-grid { grid-template-columns: 1fr; }
+  .main-grid,
+  .summary-cards,
+  .actions-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 700px) {
-  .summary-cards { grid-template-columns: 1fr; }
-  .today-hero { padding: 20px 24px; }
-  .today-greeting { font-size: 22px; }
+  .today-hero,
+  .panel-header {
+    display: grid;
+    justify-items: start;
+  }
+
+  .hero-actions {
+    justify-items: start;
+  }
 }
 </style>
