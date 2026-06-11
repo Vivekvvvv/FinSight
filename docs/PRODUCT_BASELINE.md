@@ -4,7 +4,7 @@
 
 **当前总体完成度估算**：**~90%**（可演示 / 小规模内测标准）/ **~80%**（生产候选标准）。
 
-**最近一次验证基线**：2026-06-01 轻量门禁 `backend.import-smoke` + `vue.build` + `python scripts/check_cutover_map.py` 通过；最近一次完整门禁记录见 `PROGRESS.md`，后端约 `1040 passed`，Vue `lint/typecheck/build` 通过。
+**最近一次验证基线**：2026-06-01 轻量门禁 `backend.import-smoke` + `vue.build` + `python scripts/check_cutover_map.py` 通过；最近一次完整门禁记录见 `docs/maintenance/PROGRESS.md`，后端约 `1040 passed`，Vue `lint/typecheck/build` 通过。
 
 ---
 

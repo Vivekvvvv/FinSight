@@ -89,6 +89,8 @@ Phase 6/7 verification reached 48/48 E2E passing and all core backend checks pas
 - [`docs/DELIVERY_OVERVIEW.md`](./docs/DELIVERY_OVERVIEW.md): Phase 4-9 delivery summary.
 - [`docs/PROJECT_TIMELINE.md`](./docs/PROJECT_TIMELINE.md): evidence-based timeline.
 - [`docs/RELEASE_READINESS.md`](./docs/RELEASE_READINESS.md): current release readiness and blockers.
+- [`docs/API_CONTRACT_CURRENT.md`](./docs/API_CONTRACT_CURRENT.md): current API contract and demo/live behavior.
+- [`docs/archive/PHASE_DELIVERY_ARCHIVE.md`](./docs/archive/PHASE_DELIVERY_ARCHIVE.md): Phase 4-9 source report archive.
 - [`docs/01_ARCHITECTURE.md`](./docs/01_ARCHITECTURE.md): architecture overview.
 
 ## Safety Boundaries

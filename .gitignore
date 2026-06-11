@@ -125,6 +125,7 @@ docs/*.md
 !docs/11_PRODUCTION_RUNBOOK.md
 !docs/AGENTS_GUIDE.md
 !docs/API_CONTRACT_BASELINE.md
+!docs/API_CONTRACT_CURRENT.md
 !docs/BACKUP_RESTORE_RUNBOOK.md
 !docs/DELIVERY_OVERVIEW.md
 !docs/deploy.md
@@ -134,10 +135,15 @@ docs/*.md
 !docs/PROJECT_TIMELINE.md
 !docs/RELEASE_READINESS.md
 !docs/ROLLBACK_RUNBOOK.md
+!docs/maintenance/
+!docs/maintenance/*.md
 docs/archive/*
+!docs/archive/PHASE_DELIVERY_ARCHIVE.md
 !docs/archive/phase-delivery/
 !docs/archive/phase-delivery/*.md
 docs/archive/phase-delivery/AGENTS.md
+!docs/archive/legacy-notes/
+!docs/archive/legacy-notes/*.md
 docs/design/
 docs/feature_logs/
 docs/plans/

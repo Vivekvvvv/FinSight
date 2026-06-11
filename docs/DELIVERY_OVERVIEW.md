@@ -43,7 +43,7 @@ FinSight 已完成从金融 AI 演示系统到证据驱动研究工作台的核�
 权威明细：
 - `docs/archive/phase-delivery/PHASE4_FINAL_SUMMARY.md`
 - `docs/archive/phase-delivery/PHASE4_DELIVERY_SNAPSHOT.md`
-- `VERIFICATION_CHECKLIST.md`
+- `docs/maintenance/VERIFICATION_CHECKLIST.md`
 
 ### Phase 5: 发布硬化与体验收口
 
@@ -147,7 +147,7 @@ FinSight 已完成从金融 AI 演示系统到证据驱动研究工作台的核�
 | 生产运行 | `docs/11_PRODUCTION_RUNBOOK.md` |
 | 备份恢复 | `docs/BACKUP_RESTORE_RUNBOOK.md` |
 | 回滚 | `docs/ROLLBACK_RUNBOOK.md` |
-| 完整验证清单 | `VERIFICATION_CHECKLIST.md` |
+| 完整验证清单 | `docs/maintenance/VERIFICATION_CHECKLIST.md` |
 
 ---
 
