@@ -199,7 +199,6 @@ function setupDossierPageMocks(page: Page, symbol = 'AAPL') {
   setupWhatChangedMocks(page);
   setupTimelineMocks(page, symbol);
   setupReportsMocks(page);
-  setupResearchQualityMocks(page);
   page.route('**/api/research-notes**', (r) => json(r, {
     success: true,
     count: 1,
@@ -216,6 +215,34 @@ function setupDossierPageMocks(page: Page, symbol = 'AAPL') {
         updated_at: '2024-11-15T09:00:00Z',
       },
     ],
+  }));
+  page.route('**/api/research-quality**', (r) => json(r, {
+    success: true,
+    as_of: '2024-11-15T10:00:00Z',
+    summary: {
+      total_reports: 2,
+      stale_reports: 1,
+      low_quality_reports: 1,
+      blocked_reports: 0,
+      warn_reports: 1,
+      watch_reports: 1,
+      reviewed_rate: 70,
+      challenged_conclusions: 1,
+      health_score: 68,
+    },
+    top_issues: [
+      {
+        id: 'issue_challenged_aapl',
+        issue_type: 'challenged_conclusion',
+        severity: 'high',
+        title: `${symbol} 旧报告可能被新证据挑战`,
+        reason: '最新高严重度事件晚于旧报告，建议复查原结论。',
+        target_route: '/reports?highlight=rep_aapl_001',
+        related_symbol: symbol,
+        related_report_id: 'rep_aapl_001',
+      },
+    ],
+    next_actions: [],
   }));
 }
 
@@ -390,6 +417,8 @@ test('/dossier/:symbol - aggregates symbol research assets', async ({ page }) =>
   await expect(page.getByRole('heading', { name: /AAPL 标的研究档案/ })).toBeVisible();
   await expect(page.getByText('优先复查变化')).toBeVisible();
   await expect(page.getByText('质量复查')).toBeVisible();
+  await expect(page.getByText('证据冲突与旧结论复查')).toBeVisible();
+  await expect(page.getByRole('button', { name: /AAPL 旧报告可能被新证据挑战.*Research Quality/ })).toBeVisible();
   await expect(page.getByText('最新报告与笔记')).toBeVisible();
   await expect(page.getByText('最近证据事件')).toBeVisible();
   await expect(page.getByText('Apple Q3', { exact: false })).toBeVisible();

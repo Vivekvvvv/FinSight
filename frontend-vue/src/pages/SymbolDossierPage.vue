@@ -15,6 +15,14 @@ import type {
 } from '@/api/types';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
+type ConflictReviewItem = {
+  id: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  reason: string;
+  sourceLabel: string;
+  targetRoute: string;
+};
 
 const route = useRoute();
 const router = useRouter();
@@ -40,6 +48,74 @@ const latestNote = computed(() => notes.value[0] || null);
 const criticalChanges = computed(() => whatChanged.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
 const criticalTimeline = computed(() => timelineEvents.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
 const healthScore = computed(() => qualitySummary.value?.health_score ?? 100);
+const conflictReviews = computed<ConflictReviewItem[]>(() => {
+  const items: ConflictReviewItem[] = [];
+
+  for (const issue of qualityIssues.value) {
+    if (issue.issue_type !== 'challenged_conclusion') continue;
+    items.push({
+      id: `quality:${issue.id}`,
+      severity: issue.severity,
+      title: issue.title,
+      reason: issue.reason,
+      sourceLabel: 'Research Quality',
+      targetRoute: issue.target_route,
+    });
+  }
+
+  for (const report of reports.value) {
+    if (report.freshness_status && report.freshness_status !== 'live') {
+      items.push({
+        id: `stale:${report.report_id}`,
+        severity: report.freshness_status === 'stale' ? 'high' : 'medium',
+        title: `${report.ticker || symbol.value} 旧报告需要刷新`,
+        reason: `报告数据状态为 ${report.freshness_status}，新判断前应先刷新证据。`,
+        sourceLabel: 'Reports',
+        targetRoute: `/reports?highlight=${report.report_id}`,
+      });
+    }
+
+    if (report.quality_state && ['warn', 'block'].includes(report.quality_state)) {
+      items.push({
+        id: `quality-state:${report.report_id}`,
+        severity: report.quality_state === 'block' ? 'critical' : 'high',
+        title: `${report.ticker || symbol.value} 报告质量需要复查`,
+        reason: `质量状态为 ${report.quality_state}，结论使用前应复核引用和假设。`,
+        sourceLabel: 'Reports',
+        targetRoute: `/reports?highlight=${report.report_id}`,
+      });
+    }
+  }
+
+  for (const event of timelineEvents.value) {
+    if (!['high', 'critical'].includes(event.severity)) continue;
+    const eventTime = new Date(event.occurred_at).getTime();
+    const olderReport = reports.value.find((report) => {
+      const reportTime = new Date(report.generated_at || '').getTime();
+      return Number.isFinite(reportTime) && Number.isFinite(eventTime) && reportTime < eventTime;
+    });
+    if (!olderReport) continue;
+    items.push({
+      id: `timeline:${event.id}`,
+      severity: event.severity,
+      title: `${symbol.value} 新证据可能挑战旧结论`,
+      reason: `${fmtDate(event.occurred_at)} 出现 ${severityLabel(event.severity)} 事件「${event.title}」，晚于报告「${olderReport.title || olderReport.report_id}」。`,
+      sourceLabel: 'Evidence Timeline',
+      targetRoute: event.target_route || `/timeline/${symbol.value}`,
+    });
+  }
+
+  const order = { critical: 0, high: 1, medium: 2, low: 3 };
+  const unique = new Map<string, ConflictReviewItem>();
+  for (const item of items) {
+    const key = `${item.title}:${item.targetRoute}`;
+    const existing = unique.get(key);
+    if (!existing || order[item.severity] < order[existing.severity]) {
+      unique.set(key, item);
+    }
+  }
+  return [...unique.values()].sort((a, b) => order[a.severity] - order[b.severity]).slice(0, 5);
+});
 
 function fmtDate(value?: string | null): string {
   if (!value) return '-';
@@ -161,6 +237,11 @@ watch(() => route.params.symbol, () => {
         <strong>{{ healthScore }}</strong>
         <em>{{ qualityIssues.length }} 个复查点</em>
       </article>
+      <article class="metric-card">
+        <span>结论冲突</span>
+        <strong>{{ conflictReviews.length }}</strong>
+        <em>需人工复查</em>
+      </article>
     </section>
 
     <section class="action-strip">
@@ -185,6 +266,34 @@ watch(() => route.params.symbol, () => {
           <WhatChangedCard v-for="item in whatChanged" :key="item.id" :item="item" />
         </div>
         <div v-else class="empty-state">暂无需要优先复查的变化。</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Conflict Review</p>
+            <h2>证据冲突与旧结论复查</h2>
+          </div>
+        </div>
+        <div v-if="conflictReviews.length" class="conflict-list">
+          <button
+            v-for="item in conflictReviews"
+            :key="item.id"
+            class="conflict-card"
+            type="button"
+            @click="routeTo(item.targetRoute)"
+          >
+            <span :class="['severity-dot', item.severity]" />
+            <div>
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.reason }}</p>
+              <em>{{ item.sourceLabel }} · {{ severityLabel(item.severity) }}</em>
+            </div>
+          </button>
+        </div>
+        <div v-else class="empty-state">
+          暂未发现新证据挑战旧结论。继续观察，不输出买卖建议。
+        </div>
       </section>
 
       <section class="panel">
@@ -416,12 +525,14 @@ h2 {
 }
 
 .changes-grid,
-.issue-list {
+.issue-list,
+.conflict-list {
   display: grid;
   gap: 12px;
 }
 
 .issue-card,
+.conflict-card,
 .asset-card {
   width: 100%;
   border: 1px solid var(--fin-border);
@@ -437,6 +548,19 @@ h2 {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 8px 10px;
+}
+
+.conflict-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+}
+
+.conflict-card p {
+  margin: 6px 0 0;
+  color: var(--fin-muted);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .issue-card em {
