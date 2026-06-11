@@ -19,6 +19,7 @@ const demoStatus = ref<DemoStatusResponse | null>(null);
 const navItems = [
   { to: '/welcome', label: '今日工作台', short: 'TODAY' },
   { to: '/stocks', label: '股票发现', short: 'STOCK' },
+  { to: '/dossier/AAPL', label: '标的档案', short: 'DOS' },
   { to: '/dashboard/AAPL', label: '市场仪表盘', short: 'DASH' },
   { to: '/chat', label: '研究对话', short: 'CHAT' },
   { to: '/workbench', label: '研究工作台', short: 'LAB' },
@@ -38,6 +39,7 @@ const marketStrip = [
 
 const routeTitle = computed(() => {
   if (route.path.startsWith('/dashboard')) return 'Market Intelligence';
+  if (route.path.startsWith('/dossier')) return 'Research Dossier';
   if (route.path.startsWith('/chat')) return 'Research Copilot';
   if (route.path.startsWith('/workbench')) return 'Daily Research Lab';
   if (route.path.startsWith('/reports')) return 'Report Archive';

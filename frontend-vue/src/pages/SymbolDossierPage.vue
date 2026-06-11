@@ -1,0 +1,508 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { apiClient } from '@/api/client';
+import { useIdentityStore } from '@/stores/identity';
+import WhatChangedCard from '@/components/WhatChangedCard.vue';
+import EvidenceTimeline from '@/components/EvidenceTimeline.vue';
+import type {
+  ReportIndexItem,
+  ResearchNote,
+  ResearchQualityIssue,
+  ResearchQualitySummary,
+  TimelineEvent,
+  WhatChangedItem,
+} from '@/api/types';
+
+type LoadState = 'idle' | 'loading' | 'ready' | 'error';
+
+const route = useRoute();
+const router = useRouter();
+const identity = useIdentityStore();
+
+const symbolInput = ref(String(route.params.symbol || 'AAPL').toUpperCase());
+const loadState = ref<LoadState>('idle');
+const errorMsg = ref<string | null>(null);
+
+const whatChanged = ref<WhatChangedItem[]>([]);
+const timelineEvents = ref<TimelineEvent[]>([]);
+const reports = ref<ReportIndexItem[]>([]);
+const notes = ref<ResearchNote[]>([]);
+const qualitySummary = ref<ResearchQualitySummary | null>(null);
+const qualityIssues = ref<ResearchQualityIssue[]>([]);
+
+const symbol = computed(() => String(route.params.symbol || symbolInput.value || 'AAPL').toUpperCase());
+const sessionId = computed(() => identity.sessionId || 'default_session');
+const userId = computed(() => identity.userId || 'default_user');
+
+const latestReport = computed(() => reports.value[0] || null);
+const latestNote = computed(() => notes.value[0] || null);
+const criticalChanges = computed(() => whatChanged.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
+const criticalTimeline = computed(() => timelineEvents.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
+const healthScore = computed(() => qualitySummary.value?.health_score ?? 100);
+
+function fmtDate(value?: string | null): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function severityLabel(value?: string | null): string {
+  const labels: Record<string, string> = {
+    critical: '严重',
+    high: '高',
+    medium: '中',
+    low: '低',
+  };
+  return value ? labels[value] || value : '-';
+}
+
+function routeTo(path: string): void {
+  void router.push(path);
+}
+
+function submitSymbol(): void {
+  const next = symbolInput.value.trim().toUpperCase();
+  if (!next) return;
+  void router.push(`/dossier/${encodeURIComponent(next)}`);
+}
+
+async function loadDossier(): Promise<void> {
+  if (!symbol.value) return;
+  loadState.value = 'loading';
+  errorMsg.value = null;
+
+  const [changes, timeline, reportList, noteList, quality] = await Promise.allSettled([
+    apiClient.getWhatChanged({ sessionId: sessionId.value, userId: userId.value, symbol: symbol.value, limit: 5 }),
+    apiClient.getTimeline({ symbol: symbol.value, sessionId: sessionId.value, userId: userId.value, limit: 8 }),
+    apiClient.listReports({ sessionId: sessionId.value, ticker: symbol.value, sortBy: 'generated_at_desc', limit: 5 }),
+    apiClient.listNotes(sessionId.value, userId.value, symbol.value, undefined, 5),
+    apiClient.getResearchQuality({ sessionId: sessionId.value, userId: userId.value, symbol: symbol.value }),
+  ]);
+
+  if (changes.status === 'fulfilled') whatChanged.value = changes.value.items || [];
+  else whatChanged.value = [];
+
+  if (timeline.status === 'fulfilled') timelineEvents.value = timeline.value.events || [];
+  else timelineEvents.value = [];
+
+  if (reportList.status === 'fulfilled') reports.value = reportList.value.items || [];
+  else reports.value = [];
+
+  if (noteList.status === 'fulfilled') notes.value = noteList.value.notes || [];
+  else notes.value = [];
+
+  if (quality.status === 'fulfilled') {
+    qualitySummary.value = quality.value.summary;
+    qualityIssues.value = quality.value.top_issues || [];
+  } else {
+    qualitySummary.value = null;
+    qualityIssues.value = [];
+  }
+
+  const failed = [changes, timeline, reportList, noteList, quality].filter((item) => item.status === 'rejected').length;
+  errorMsg.value = failed ? `${failed} 个数据模块暂时不可用，已展示其余研究材料。` : null;
+  loadState.value = 'ready';
+}
+
+onMounted(() => {
+  void loadDossier();
+});
+
+watch(() => route.params.symbol, () => {
+  symbolInput.value = symbol.value;
+  void loadDossier();
+});
+</script>
+
+<template>
+  <section class="dossier-page">
+    <header class="dossier-hero">
+      <div>
+        <p class="eyebrow">Symbol Research Dossier</p>
+        <h1>{{ symbol }} 标的研究档案</h1>
+        <p class="subtitle">
+          把今日变化、证据时间线、研究报告、笔记和研究质量收束到一个复查视图。这里只给研究动作建议，不构成投资建议。
+        </p>
+      </div>
+      <form class="symbol-search" @submit.prevent="submitSymbol">
+        <input v-model="symbolInput" aria-label="输入股票代码" placeholder="AAPL / NVDA / MSFT">
+        <button type="submit">打开档案</button>
+      </form>
+    </header>
+
+    <div v-if="errorMsg" class="status-banner">{{ errorMsg }}</div>
+
+    <section class="metric-grid">
+      <article class="metric-card">
+        <span>重要变化</span>
+        <strong>{{ whatChanged.length }}</strong>
+        <em>{{ criticalChanges }} 条高优先级</em>
+      </article>
+      <article class="metric-card">
+        <span>证据事件</span>
+        <strong>{{ timelineEvents.length }}</strong>
+        <em>{{ criticalTimeline }} 条高风险事件</em>
+      </article>
+      <article class="metric-card">
+        <span>报告资产</span>
+        <strong>{{ reports.length }}</strong>
+        <em>{{ latestReport ? fmtDate(latestReport.generated_at) : '暂无报告' }}</em>
+      </article>
+      <article class="metric-card">
+        <span>研究健康度</span>
+        <strong>{{ healthScore }}</strong>
+        <em>{{ qualityIssues.length }} 个复查点</em>
+      </article>
+    </section>
+
+    <section class="action-strip">
+      <button type="button" @click="routeTo(`/dashboard/${symbol}`)">市场仪表盘</button>
+      <button type="button" @click="routeTo(`/timeline/${symbol}`)">证据时间线</button>
+      <button type="button" @click="routeTo(`/reports?ticker=${symbol}`)">相关报告</button>
+      <button type="button" @click="routeTo(`/notes?ticker=${symbol}`)">研究笔记</button>
+    </section>
+
+    <div v-if="loadState === 'loading'" class="loading-card">正在汇总 {{ symbol }} 的研究档案...</div>
+
+    <div v-else class="dossier-grid">
+      <section class="panel panel-wide">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">What Changed</p>
+            <h2>优先复查变化</h2>
+          </div>
+          <button type="button" @click="loadDossier">刷新</button>
+        </div>
+        <div v-if="whatChanged.length" class="changes-grid">
+          <WhatChangedCard v-for="item in whatChanged" :key="item.id" :item="item" />
+        </div>
+        <div v-else class="empty-state">暂无需要优先复查的变化。</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Research Quality</p>
+            <h2>质量复查</h2>
+          </div>
+        </div>
+        <div v-if="qualityIssues.length" class="issue-list">
+          <button
+            v-for="issue in qualityIssues.slice(0, 5)"
+            :key="issue.id"
+            class="issue-card"
+            type="button"
+            @click="routeTo(issue.target_route)"
+          >
+            <span :class="['severity-dot', issue.severity]" />
+            <strong>{{ issue.title }}</strong>
+            <em>{{ severityLabel(issue.severity) }} · {{ issue.reason }}</em>
+          </button>
+        </div>
+        <div v-else class="empty-state">暂无质量阻断项。</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Latest Assets</p>
+            <h2>最新报告与笔记</h2>
+          </div>
+        </div>
+        <article v-if="latestReport" class="asset-card" @click="routeTo(`/reports?highlight=${latestReport.report_id}`)">
+          <span>报告</span>
+          <strong>{{ latestReport.title || `${symbol} 研究报告` }}</strong>
+          <em>{{ fmtDate(latestReport.generated_at) }} · 置信度 {{ latestReport.confidence_score ?? '-' }}</em>
+        </article>
+        <article v-if="latestNote" class="asset-card" @click="routeTo(`/notes?ticker=${symbol}`)">
+          <span>笔记</span>
+          <strong>{{ latestNote.title }}</strong>
+          <em>{{ fmtDate(latestNote.updated_at) }} · {{ latestNote.tags.join(', ') || '未标记' }}</em>
+        </article>
+        <div v-if="!latestReport && !latestNote" class="empty-state">还没有沉淀报告或笔记。</div>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Evidence Timeline</p>
+            <h2>最近证据事件</h2>
+          </div>
+        </div>
+        <EvidenceTimeline :events="timelineEvents" :loading="false" />
+      </section>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.dossier-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dossier-hero,
+.panel,
+.metric-card,
+.loading-card,
+.status-banner {
+  border: 1px solid var(--fin-border);
+  background: var(--fin-surface);
+  box-shadow: var(--fin-shadow);
+}
+
+.dossier-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+  padding: 34px;
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 12% 0%, var(--fin-primary-soft), transparent 34%),
+    linear-gradient(135deg, var(--fin-surface), var(--fin-surface-2));
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--fin-primary);
+  font-family: var(--fin-mono);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+  color: var(--fin-text);
+}
+
+h1 {
+  font-size: clamp(34px, 4vw, 58px);
+  letter-spacing: -0.04em;
+}
+
+h2 {
+  font-size: 22px;
+}
+
+.subtitle {
+  max-width: 760px;
+  margin: 12px 0 0;
+  color: var(--fin-muted);
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.symbol-search {
+  min-width: 330px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.symbol-search input {
+  min-width: 0;
+  border: 1px solid var(--fin-border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: var(--fin-surface-2);
+  color: var(--fin-text);
+  font-size: 16px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.symbol-search button,
+.action-strip button,
+.panel-head button {
+  border: 0;
+  border-radius: 16px;
+  padding: 13px 18px;
+  background: var(--fin-primary);
+  color: var(--fin-primary-contrast);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.status-banner {
+  padding: 14px 18px;
+  border-radius: 18px;
+  color: var(--fin-warning);
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.metric-card {
+  border-radius: 22px;
+  padding: 20px;
+}
+
+.metric-card span,
+.asset-card span {
+  display: block;
+  color: var(--fin-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 10px;
+  color: var(--fin-text);
+  font-size: 34px;
+  line-height: 1;
+}
+
+.metric-card em,
+.asset-card em,
+.issue-card em {
+  display: block;
+  margin-top: 8px;
+  color: var(--fin-muted);
+  font-size: 13px;
+  font-style: normal;
+}
+
+.action-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.action-strip button {
+  background: var(--fin-surface-2);
+  color: var(--fin-text);
+  border: 1px solid var(--fin-border);
+}
+
+.dossier-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+  gap: 18px;
+}
+
+.panel {
+  min-width: 0;
+  border-radius: 26px;
+  padding: 22px;
+}
+
+.panel-wide {
+  grid-column: span 1;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.changes-grid,
+.issue-list {
+  display: grid;
+  gap: 12px;
+}
+
+.issue-card,
+.asset-card {
+  width: 100%;
+  border: 1px solid var(--fin-border);
+  border-radius: 18px;
+  padding: 16px;
+  background: var(--fin-surface-2);
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.issue-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 10px;
+}
+
+.issue-card em {
+  grid-column: 2;
+}
+
+.severity-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--fin-muted);
+}
+
+.severity-dot.critical,
+.severity-dot.high {
+  background: var(--fin-danger);
+}
+
+.severity-dot.medium {
+  background: var(--fin-warning);
+}
+
+.severity-dot.low {
+  background: var(--fin-success);
+}
+
+.asset-card + .asset-card {
+  margin-top: 12px;
+}
+
+.empty-state,
+.loading-card {
+  padding: 28px;
+  border-radius: 20px;
+  color: var(--fin-muted);
+  text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .dossier-hero,
+  .dossier-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dossier-hero {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .symbol-search {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .symbol-search {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

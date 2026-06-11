@@ -192,6 +192,33 @@ function setupStocksPageMocks(page: Page) {
   });
 }
 
+function setupDossierPageMocks(page: Page, symbol = 'AAPL') {
+  page.route('**/api/portfolio/summary**', (r) => json(r, PORTFOLIO_SUMMARY));
+  page.route('**/api/user/watchlist**', (r) =>
+    json(r, { success: true, items: WATCHLIST_ITEMS, count: WATCHLIST_ITEMS.length }));
+  setupWhatChangedMocks(page);
+  setupTimelineMocks(page, symbol);
+  setupReportsMocks(page);
+  setupResearchQualityMocks(page);
+  page.route('**/api/research-notes**', (r) => json(r, {
+    success: true,
+    count: 1,
+    notes: [
+      {
+        note_id: 'note_aapl_001',
+        session_id: SESSION_ID,
+        user_id: USER_ID,
+        ticker: symbol,
+        title: `${symbol} 服务业务复查笔记`,
+        content: '关注收入结构、毛利率和新证据冲突。',
+        tags: ['复查', '假设'],
+        created_at: '2024-11-14T09:00:00Z',
+        updated_at: '2024-11-15T09:00:00Z',
+      },
+    ],
+  }));
+}
+
 // ══════════════════════════════════════════════════════════════
 // 1. /welcome (Today Workspace — 基础烟雾测试)
 // ══════════════════════════════════════════════════════════════
@@ -352,6 +379,31 @@ test('/stocks - HK limited coverage empty state', async ({ page }) => {
 
   await expect(page.getByText('coverage_limited_or_empty_result')).toBeVisible();
   await expect(page.getByText('暂无候选股票')).toBeVisible();
+});
+
+test('/dossier/:symbol - aggregates symbol research assets', async ({ page }) => {
+  setupDossierPageMocks(page, 'AAPL');
+
+  await page.goto('/dossier/AAPL');
+  await page.waitForLoadState('networkidle');
+
+  await expect(page.getByRole('heading', { name: /AAPL 标的研究档案/ })).toBeVisible();
+  await expect(page.getByText('优先复查变化')).toBeVisible();
+  await expect(page.getByText('质量复查')).toBeVisible();
+  await expect(page.getByText('最新报告与笔记')).toBeVisible();
+  await expect(page.getByText('最近证据事件')).toBeVisible();
+  await expect(page.getByText('Apple Q3', { exact: false })).toBeVisible();
+  await expect(page.getByText('AAPL 服务业务复查笔记')).toBeVisible();
+});
+
+test('/dossier/:symbol - symbol search navigates to dossier', async ({ page }) => {
+  setupDossierPageMocks(page, 'MSFT');
+
+  await page.goto('/dossier/AAPL');
+  await page.getByLabel('输入股票代码').fill('MSFT');
+  await page.getByRole('button', { name: '打开档案' }).click();
+
+  await expect(page).toHaveURL(/\/dossier\/MSFT/);
 });
 
 // 4. /reports
