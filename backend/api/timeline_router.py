@@ -8,6 +8,7 @@ from typing import Any, Callable, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.security.auth import Principal, get_current_user, require_matching_identity
+from backend.demo_mode import demo_timeline, is_demo_mode
 from backend.services import timeline_service
 
 
@@ -70,6 +71,11 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
                 to_date=to_date,
                 limit=limit,
             )
+            if is_demo_mode() and not events and event_type in {None, "report", "note"}:
+                events = [
+                    event for event in demo_timeline(symbol.upper(), normalized_session, limit=limit)
+                    if event_type is None or event.get("event_type") == event_type
+                ]
 
             return {
                 "success": True,

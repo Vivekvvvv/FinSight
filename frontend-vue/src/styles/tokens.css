@@ -13,33 +13,33 @@
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --fin-bg: #070b12;
-  --fin-bg-2: #0c1320;
-  --fin-bg-3: #111b2b;
-  --fin-card: rgba(15, 24, 38, 0.96);
-  --fin-card-strong: #162236;
-  --fin-card-soft: rgba(255, 255, 255, 0.06);
-  --fin-card-inset: rgba(2, 6, 14, 0.54);
-  --fin-border: rgba(148, 163, 184, 0.24);
-  --fin-border-strong: rgba(255, 176, 32, 0.55);
-  --fin-text: #f5f7fb;
-  --fin-text-2: #cbd7e6;
-  --fin-muted: #a2afc0;
-  --fin-primary: #ffb020;
-  --fin-primary-deep: #d99000;
-  --fin-primary-soft: rgba(255, 176, 32, 0.16);
-  --fin-accent: #00d5ff;
-  --fin-accent-soft: rgba(0, 213, 255, 0.14);
-  --fin-success: #34d399;
-  --fin-success-soft: rgba(52, 211, 153, 0.15);
-  --fin-danger: #ff6b6b;
-  --fin-danger-soft: rgba(255, 107, 107, 0.16);
-  --fin-warning: #ffd166;
-  --fin-warning-soft: rgba(255, 209, 102, 0.18);
-  --fin-input: rgba(255, 255, 255, 0.09);
-  --fin-overlay: rgba(3, 7, 15, 0.76);
-  --fin-chart-axis: #aab8c7;
-  --fin-chart-grid: rgba(148, 163, 184, 0.18);
+  --fin-bg: #0d0f12;
+  --fin-bg-2: #14171d;
+  --fin-bg-3: #1b2028;
+  --fin-card: rgba(22, 26, 32, 0.96);
+  --fin-card-strong: #202630;
+  --fin-card-soft: rgba(232, 221, 196, 0.065);
+  --fin-card-inset: rgba(4, 6, 9, 0.46);
+  --fin-border: rgba(196, 184, 158, 0.2);
+  --fin-border-strong: rgba(222, 193, 128, 0.5);
+  --fin-text: #f3efe6;
+  --fin-text-2: #d2c8b7;
+  --fin-muted: #a79e91;
+  --fin-primary: #dec180;
+  --fin-primary-deep: #b9954f;
+  --fin-primary-soft: rgba(222, 193, 128, 0.15);
+  --fin-accent: #8fc7be;
+  --fin-accent-soft: rgba(143, 199, 190, 0.13);
+  --fin-success: #7fc99b;
+  --fin-success-soft: rgba(127, 201, 155, 0.14);
+  --fin-danger: #e78a84;
+  --fin-danger-soft: rgba(231, 138, 132, 0.15);
+  --fin-warning: #d9b76e;
+  --fin-warning-soft: rgba(217, 183, 110, 0.16);
+  --fin-input: rgba(243, 239, 230, 0.08);
+  --fin-overlay: rgba(5, 7, 10, 0.76);
+  --fin-chart-axis: #bcb3a5;
+  --fin-chart-grid: rgba(196, 184, 158, 0.16);
 }
 
 :root[data-theme="light"] {

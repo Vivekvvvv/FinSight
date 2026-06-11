@@ -75,6 +75,29 @@ Copy-Item .env.server.example .env.server
 
 发布阻塞项见 [`docs/RELEASE_READINESS.md`](./docs/RELEASE_READINESS.md)。
 
+### Demo Mode
+
+没有真实行情、FMP、LLM 或生产密钥时，可以打开 Demo Mode：
+
+```powershell
+$env:FINSIGHT_DEMO_MODE="true"
+python -m uvicorn backend.api.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Demo Mode 会在真实数据为空时返回只读示例数据，保证 `/welcome`、`/portfolio`、`/reports`、`/notes`、`/timeline` 等核心页面可以完整展示研究闭环。状态接口：
+
+```text
+GET /api/demo/status
+```
+
+返回当前是否启用 Demo、数据来源和缺失的真实服务配置。
+
+## 状态口径
+
+- **本地 Demo 体验**：`READY`。无需真实密钥即可查看主要页面和研究闭环。
+- **本地真实数据体验**：`READY_WITH_NOTES`。取决于行情、LLM、RAG 等外部服务配置。
+- **生产发布**：`READY_WITH_BLOCKERS`。只有 `JWT_SECRET`、`API_AUTH_KEYS`、有效 LLM key 和外部 smoke 全部确认后，才升级为 `READY`。
+
 ## 验证命令
 
 ```powershell
@@ -93,6 +116,7 @@ npm run test:e2e
 - [`docs/DELIVERY_OVERVIEW.md`](./docs/DELIVERY_OVERVIEW.md)：Phase 4-9 交付总览。
 - [`docs/PROJECT_TIMELINE.md`](./docs/PROJECT_TIMELINE.md)：证据化项目时间线。
 - [`docs/RELEASE_READINESS.md`](./docs/RELEASE_READINESS.md)：发布就绪状态与阻塞项。
+- [`docs/API_CONTRACT_CURRENT.md`](./docs/API_CONTRACT_CURRENT.md)：当前核心 API 契约。
 - [`docs/01_ARCHITECTURE.md`](./docs/01_ARCHITECTURE.md)：当前架构说明。
 
 ## 安全边界

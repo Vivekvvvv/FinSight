@@ -5,7 +5,7 @@ import { apiClient } from '@/api/client';
 import IdentityPanel from '@/components/IdentityPanel.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 import { useIdentityStore } from '@/stores/identity';
-import type { PortfolioSummary, WatchlistItem } from '@/api/types';
+import type { DemoStatusResponse, PortfolioSummary, WatchlistItem } from '@/api/types';
 
 const route = useRoute();
 const router = useRouter();
@@ -14,9 +14,11 @@ const sidebarOpen = ref(false);
 const contextOpen = ref(false);
 const portfolio = ref<PortfolioSummary | null>(null);
 const watchlist = ref<WatchlistItem[]>([]);
+const demoStatus = ref<DemoStatusResponse | null>(null);
 
 const navItems = [
   { to: '/welcome', label: '今日工作台', short: 'TODAY' },
+  { to: '/stocks', label: '股票发现', short: 'STOCK' },
   { to: '/dashboard/AAPL', label: '市场仪表盘', short: 'DASH' },
   { to: '/chat', label: '研究对话', short: 'CHAT' },
   { to: '/workbench', label: '研究工作台', short: 'LAB' },
@@ -55,9 +57,11 @@ async function loadContext() {
   const results = await Promise.allSettled([
     apiClient.getPortfolioSummary(identity.sessionId),
     apiClient.listWatchlist(identity.userId),
+    apiClient.getDemoStatus(),
   ]);
   if (results[0].status === 'fulfilled') portfolio.value = results[0].value;
   if (results[1].status === 'fulfilled') watchlist.value = results[1].value.items || [];
+  if (results[2].status === 'fulfilled') demoStatus.value = results[2].value;
 }
 
 onMounted(() => {
@@ -121,6 +125,7 @@ onMounted(() => {
             <em :class="item.change.startsWith('+') ? 'pos' : 'neg'">{{ item.change }}</em>
           </button>
         </div>
+        <span v-if="demoStatus?.demo_mode" class="demo-pill">DEMO 数据</span>
         <ThemeToggle />
         <button class="context-button" type="button" @click="contextOpen = true">上下文</button>
       </header>
@@ -160,6 +165,9 @@ onMounted(() => {
         <p class="rail-kicker">RESEARCH RULE</p>
         <strong>只输出研究动作建议</strong>
         <span class="muted">不提供买入、卖出或收益承诺。所有结论必须可复查。</span>
+        <span v-if="demoStatus?.demo_mode" class="muted demo-note">
+          当前为 Demo Mode：使用示例数据展示完整研究闭环。
+        </span>
       </section>
     </aside>
 
@@ -271,6 +279,23 @@ onMounted(() => {
   border-radius: 22px;
   padding: 16px;
   background: var(--fin-card-soft);
+}
+
+.demo-pill {
+  border: 1px solid color-mix(in srgb, var(--fin-accent) 55%, transparent);
+  color: var(--fin-accent);
+  background: color-mix(in srgb, var(--fin-accent) 14%, transparent);
+  border-radius: 999px;
+  padding: 8px 11px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+
+.demo-note {
+  margin-top: 8px;
+  color: var(--fin-accent);
 }
 
 .rail-card {

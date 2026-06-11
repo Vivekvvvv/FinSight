@@ -60,14 +60,14 @@ const q = computed(() => {
 });
 const chartPalette = computed(() => theme.resolved === 'dark'
   ? {
-      axis: '#aab8c7',
-      grid: 'rgba(148,163,184,0.18)',
-      up: '#34d399',
-      down: '#ff6b6b',
-      line: '#ffb020',
-      primary: '#ffb020',
-      card: '#162236',
-      text: '#f5f7fb',
+      axis: '#bcb3a5',
+      grid: 'rgba(196,184,158,0.16)',
+      up: '#7fc99b',
+      down: '#e78a84',
+      line: '#dec180',
+      primary: '#dec180',
+      card: '#202630',
+      text: '#f3efe6',
     }
   : {
       axis: '#526174',

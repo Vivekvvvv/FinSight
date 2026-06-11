@@ -19,6 +19,7 @@ from backend.services.portfolio_store import (
     sync_positions,
     update_position,
 )
+from backend.demo_mode import demo_portfolio_summary, is_demo_mode
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.tools import get_stock_price
 from backend.utils.quote import resolve_live_quote, safe_float
@@ -72,6 +73,8 @@ async def get_portfolio_summary(session_id: str, current_user: Principal = Depen
     resolved_session_id = session_id if current_user.auth_type == "dev" else current_user.session_id
 
     positions = get_positions(resolved_session_id)
+    if is_demo_mode() and not positions:
+        return demo_portfolio_summary(resolved_session_id)
 
     total_value = 0.0
     total_cost = 0.0

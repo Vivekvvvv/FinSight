@@ -88,6 +88,50 @@ const DAILY_TASKS = {
   ],
 };
 
+const SCREENER_META = {
+  success: true,
+  markets: ['US', 'CN', 'HK'],
+  sort_by: ['marketCap', 'price', 'volume', 'changesPercentage'],
+  sort_order: ['asc', 'desc'],
+  filter_keys: ['marketCapMoreThan', 'priceMoreThan', 'priceLowerThan', 'volumeMoreThan'],
+  source: 'mock_screener',
+};
+
+const SCREENER_RESPONSE = {
+  success: true,
+  market: 'US',
+  count: 2,
+  source: 'mock_screener',
+  items: [
+    {
+      symbol: 'AAPL',
+      name: 'Apple Inc.',
+      sector: 'Technology',
+      industry: 'Consumer Electronics',
+      country: 'US',
+      exchange: 'NASDAQ',
+      price: 195.5,
+      market_cap: 3_000_000_000_000,
+      volume: 52_000_000,
+      beta: 1.2,
+      change_percent: 1.19,
+    },
+    {
+      symbol: 'NVDA',
+      name: 'NVIDIA Corp.',
+      sector: 'Semiconductors',
+      industry: 'AI Chips',
+      country: 'US',
+      exchange: 'NASDAQ',
+      price: 880.1,
+      market_cap: 2_200_000_000_000,
+      volume: 41_000_000,
+      beta: 1.7,
+      change_percent: -0.8,
+    },
+  ],
+};
+
 // ── Setup ─────────────────────────────────────────────────────
 test.beforeEach(async ({ page }) => {
   // 写入 localStorage，跳过登录
@@ -123,6 +167,29 @@ function setupWelcomePageCoreMocks(page: Page) {
     },
     top_issues: [], next_actions: [],
   }));
+}
+
+function setupStocksPageMocks(page: Page) {
+  page.route('**/api/portfolio/summary**', (r) => json(r, PORTFOLIO_SUMMARY));
+  page.route('**/api/user/watchlist**', (r) =>
+    json(r, { success: true, items: WATCHLIST_ITEMS, count: WATCHLIST_ITEMS.length }));
+  page.route('**/api/screener/filters/meta', (r) => json(r, SCREENER_META));
+  page.route('**/api/screener/run', async (r) => {
+    const raw = r.request().postData();
+    const payload = raw ? JSON.parse(raw) : {};
+    if (payload.market === 'HK') {
+      return json(r, {
+        success: true,
+        market: 'HK',
+        count: 0,
+        items: [],
+        source: 'mock_screener',
+        warning: 'coverage_limited_or_empty_result',
+        capability_note: 'CN/HK screener requires configured FMP coverage; fallback only provides stable US popular stocks.',
+      });
+    }
+    return json(r, { ...SCREENER_RESPONSE, market: payload.market || 'US' });
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -209,6 +276,84 @@ test('/dashboard — 无 symbol 默认加载 AAPL', async ({ page }) => {
 });
 
 // ══════════════════════════════════════════════════════════════
+test('/stocks - discovery list renders', async ({ page }) => {
+  await setupStocksPageMocks(page);
+
+  await page.goto('/stocks');
+  await page.waitForLoadState('networkidle');
+
+  await expect(page.getByText('STOCK DISCOVERY')).toBeVisible();
+  await expect(page.getByText('AAPL')).toBeVisible();
+  await expect(page.getByText('Apple Inc.')).toBeVisible();
+  await expect(page.getByText('NVIDIA Corp.')).toBeVisible();
+  await expect(page.getByText('NASDAQ').first()).toBeVisible();
+});
+
+test('/stocks - add to watchlist', async ({ page }) => {
+  let addedPayload: Record<string, unknown> | null = null;
+  await setupStocksPageMocks(page);
+  await page.route('**/api/user/watchlist/add', async (r) => {
+    addedPayload = JSON.parse(r.request().postData() || '{}');
+    return json(r, { success: true });
+  });
+
+  await page.goto('/stocks');
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: '加入自选' }).first().click();
+
+  await expect.poll(() => addedPayload?.ticker).toBe('AAPL');
+  await expect.poll(() => addedPayload?.group).toBe('发现池');
+  await expect(page.getByText('AAPL 已加入自选列表')).toBeVisible();
+});
+
+test('/stocks - import portfolio with confirm modal', async ({ page }) => {
+  let importedPayload: Record<string, unknown> | null = null;
+  await setupStocksPageMocks(page);
+  await page.route('**/api/portfolio/positions/AAPL**', async (r) => {
+    importedPayload = JSON.parse(r.request().postData() || '{}');
+    return json(r, { success: true });
+  });
+
+  await page.goto('/stocks');
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: '导入持仓' }).first().click();
+  await expect(page.getByText('导入 AAPL 到持仓')).toBeVisible();
+
+  await page.locator('.import-modal input').first().fill('2');
+  await page.getByRole('button', { name: '确认导入' }).click();
+
+  await expect.poll(() => importedPayload?.shares).toBe(2);
+  await expect(page.getByText('AAPL 已导入持仓')).toBeVisible();
+});
+
+test('/stocks - dashboard action navigates to symbol', async ({ page }) => {
+  await setupStocksPageMocks(page);
+  await page.route('**/api/quote/AAPL**', (r) => json(r, QUOTE_DATA));
+  await page.route('**/api/kline/AAPL**', (r) => json(r, KLINE_DATA));
+  await page.route('**/api/financials/AAPL**', (r) => json(r, { ticker: 'AAPL', data: {} }));
+  await page.route('**/api/dashboard/insights**', (r) => json(r, INSIGHTS));
+  await page.route('**/api/stock/news/AAPL**', (r) => json(r, { ticker: 'AAPL', data: [] }));
+  await page.route('**/api/what-changed**', (r) =>
+    json(r, { success: true, as_of: new Date().toISOString(), items: [], count: 0 }));
+
+  await page.goto('/stocks');
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: '查看分析' }).first().click();
+
+  await expect(page).toHaveURL(/\/dashboard\/AAPL/);
+});
+
+test('/stocks - HK limited coverage empty state', async ({ page }) => {
+  await setupStocksPageMocks(page);
+
+  await page.goto('/stocks');
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: 'HK' }).click();
+
+  await expect(page.getByText('coverage_limited_or_empty_result')).toBeVisible();
+  await expect(page.getByText('暂无候选股票')).toBeVisible();
+});
+
 // 4. /reports
 // ══════════════════════════════════════════════════════════════
 test('/reports — 列表渲染 + 收藏切换 + MD导出', async ({ page }) => {
@@ -1998,4 +2143,3 @@ test('/welcome — 显示研究库健康度模块', async ({ page }) => {
   const issueCards = page.locator('.issue-card');
   await expect(issueCards).toHaveCount(2); // 因为我们只返回了2个
 });
-

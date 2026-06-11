@@ -6,6 +6,8 @@ from typing import Any, Callable, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 
+from backend.demo_mode import demo_reports, is_demo_mode
+
 # 防御性校验: report_id 仅允许安全字符
 _SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
 
@@ -63,6 +65,8 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
             include_blocked=bool(include_blocked),
             limit=limit,
         )
+        if is_demo_mode() and not rows:
+            rows = demo_reports(normalized_session, limit=limit)
         return {"success": True, "session_id": normalized_session, "items": rows, "count": len(rows)}
 
     @router.get("/api/reports/replay/{report_id}")

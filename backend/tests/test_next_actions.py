@@ -121,6 +121,22 @@ def test_high_priority_watchlist_recommendations():
     assert focus_actions[0]['related_symbol'] in ['AAPL', 'NVDA', 'MSFT', 'AMZN']
 
 
+def test_watchlist_priority_none_is_ignored():
+    """priority 为 None 的历史数据不应导致今日工作台崩溃。"""
+    actions = generate_next_actions(
+        portfolio_summary={"success": True, "positions": [{"ticker": "AAPL"}]},
+        watchlist_items=[
+            {"ticker": "AAPL", "priority": None, "watch_reason": "legacy data"},
+            {"ticker": "MSFT", "priority": "", "watch_reason": "empty value"},
+            {"ticker": "NVDA", "priority": "bad", "watch_reason": "bad value"},
+        ],
+        reports_to_review=[],
+        alert_events=[],
+    )
+
+    assert [a for a in actions if a["type"] == "focus_watchlist"] == []
+
+
 def test_severity_ordering():
     """验证操作按 severity 排序：critical > high > medium > low"""
     portfolio = {

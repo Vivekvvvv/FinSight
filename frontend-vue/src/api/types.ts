@@ -190,6 +190,63 @@ export interface DashboardInsightsResponse {
   generated_at?: string | null;
 }
 
+export interface DemoStatusResponse {
+  success: boolean;
+  demo_mode: boolean;
+  data_source: 'demo' | 'live_or_local' | string;
+  missing_services: string[];
+  notes: string[];
+}
+
+export interface ScreenerItem {
+  symbol: string;
+  name?: string | null;
+  sector?: string | null;
+  industry?: string | null;
+  country?: string | null;
+  exchange?: string | null;
+  price?: number | null;
+  market_cap?: number | null;
+  volume?: number | null;
+  beta?: number | null;
+  dividend?: number | null;
+  change_percent?: number | null;
+}
+
+export interface ScreenerRunRequest {
+  market: 'US' | 'CN' | 'HK';
+  filters?: Record<string, string | number | boolean | null | undefined>;
+  limit?: number;
+  page?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
+}
+
+export interface ScreenerRunResponse {
+  success: boolean;
+  market: string;
+  items?: ScreenerItem[];
+  results?: ScreenerItem[];
+  count: number;
+  source?: string | null;
+  warning?: string | null;
+  capability_note?: string | null;
+  error?: string | null;
+  filters?: Record<string, unknown>;
+  sort?: { by?: string; order?: string };
+  page?: number;
+  limit?: number;
+}
+
+export interface ScreenerMetaResponse {
+  success: boolean;
+  markets: Array<'US' | 'CN' | 'HK'>;
+  sort_by: string[];
+  sort_order: Array<'asc' | 'desc'>;
+  filter_keys: string[];
+  source?: string;
+}
+
 export interface DailyTask {
   id: string;
   title: string;

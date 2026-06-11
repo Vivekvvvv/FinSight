@@ -28,6 +28,93 @@ _YF_SCREENER_MAP = {
     "HK": "most_actives",  # Fallback
 }
 
+_STATIC_US_FALLBACK_ITEMS: list[dict[str, Any]] = [
+    {
+        "symbol": "AAPL",
+        "name": "Apple Inc.",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "country": "US",
+        "exchange": "NASDAQ",
+        "price": 195.5,
+        "market_cap": 3_000_000_000_000,
+        "volume": 52_000_000,
+        "beta": 1.2,
+        "dividend": None,
+        "change_percent": 1.19,
+    },
+    {
+        "symbol": "MSFT",
+        "name": "Microsoft Corp.",
+        "sector": "Technology",
+        "industry": "Software",
+        "country": "US",
+        "exchange": "NASDAQ",
+        "price": 430.2,
+        "market_cap": 3_200_000_000_000,
+        "volume": 24_000_000,
+        "beta": 0.9,
+        "dividend": None,
+        "change_percent": 0.62,
+    },
+    {
+        "symbol": "NVDA",
+        "name": "NVIDIA Corp.",
+        "sector": "Semiconductors",
+        "industry": "AI Chips",
+        "country": "US",
+        "exchange": "NASDAQ",
+        "price": 880.1,
+        "market_cap": 2_200_000_000_000,
+        "volume": 41_000_000,
+        "beta": 1.7,
+        "dividend": None,
+        "change_percent": -0.8,
+    },
+    {
+        "symbol": "AMZN",
+        "name": "Amazon.com Inc.",
+        "sector": "Consumer Discretionary",
+        "industry": "Internet Retail",
+        "country": "US",
+        "exchange": "NASDAQ",
+        "price": 184.7,
+        "market_cap": 1_900_000_000_000,
+        "volume": 36_000_000,
+        "beta": 1.1,
+        "dividend": None,
+        "change_percent": 0.35,
+    },
+    {
+        "symbol": "GOOGL",
+        "name": "Alphabet Inc.",
+        "sector": "Communication Services",
+        "industry": "Internet Content",
+        "country": "US",
+        "exchange": "NASDAQ",
+        "price": 175.4,
+        "market_cap": 2_100_000_000_000,
+        "volume": 28_000_000,
+        "beta": 1.0,
+        "dividend": None,
+        "change_percent": 0.48,
+    },
+    {
+        "symbol": "META",
+        "name": "Meta Platforms Inc.",
+        "sector": "Communication Services",
+        "industry": "Social Media",
+        "country": "US",
+        "exchange": "NASDAQ",
+        "price": 504.3,
+        "market_cap": 1_280_000_000_000,
+        "volume": 16_000_000,
+        "beta": 1.3,
+        "dividend": None,
+        "change_percent": 0.74,
+    },
+]
+
 
 def _yfinance_screen_stocks(
     market: str,
@@ -51,6 +138,18 @@ def _yfinance_popular_stocks(
     sort_order: str,
 ) -> dict[str, Any]:
     """Fetch data for popular stocks when screener API fails."""
+    market_norm = str(market or "US").strip().upper()
+    if market_norm != "US":
+        return {
+            "success": True,
+            "market": market_norm,
+            "items": [],
+            "count": 0,
+            "source": "yfinance_popular",
+            "warning": "coverage_limited_or_empty_result",
+            "capability_note": "CN/HK screener requires configured FMP coverage; fallback only provides stable US popular stocks.",
+        }
+
     # Popular US large-cap tickers
     popular_tickers = [
         "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B",
@@ -103,22 +202,39 @@ def _yfinance_popular_stocks(
             except Exception:
                 continue
 
-        # Sort
-        sort_key_map = {"marketCap": "market_cap", "price": "price", "volume": "volume"}
-        py_sort_key = sort_key_map.get(sort_by, "market_cap")
-        reverse = sort_order == "desc"
-        items.sort(key=lambda x: x.get(py_sort_key) or 0, reverse=reverse)
+        if not items:
+            items = _static_us_fallback_items(filters)
+
+        items = _sort_screener_items(items, sort_by, sort_order)
 
         return {
             "success": True,
-            "market": market,
+            "market": market_norm,
+            "filters": filters if isinstance(filters, dict) else {},
+            "sort": {"by": sort_by, "order": sort_order},
             "items": items[:limit],
             "count": len(items[:limit]),
+            "results": items[:limit],
             "source": "yfinance_popular",
             "capability_note": "Using popular US stocks (FMP unavailable)",
         }
     except Exception as exc:
         logger.warning("yfinance popular stocks failed: %s", exc)
+        items = _sort_screener_items(_static_us_fallback_items(filters), sort_by, sort_order)
+        if items:
+            sliced = items[:limit]
+            return {
+                "success": True,
+                "market": "US",
+                "filters": filters if isinstance(filters, dict) else {},
+                "sort": {"by": sort_by, "order": sort_order},
+                "items": sliced,
+                "count": len(sliced),
+                "results": sliced,
+                "source": "static_popular",
+                "warning": "live_fallback_unavailable",
+                "capability_note": "Using built-in popular US stocks because FMP/yfinance data is unavailable.",
+            }
         return {
             "success": False,
             "market": market,
@@ -127,6 +243,34 @@ def _yfinance_popular_stocks(
             "error": f"yfinance_fallback_failed: {exc}",
             "source": "yfinance_popular",
         }
+
+
+def _sort_screener_items(items: list[dict[str, Any]], sort_by: str, sort_order: str) -> list[dict[str, Any]]:
+    sort_key_map = {"marketCap": "market_cap", "price": "price", "volume": "volume"}
+    py_sort_key = sort_key_map.get(sort_by, "market_cap")
+    reverse = sort_order == "desc"
+    return sorted(items, key=lambda x: x.get(py_sort_key) or 0, reverse=reverse)
+
+
+def _static_us_fallback_items(filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+    active_filters = filters if isinstance(filters, dict) else {}
+    items: list[dict[str, Any]] = []
+    for item in _STATIC_US_FALLBACK_ITEMS:
+        price = _clean_float(item.get("price"))
+        market_cap = _clean_float(item.get("market_cap"))
+        volume = _clean_float(item.get("volume"))
+        if active_filters.get("priceMoreThan") and price and price < float(active_filters["priceMoreThan"]):
+            continue
+        if active_filters.get("priceLowerThan") and price and price > float(active_filters["priceLowerThan"]):
+            continue
+        if active_filters.get("marketCapMoreThan") and market_cap and market_cap < float(active_filters["marketCapMoreThan"]):
+            continue
+        if active_filters.get("marketCapLowerThan") and market_cap and market_cap > float(active_filters["marketCapLowerThan"]):
+            continue
+        if active_filters.get("volumeMoreThan") and volume and volume < float(active_filters["volumeMoreThan"]):
+            continue
+        items.append(dict(item))
+    return items
 
 
 def _clean_float(value: Any) -> float | None:
@@ -170,10 +314,6 @@ def screen_stocks(
     if market_norm in {"CN", "HK"}:
         capability_note = "CN/HK coverage is limited in FMP screener; empty or partial results are expected for some symbols."
 
-    if not FMP_API_KEY:
-        logger.warning("FMP_API_KEY is not configured; screener unavailable")
-        return {"success": False, "error": "FMP_API_KEY is not configured", "count": 0, "results": []}
-
     limit_norm = _clean_int(limit, default=20, minimum=1, maximum=200)
     page_norm = _clean_int(page, default=1, minimum=1, maximum=100)
 
@@ -185,6 +325,11 @@ def screen_stocks(
         sort_dir = "desc"
 
     payload_filters = filters if isinstance(filters, dict) else {}
+
+    if not FMP_API_KEY:
+        logger.warning("FMP_API_KEY is not configured; using yfinance popular fallback")
+        return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
+
     params: dict[str, Any] = {
         "apikey": FMP_API_KEY,
         "limit": limit_norm,

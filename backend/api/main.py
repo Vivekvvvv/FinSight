@@ -43,6 +43,7 @@ from backend.api.tools_router import create_tools_router
 from backend.api.user_router import UserRouterDeps, create_user_router
 from backend.api.auth_router import router as auth_router
 from backend.api.entitlements_router import create_entitlements_router
+from backend.api.demo_router import demo_router
 from backend.contracts import CHAT_RESPONSE_SCHEMA_VERSION, SSE_EVENT_SCHEMA_VERSION, contract_manifest
 from backend.metrics import METRICS_ENABLED, metrics_payload
 from backend.conversation.context import ContextManager
@@ -1118,6 +1119,7 @@ rebalance_router = create_rebalance_router(
 )
 
 app.include_router(system_router)
+app.include_router(demo_router)
 app.include_router(auth_router)
 app.include_router(entitlements_router)
 app.include_router(user_router)

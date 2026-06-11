@@ -13,14 +13,45 @@ class _DummyResponse:
         return self._payload
 
 
-def test_screen_stocks_returns_config_error_without_api_key(monkeypatch):
+def test_screen_stocks_uses_fallback_without_api_key(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
+
+    def _fake_fallback(market, filters, limit, sort_by, sort_order):
+        return {
+            "success": True,
+            "market": market,
+            "items": [{"symbol": "AAPL"}],
+            "results": [{"symbol": "AAPL"}],
+            "count": 1,
+            "source": "test_fallback",
+            "sort": {"by": sort_by, "order": sort_order},
+            "filters": filters,
+        }
+
+    monkeypatch.setattr(screener, "_yfinance_screen_stocks", _fake_fallback)
 
     result = screener.screen_stocks(market="US", filters={}, limit=10, page=1)
 
-    assert result["success"] is False
-    assert result["error"] == "FMP_API_KEY is not configured"
-    assert result["count"] == 0
+    assert result["success"] is True
+    assert result["source"] == "test_fallback"
+    assert result["items"][0]["symbol"] == "AAPL"
+
+
+def test_yfinance_empty_result_uses_static_popular_fallback(monkeypatch):
+    class _BrokenTicker:
+        @property
+        def fast_info(self):
+            raise RuntimeError("network unavailable")
+
+    monkeypatch.setattr(screener.yf, "Ticker", lambda _symbol: _BrokenTicker())
+
+    result = screener._yfinance_popular_stocks("US", {}, 3, "marketCap", "desc")
+
+    assert result["success"] is True
+    assert result["count"] == 3
+    assert result["items"]
+    assert result["source"] == "yfinance_popular"
+    assert result["items"][0]["symbol"] in {"AAPL", "MSFT", "NVDA", "GOOGL"}
 
 
 def test_screen_stocks_parses_items(monkeypatch):

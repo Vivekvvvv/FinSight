@@ -8,6 +8,14 @@ from __future__ import annotations
 from typing import Any
 
 
+def _safe_priority(value: Any) -> int:
+    """把历史数据中的空值或异常值安全归零。"""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def generate_next_actions(
     portfolio_summary: dict[str, Any] | None,
     watchlist_items: list[dict[str, Any]],
@@ -111,7 +119,7 @@ def generate_next_actions(
         })
 
     # 规则6：高优先级自选提醒
-    high_priority_watchlist = [w for w in watchlist_items if w.get("priority", 0) >= 4]
+    high_priority_watchlist = [w for w in watchlist_items if _safe_priority(w.get("priority")) >= 4]
     for w in high_priority_watchlist[:2]:
         ticker = w.get("ticker", "")
         reason = w.get("watch_reason") or "高优先级标的"

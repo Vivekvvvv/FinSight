@@ -18,6 +18,7 @@ from typing import Any, Callable, Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.security.auth import Principal, get_current_user, require_matching_identity
+from backend.demo_mode import demo_today_workspace, is_demo_mode
 from backend.services.next_actions import generate_next_actions
 from backend.services.reports_to_review import get_reports_to_review
 
@@ -68,6 +69,8 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
             )
             normalized_session = deps.resolve_thread_id(session_id)
             resolved_user_id = user_id if current_user.auth_type == "dev" and user_id else current_user.user_id
+            if is_demo_mode():
+                return demo_today_workspace(normalized_session)
 
             # 导入必要的服务
             from backend.services.portfolio_store import get_positions

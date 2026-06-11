@@ -7,6 +7,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: () => import('@/pages/LoginPage.vue') },
   { path: '/welcome', name: 'welcome', component: () => import('@/pages/WelcomePage.vue') },
   { path: '/chat', name: 'chat', component: () => import('@/pages/ChatPage.vue') },
+  { path: '/stocks', name: 'stocks', component: () => import('@/pages/StocksDiscoveryPage.vue'), meta: { requiresAuth: true } },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue') },
   { path: '/dashboard/:symbol', name: 'dashboard-symbol', component: () => import('@/pages/DashboardPage.vue') },
   { path: '/workbench', name: 'workbench', component: () => import('@/pages/WorkbenchPage.vue') },

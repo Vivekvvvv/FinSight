@@ -6,6 +6,7 @@ import type {
   DailyTaskResponse,
   DashboardInsightsResponse,
   DashboardResponse,
+  DemoStatusResponse,
   PortfolioSummary,
   RagRunsResponse,
   RagStatusResponse,
@@ -26,6 +27,9 @@ import type {
   WhatChangedResponse,
   ResearchQualityResponse,
   ExecutionTraceEvent,
+  ScreenerMetaResponse,
+  ScreenerRunRequest,
+  ScreenerRunResponse,
 } from './types';
 
 const http = axios.create({
@@ -126,6 +130,11 @@ export const apiClient = {
     return data;
   },
 
+  async getDemoStatus(): Promise<DemoStatusResponse> {
+    const { data } = await http.get<DemoStatusResponse>('/api/demo/status');
+    return data;
+  },
+
   async getDashboard(symbol: string): Promise<DashboardResponse> {
     const { data } = await http.get<DashboardResponse>('/api/dashboard', { params: { symbol } });
     return data;
@@ -155,6 +164,16 @@ export const apiClient = {
 
   async getFinancials(symbol: string): Promise<any> {
     const { data } = await http.get(`/api/financials/${symbol}`);
+    return data;
+  },
+
+  async getScreenerMeta(): Promise<ScreenerMetaResponse> {
+    const { data } = await http.get<ScreenerMetaResponse>('/api/screener/filters/meta');
+    return data;
+  },
+
+  async runScreener(payload: ScreenerRunRequest): Promise<ScreenerRunResponse> {
+    const { data } = await http.post<ScreenerRunResponse>('/api/screener/run', payload);
     return data;
   },
 

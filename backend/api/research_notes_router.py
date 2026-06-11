@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.security.auth import Principal, get_current_user, require_matching_identity
+from backend.demo_mode import demo_notes, is_demo_mode
 from backend.services import note_images, research_notes
 
 
@@ -123,6 +124,8 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
                     limit=limit,
                     offset=offset,
                 )
+            if is_demo_mode() and not notes and not q:
+                notes = demo_notes(normalized_session, user_id, ticker=ticker, limit=limit)
 
             return {
                 "success": True,
