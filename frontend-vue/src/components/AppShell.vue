@@ -50,6 +50,22 @@ const routeTitle = computed(() => {
 
 const totalValue = computed(() => portfolio.value?.total_value ?? 0);
 const totalPnl = computed(() => portfolio.value?.total_pnl ?? 0);
+const sourceStatus = computed(() => {
+  const status = demoStatus.value?.overall_status || (demoStatus.value?.demo_mode ? 'demo' : 'unknown');
+  if (status === 'demo') return { label: 'DEMO 数据', tone: 'demo', detail: '本地演示数据' };
+  if (status === 'live_ready') return { label: 'LIVE 就绪', tone: 'live', detail: '外部服务已配置' };
+  if (status === 'needs_config') return { label: '需配置', tone: 'warn', detail: '部分 key 缺失' };
+  return { label: '检测中', tone: 'unknown', detail: '读取数据源状态' };
+});
+
+function componentStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    demo: 'Demo',
+    live_ready: 'Live',
+    missing_key: '缺 key',
+  };
+  return labels[status] || status;
+}
 
 function closeSidebar() {
   sidebarOpen.value = false;
@@ -127,7 +143,15 @@ onMounted(() => {
             <em :class="item.change.startsWith('+') ? 'pos' : 'neg'">{{ item.change }}</em>
           </button>
         </div>
-        <span v-if="demoStatus?.demo_mode" class="demo-pill">DEMO 数据</span>
+        <button
+          class="source-pill"
+          :class="sourceStatus.tone"
+          type="button"
+          @click="contextOpen = true"
+        >
+          <span>{{ sourceStatus.label }}</span>
+          <small>{{ sourceStatus.detail }}</small>
+        </button>
         <ThemeToggle />
         <button class="context-button" type="button" @click="contextOpen = true">上下文</button>
       </header>
@@ -170,6 +194,25 @@ onMounted(() => {
         <span v-if="demoStatus?.demo_mode" class="muted demo-note">
           当前为 Demo Mode：使用示例数据展示完整研究闭环。
         </span>
+      </section>
+
+      <section class="context-card data-source-card">
+        <p class="rail-kicker">DATA SOURCE</p>
+        <strong>数据源状态</strong>
+        <p class="muted">这里说明当前看到的是演示数据、真实数据，还是缺少配置。</p>
+        <div class="source-list">
+          <article v-for="item in demoStatus?.components || []" :key="item.key" class="source-row">
+            <div>
+              <strong>{{ item.label }}</strong>
+              <span>{{ item.detail }}</span>
+              <em v-if="item.required_action">{{ item.required_action }}</em>
+            </div>
+            <b :class="item.status">{{ componentStatusLabel(item.status) }}</b>
+          </article>
+        </div>
+        <p v-if="demoStatus?.missing_services?.length" class="missing-list">
+          缺失配置：{{ demoStatus.missing_services.join(' / ') }}
+        </p>
       </section>
     </aside>
 
@@ -283,7 +326,8 @@ onMounted(() => {
   background: var(--fin-card-soft);
 }
 
-.demo-pill {
+.demo-pill,
+.source-pill {
   border: 1px solid color-mix(in srgb, var(--fin-accent) 55%, transparent);
   color: var(--fin-accent);
   background: color-mix(in srgb, var(--fin-accent) 14%, transparent);
@@ -295,9 +339,117 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.source-pill {
+  display: grid;
+  gap: 1px;
+  min-width: 118px;
+  border-radius: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.source-pill span {
+  font-size: 12px;
+}
+
+.source-pill small {
+  color: var(--fin-muted);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.source-pill.live {
+  border-color: color-mix(in srgb, var(--fin-success) 55%, transparent);
+  color: var(--fin-success);
+  background: var(--fin-success-soft);
+}
+
+.source-pill.warn {
+  border-color: color-mix(in srgb, var(--fin-warning) 55%, transparent);
+  color: var(--fin-warning);
+  background: var(--fin-warning-soft);
+}
+
+.source-pill.unknown {
+  border-color: var(--fin-border);
+  color: var(--fin-muted);
+  background: var(--fin-card-soft);
+}
+
 .demo-note {
   margin-top: 8px;
   color: var(--fin-accent);
+}
+
+.data-source-card {
+  display: grid;
+  gap: 12px;
+}
+
+.source-list {
+  display: grid;
+  gap: 10px;
+}
+
+.source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  border: 1px solid var(--fin-border);
+  border-radius: 16px;
+  padding: 12px;
+  background: var(--fin-card-inset);
+}
+
+.source-row strong,
+.source-row span,
+.source-row em {
+  display: block;
+}
+
+.source-row span,
+.source-row em,
+.missing-list {
+  color: var(--fin-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.source-row em {
+  margin-top: 4px;
+  color: var(--fin-warning);
+  font-style: normal;
+}
+
+.source-row b {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--fin-card-soft);
+  color: var(--fin-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.source-row b.demo {
+  color: var(--fin-accent);
+  background: color-mix(in srgb, var(--fin-accent) 14%, transparent);
+}
+
+.source-row b.live_ready {
+  color: var(--fin-success);
+  background: var(--fin-success-soft);
+}
+
+.source-row b.missing_key {
+  color: var(--fin-warning);
+  background: var(--fin-warning-soft);
+}
+
+.missing-list {
+  margin: 0;
+  border-top: 1px dashed var(--fin-border);
+  padding-top: 10px;
 }
 
 .rail-card {

@@ -182,6 +182,20 @@ test.beforeEach(async ({ page }) => {
   // /api/me — 返回已登录用户
   await page.route('**/api/me', (r) =>
     json(r, { success: true, user_id: USER_ID, email: EMAIL, role: 'user', auth_type: 'token' }));
+  await page.route('**/api/demo/status', (r) =>
+    json(r, {
+      success: true,
+      demo_mode: true,
+      data_source: 'demo',
+      overall_status: 'demo',
+      missing_services: ['FMP_API_KEY', 'OPENAI_COMPATIBLE_API_KEY'],
+      components: [
+        { key: 'market_data', label: '行情与股票筛选', status: 'demo', detail: '当前使用内置演示行情。', required_action: null },
+        { key: 'llm', label: 'AI 研究生成', status: 'demo', detail: 'Demo Mode 下可使用模板化研究输出。', required_action: null },
+        { key: 'auth', label: '访问控制', status: 'demo', detail: '本地演示身份已启用。', required_action: null },
+      ],
+      notes: ['Demo Mode 使用只读示例数据，不构成投资建议。'],
+    }));
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -356,6 +370,25 @@ test('/dashboard — 无 symbol 默认加载 AAPL', async ({ page }) => {
   await page.goto('/dashboard');
   await page.waitForLoadState('networkidle');
   await expect(page.getByPlaceholder('输入股票代码', { exact: false })).toBeVisible();
+});
+
+test('/shell - data source status is visible in header and context drawer', async ({ page }) => {
+  await page.route('**/api/quote/**', (r) => json(r, QUOTE_DATA));
+  await page.route('**/api/kline/**', (r) => json(r, KLINE_DATA));
+  await page.route('**/api/financials/**', (r) => json(r, { ticker: 'AAPL', data: {} }));
+  await page.route('**/api/dashboard/insights**', (r) => json(r, INSIGHTS));
+  await page.route('**/api/stock/news/**', (r) => json(r, { data: [] }));
+  await page.route('**/api/what-changed**', (r) =>
+    json(r, { success: true, as_of: new Date().toISOString(), items: [], count: 0 }));
+
+  await page.goto('/dashboard/AAPL');
+  await page.waitForLoadState('networkidle');
+
+  await expect(page.getByRole('button', { name: /DEMO/ })).toBeVisible();
+  await page.getByRole('button', { name: /DEMO/ }).click();
+  await expect(page.getByText('数据源状态')).toBeVisible();
+  await expect(page.getByText('行情与股票筛选')).toBeVisible();
+  await expect(page.getByText('AI 研究生成')).toBeVisible();
 });
 
 // ══════════════════════════════════════════════════════════════

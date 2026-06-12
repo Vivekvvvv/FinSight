@@ -34,11 +34,41 @@ def demo_status() -> dict[str, Any]:
     for name in ("FMP_API_KEY", "OPENAI_COMPATIBLE_API_KEY", "JWT_SECRET", "API_AUTH_KEYS"):
         if not str(os.getenv(name, "")).strip():
             missing.append(name)
+    demo_mode = is_demo_mode()
+    market_keys = ("FMP_API_KEY", "ALPHA_VANTAGE_API_KEY", "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY", "EODHD_API_KEY")
+    has_market_key = any(str(os.getenv(name, "")).strip() for name in market_keys)
+    has_llm_key = bool(str(os.getenv("OPENAI_COMPATIBLE_API_KEY", "")).strip())
+    has_auth_keys = bool(str(os.getenv("JWT_SECRET", "")).strip() and str(os.getenv("API_AUTH_KEYS", "")).strip())
+    components = [
+        {
+            "key": "market_data",
+            "label": "行情与股票筛选",
+            "status": "demo" if demo_mode else ("live_ready" if has_market_key else "missing_key"),
+            "detail": "当前使用内置演示行情。" if demo_mode else ("已检测到外部行情 key。" if has_market_key else "未检测到外部行情 key。"),
+            "required_action": None if demo_mode or has_market_key else "配置 FMP_API_KEY 或其他行情 key。",
+        },
+        {
+            "key": "llm",
+            "label": "AI 研究生成",
+            "status": "demo" if demo_mode else ("live_ready" if has_llm_key else "missing_key"),
+            "detail": "Demo Mode 下可使用模板化研究输出。" if demo_mode else ("已检测到 LLM key。" if has_llm_key else "未检测到 LLM key。"),
+            "required_action": None if demo_mode or has_llm_key else "配置 OPENAI_COMPATIBLE_API_KEY。",
+        },
+        {
+            "key": "auth",
+            "label": "访问控制",
+            "status": "demo" if demo_mode else ("live_ready" if has_auth_keys else "missing_key"),
+            "detail": "本地演示身份已启用。" if demo_mode else ("JWT 与 API key 已配置。" if has_auth_keys else "JWT 或 API key 未完整配置。"),
+            "required_action": None if demo_mode or has_auth_keys else "配置 JWT_SECRET 和 API_AUTH_KEYS。",
+        },
+    ]
     return {
         "success": True,
-        "demo_mode": is_demo_mode(),
-        "data_source": "demo" if is_demo_mode() else "live_or_local",
+        "demo_mode": demo_mode,
+        "data_source": "demo" if demo_mode else "live_or_local",
+        "overall_status": "demo" if demo_mode else ("live_ready" if not missing else "needs_config"),
         "missing_services": missing,
+        "components": components,
         "notes": [
             "Demo Mode 使用只读示例数据，不构成投资建议。",
             "配置真实 API key 后可切换到 live/local 数据。",

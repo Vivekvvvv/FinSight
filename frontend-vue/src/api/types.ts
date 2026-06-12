@@ -194,7 +194,15 @@ export interface DemoStatusResponse {
   success: boolean;
   demo_mode: boolean;
   data_source: 'demo' | 'live_or_local' | string;
+  overall_status?: 'demo' | 'live_ready' | 'needs_config' | string;
   missing_services: string[];
+  components?: Array<{
+    key: string;
+    label: string;
+    status: 'demo' | 'live_ready' | 'missing_key' | string;
+    detail: string;
+    required_action?: string | null;
+  }>;
   notes: string[];
 }
 

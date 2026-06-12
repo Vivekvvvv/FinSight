@@ -26,7 +26,10 @@ def test_demo_status_reports_mode_and_missing_services(monkeypatch):
     assert status["success"] is True
     assert status["demo_mode"] is True
     assert status["data_source"] == "demo"
+    assert status["overall_status"] == "demo"
     assert "FMP_API_KEY" in status["missing_services"]
+    assert {item["key"] for item in status["components"]} == {"market_data", "llm", "auth"}
+    assert all(item["status"] == "demo" for item in status["components"])
 
 
 def test_demo_status_api():
