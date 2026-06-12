@@ -62,6 +62,16 @@ function money(value: number | null | undefined): string {
   return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 }
 
+function warningLabel(code: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    coverage_limited_or_empty_result: '当前筛选条件下暂无覆盖结果，可放宽条件或切换市场。',
+    demo_market_fallback: '当前使用内置示例股票池，适合本地演示与研究流程体验。',
+    live_fallback_unavailable: '实时数据源暂不可用，已切换到本地候选池。',
+    empty_result: '暂无候选股票。',
+  };
+  return code ? labels[code] || code : '';
+}
+
 function buildFilters() {
   return {
     marketCapMoreThan: num(minMarketCap.value),
@@ -250,7 +260,7 @@ onMounted(async () => {
     </section>
 
     <p v-if="response?.capability_note" class="notice">{{ response.capability_note }}</p>
-    <p v-if="response?.warning" class="notice warn">覆盖提示：{{ response.warning }}</p>
+    <p v-if="response?.warning" class="notice warn">覆盖提示：{{ warningLabel(response.warning) }}</p>
     <p v-if="actionMsg" class="notice success">{{ actionMsg }}</p>
     <p v-if="errorMsg" class="notice danger">{{ errorMsg }}</p>
 

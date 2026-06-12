@@ -28,92 +28,240 @@ _YF_SCREENER_MAP = {
     "HK": "most_actives",  # Fallback
 }
 
-_STATIC_US_FALLBACK_ITEMS: list[dict[str, Any]] = [
-    {
-        "symbol": "AAPL",
-        "name": "Apple Inc.",
-        "sector": "Technology",
-        "industry": "Consumer Electronics",
-        "country": "US",
-        "exchange": "NASDAQ",
-        "price": 195.5,
-        "market_cap": 3_000_000_000_000,
-        "volume": 52_000_000,
-        "beta": 1.2,
-        "dividend": None,
-        "change_percent": 1.19,
-    },
-    {
-        "symbol": "MSFT",
-        "name": "Microsoft Corp.",
-        "sector": "Technology",
-        "industry": "Software",
-        "country": "US",
-        "exchange": "NASDAQ",
-        "price": 430.2,
-        "market_cap": 3_200_000_000_000,
-        "volume": 24_000_000,
-        "beta": 0.9,
-        "dividend": None,
-        "change_percent": 0.62,
-    },
-    {
-        "symbol": "NVDA",
-        "name": "NVIDIA Corp.",
-        "sector": "Semiconductors",
-        "industry": "AI Chips",
-        "country": "US",
-        "exchange": "NASDAQ",
-        "price": 880.1,
-        "market_cap": 2_200_000_000_000,
-        "volume": 41_000_000,
-        "beta": 1.7,
-        "dividend": None,
-        "change_percent": -0.8,
-    },
-    {
-        "symbol": "AMZN",
-        "name": "Amazon.com Inc.",
-        "sector": "Consumer Discretionary",
-        "industry": "Internet Retail",
-        "country": "US",
-        "exchange": "NASDAQ",
-        "price": 184.7,
-        "market_cap": 1_900_000_000_000,
-        "volume": 36_000_000,
-        "beta": 1.1,
-        "dividend": None,
-        "change_percent": 0.35,
-    },
-    {
-        "symbol": "GOOGL",
-        "name": "Alphabet Inc.",
-        "sector": "Communication Services",
-        "industry": "Internet Content",
-        "country": "US",
-        "exchange": "NASDAQ",
-        "price": 175.4,
-        "market_cap": 2_100_000_000_000,
-        "volume": 28_000_000,
-        "beta": 1.0,
-        "dividend": None,
-        "change_percent": 0.48,
-    },
-    {
-        "symbol": "META",
-        "name": "Meta Platforms Inc.",
-        "sector": "Communication Services",
-        "industry": "Social Media",
-        "country": "US",
-        "exchange": "NASDAQ",
-        "price": 504.3,
-        "market_cap": 1_280_000_000_000,
-        "volume": 16_000_000,
-        "beta": 1.3,
-        "dividend": None,
-        "change_percent": 0.74,
-    },
-]
+_STATIC_FALLBACK_ITEMS: dict[str, list[dict[str, Any]]] = {
+    "US": [
+        {
+            "symbol": "AAPL",
+            "name": "Apple Inc.",
+            "sector": "Technology",
+            "industry": "Consumer Electronics",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 195.5,
+            "market_cap": 3_000_000_000_000,
+            "volume": 52_000_000,
+            "beta": 1.2,
+            "dividend": None,
+            "change_percent": 1.19,
+        },
+        {
+            "symbol": "MSFT",
+            "name": "Microsoft Corp.",
+            "sector": "Technology",
+            "industry": "Software",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 430.2,
+            "market_cap": 3_200_000_000_000,
+            "volume": 24_000_000,
+            "beta": 0.9,
+            "dividend": None,
+            "change_percent": 0.62,
+        },
+        {
+            "symbol": "NVDA",
+            "name": "NVIDIA Corp.",
+            "sector": "Semiconductors",
+            "industry": "AI Chips",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 880.1,
+            "market_cap": 2_200_000_000_000,
+            "volume": 41_000_000,
+            "beta": 1.7,
+            "dividend": None,
+            "change_percent": -0.8,
+        },
+        {
+            "symbol": "AMZN",
+            "name": "Amazon.com Inc.",
+            "sector": "Consumer Discretionary",
+            "industry": "Internet Retail",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 184.7,
+            "market_cap": 1_900_000_000_000,
+            "volume": 36_000_000,
+            "beta": 1.1,
+            "dividend": None,
+            "change_percent": 0.35,
+        },
+        {
+            "symbol": "GOOGL",
+            "name": "Alphabet Inc.",
+            "sector": "Communication Services",
+            "industry": "Internet Content",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 175.4,
+            "market_cap": 2_100_000_000_000,
+            "volume": 28_000_000,
+            "beta": 1.0,
+            "dividend": None,
+            "change_percent": 0.48,
+        },
+        {
+            "symbol": "META",
+            "name": "Meta Platforms Inc.",
+            "sector": "Communication Services",
+            "industry": "Social Media",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 504.3,
+            "market_cap": 1_280_000_000_000,
+            "volume": 16_000_000,
+            "beta": 1.3,
+            "dividend": None,
+            "change_percent": 0.74,
+        },
+    ],
+    "CN": [
+        {
+            "symbol": "600519.SS",
+            "name": "Kweichow Moutai Co., Ltd.",
+            "sector": "Consumer Staples",
+            "industry": "Beverages",
+            "country": "CN",
+            "exchange": "Shanghai",
+            "price": 1702.0,
+            "market_cap": 2_138_000_000_000,
+            "volume": 2_100_000,
+            "beta": 0.7,
+            "dividend": None,
+            "change_percent": 0.42,
+        },
+        {
+            "symbol": "300750.SZ",
+            "name": "Contemporary Amperex Technology Co., Ltd.",
+            "sector": "Industrials",
+            "industry": "Battery Manufacturing",
+            "country": "CN",
+            "exchange": "Shenzhen",
+            "price": 193.6,
+            "market_cap": 852_000_000_000,
+            "volume": 15_200_000,
+            "beta": 1.1,
+            "dividend": None,
+            "change_percent": -0.35,
+        },
+        {
+            "symbol": "601318.SS",
+            "name": "Ping An Insurance Group Co. of China, Ltd.",
+            "sector": "Financials",
+            "industry": "Insurance",
+            "country": "CN",
+            "exchange": "Shanghai",
+            "price": 45.8,
+            "market_cap": 812_000_000_000,
+            "volume": 29_000_000,
+            "beta": 0.9,
+            "dividend": None,
+            "change_percent": 0.18,
+        },
+        {
+            "symbol": "000333.SZ",
+            "name": "Midea Group Co., Ltd.",
+            "sector": "Consumer Discretionary",
+            "industry": "Home Appliances",
+            "country": "CN",
+            "exchange": "Shenzhen",
+            "price": 70.4,
+            "market_cap": 493_000_000_000,
+            "volume": 18_500_000,
+            "beta": 0.8,
+            "dividend": None,
+            "change_percent": 0.66,
+        },
+        {
+            "symbol": "000858.SZ",
+            "name": "Wuliangye Yibin Co., Ltd.",
+            "sector": "Consumer Staples",
+            "industry": "Beverages",
+            "country": "CN",
+            "exchange": "Shenzhen",
+            "price": 132.5,
+            "market_cap": 514_000_000_000,
+            "volume": 11_400_000,
+            "beta": 0.7,
+            "dividend": None,
+            "change_percent": -0.21,
+        },
+    ],
+    "HK": [
+        {
+            "symbol": "0700.HK",
+            "name": "Tencent Holdings Limited",
+            "sector": "Communication Services",
+            "industry": "Internet Content",
+            "country": "HK",
+            "exchange": "HKEX",
+            "price": 381.0,
+            "market_cap": 3_560_000_000_000,
+            "volume": 20_800_000,
+            "beta": 1.0,
+            "dividend": None,
+            "change_percent": 0.58,
+        },
+        {
+            "symbol": "9988.HK",
+            "name": "Alibaba Group Holding Limited",
+            "sector": "Consumer Discretionary",
+            "industry": "Internet Retail",
+            "country": "HK",
+            "exchange": "HKEX",
+            "price": 81.2,
+            "market_cap": 1_520_000_000_000,
+            "volume": 73_000_000,
+            "beta": 1.2,
+            "dividend": None,
+            "change_percent": 0.31,
+        },
+        {
+            "symbol": "3690.HK",
+            "name": "Meituan",
+            "sector": "Consumer Discretionary",
+            "industry": "Internet Services",
+            "country": "HK",
+            "exchange": "HKEX",
+            "price": 118.6,
+            "market_cap": 736_000_000_000,
+            "volume": 45_000_000,
+            "beta": 1.4,
+            "dividend": None,
+            "change_percent": -0.44,
+        },
+        {
+            "symbol": "1299.HK",
+            "name": "AIA Group Limited",
+            "sector": "Financials",
+            "industry": "Insurance",
+            "country": "HK",
+            "exchange": "HKEX",
+            "price": 62.5,
+            "market_cap": 683_000_000_000,
+            "volume": 28_700_000,
+            "beta": 0.8,
+            "dividend": None,
+            "change_percent": 0.14,
+        },
+        {
+            "symbol": "1810.HK",
+            "name": "Xiaomi Corporation",
+            "sector": "Technology",
+            "industry": "Consumer Electronics",
+            "country": "HK",
+            "exchange": "HKEX",
+            "price": 18.9,
+            "market_cap": 472_000_000_000,
+            "volume": 91_000_000,
+            "beta": 1.3,
+            "dividend": None,
+            "change_percent": 1.05,
+        },
+    ],
+}
+
+_STATIC_US_FALLBACK_ITEMS = _STATIC_FALLBACK_ITEMS["US"]
 
 
 def _yfinance_screen_stocks(
@@ -139,15 +287,36 @@ def _yfinance_popular_stocks(
 ) -> dict[str, Any]:
     """Fetch data for popular stocks when screener API fails."""
     market_norm = str(market or "US").strip().upper()
+
+    # 无外部 screener 覆盖时，先使用内置候选池，保证 Demo Mode 和无密钥本地环境可用。
+    static_items = _sort_screener_items(_static_fallback_items(market_norm, filters), sort_by, sort_order)
+    if static_items:
+        sliced = static_items[:limit]
+        return {
+            "success": True,
+            "market": market_norm,
+            "filters": filters if isinstance(filters, dict) else {},
+            "sort": {"by": sort_by, "order": sort_order},
+            "items": sliced,
+            "count": len(sliced),
+            "results": sliced,
+            "source": "static_market_demo",
+            "warning": "demo_market_fallback",
+            "capability_note": "Using built-in market demo candidates because FMP screener coverage is not configured.",
+        }
+
     if market_norm != "US":
         return {
             "success": True,
             "market": market_norm,
+            "filters": filters if isinstance(filters, dict) else {},
+            "sort": {"by": sort_by, "order": sort_order},
             "items": [],
             "count": 0,
-            "source": "yfinance_popular",
+            "results": [],
+            "source": "static_market_demo",
             "warning": "coverage_limited_or_empty_result",
-            "capability_note": "CN/HK screener requires configured FMP coverage; fallback only provides stable US popular stocks.",
+            "capability_note": "Built-in market demo candidates were filtered out. Loosen filters or configure FMP coverage for live CN/HK screening.",
         }
 
     # Popular US large-cap tickers
@@ -252,10 +421,11 @@ def _sort_screener_items(items: list[dict[str, Any]], sort_by: str, sort_order: 
     return sorted(items, key=lambda x: x.get(py_sort_key) or 0, reverse=reverse)
 
 
-def _static_us_fallback_items(filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _static_fallback_items(market: str, filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+    market_norm = str(market or "US").strip().upper()
     active_filters = filters if isinstance(filters, dict) else {}
     items: list[dict[str, Any]] = []
-    for item in _STATIC_US_FALLBACK_ITEMS:
+    for item in _STATIC_FALLBACK_ITEMS.get(market_norm, []):
         price = _clean_float(item.get("price"))
         market_cap = _clean_float(item.get("market_cap"))
         volume = _clean_float(item.get("volume"))
@@ -271,6 +441,10 @@ def _static_us_fallback_items(filters: dict[str, Any] | None) -> list[dict[str, 
             continue
         items.append(dict(item))
     return items
+
+
+def _static_us_fallback_items(filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+    return _static_fallback_items("US", filters)
 
 
 def _clean_float(value: Any) -> float | None:

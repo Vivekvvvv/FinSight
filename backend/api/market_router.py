@@ -8,6 +8,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.schemas import KlineResponse
+from backend.demo_mode import demo_financials, demo_kline, demo_quote, is_demo_mode
 from backend.utils.quote import parse_quote_payload, resolve_live_quote
 
 
@@ -65,6 +66,21 @@ def _extract_ticker_candidates(query: str, provided_ticker: str | None = None) -
         pass
 
     return candidates
+
+
+def _has_usable_payload(payload: Any) -> bool:
+    if payload is None:
+        return False
+    if isinstance(payload, dict):
+        if payload.get("error"):
+            return False
+        data = payload.get("data")
+        if isinstance(data, dict) and data.get("error"):
+            return False
+        return bool(payload)
+    if isinstance(payload, list):
+        return bool(payload)
+    return True
 
 def create_market_router(deps: MarketRouterDeps) -> APIRouter:
     router = APIRouter(tags=["Market"])
@@ -160,6 +176,11 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                         result.setdefault("as_of", datetime.now(timezone.utc).isoformat())
                     return {"ticker": normalized_ticker, "data": result, "cached": True}
 
+            if is_demo_mode():
+                demo = demo_quote(normalized_ticker)
+                if demo:
+                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
+
             quote, raw_payload = resolve_live_quote(normalized_ticker, deps.get_stock_price)
             if quote is not None:
                 if orchestrator:
@@ -192,9 +213,24 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
     def get_financials(ticker: str):
         normalized_ticker = _validate_ticker_or_400(ticker)
         try:
+            if is_demo_mode():
+                demo = demo_financials(normalized_ticker)
+                if demo:
+                    return demo
+
             financials_data = deps.get_financial_statements(normalized_ticker)
+            if _has_usable_payload(financials_data):
+                return financials_data
+            if is_demo_mode():
+                demo = demo_financials(normalized_ticker)
+                if demo:
+                    return demo
             return financials_data
         except Exception as exc:
+            if is_demo_mode():
+                demo = demo_financials(normalized_ticker)
+                if demo:
+                    return demo
             deps.logger.warning("[API] get_financials failed for %s: %s", normalized_ticker, exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 财务数据") from exc
 
@@ -220,13 +256,26 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     deps.logger.info("[API] kline cache hit %s (%s,%s)", normalized_ticker, period, interval)
                     return {"ticker": normalized_ticker, "data": cached_data, "cached": True}
 
+            if is_demo_mode():
+                demo = demo_kline(normalized_ticker, period=period, interval=interval)
+                if demo:
+                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
+
             kline_data = deps.get_stock_historical_data(normalized_ticker, period=period, interval=interval)
+            if kline_data.get("error") and is_demo_mode():
+                demo = demo_kline(normalized_ticker, period=period, interval=interval)
+                if demo:
+                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
             if "error" not in kline_data and orchestrator:
                 cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
                 orchestrator.cache.set(cache_key, kline_data, ttl=3600)
 
             return {"ticker": normalized_ticker, "data": kline_data, "cached": False}
         except Exception as exc:
+            if is_demo_mode():
+                demo = demo_kline(normalized_ticker, period=period, interval=interval)
+                if demo:
+                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
             return {"ticker": normalized_ticker, "data": {"error": str(exc)}, "cached": False}
 
     @router.get("/api/kline/{ticker}")

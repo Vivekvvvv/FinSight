@@ -132,6 +132,43 @@ const SCREENER_RESPONSE = {
   ],
 };
 
+const SCREENER_HK_RESPONSE = {
+  success: true,
+  market: 'HK',
+  count: 2,
+  source: 'static_market_demo',
+  warning: 'demo_market_fallback',
+  capability_note: 'Using built-in market demo candidates because FMP screener coverage is not configured.',
+  items: [
+    {
+      symbol: '0700.HK',
+      name: 'Tencent Holdings Limited',
+      sector: 'Communication Services',
+      industry: 'Internet Content',
+      country: 'HK',
+      exchange: 'HKEX',
+      price: 381,
+      market_cap: 3_560_000_000_000,
+      volume: 20_800_000,
+      beta: 1,
+      change_percent: 0.58,
+    },
+    {
+      symbol: '9988.HK',
+      name: 'Alibaba Group Holding Limited',
+      sector: 'Consumer Discretionary',
+      industry: 'Internet Retail',
+      country: 'HK',
+      exchange: 'HKEX',
+      price: 81.2,
+      market_cap: 1_520_000_000_000,
+      volume: 73_000_000,
+      beta: 1.2,
+      change_percent: 0.31,
+    },
+  ],
+};
+
 // ── Setup ─────────────────────────────────────────────────────
 test.beforeEach(async ({ page }) => {
   // 写入 localStorage，跳过登录
@@ -178,15 +215,7 @@ function setupStocksPageMocks(page: Page) {
     const raw = r.request().postData();
     const payload = raw ? JSON.parse(raw) : {};
     if (payload.market === 'HK') {
-      return json(r, {
-        success: true,
-        market: 'HK',
-        count: 0,
-        items: [],
-        source: 'mock_screener',
-        warning: 'coverage_limited_or_empty_result',
-        capability_note: 'CN/HK screener requires configured FMP coverage; fallback only provides stable US popular stocks.',
-      });
+      return json(r, SCREENER_HK_RESPONSE);
     }
     return json(r, { ...SCREENER_RESPONSE, market: payload.market || 'US' });
   });
@@ -397,15 +426,16 @@ test('/stocks - dashboard action navigates to symbol', async ({ page }) => {
   await expect(page).toHaveURL(/\/dashboard\/AAPL/);
 });
 
-test('/stocks - HK limited coverage empty state', async ({ page }) => {
+test('/stocks - HK demo fallback renders candidates', async ({ page }) => {
   await setupStocksPageMocks(page);
 
   await page.goto('/stocks');
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: 'HK' }).click();
 
-  await expect(page.getByText('coverage_limited_or_empty_result')).toBeVisible();
-  await expect(page.getByText('暂无候选股票')).toBeVisible();
+  await expect(page.getByText('0700.HK')).toBeVisible();
+  await expect(page.getByText('Tencent Holdings Limited')).toBeVisible();
+  await expect(page.getByText('HKEX').first()).toBeVisible();
 });
 
 test('/dossier/:symbol - aggregates symbol research assets', async ({ page }) => {

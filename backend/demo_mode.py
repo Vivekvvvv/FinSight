@@ -46,6 +46,264 @@ def demo_status() -> dict[str, Any]:
     }
 
 
+DEMO_MARKET_PROFILES: dict[str, dict[str, Any]] = {
+    "AAPL": {
+        "name": "Apple Inc.",
+        "market": "US",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "currency": "USD",
+        "base_price": 195.5,
+        "change": 2.3,
+        "change_percent": 1.19,
+        "trend": [0.0, 0.7, 1.2, 0.8, 1.6, 2.1, 2.8, 2.4, 3.0, 3.6, 4.1, 3.8],
+        "volume": 52_000_000,
+        "market_cap": 3_000_000_000_000,
+        "trailingPE": 30.4,
+        "priceToBook": 44.2,
+        "trailingEps": 6.43,
+        "beta": 1.2,
+    },
+    "MSFT": {
+        "name": "Microsoft Corp.",
+        "market": "US",
+        "exchange": "NASDAQ",
+        "sector": "Technology",
+        "currency": "USD",
+        "base_price": 430.2,
+        "change": 1.8,
+        "change_percent": 0.42,
+        "trend": [0.0, 1.4, 2.2, 3.8, 4.7, 4.1, 5.2, 6.4, 7.1, 7.6, 8.4, 9.3],
+        "volume": 24_000_000,
+        "market_cap": 3_200_000_000_000,
+        "trailingPE": 36.8,
+        "priceToBook": 12.6,
+        "trailingEps": 11.7,
+        "beta": 0.9,
+    },
+    "NVDA": {
+        "name": "NVIDIA Corp.",
+        "market": "US",
+        "exchange": "NASDAQ",
+        "sector": "Semiconductors",
+        "currency": "USD",
+        "base_price": 880.1,
+        "change": -7.1,
+        "change_percent": -0.8,
+        "trend": [0.0, 5.6, 13.4, 8.2, 16.8, 24.0, 19.5, 31.0, 27.2, 22.4, 29.6, 25.1],
+        "volume": 41_000_000,
+        "market_cap": 2_200_000_000_000,
+        "trailingPE": 72.5,
+        "priceToBook": 47.8,
+        "trailingEps": 12.1,
+        "beta": 1.7,
+    },
+    "GOOGL": {
+        "name": "Alphabet Inc.",
+        "market": "US",
+        "exchange": "NASDAQ",
+        "sector": "Communication Services",
+        "currency": "USD",
+        "base_price": 175.4,
+        "change": 0.8,
+        "change_percent": 0.48,
+        "trend": [0.0, -0.4, 0.2, 1.1, 1.5, 0.9, 1.8, 2.0, 1.6, 2.5, 2.9, 3.4],
+        "volume": 28_000_000,
+        "market_cap": 2_100_000_000_000,
+        "trailingPE": 27.1,
+        "priceToBook": 7.4,
+        "trailingEps": 6.47,
+        "beta": 1.0,
+    },
+    "0700.HK": {
+        "name": "Tencent Holdings Limited",
+        "market": "HK",
+        "exchange": "HKEX",
+        "sector": "Communication Services",
+        "currency": "HKD",
+        "base_price": 381.0,
+        "change": 2.2,
+        "change_percent": 0.58,
+        "trend": [0.0, -1.8, -0.6, 1.2, 2.7, 1.9, 3.4, 4.8, 4.1, 5.6, 6.2, 7.0],
+        "volume": 20_800_000,
+        "market_cap": 3_560_000_000_000,
+        "trailingPE": 22.6,
+        "priceToBook": 4.1,
+        "trailingEps": 16.9,
+        "beta": 1.0,
+    },
+    "9988.HK": {
+        "name": "Alibaba Group Holding Limited",
+        "market": "HK",
+        "exchange": "HKEX",
+        "sector": "Consumer Discretionary",
+        "currency": "HKD",
+        "base_price": 81.2,
+        "change": 0.25,
+        "change_percent": 0.31,
+        "trend": [0.0, 0.6, -0.2, -1.0, -0.4, 0.1, 0.9, 1.3, 0.7, 1.8, 2.1, 1.5],
+        "volume": 73_000_000,
+        "market_cap": 1_520_000_000_000,
+        "trailingPE": 13.8,
+        "priceToBook": 1.6,
+        "trailingEps": 5.88,
+        "beta": 1.2,
+    },
+    "600519.SS": {
+        "name": "Kweichow Moutai Co., Ltd.",
+        "market": "CN",
+        "exchange": "Shanghai",
+        "sector": "Consumer Staples",
+        "currency": "CNY",
+        "base_price": 1702.0,
+        "change": 7.1,
+        "change_percent": 0.42,
+        "trend": [0.0, -8.0, -15.0, -6.0, 4.0, 12.0, 8.0, 19.0, 25.0, 18.0, 31.0, 39.0],
+        "volume": 2_100_000,
+        "market_cap": 2_138_000_000_000,
+        "trailingPE": 27.9,
+        "priceToBook": 9.6,
+        "trailingEps": 61.0,
+        "beta": 0.7,
+    },
+    "300750.SZ": {
+        "name": "Contemporary Amperex Technology Co., Ltd.",
+        "market": "CN",
+        "exchange": "Shenzhen",
+        "sector": "Industrials",
+        "currency": "CNY",
+        "base_price": 193.6,
+        "change": -0.68,
+        "change_percent": -0.35,
+        "trend": [0.0, 2.4, 1.1, -1.8, -3.2, -2.1, -4.8, -3.6, -5.2, -6.1, -4.9, -7.0],
+        "volume": 15_200_000,
+        "market_cap": 852_000_000_000,
+        "trailingPE": 21.4,
+        "priceToBook": 4.9,
+        "trailingEps": 9.05,
+        "beta": 1.1,
+    },
+}
+
+
+def _demo_market_profile(symbol: str) -> dict[str, Any] | None:
+    return DEMO_MARKET_PROFILES.get(str(symbol or "").strip().upper())
+
+
+def _demo_source_meta() -> dict[str, Any]:
+    return {
+        "source": "demo",
+        "freshness_status": "demo",
+        "fallback_level": 2,
+        "as_of": _iso(),
+    }
+
+
+def demo_quote(symbol: str) -> dict[str, Any] | None:
+    profile = _demo_market_profile(symbol)
+    if not profile:
+        return None
+    price = float(profile["base_price"])
+    change = float(profile["change"])
+    change_percent = float(profile["change_percent"])
+    day_low = round(price - max(abs(change) * 1.4, price * 0.006), 2)
+    day_high = round(price + max(abs(change) * 1.6, price * 0.007), 2)
+    return {
+        **_demo_source_meta(),
+        "symbol": str(symbol).upper(),
+        "shortName": profile["name"],
+        "longName": profile["name"],
+        "price": price,
+        "currentPrice": price,
+        "regularMarketPrice": price,
+        "change": change,
+        "regularMarketChange": change,
+        "change_percent": change_percent,
+        "regularMarketChangePercent": change_percent,
+        "regularMarketDayLow": day_low,
+        "regularMarketDayHigh": day_high,
+        "regularMarketVolume": profile["volume"],
+        "marketCap": profile["market_cap"],
+        "beta": profile["beta"],
+        "currency": profile["currency"],
+        "exchange": profile["exchange"],
+        "sector": profile["sector"],
+        "fiftyTwoWeekLow": round(price * 0.72, 2),
+        "fiftyTwoWeekHigh": round(price * 1.18, 2),
+    }
+
+
+def demo_kline(symbol: str, period: str = "1mo", interval: str = "1d") -> dict[str, Any] | None:
+    profile = _demo_market_profile(symbol)
+    if not profile:
+        return None
+    base_price = float(profile["base_price"])
+    trend = list(profile["trend"])
+    end = _now().date()
+    rows: list[dict[str, Any]] = []
+    dates: list[str] = []
+    values: list[list[float]] = []
+    previous_close = base_price - float(trend[-1])
+    for index, offset in enumerate(trend):
+        day = end - timedelta(days=len(trend) - index)
+        close = round(base_price - float(trend[-1]) + float(offset), 2)
+        open_price = round(previous_close + (float(offset) - float(trend[index - 1] if index else 0)) * 0.35, 2)
+        spread = max(base_price * 0.006, abs(close - open_price) * 0.8)
+        high = round(max(open_price, close) + spread, 2)
+        low = round(min(open_price, close) - spread, 2)
+        volume = float(profile["volume"]) * (0.72 + (index % 5) * 0.08)
+        time_value = day.strftime("%Y-%m-%d")
+        rows.append({
+            "time": f"{time_value} 00:00",
+            "open": open_price,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": round(volume, 0),
+        })
+        dates.append(time_value)
+        values.append([open_price, close, low, high])
+        previous_close = close
+    return {
+        **_demo_source_meta(),
+        "symbol": str(symbol).upper(),
+        "period": period,
+        "interval": interval,
+        "kline_data": rows,
+        "dates": dates,
+        "values": values,
+    }
+
+
+def demo_financials(symbol: str) -> dict[str, Any] | None:
+    profile = _demo_market_profile(symbol)
+    if not profile:
+        return None
+    market_cap = float(profile["market_cap"])
+    pe = float(profile["trailingPE"])
+    eps = float(profile["trailingEps"])
+    revenue = market_cap / max(pe, 1.0) * 1.65
+    net_income = eps * max(market_cap / max(float(profile["base_price"]), 1.0), 1.0)
+    return {
+        "ticker": str(symbol).upper(),
+        "data": {
+            **_demo_source_meta(),
+            "shortName": profile["name"],
+            "sector": profile["sector"],
+            "currency": profile["currency"],
+            "marketCap": market_cap,
+            "trailingPE": pe,
+            "priceToBook": profile["priceToBook"],
+            "trailingEps": eps,
+            "beta": profile["beta"],
+            "totalRevenue": round(revenue, 2),
+            "netIncome": round(net_income, 2),
+            "grossMargins": 0.43 if profile["market"] == "US" else 0.36,
+            "returnOnEquity": 0.32 if profile["market"] != "CN" else 0.24,
+        },
+    }
+
+
 DEMO_POSITIONS: list[dict[str, Any]] = [
     {
         "ticker": "AAPL",

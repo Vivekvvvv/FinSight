@@ -85,6 +85,31 @@ const primaryScore = computed(() => {
   const scores = insightCards.value.map((item: any) => Number(item.score || 0)).filter(Boolean);
   return scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 7.4;
 });
+const normalizedKline = computed(() => {
+  const data = kline.value?.data || {};
+  const directDates = Array.isArray(data.dates) ? data.dates : [];
+  const directValues = Array.isArray(data.values) ? data.values : [];
+  if (directDates.length && directValues.length) {
+    return { dates: directDates, values: directValues, source: data.source || null };
+  }
+
+  const rows = Array.isArray(data.kline_data) ? data.kline_data : [];
+  const dates: string[] = [];
+  const values: number[][] = [];
+  for (const row of rows) {
+    const time = String(row?.time || '').slice(0, 10);
+    const open = Number(row?.open);
+    const close = Number(row?.close);
+    const low = Number(row?.low);
+    const high = Number(row?.high);
+    if (!time || ![open, close, low, high].every(Number.isFinite)) continue;
+    dates.push(time);
+    values.push([open, close, low, high]);
+  }
+  return { dates, values, source: data.source || null };
+});
+const hasKlineData = computed(() => normalizedKline.value.dates.length > 0 && normalizedKline.value.values.length > 0);
+const dataBadge = computed(() => q.value.source === 'demo' || normalizedKline.value.source === 'demo' ? 'Demo 数据' : (q.value.freshness_status || quote.value?.data?.freshness_status || 'live'));
 
 const syncHint = computed(() => {
   if (quotePending.value) return '报价源响应较慢，页面会在后台自动回填；当前先展示已有图表和研究结构。';
@@ -103,8 +128,8 @@ const metricStrip = computed(() => [
 
 const chartOption = computed(() => {
   const colors = chartPalette.value;
-  const dates = kline.value?.data?.dates || [];
-  const values = kline.value?.data?.values || [];
+  const dates = normalizedKline.value.dates;
+  const values = normalizedKline.value.values;
   const base = {
     backgroundColor: 'transparent',
     grid: { left: 42, right: 18, top: 28, bottom: 34 },
@@ -116,7 +141,7 @@ const chartOption = computed(() => {
     },
     xAxis: {
       type: 'category',
-      data: dates.length ? dates : ['D-4', 'D-3', 'D-2', 'D-1', 'D'],
+      data: dates,
       axisLabel: { color: colors.axis },
       axisLine: { lineStyle: { color: colors.grid } },
     },
@@ -127,12 +152,6 @@ const chartOption = computed(() => {
       splitLine: { lineStyle: { color: colors.grid } },
     },
   };
-  if (!dates.length || !values.length) {
-    return {
-      ...base,
-      series: [{ type: 'line', smooth: true, data: [190, 194, 193, 198, 195], lineStyle: { color: colors.line, width: 3 }, areaStyle: { color: 'rgba(45,212,191,0.12)' } }],
-    };
-  }
   return {
     ...base,
     series: [{
@@ -327,9 +346,16 @@ watch(() => route.params.symbol, (value) => {
             <p class="kicker">PRICE ACTION</p>
             <h3>K 线与短期结构</h3>
           </div>
-          <span>{{ q.freshness_status || quote?.data?.freshness_status || 'live' }}</span>
+          <span>{{ dataBadge }}</span>
         </div>
-        <VChart class="chart" :option="chartOption" autoresize />
+        <VChart v-if="hasKlineData" class="chart" :option="chartOption" autoresize />
+        <div v-else class="chart-empty">
+          <strong>暂无 K 线数据</strong>
+          <p>当前没有可用行情序列。可刷新、切换标的，或配置真实数据源；本页不会再用固定曲线伪装行情。</p>
+        </div>
+        <p v-if="dataBadge === 'Demo 数据'" class="demo-note">
+          当前为本地演示行情，仅用于研究流程展示，不构成投资建议。
+        </p>
       </section>
 
       <aside class="page-card score-card">
@@ -550,6 +576,41 @@ h4 {
 
 .chart {
   height: 380px;
+}
+
+.chart-empty {
+  min-height: 380px;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  border: 1px dashed var(--fin-border);
+  border-radius: 22px;
+  background: var(--fin-card-inset);
+  color: var(--fin-muted);
+  text-align: center;
+  padding: 24px;
+}
+
+.chart-empty strong {
+  color: var(--fin-text);
+  font-size: 20px;
+}
+
+.chart-empty p,
+.demo-note {
+  margin: 0;
+  color: var(--fin-muted);
+  line-height: 1.7;
+}
+
+.demo-note {
+  margin-top: 12px;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: var(--fin-warning-soft);
+  color: var(--fin-warning);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .score-ring {

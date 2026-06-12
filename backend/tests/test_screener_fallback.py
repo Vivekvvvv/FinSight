@@ -16,6 +16,11 @@ class _FakeTicker:
     fast_info = _FakeFastInfo()
 
 
+_ORIGINAL_MODULES = {
+    "backend.tools.env": sys.modules.get("backend.tools.env"),
+    "backend.tools.http": sys.modules.get("backend.tools.http"),
+}
+
 sys.modules.setdefault("yfinance", types.SimpleNamespace(Ticker=lambda _symbol: _FakeTicker()))
 sys.modules.setdefault("backend.tools.env", types.SimpleNamespace(FMP_API_KEY=""))
 sys.modules.setdefault("backend.tools.http", types.SimpleNamespace(_http_get=lambda *args, **kwargs: None))
@@ -25,6 +30,12 @@ _SPEC = importlib.util.spec_from_file_location("screener_under_test", _SCREENER_
 assert _SPEC and _SPEC.loader
 screener = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(screener)
+
+for _module_name, _module in _ORIGINAL_MODULES.items():
+    if _module is None:
+        sys.modules.pop(_module_name, None)
+    else:
+        sys.modules[_module_name] = _module
 
 
 def _fake_us_fallback(market, filters, limit, sort_by, sort_order):
@@ -66,16 +77,31 @@ def test_screener_invalid_sort_falls_back(monkeypatch):
     assert result["sort"] == {"by": "marketCap", "order": "desc"}
 
 
-def test_screener_cn_without_key_returns_limited_empty_result(monkeypatch):
+def test_screener_cn_without_key_returns_static_demo_items(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
 
     result = screener.screen_stocks(market="CN", limit=10)
 
     assert result["success"] is True
     assert result["market"] == "CN"
-    assert result["items"] == []
-    assert result["warning"] == "coverage_limited_or_empty_result"
-    assert "CN/HK" in result["capability_note"]
+    assert result["items"]
+    assert result["items"][0]["country"] == "CN"
+    assert result["warning"] == "demo_market_fallback"
+    assert result["source"] == "static_market_demo"
+    assert "built-in" in result["capability_note"]
+
+
+def test_screener_hk_without_key_returns_static_demo_items(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "")
+
+    result = screener.screen_stocks(market="HK", limit=10)
+
+    assert result["success"] is True
+    assert result["market"] == "HK"
+    assert result["items"]
+    assert result["items"][0]["country"] == "HK"
+    assert result["warning"] == "demo_market_fallback"
+    assert result["source"] == "static_market_demo"
 
 
 def test_screener_fallback_result_keeps_items_and_results_alias(monkeypatch):
@@ -86,4 +112,5 @@ def test_screener_fallback_result_keeps_items_and_results_alias(monkeypatch):
 
     assert "items" in result
     assert "results" in result
-    assert result["items"][0]["symbol"] == "AAPL"
+    assert result["items"] == result["results"]
+    assert result["items"][0]["country"] == "US"

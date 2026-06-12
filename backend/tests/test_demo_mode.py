@@ -5,8 +5,11 @@ from fastapi.testclient import TestClient
 
 from backend.api.demo_router import demo_router
 from backend.demo_mode import (
+    demo_financials,
+    demo_kline,
     demo_notes,
     demo_portfolio_summary,
+    demo_quote,
     demo_reports,
     demo_status,
     demo_timeline,
@@ -52,3 +55,36 @@ def test_demo_core_payloads_are_non_empty():
     assert len(notes) >= 2
     assert len(timeline) >= 2
     assert today["freshness_status"] == "demo"
+
+
+def test_demo_market_payloads_are_symbol_specific():
+    aapl_quote = demo_quote("AAPL")
+    nvda_quote = demo_quote("NVDA")
+    msft_quote = demo_quote("MSFT")
+
+    assert aapl_quote and nvda_quote and msft_quote
+    assert len({aapl_quote["currentPrice"], nvda_quote["currentPrice"], msft_quote["currentPrice"]}) == 3
+    assert aapl_quote["source"] == "demo"
+    assert aapl_quote["freshness_status"] == "demo"
+    assert aapl_quote["fallback_level"] == 2
+
+    aapl_kline = demo_kline("AAPL")
+    nvda_kline = demo_kline("NVDA")
+    hk_kline = demo_kline("0700.HK")
+    cn_kline = demo_kline("600519.SS")
+
+    assert aapl_kline and nvda_kline and hk_kline and cn_kline
+    assert aapl_kline["values"] != nvda_kline["values"]
+    assert hk_kline["values"] != cn_kline["values"]
+    assert len(aapl_kline["kline_data"]) >= 10
+    assert aapl_kline["source"] == "demo"
+
+
+def test_demo_financials_cover_cn_and_hk_symbols():
+    hk = demo_financials("0700.HK")
+    cn = demo_financials("300750.SZ")
+
+    assert hk and cn
+    assert hk["data"]["currency"] == "HKD"
+    assert cn["data"]["currency"] == "CNY"
+    assert hk["data"]["trailingPE"] != cn["data"]["trailingPE"]

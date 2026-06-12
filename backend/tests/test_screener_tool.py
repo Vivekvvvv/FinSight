@@ -50,7 +50,7 @@ def test_yfinance_empty_result_uses_static_popular_fallback(monkeypatch):
     assert result["success"] is True
     assert result["count"] == 3
     assert result["items"]
-    assert result["source"] == "yfinance_popular"
+    assert result["source"] == "static_market_demo"
     assert result["items"][0]["symbol"] in {"AAPL", "MSFT", "NVDA", "GOOGL"}
 
 
