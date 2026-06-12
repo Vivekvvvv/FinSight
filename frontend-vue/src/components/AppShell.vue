@@ -54,6 +54,7 @@ const sourceStatus = computed(() => {
   const status = demoStatus.value?.overall_status || (demoStatus.value?.demo_mode ? 'demo' : 'unknown');
   if (status === 'demo') return { label: 'DEMO 数据', tone: 'demo', detail: '本地演示数据' };
   if (status === 'live_ready') return { label: 'LIVE 就绪', tone: 'live', detail: '外部服务已配置' };
+  if (status === 'fallback_ready') return { label: 'FALLBACK 可用', tone: 'live', detail: '免密数据源兜底' };
   if (status === 'needs_config') return { label: '需配置', tone: 'warn', detail: '部分 key 缺失' };
   return { label: '检测中', tone: 'unknown', detail: '读取数据源状态' };
 });
@@ -62,6 +63,7 @@ function componentStatusLabel(status: string): string {
   const labels: Record<string, string> = {
     demo: 'Demo',
     live_ready: 'Live',
+    fallback_ready: 'Fallback',
     missing_key: '缺 key',
   };
   return labels[status] || status;

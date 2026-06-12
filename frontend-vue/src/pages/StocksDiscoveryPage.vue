@@ -25,12 +25,13 @@ const response = ref<ScreenerRunResponse | null>(null);
 const items = ref<ScreenerItem[]>([]);
 const loading = ref(false);
 const errorMsg = ref<string | null>(null);
+const actionMsg = ref<string | null>(null);
 const addedWatchlist = ref<Set<string>>(new Set());
+const compareBasket = ref<ScreenerItem[]>([]);
 const importing = ref<ScreenerItem | null>(null);
 const importShares = ref('1');
 const importAvgCost = ref('');
 const importBusy = ref(false);
-const actionMsg = ref<string | null>(null);
 
 const markets = computed<Market[]>(() => meta.value?.markets?.length ? meta.value.markets : ['US', 'CN', 'HK']);
 const sortOptions = computed(() => meta.value?.sort_by?.length ? meta.value.sort_by : ['marketCap', 'price', 'volume', 'changesPercentage']);
@@ -38,10 +39,7 @@ const sortOptions = computed(() => meta.value?.sort_by?.length ? meta.value.sort
 const displayedItems = computed(() => {
   const q = query.value.trim().toLowerCase();
   if (!q) return items.value;
-  return items.value.filter((item) => {
-    const haystack = `${item.symbol} ${item.name || ''} ${item.sector || ''} ${item.industry || ''}`.toLowerCase();
-    return haystack.includes(q);
-  });
+  return items.value.filter((item) => `${item.symbol} ${item.name || ''} ${item.sector || ''} ${item.industry || ''}`.toLowerCase().includes(q));
 });
 
 function num(value: string): number | undefined {
@@ -95,15 +93,14 @@ async function run() {
   errorMsg.value = null;
   actionMsg.value = null;
   try {
-    const payload = {
+    const resp = await apiClient.runScreener({
       market: market.value,
       filters: buildFilters(),
       limit: limit.value,
       page: 1,
       sort_by: sortBy.value,
       sort_order: sortOrder.value,
-    };
-    const resp = await apiClient.runScreener(payload);
+    });
     response.value = resp;
     items.value = resp.items || resp.results || [];
     if (!resp.success && resp.error) errorMsg.value = resp.error;
@@ -118,21 +115,55 @@ async function run() {
 
 async function addToWatchlist(item: ScreenerItem) {
   actionMsg.value = null;
+  await apiClient.addWatchlist({
+    user_id: identity.userId,
+    ticker: item.symbol,
+    name: item.name || undefined,
+    tags: [market.value, item.sector || item.exchange || '发现'].filter(Boolean),
+    group: '发现池',
+    priority: 3,
+    watch_reason: '股票发现中心导入',
+  });
+  addedWatchlist.value = new Set([...addedWatchlist.value, item.symbol]);
+  actionMsg.value = `${item.symbol} 已加入自选列表`;
+}
+
+async function addWatchlistAndNote(item: ScreenerItem) {
   try {
-    await apiClient.addWatchlist({
+    await addToWatchlist(item);
+    const result = await apiClient.createNote({
+      session_id: identity.sessionId,
       user_id: identity.userId,
       ticker: item.symbol,
-      name: item.name || undefined,
-      tags: [market.value, item.sector || item.exchange || '发现'].filter(Boolean),
-      group: '发现池',
-      priority: 3,
-      watch_reason: '股票发现中心导入',
+      title: `${item.symbol} 初始研究笔记`,
+      content: [
+        `# ${item.symbol} 初始研究笔记`,
+        '',
+        `来源：股票发现中心`,
+        `名称：${item.name || item.symbol}`,
+        `行业：${item.sector || item.industry || '待补充'}`,
+        '',
+        '## 待复查问题',
+        '- 业务质量是否有稳定证据支持？',
+        '- 估值和盈利预期是否匹配？',
+        '- 最近新闻、报告或风险项是否挑战原假设？',
+        '',
+        '仅供研究复查，不构成投资建议。',
+      ].join('\n'),
+      tags: ['发现池', market.value, '初始假设'],
     });
-    addedWatchlist.value = new Set([...addedWatchlist.value, item.symbol]);
-    actionMsg.value = `${item.symbol} 已加入自选列表`;
+    actionMsg.value = result.note_id
+      ? `${item.symbol} 已加入自选，并创建研究笔记`
+      : `${item.symbol} 已加入自选，笔记创建结果待确认`;
   } catch (error) {
     errorMsg.value = error instanceof Error ? error.message : String(error);
   }
+}
+
+function addToCompare(item: ScreenerItem) {
+  if (compareBasket.value.some((entry) => entry.symbol === item.symbol)) return;
+  compareBasket.value = [...compareBasket.value, item].slice(-4);
+  actionMsg.value = `${item.symbol} 已加入对比篮子`;
 }
 
 function openImport(item: ScreenerItem) {
@@ -181,6 +212,10 @@ function goDashboard(symbol: string) {
   void router.push(`/dashboard/${encodeURIComponent(symbol)}`);
 }
 
+function goDossier(symbol: string) {
+  void router.push(`/dossier/${encodeURIComponent(symbol)}`);
+}
+
 function goTimeline(symbol: string) {
   void router.push(`/timeline/${encodeURIComponent(symbol)}`);
 }
@@ -197,7 +232,7 @@ onMounted(async () => {
       <div>
         <p class="kicker">STOCK DISCOVERY</p>
         <h2>股票发现中心</h2>
-        <p>从市场筛选可研究标的，一键加入自选或导入持仓；这里只提供研究入口，不提供买卖建议。</p>
+        <p>从市场筛选可研究标的，一键加入自选、创建研究笔记或进入档案；这里只提供研究入口，不提供买卖建议。</p>
       </div>
       <div class="hero-stat">
         <strong>{{ displayedItems.length }}</strong>
@@ -207,12 +242,7 @@ onMounted(async () => {
 
     <section class="filters page-card">
       <div class="market-tabs" aria-label="市场切换">
-        <button
-          v-for="m in markets"
-          :key="m"
-          :class="{ active: market === m }"
-          @click="market = m; run()"
-        >
+        <button v-for="m in markets" :key="m" :class="{ active: market === m }" @click="market = m; run()">
           {{ m }}
         </button>
       </div>
@@ -264,8 +294,17 @@ onMounted(async () => {
     <p v-if="actionMsg" class="notice success">{{ actionMsg }}</p>
     <p v-if="errorMsg" class="notice danger">{{ errorMsg }}</p>
 
-    <section v-if="loading" class="state-card page-card">正在拉取股票候选...</section>
-    <section v-else-if="displayedItems.length === 0" class="state-card page-card">
+    <section v-if="compareBasket.length" class="compare-basket page-card">
+      <div>
+        <p class="kicker">COMPARE BASKET</p>
+        <h3>对比篮子</h3>
+      </div>
+      <button v-for="item in compareBasket" :key="item.symbol" type="button" @click="goDashboard(item.symbol)">
+        {{ item.symbol }}
+      </button>
+    </section>
+
+    <section v-if="displayedItems.length === 0" class="state-card page-card">
       <strong>暂无候选股票</strong>
       <span>可放宽筛选条件，或切换到 US 市场。CN/HK 第一版可能受数据源覆盖影响。</span>
     </section>
@@ -274,17 +313,17 @@ onMounted(async () => {
       <article v-for="item in displayedItems" :key="item.symbol" class="stock-card page-card">
         <div class="stock-head">
           <div>
-            <p class="symbol">{{ item.symbol }}</p>
+            <span class="symbol">{{ item.symbol }}</span>
             <h3>{{ item.name || item.symbol }}</h3>
           </div>
-          <span :class="Number(item.change_percent || 0) >= 0 ? 'gain' : 'loss'">
-            {{ item.change_percent == null ? '--' : `${item.change_percent > 0 ? '+' : ''}${money(item.change_percent)}%` }}
-          </span>
+          <strong :class="Number(item.change_percent || 0) >= 0 ? 'gain' : 'loss'">
+            {{ item.change_percent == null ? '--' : `${item.change_percent > 0 ? '+' : ''}${item.change_percent.toFixed(2)}%` }}
+          </strong>
         </div>
         <div class="meta-line">
           <span>{{ item.exchange || market }}</span>
-          <span>{{ item.sector || '未标注板块' }}</span>
-          <span>{{ item.industry || item.country || '研究候选' }}</span>
+          <span>{{ item.sector || '未分类' }}</span>
+          <span>{{ item.industry || '行业待补充' }}</span>
         </div>
         <div class="metrics">
           <div><span>价格</span><strong>{{ money(item.price) }}</strong></div>
@@ -294,10 +333,13 @@ onMounted(async () => {
         </div>
         <div class="actions">
           <button :disabled="addedWatchlist.has(item.symbol)" @click="addToWatchlist(item)">
-            {{ addedWatchlist.has(item.symbol) ? '已加入自选' : '加入自选' }}
+            {{ addedWatchlist.has(item.symbol) ? '已加入' : '加入自选' }}
           </button>
-          <button @click="openImport(item)">导入持仓</button>
-          <button @click="goDashboard(item.symbol)">查看分析</button>
+          <button class="ghost" @click="addWatchlistAndNote(item)">自选+笔记</button>
+          <button class="ghost" @click="openImport(item)">导入持仓</button>
+          <button class="ghost" @click="goDashboard(item.symbol)">查看分析</button>
+          <button class="ghost" @click="goDossier(item.symbol)">生成档案</button>
+          <button class="ghost" @click="addToCompare(item)">加入对比</button>
           <button class="ghost" @click="goTimeline(item.symbol)">时间线</button>
         </div>
       </article>
@@ -307,25 +349,25 @@ onMounted(async () => {
       <section class="import-modal page-card">
         <div class="modal-head">
           <div>
-            <p class="kicker">PORTFOLIO IMPORT</p>
+            <p class="kicker">IMPORT POSITION</p>
             <h3>导入 {{ importing.symbol }} 到持仓</h3>
           </div>
           <button class="icon-btn" @click="importing = null">×</button>
         </div>
-        <p class="modal-copy">系统已预填最新价格作为成本参考。请确认数量和成本价；这只是持仓记录，不构成交易建议。</p>
+        <p class="modal-copy">持仓导入需要你确认数量和成本价；FinSight 只记录研究资产，不提供交易指令。</p>
         <label>
-          持仓数量
-          <input v-model="importShares" inputmode="decimal" placeholder="1">
+          数量
+          <input v-model="importShares" inputmode="decimal">
         </label>
         <label>
           成本价
-          <input v-model="importAvgCost" inputmode="decimal" placeholder="可留空">
+          <input v-model="importAvgCost" inputmode="decimal">
         </label>
         <div class="modal-actions">
+          <button class="secondary" @click="importing = null">取消</button>
           <button class="primary" :disabled="importBusy" @click="confirmImport">
             {{ importBusy ? '导入中...' : '确认导入' }}
           </button>
-          <button class="secondary" @click="importing = null">取消</button>
         </div>
       </section>
     </div>
@@ -344,8 +386,8 @@ onMounted(async () => {
   gap: 24px;
   padding: clamp(24px, 2.6vw, 38px);
   background:
-    linear-gradient(135deg, var(--fin-primary-soft), transparent 42%),
-    radial-gradient(circle at 88% 10%, var(--fin-accent-soft), transparent 32%),
+    linear-gradient(135deg, var(--fin-primary-soft), transparent 40%),
+    radial-gradient(circle at 86% 14%, var(--fin-accent-soft), transparent 32%),
     var(--fin-card);
 }
 
@@ -358,13 +400,8 @@ onMounted(async () => {
   letter-spacing: 0.16em;
 }
 
-h2,
-h3,
-p {
-  margin: 0;
-}
-
 .hero h2 {
+  margin: 0;
   font-size: clamp(34px, 4vw, 58px);
   letter-spacing: -0.06em;
 }
@@ -403,8 +440,12 @@ p {
   padding: 18px;
 }
 
-.market-tabs {
+.market-tabs,
+.meta-line,
+.actions,
+.compare-basket {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -412,7 +453,8 @@ p {
 .primary,
 .secondary,
 .actions button,
-.icon-btn {
+.icon-btn,
+.compare-basket button {
   border: 1px solid var(--fin-border);
   border-radius: 14px;
   padding: 11px 14px;
@@ -474,6 +516,15 @@ select {
   background: var(--fin-danger-soft);
 }
 
+.compare-basket {
+  align-items: center;
+  padding: 16px;
+}
+
+.compare-basket h3 {
+  margin: 0;
+}
+
 .state-card {
   display: grid;
   gap: 8px;
@@ -507,16 +558,8 @@ select {
 }
 
 .stock-head h3 {
-  margin-top: 4px;
+  margin: 4px 0 0;
   font-size: 18px;
-}
-
-.meta-line,
-.metrics,
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .meta-line span {
@@ -531,6 +574,7 @@ select {
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .metrics div {
@@ -566,6 +610,14 @@ select {
 
 .actions .ghost {
   color: var(--fin-primary);
+}
+
+.gain {
+  color: var(--fin-success);
+}
+
+.loss {
+  color: var(--fin-danger);
 }
 
 .modal-backdrop {
@@ -617,10 +669,6 @@ select {
   .metrics {
     grid-template-columns: 1fr;
     display: grid;
-  }
-
-  .market-tabs {
-    flex-wrap: wrap;
   }
 }
 </style>

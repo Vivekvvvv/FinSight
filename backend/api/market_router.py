@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.schemas import KlineResponse
 from backend.demo_mode import demo_financials, demo_kline, demo_quote, is_demo_mode
+from backend.tools.baostock_provider import fetch_cn_kline, fetch_cn_quote, is_cn_symbol
 from backend.utils.quote import parse_quote_payload, resolve_live_quote
 
 
@@ -181,6 +182,13 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 if demo:
                     return {"ticker": normalized_ticker, "data": demo, "cached": False}
 
+            if is_cn_symbol(normalized_ticker):
+                cn_quote = fetch_cn_quote(normalized_ticker)
+                if cn_quote is not None:
+                    if orchestrator:
+                        orchestrator.cache.set(f"price:{normalized_ticker}", cn_quote, ttl=300)
+                    return {"ticker": normalized_ticker, "data": cn_quote, "cached": False}
+
             quote, raw_payload = resolve_live_quote(normalized_ticker, deps.get_stock_price)
             if quote is not None:
                 if orchestrator:
@@ -189,8 +197,16 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
 
             if orchestrator and raw_payload:
                 orchestrator.cache.set(f"price:{normalized_ticker}", raw_payload, ttl=60)
+            if is_demo_mode():
+                demo = demo_quote(normalized_ticker)
+                if demo:
+                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
             return {"ticker": normalized_ticker, "data": raw_payload or {"error": "price unavailable"}}
         except Exception as exc:
+            if is_demo_mode():
+                demo = demo_quote(normalized_ticker)
+                if demo:
+                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
             deps.logger.warning("[API] get_price failed for %s: %s", normalized_ticker, exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 价格数据") from exc
 
@@ -260,6 +276,14 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 demo = demo_kline(normalized_ticker, period=period, interval=interval)
                 if demo:
                     return {"ticker": normalized_ticker, "data": demo, "cached": False}
+
+            if is_cn_symbol(normalized_ticker):
+                cn_kline = fetch_cn_kline(normalized_ticker, period=period, interval=interval)
+                if cn_kline is not None:
+                    if orchestrator:
+                        cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
+                        orchestrator.cache.set(cache_key, cn_kline, ttl=3600)
+                    return {"ticker": normalized_ticker, "data": cn_kline, "cached": False}
 
             kline_data = deps.get_stock_historical_data(normalized_ticker, period=period, interval=interval)
             if kline_data.get("error") and is_demo_mode():

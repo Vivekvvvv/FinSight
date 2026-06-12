@@ -88,3 +88,48 @@ def test_live_quote_used_when_demo_mode_disabled(monkeypatch):
     data = response.json()["data"]
     assert data["source"] == "tools_bridge"
     assert data["price"] == 123.45
+
+
+def test_cn_quote_uses_baostock_when_demo_disabled(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    monkeypatch.setattr(
+        "backend.api.market_router.fetch_cn_quote",
+        lambda _ticker: {
+            "currentPrice": 1688.0,
+            "source": "baostock",
+            "freshness_status": "live",
+            "fallback_level": 1,
+        },
+    )
+
+    with _build_client(price_payload=None) as client:
+        response = client.get("/api/quote/600519.SS")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["source"] == "baostock"
+    assert data["currentPrice"] == 1688.0
+    assert data["fallback_level"] == 1
+
+
+def test_cn_kline_uses_baostock_when_demo_disabled(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    monkeypatch.setattr(
+        "backend.api.market_router.fetch_cn_kline",
+        lambda _ticker, **_kwargs: {
+            "dates": ["2026-06-10", "2026-06-11"],
+            "values": [[10, 11, 9, 12], [11, 12, 10, 13]],
+            "kline_data": [],
+            "source": "baostock",
+            "freshness_status": "live",
+            "fallback_level": 1,
+        },
+    )
+
+    with _build_client(kline_payload={"error": "should not be used"}) as client:
+        response = client.get("/api/kline/300750.SZ")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["source"] == "baostock"
+    assert data["values"][0] == [10, 11, 9, 12]

@@ -471,6 +471,100 @@ test('/stocks - HK demo fallback renders candidates', async ({ page }) => {
   await expect(page.getByText('HKEX').first()).toBeVisible();
 });
 
+test('/research flow - stock discovery to note and workspace review action', async ({ page }) => {
+  let addedPayload: Record<string, unknown> | null = null;
+  let notePayload: Record<string, unknown> | null = null;
+  await setupStocksPageMocks(page);
+  await page.route('**/api/user/watchlist/add', async (r) => {
+    addedPayload = JSON.parse(r.request().postData() || '{}');
+    return json(r, { success: true });
+  });
+  await page.route('**/api/research-notes**', async (r) => {
+    const req = r.request();
+    if (req.method() === 'POST') {
+      notePayload = JSON.parse(req.postData() || '{}');
+      return json(r, { success: true, note_id: 'note_flow_aapl' });
+    }
+    return json(r, {
+      success: true,
+      count: 1,
+      notes: [{
+        note_id: 'note_flow_aapl',
+        session_id: SESSION_ID,
+        user_id: USER_ID,
+        ticker: 'AAPL',
+        title: 'AAPL 初始研究笔记',
+        content: '从股票发现中心创建的复查笔记',
+        tags: ['发现池', '初始假设'],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }],
+    });
+  });
+
+  await page.goto('/stocks');
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: '自选+笔记' }).first().click();
+  await expect.poll(() => addedPayload?.ticker).toBe('AAPL');
+  await expect.poll(() => notePayload?.ticker).toBe('AAPL');
+  await expect(page.getByText('AAPL 已加入自选，并创建研究笔记')).toBeVisible();
+
+  await page.route('**/api/quote/AAPL**', (r) => json(r, QUOTE_DATA));
+  await page.route('**/api/kline/AAPL**', (r) => json(r, KLINE_DATA));
+  await page.route('**/api/financials/AAPL**', (r) => json(r, { ticker: 'AAPL', data: {} }));
+  await page.route('**/api/dashboard/insights**', (r) => json(r, INSIGHTS));
+  await page.route('**/api/stock/news/AAPL**', (r) => json(r, { ticker: 'AAPL', data: [] }));
+  await page.route('**/api/what-changed**', (r) =>
+    json(r, { success: true, as_of: new Date().toISOString(), items: [], count: 0 }));
+  await page.getByRole('button', { name: '查看分析' }).first().click();
+  await expect(page).toHaveURL(/\/dashboard\/AAPL/);
+  await expect(page.getByText('AI 洞察')).toBeVisible();
+
+  setupDossierPageMocks(page, 'AAPL');
+  await page.route('**/api/research-notes**', async (r) => {
+    if (r.request().method() === 'POST') return json(r, { success: true, note_id: 'note_flow_aapl' });
+    return json(r, {
+      success: true,
+      count: 1,
+      notes: [{
+        note_id: 'note_flow_aapl',
+        session_id: SESSION_ID,
+        user_id: USER_ID,
+        ticker: 'AAPL',
+        title: 'AAPL 初始研究笔记',
+        content: '从股票发现中心创建的复查笔记',
+        tags: ['发现池', '初始假设'],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }],
+    });
+  });
+  await page.goto('/dossier/AAPL');
+  await expect(page).toHaveURL(/\/dossier\/AAPL/);
+  await expect(page.getByText('AAPL 初始研究笔记')).toBeVisible();
+
+  await page.goto('/notes?ticker=AAPL');
+  await expect(page.getByText('AAPL 初始研究笔记')).toBeVisible();
+
+  await page.route('**/api/today**', (r) => json(r, {
+    ...TODAY_WORKSPACE_FULL,
+    next_actions: [
+      {
+        id: 'review_note_aapl',
+        type: 'review_note',
+        title: '复查 AAPL 初始研究笔记',
+        reason: '股票发现中心新增假设，需要跟踪证据变化',
+        severity: 'medium',
+        target_route: '/notes?ticker=AAPL',
+        related_symbol: 'AAPL',
+      },
+    ],
+  }));
+  setupWelcomePageCoreMocks(page);
+  await page.goto('/welcome');
+  await expect(page.getByText('复查 AAPL 初始研究笔记')).toBeVisible();
+});
+
 test('/dossier/:symbol - aggregates symbol research assets', async ({ page }) => {
   setupDossierPageMocks(page, 'AAPL');
 

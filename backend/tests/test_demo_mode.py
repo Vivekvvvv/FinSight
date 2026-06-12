@@ -43,6 +43,18 @@ def test_demo_status_api():
     assert response.json()["success"] is True
 
 
+def test_demo_status_reports_market_fallback_without_paid_key(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for name in ("FMP_API_KEY", "ALPHA_VANTAGE_API_KEY", "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY", "EODHD_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+    status = demo_status()
+    market = next(item for item in status["components"] if item["key"] == "market_data")
+
+    assert market["status"] == "fallback_ready"
+    assert "BaoStock" in market["detail"]
+
+
 def test_demo_core_payloads_are_non_empty():
     session_id = "public:demo:thread"
 

@@ -20,6 +20,7 @@ langgraph-checkpoint-postgres==3.0.4
 litellm==1.30.0
 ddgs==9.6.1
 yfinance==0.2.66
+baostock==0.8.9
 finnhub-python==2.4.25
 requests==2.32.5
 PySocks==1.7.1

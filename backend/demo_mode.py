@@ -39,13 +39,23 @@ def demo_status() -> dict[str, Any]:
     has_market_key = any(str(os.getenv(name, "")).strip() for name in market_keys)
     has_llm_key = bool(str(os.getenv("OPENAI_COMPATIBLE_API_KEY", "")).strip())
     has_auth_keys = bool(str(os.getenv("JWT_SECRET", "")).strip() and str(os.getenv("API_AUTH_KEYS", "")).strip())
+    market_status = "demo" if demo_mode else ("live_ready" if has_market_key else "fallback_ready")
+    market_detail = (
+        "当前使用内置演示行情。"
+        if demo_mode
+        else (
+            "已检测到外部行情 key，优先使用真实外部源。"
+            if has_market_key
+            else "未配置付费行情 key；US/HK 使用 yfinance，A 股使用 BaoStock 免密兜底。"
+        )
+    )
     components = [
         {
             "key": "market_data",
             "label": "行情与股票筛选",
-            "status": "demo" if demo_mode else ("live_ready" if has_market_key else "missing_key"),
-            "detail": "当前使用内置演示行情。" if demo_mode else ("已检测到外部行情 key。" if has_market_key else "未检测到外部行情 key。"),
-            "required_action": None if demo_mode or has_market_key else "配置 FMP_API_KEY 或其他行情 key。",
+            "status": market_status,
+            "detail": market_detail,
+            "required_action": None if demo_mode or has_market_key else "如需更完整筛选覆盖，可配置 FMP_API_KEY。",
         },
         {
             "key": "llm",
@@ -71,7 +81,7 @@ def demo_status() -> dict[str, Any]:
         "components": components,
         "notes": [
             "Demo Mode 使用只读示例数据，不构成投资建议。",
-            "配置真实 API key 后可切换到 live/local 数据。",
+            "未配置行情 key 时，系统会尝试 yfinance 与 BaoStock 免密兜底。",
         ],
     }
 

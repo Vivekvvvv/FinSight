@@ -4,16 +4,16 @@ import { useRoute, useRouter } from 'vue-router';
 import VChart from 'vue-echarts';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
-import { BarChart, CandlestickChart, LineChart, RadarChart } from 'echarts/charts';
-import { GridComponent, LegendComponent, RadarComponent, TooltipComponent } from 'echarts/components';
+import { BarChart, CandlestickChart, RadarChart } from 'echarts/charts';
+import { GridComponent, RadarComponent, TooltipComponent } from 'echarts/components';
 import { apiClient } from '@/api/client';
 import EvidencePanel from '@/components/EvidencePanel.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
-import type { DashboardInsightsResponse, WhatChangedItem } from '@/api/types';
+import type { DashboardInsightsResponse, EvidenceInfo, WhatChangedItem } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import { useThemeStore } from '@/stores/theme';
 
-use([CanvasRenderer, CandlestickChart, LineChart, RadarChart, BarChart, GridComponent, TooltipComponent, LegendComponent, RadarComponent]);
+use([CanvasRenderer, CandlestickChart, RadarChart, BarChart, GridComponent, TooltipComponent, RadarComponent]);
 
 const route = useRoute();
 const router = useRouter();
@@ -46,6 +46,26 @@ const tabs = [
   ['peers', '同行对比'],
 ];
 
+const chartPalette = computed(() => theme.resolved === 'dark'
+  ? {
+      axis: '#c9d1dc',
+      grid: 'rgba(148,163,184,0.22)',
+      up: '#20c997',
+      down: '#ff6b6b',
+      primary: '#f59e0b',
+      card: '#111827',
+      text: '#f8fafc',
+    }
+  : {
+      axis: '#526174',
+      grid: 'rgba(51,65,85,0.16)',
+      up: '#087f5b',
+      down: '#c24141',
+      primary: '#b56700',
+      card: '#ffffff',
+      text: '#101827',
+    });
+
 const q = computed(() => {
   const raw = quote.value?.data || {};
   return {
@@ -58,33 +78,16 @@ const q = computed(() => {
     freshness_status: raw.freshness_status ?? raw.freshnessStatus,
   };
 });
-const chartPalette = computed(() => theme.resolved === 'dark'
-  ? {
-      axis: '#bcb3a5',
-      grid: 'rgba(196,184,158,0.16)',
-      up: '#7fc99b',
-      down: '#e78a84',
-      line: '#dec180',
-      primary: '#dec180',
-      card: '#202630',
-      text: '#f3efe6',
-    }
-  : {
-      axis: '#526174',
-      grid: 'rgba(51,65,85,0.16)',
-      up: '#087f5b',
-      down: '#c24141',
-      line: '#b56700',
-      primary: '#b56700',
-      card: '#ffffff',
-      text: '#101827',
-    });
 
-const insightCards = computed(() => Object.entries(insights.value?.insights || {}).map(([key, value]: [string, any]) => ({ key, ...value })));
+const insightCards = computed(() =>
+  Object.entries(insights.value?.insights || {}).map(([key, value]: [string, any]) => ({ key, ...value })),
+);
+
 const primaryScore = computed(() => {
   const scores = insightCards.value.map((item: any) => Number(item.score || 0)).filter(Boolean);
   return scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 7.4;
 });
+
 const normalizedKline = computed(() => {
   const data = kline.value?.data || {};
   const directDates = Array.isArray(data.dates) ? data.dates : [];
@@ -108,8 +111,35 @@ const normalizedKline = computed(() => {
   }
   return { dates, values, source: data.source || null };
 });
+
 const hasKlineData = computed(() => normalizedKline.value.dates.length > 0 && normalizedKline.value.values.length > 0);
-const dataBadge = computed(() => q.value.source === 'demo' || normalizedKline.value.source === 'demo' ? 'Demo 数据' : (q.value.freshness_status || quote.value?.data?.freshness_status || 'live'));
+
+function evidenceFromPayload(payload: any, fallbackSource: string): EvidenceInfo {
+  const source = payload?.source || fallbackSource;
+  const freshnessStatus = payload?.freshness_status || payload?.freshnessStatus || (source === 'demo' ? 'demo' : 'live');
+  const fallbackLevel = payload?.fallback_level ?? payload?.fallbackLevel ?? (source === 'demo' ? 2 : 0);
+  return {
+    source,
+    asOf: payload?.as_of || payload?.asOf || null,
+    freshnessStatus,
+    fallbackLevel,
+    modelGenerated: payload?.modelGenerated ?? false,
+    degraded: fallbackLevel >= 1 || source === 'demo',
+    staleData: freshnessStatus === 'stale',
+  };
+}
+
+const quoteEvidence = computed(() => evidenceFromPayload(quote.value?.data || {}, 'quote'));
+const klineEvidence = computed(() => evidenceFromPayload(kline.value?.data || {}, 'kline'));
+const financialEvidence = computed(() => evidenceFromPayload(financials.value?.data || financials.value || {}, 'financials'));
+
+const dataBadge = computed(() => {
+  const source = q.value.source || normalizedKline.value.source;
+  if (source === 'demo') return 'Demo 数据';
+  if (source === 'baostock') return 'BaoStock 免密兜底';
+  if (String(source || '').includes('yfinance')) return 'yfinance 免密兜底';
+  return q.value.freshness_status || quote.value?.data?.freshness_status || 'Live';
+});
 
 const syncHint = computed(() => {
   if (quotePending.value) return '报价源响应较慢，页面会在后台自动回填；当前先展示已有图表和研究结构。';
@@ -128,9 +158,7 @@ const metricStrip = computed(() => [
 
 const chartOption = computed(() => {
   const colors = chartPalette.value;
-  const dates = normalizedKline.value.dates;
-  const values = normalizedKline.value.values;
-  const base = {
+  return {
     backgroundColor: 'transparent',
     grid: { left: 42, right: 18, top: 28, bottom: 34 },
     tooltip: {
@@ -141,7 +169,7 @@ const chartOption = computed(() => {
     },
     xAxis: {
       type: 'category',
-      data: dates,
+      data: normalizedKline.value.dates,
       axisLabel: { color: colors.axis },
       axisLine: { lineStyle: { color: colors.grid } },
     },
@@ -151,13 +179,10 @@ const chartOption = computed(() => {
       axisLabel: { color: colors.axis },
       splitLine: { lineStyle: { color: colors.grid } },
     },
-  };
-  return {
-    ...base,
     series: [{
       name: symbolInput.value,
       type: 'candlestick',
-      data: values,
+      data: normalizedKline.value.values,
       itemStyle: { color: colors.up, color0: colors.down, borderColor: colors.up, borderColor0: colors.down },
     }],
   };
@@ -321,6 +346,7 @@ watch(() => route.params.symbol, (value) => {
             / {{ fmt(q.regularMarketChangePercent) }}%
           </span>
         </div>
+        <EvidencePanel class="hero-evidence" v-bind="quoteEvidence" compact />
       </div>
       <form class="search-box" @submit.prevent="refresh">
         <input v-model="symbolInput" placeholder="输入股票代码，如 AAPL">
@@ -348,6 +374,7 @@ watch(() => route.params.symbol, (value) => {
           </div>
           <span>{{ dataBadge }}</span>
         </div>
+        <EvidencePanel v-bind="klineEvidence" compact />
         <VChart v-if="hasKlineData" class="chart" :option="chartOption" autoresize />
         <div v-else class="chart-empty">
           <strong>暂无 K 线数据</strong>
@@ -397,6 +424,7 @@ watch(() => route.params.symbol, (value) => {
       </div>
 
       <div v-else-if="activeTab === 'financial'" class="tab-content dense">
+        <EvidencePanel class="full-row" v-bind="financialEvidence" compact />
         <article v-for="[key, value] in Object.entries(financials?.data || {}).slice(0, 8)" :key="key" class="data-row">
           <span>{{ key }}</span>
           <strong>{{ fmt(value) }}</strong>
@@ -407,7 +435,7 @@ watch(() => route.params.symbol, (value) => {
         <article class="data-row"><span>日内高低</span><strong>{{ fmt(q.regularMarketDayLow) }} / {{ fmt(q.regularMarketDayHigh) }}</strong></article>
         <article class="data-row"><span>成交量</span><strong>{{ fmt(q.regularMarketVolume) }}</strong></article>
         <article class="data-row"><span>Beta</span><strong>{{ fmt(q.beta) }}</strong></article>
-        <EvidencePanel source="quote+kline" freshness-status="live" :confidence="0.74" :degraded="!q.rsi" compact />
+        <EvidencePanel v-bind="quoteEvidence" compact />
       </div>
 
       <div v-else-if="activeTab === 'news'" class="tab-content">
@@ -429,7 +457,7 @@ watch(() => route.params.symbol, (value) => {
       <div v-else class="tab-content">
         <article class="insight-card">
           <span class="score-label">PEERS</span>
-          <h4>同行对比入口已补回。</h4>
+          <h4>同行对比入口已保留。</h4>
           <p>下一步可接入 peers API；当前先保留研究路径和页面结构。</p>
         </article>
       </div>
@@ -487,6 +515,10 @@ h4 {
   font-size: clamp(42px, 5vw, 72px);
   line-height: 1;
   letter-spacing: -0.07em;
+}
+
+.hero-evidence {
+  margin-top: 14px;
 }
 
 .search-box {
@@ -562,6 +594,7 @@ h4 {
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
+  margin-bottom: 12px;
 }
 
 .section-head > span {
@@ -666,6 +699,10 @@ h4 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.full-row {
+  grid-column: 1 / -1;
+}
+
 .insight-card,
 .news-card,
 .data-row,
@@ -740,6 +777,16 @@ pre {
   background: var(--fin-warning-soft);
   color: var(--fin-warning);
   font-size: 13px;
+}
+
+.gain,
+.pos {
+  color: var(--fin-success);
+}
+
+.loss,
+.neg {
+  color: var(--fin-danger);
 }
 
 @media (max-width: 1180px) {
