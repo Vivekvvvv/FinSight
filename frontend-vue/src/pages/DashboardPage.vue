@@ -7,6 +7,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { BarChart, CandlestickChart, RadarChart } from 'echarts/charts';
 import { GridComponent, RadarComponent, TooltipComponent } from 'echarts/components';
 import { apiClient } from '@/api/client';
+import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import EvidencePanel from '@/components/EvidencePanel.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
 import type { DashboardInsightsResponse, EvidenceInfo, WhatChangedItem } from '@/api/types';
@@ -347,6 +348,7 @@ watch(() => route.params.symbol, (value) => {
           </span>
         </div>
         <EvidencePanel class="hero-evidence" v-bind="quoteEvidence" compact />
+        <DataSourceBadge class="hero-source" :evidence="quoteEvidence" compact />
       </div>
       <form class="search-box" @submit.prevent="refresh">
         <input v-model="symbolInput" placeholder="输入股票代码，如 AAPL">
@@ -374,7 +376,10 @@ watch(() => route.params.symbol, (value) => {
           </div>
           <span>{{ dataBadge }}</span>
         </div>
-        <EvidencePanel v-bind="klineEvidence" compact />
+        <div class="source-row">
+          <EvidencePanel v-bind="klineEvidence" compact />
+          <DataSourceBadge :evidence="klineEvidence" compact />
+        </div>
         <VChart v-if="hasKlineData" class="chart" :option="chartOption" autoresize />
         <div v-else class="chart-empty">
           <strong>暂无 K 线数据</strong>
@@ -424,7 +429,10 @@ watch(() => route.params.symbol, (value) => {
       </div>
 
       <div v-else-if="activeTab === 'financial'" class="tab-content dense">
-        <EvidencePanel class="full-row" v-bind="financialEvidence" compact />
+        <div class="source-row full-row">
+          <EvidencePanel v-bind="financialEvidence" compact />
+          <DataSourceBadge :evidence="financialEvidence" compact />
+        </div>
         <article v-for="[key, value] in Object.entries(financials?.data || {}).slice(0, 8)" :key="key" class="data-row">
           <span>{{ key }}</span>
           <strong>{{ fmt(value) }}</strong>
@@ -519,6 +527,18 @@ h4 {
 
 .hero-evidence {
   margin-top: 14px;
+}
+
+.hero-source {
+  margin-top: 10px;
+}
+
+.source-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .search-box {

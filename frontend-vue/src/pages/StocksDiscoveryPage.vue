@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
-import type { ScreenerItem, ScreenerMetaResponse, ScreenerRunResponse } from '@/api/types';
+import DataSourceBadge from '@/components/DataSourceBadge.vue';
+import type { EvidenceInfo, ScreenerItem, ScreenerMetaResponse, ScreenerRunResponse } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 
 type Market = 'US' | 'CN' | 'HK';
@@ -23,6 +24,7 @@ const minVolume = ref('');
 const meta = ref<ScreenerMetaResponse | null>(null);
 const response = ref<ScreenerRunResponse | null>(null);
 const items = ref<ScreenerItem[]>([]);
+const lastRunAt = ref<string | null>(null);
 const loading = ref(false);
 const errorMsg = ref<string | null>(null);
 const actionMsg = ref<string | null>(null);
@@ -35,6 +37,17 @@ const importBusy = ref(false);
 
 const markets = computed<Market[]>(() => meta.value?.markets?.length ? meta.value.markets : ['US', 'CN', 'HK']);
 const sortOptions = computed(() => meta.value?.sort_by?.length ? meta.value.sort_by : ['marketCap', 'price', 'volume', 'changesPercentage']);
+const screenerEvidence = computed<EvidenceInfo>(() => {
+  const source = response.value?.source || (response.value?.warning ? 'static_market_demo' : 'screener');
+  const isDemo = source === 'static_market_demo' || response.value?.warning === 'demo_market_fallback';
+  return {
+    source,
+    asOf: response.value?.as_of || lastRunAt.value,
+    freshnessStatus: isDemo ? 'demo' : response.value?.warning ? 'fallback' : 'live',
+    fallbackLevel: isDemo ? 2 : response.value?.warning ? 1 : 0,
+    degraded: isDemo || Boolean(response.value?.warning),
+  };
+});
 
 const displayedItems = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -102,6 +115,7 @@ async function run() {
       sort_order: sortOrder.value,
     });
     response.value = resp;
+    lastRunAt.value = new Date().toISOString();
     items.value = resp.items || resp.results || [];
     if (!resp.success && resp.error) errorMsg.value = resp.error;
   } catch (error) {
@@ -234,6 +248,7 @@ onMounted(async () => {
         <h2>股票发现中心</h2>
         <p>从市场筛选可研究标的，一键加入自选、创建研究笔记或进入档案；这里只提供研究入口，不提供买卖建议。</p>
       </div>
+      <DataSourceBadge class="hero-source" :evidence="screenerEvidence" />
       <div class="hero-stat">
         <strong>{{ displayedItems.length }}</strong>
         <span>当前候选</span>
@@ -410,6 +425,11 @@ onMounted(async () => {
 .modal-copy,
 .state-card span {
   color: var(--fin-text-2);
+}
+
+.hero-source {
+  align-self: flex-start;
+  margin-left: auto;
 }
 
 .hero-stat {

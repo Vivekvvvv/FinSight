@@ -3,9 +3,11 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useIdentityStore } from '@/stores/identity';
+import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
 import EvidenceTimeline from '@/components/EvidenceTimeline.vue';
 import type {
+  EvidenceInfo,
   ReportIndexItem,
   ResearchNote,
   ResearchQualityIssue,
@@ -48,6 +50,20 @@ const latestNote = computed(() => notes.value[0] || null);
 const criticalChanges = computed(() => whatChanged.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
 const criticalTimeline = computed(() => timelineEvents.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
 const healthScore = computed(() => qualitySummary.value?.health_score ?? 100);
+const dossierEvidence = computed<EvidenceInfo>(() => {
+  const source = latestReport.value?.source_type || 'dossier-aggregate';
+  const rawFreshness = latestReport.value?.freshness_status || (timelineEvents.value.length ? 'live' : 'unknown');
+  const freshnessStatus = (['live', 'delayed_15min', 'cached', 'stale', 'demo', 'fallback', 'unknown'].includes(rawFreshness)
+    ? rawFreshness
+    : 'unknown') as EvidenceInfo['freshnessStatus'];
+  return {
+    source,
+    asOf: latestReport.value?.as_of || latestReport.value?.generated_at || timelineEvents.value[0]?.occurred_at || null,
+    freshnessStatus,
+    fallbackLevel: freshnessStatus && freshnessStatus !== 'live' ? 1 : 0,
+    degraded: Boolean(freshnessStatus && freshnessStatus !== 'live'),
+  };
+});
 const conflictReviews = computed<ConflictReviewItem[]>(() => {
   const items: ConflictReviewItem[] = [];
 
@@ -208,6 +224,7 @@ watch(() => route.params.symbol, () => {
           把今日变化、证据时间线、研究报告、笔记和研究质量收束到一个复查视图。这里只给研究动作建议，不构成投资建议。
         </p>
       </div>
+      <DataSourceBadge class="dossier-source" :evidence="dossierEvidence" />
       <form class="symbol-search" @submit.prevent="submitSymbol">
         <input v-model="symbolInput" aria-label="输入股票代码" placeholder="AAPL / NVDA / MSFT">
         <button type="submit">打开档案</button>

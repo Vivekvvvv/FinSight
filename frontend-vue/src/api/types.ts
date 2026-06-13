@@ -4,7 +4,7 @@
 export interface EvidenceInfo {
   source?: string | null;
   asOf?: string | null;
-  freshnessStatus?: 'live' | 'delayed_15min' | 'cached' | 'stale' | 'unknown' | null;
+  freshnessStatus?: 'live' | 'delayed_15min' | 'cached' | 'stale' | 'demo' | 'fallback' | 'unknown' | null;
   fallbackLevel?: number | null;   // 0=主源 1=fallback 2=cache
   confidence?: number | null;      // 0-1
   modelGenerated?: boolean | null;
@@ -237,6 +237,7 @@ export interface ScreenerRunResponse {
   results?: ScreenerItem[];
   count: number;
   source?: string | null;
+  as_of?: string | null;
   warning?: string | null;
   capability_note?: string | null;
   error?: string | null;

@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.api.schemas import KlineResponse
 from backend.demo_mode import demo_financials, demo_kline, demo_quote, is_demo_mode
 from backend.tools.baostock_provider import fetch_cn_kline, fetch_cn_quote, is_cn_symbol
+from backend.utils.market_evidence import attach_financials_evidence, attach_market_evidence
 from backend.utils.quote import parse_quote_payload, resolve_live_quote
 
 
@@ -82,6 +83,15 @@ def _has_usable_payload(payload: Any) -> bool:
     if isinstance(payload, list):
         return bool(payload)
     return True
+
+
+def _market_payload(payload: Any, fallback_source: str, *, cached: bool = False) -> Any:
+    return attach_market_evidence(payload, fallback_source=fallback_source, cached=cached)
+
+
+def _financials_payload(payload: Any, fallback_source: str = "financials", *, cached: bool = False) -> Any:
+    return attach_financials_evidence(payload, fallback_source=fallback_source, cached=cached)
+
 
 def create_market_router(deps: MarketRouterDeps) -> APIRouter:
     router = APIRouter(tags=["Market"])
@@ -169,28 +179,25 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     deps.logger.info("[API] price cache hit %s", normalized_ticker)
                     normalized = parse_quote_payload(cached_data)
                     result = normalized or cached_data
-                    if isinstance(result, dict):
-                        result.setdefault("source", "cache")
-                        result.setdefault("freshness_status", "cached")
-                        result.setdefault("fallback_level", 2)
-                        from datetime import datetime, timezone
-                        result.setdefault("as_of", datetime.now(timezone.utc).isoformat())
+                    result = _market_payload(result, "cache", cached=True)
                     return {"ticker": normalized_ticker, "data": result, "cached": True}
 
             if is_demo_mode():
                 demo = demo_quote(normalized_ticker)
                 if demo:
-                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
 
             if is_cn_symbol(normalized_ticker):
                 cn_quote = fetch_cn_quote(normalized_ticker)
                 if cn_quote is not None:
                     if orchestrator:
                         orchestrator.cache.set(f"price:{normalized_ticker}", cn_quote, ttl=300)
-                    return {"ticker": normalized_ticker, "data": cn_quote, "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(cn_quote, "baostock"), "cached": False}
 
             quote, raw_payload = resolve_live_quote(normalized_ticker, deps.get_stock_price)
             if quote is not None:
+                quote_source = str(quote.get("source") or "live") if isinstance(quote, dict) else "live"
+                quote = _market_payload(quote, quote_source)
                 if orchestrator:
                     orchestrator.cache.set(f"price:{normalized_ticker}", quote, ttl=60)
                 return {"ticker": normalized_ticker, "data": quote}
@@ -200,13 +207,13 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             if is_demo_mode():
                 demo = demo_quote(normalized_ticker)
                 if demo:
-                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
-            return {"ticker": normalized_ticker, "data": raw_payload or {"error": "price unavailable"}}
+                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
+            return {"ticker": normalized_ticker, "data": _market_payload(raw_payload or {"error": "price unavailable"}, "unknown")}
         except Exception as exc:
             if is_demo_mode():
                 demo = demo_quote(normalized_ticker)
                 if demo:
-                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
             deps.logger.warning("[API] get_price failed for %s: %s", normalized_ticker, exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 价格数据") from exc
 
@@ -232,21 +239,21 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             if is_demo_mode():
                 demo = demo_financials(normalized_ticker)
                 if demo:
-                    return demo
+                    return _financials_payload(demo, "demo")
 
             financials_data = deps.get_financial_statements(normalized_ticker)
             if _has_usable_payload(financials_data):
-                return financials_data
+                return _financials_payload(financials_data, "financials")
             if is_demo_mode():
                 demo = demo_financials(normalized_ticker)
                 if demo:
-                    return demo
-            return financials_data
+                    return _financials_payload(demo, "demo")
+            return _financials_payload(financials_data, "financials")
         except Exception as exc:
             if is_demo_mode():
                 demo = demo_financials(normalized_ticker)
                 if demo:
-                    return demo
+                    return _financials_payload(demo, "demo")
             deps.logger.warning("[API] get_financials failed for %s: %s", normalized_ticker, exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 财务数据") from exc
 
@@ -270,12 +277,12 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 cached_data = orchestrator.cache.get(cache_key)
                 if cached_data is not None:
                     deps.logger.info("[API] kline cache hit %s (%s,%s)", normalized_ticker, period, interval)
-                    return {"ticker": normalized_ticker, "data": cached_data, "cached": True}
+                    return {"ticker": normalized_ticker, "data": _market_payload(cached_data, "cache", cached=True), "cached": True}
 
             if is_demo_mode():
                 demo = demo_kline(normalized_ticker, period=period, interval=interval)
                 if demo:
-                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
 
             if is_cn_symbol(normalized_ticker):
                 cn_kline = fetch_cn_kline(normalized_ticker, period=period, interval=interval)
@@ -283,24 +290,25 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     if orchestrator:
                         cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
                         orchestrator.cache.set(cache_key, cn_kline, ttl=3600)
-                    return {"ticker": normalized_ticker, "data": cn_kline, "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(cn_kline, "baostock"), "cached": False}
 
             kline_data = deps.get_stock_historical_data(normalized_ticker, period=period, interval=interval)
             if kline_data.get("error") and is_demo_mode():
                 demo = demo_kline(normalized_ticker, period=period, interval=interval)
                 if demo:
-                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
             if "error" not in kline_data and orchestrator:
                 cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
                 orchestrator.cache.set(cache_key, kline_data, ttl=3600)
 
-            return {"ticker": normalized_ticker, "data": kline_data, "cached": False}
+            kline_source = str(kline_data.get("source") or "kline") if isinstance(kline_data, dict) else "kline"
+            return {"ticker": normalized_ticker, "data": _market_payload(kline_data, kline_source), "cached": False}
         except Exception as exc:
             if is_demo_mode():
                 demo = demo_kline(normalized_ticker, period=period, interval=interval)
                 if demo:
-                    return {"ticker": normalized_ticker, "data": demo, "cached": False}
-            return {"ticker": normalized_ticker, "data": {"error": str(exc)}, "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
+            return {"ticker": normalized_ticker, "data": _market_payload({"error": str(exc)}, "unknown"), "cached": False}
 
     @router.get("/api/kline/{ticker}")
     def get_kline_alias(ticker: str, period: str = "1mo", interval: str = "1d"):

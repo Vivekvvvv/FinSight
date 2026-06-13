@@ -2,8 +2,9 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
-import type { ResearchQualityIssue, ResearchQualitySummary, TodayWorkspaceResponse, WhatChangedItem } from '@/api/types';
+import type { EvidenceInfo, ResearchQualityIssue, ResearchQualitySummary, TodayWorkspaceResponse, WhatChangedItem } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
+import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
 import ResearchQualityOverview from '@/components/ResearchQualityOverview.vue';
 
@@ -35,6 +36,20 @@ const todayStr = computed(() => new Date().toLocaleDateString('zh-CN', {
 }));
 
 const userName = computed(() => identity.email ? identity.email.split('@')[0] : '研究员');
+
+const workspaceEvidence = computed<EvidenceInfo>(() => {
+  const rawFreshness = workspace.value?.freshness_status || 'unknown';
+  const freshnessStatus = (['live', 'delayed_15min', 'cached', 'stale', 'demo', 'fallback', 'unknown'].includes(rawFreshness)
+    ? rawFreshness
+    : 'unknown') as EvidenceInfo['freshnessStatus'];
+  return {
+    source: 'today-workspace',
+    asOf: workspace.value?.as_of || null,
+    freshnessStatus,
+    fallbackLevel: freshnessStatus === 'live' ? 0 : freshnessStatus === 'unknown' ? null : 1,
+    degraded: freshnessStatus !== 'live',
+  };
+});
 
 function fmt(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return '--';
@@ -95,6 +110,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
         <p v-if="workspace" class="today-summary">{{ workspace.summary }}</p>
       </div>
       <div class="hero-actions">
+        <DataSourceBadge :evidence="workspaceEvidence" compact />
         <span class="live-dot">LIVE</span>
         <button class="btn-refresh" :disabled="loading" @click="refresh">
           {{ loading ? '加载中...' : '刷新数据' }}
