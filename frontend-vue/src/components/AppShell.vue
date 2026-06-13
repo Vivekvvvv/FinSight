@@ -23,6 +23,7 @@ const navItems = [
   { to: '/dashboard/AAPL', label: '市场仪表盘', short: 'DASH' },
   { to: '/chat', label: '研究对话', short: 'CHAT' },
   { to: '/workbench', label: '研究工作台', short: 'LAB' },
+  { to: '/data-sources', label: '数据源状态', short: 'DATA' },
   { to: '/reports', label: '报告资产库', short: 'RPT' },
   { to: '/portfolio', label: '持仓管理', short: 'PORT' },
   { to: '/watchlist', label: '观察列表', short: 'WATCH' },
@@ -52,11 +53,11 @@ const totalValue = computed(() => portfolio.value?.total_value ?? 0);
 const totalPnl = computed(() => portfolio.value?.total_pnl ?? 0);
 const sourceStatus = computed(() => {
   const status = demoStatus.value?.overall_status || (demoStatus.value?.demo_mode ? 'demo' : 'unknown');
-  if (status === 'demo') return { label: 'DEMO 数据', tone: 'demo', detail: '本地演示数据' };
-  if (status === 'live_ready') return { label: 'LIVE 就绪', tone: 'live', detail: '外部服务已配置' };
-  if (status === 'fallback_ready') return { label: 'FALLBACK 可用', tone: 'live', detail: '免密数据源兜底' };
-  if (status === 'needs_config') return { label: '需配置', tone: 'warn', detail: '部分 key 缺失' };
-  return { label: '检测中', tone: 'unknown', detail: '读取数据源状态' };
+  if (status === 'demo') return { label: 'DEMO 数据', tone: 'demo', detail: '演示数据' };
+  if (status === 'live_ready') return { label: 'LIVE 数据', tone: 'live', detail: '真实源可用' };
+  if (status === 'fallback_ready') return { label: 'FALLBACK 数据', tone: 'live', detail: '备用源可用' };
+  if (status === 'needs_config') return { label: '待配置', tone: 'warn', detail: '缺少 key 或服务' };
+  return { label: '未知', tone: 'unknown', detail: '等待检测' };
 });
 
 function componentStatusLabel(status: string): string {
@@ -77,7 +78,7 @@ async function loadContext() {
   const results = await Promise.allSettled([
     apiClient.getPortfolioSummary(identity.sessionId),
     apiClient.listWatchlist(identity.userId),
-    apiClient.getDemoStatus(),
+    apiClient.getDataSourceStatus(),
   ]);
   if (results[0].status === 'fulfilled') portfolio.value = results[0].value;
   if (results[1].status === 'fulfilled') watchlist.value = results[1].value.items || [];

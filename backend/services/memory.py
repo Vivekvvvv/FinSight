@@ -111,6 +111,7 @@ class MemoryService:
         group: Optional[str] = None,
         priority: Optional[int] = None,
         watch_reason: Optional[str] = None,
+        research_status: Optional[str] = None,
     ) -> bool:
         """添加关注。可选 name/tags/note/group/priority/watch_reason 元信息会写入 watchlist_meta。"""
         profile = self.get_user_profile(user_id)
@@ -134,6 +135,8 @@ class MemoryService:
             merged["priority"] = int(priority)
         if watch_reason is not None:
             merged["watch_reason"] = str(watch_reason).strip()
+        if research_status is not None:
+            merged["research_status"] = str(research_status).strip()
         if "added_at" not in merged:
             merged["added_at"] = datetime.now().isoformat()
         merged["updated_at"] = datetime.now().isoformat()
@@ -151,13 +154,24 @@ class MemoryService:
         group: Optional[str] = None,
         priority: Optional[int] = None,
         watch_reason: Optional[str] = None,
+        research_status: Optional[str] = None,
     ) -> bool:
         """更新一个已存在的 watchlist 条目的元信息。ticker 必须已在列表中。"""
         profile = self.get_user_profile(user_id)
         clean_ticker = str(ticker or "").strip().upper()
         if clean_ticker not in profile.watchlist:
             return False
-        return self.add_to_watchlist(user_id, clean_ticker, name=name, tags=tags, note=note, group=group, priority=priority, watch_reason=watch_reason)
+        return self.add_to_watchlist(
+            user_id,
+            clean_ticker,
+            name=name,
+            tags=tags,
+            note=note,
+            group=group,
+            priority=priority,
+            watch_reason=watch_reason,
+            research_status=research_status,
+        )
 
     def remove_from_watchlist(self, user_id: str, ticker: str) -> bool:
         """取消关注"""
@@ -194,6 +208,7 @@ class MemoryService:
                 "group": entry.get("group"),
                 "priority": entry.get("priority"),
                 "watch_reason": entry.get("watch_reason"),
+                "research_status": entry.get("research_status") or "new",
                 "added_at": entry.get("added_at"),
                 "updated_at": entry.get("updated_at"),
             })

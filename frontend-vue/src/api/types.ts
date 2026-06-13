@@ -34,6 +34,7 @@ export interface WatchlistItem {
   group?: string | null;
   priority?: number | null;
   watch_reason?: string | null;
+  research_status?: 'new' | 'watching' | 'reviewing' | 'resolved' | 'archived' | string | null;
   added_at?: string | null;
   updated_at?: string | null;
 }
@@ -195,6 +196,7 @@ export interface DemoStatusResponse {
   demo_mode: boolean;
   data_source: 'demo' | 'live_or_local' | string;
   overall_status?: 'demo' | 'live_ready' | 'needs_config' | 'fallback_ready' | string;
+  as_of?: string | null;
   missing_services: string[];
   components?: Array<{
     key: string;
@@ -205,6 +207,8 @@ export interface DemoStatusResponse {
   }>;
   notes: string[];
 }
+
+export type DataSourceStatusResponse = DemoStatusResponse;
 
 export interface ScreenerItem {
   symbol: string;

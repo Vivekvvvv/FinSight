@@ -133,6 +133,27 @@ def generate_next_actions(
             "related_symbol": ticker,
         })
 
+    # 规则7：研究状态队列
+    for w in watchlist_items:
+        ticker = w.get("ticker", "")
+        status = str(w.get("research_status") or "").strip().lower()
+        if not ticker or status not in {"new", "watching", "reviewing"}:
+            continue
+        title_map = {
+            "new": f"为 {ticker} 建立初始研究档案",
+            "watching": f"复查 {ticker} 的观察假设",
+            "reviewing": f"继续推进 {ticker} 的研究复查",
+        }
+        actions.append({
+            "id": f"research_status_{ticker}_{status}",
+            "type": "research_review",
+            "title": title_map[status],
+            "reason": w.get("watch_reason") or "该标的仍处于研究流程中，需要补充证据或更新结论。",
+            "severity": "medium" if status == "reviewing" else "low",
+            "target_route": f"/dossier/{ticker}",
+            "related_symbol": ticker,
+        })
+
     # 按 severity 排序（critical > high > medium > low）
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     actions.sort(key=lambda a: severity_order.get(a.get("severity", "low"), 99))

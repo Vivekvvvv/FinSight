@@ -72,6 +72,7 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
             name = request.get("name")
             tags = request.get("tags")
             note = request.get("note")
+            research_status = request.get("research_status")
             if tags is not None and not isinstance(tags, list):
                 return {"success": False, "error": "tags must be a list"}
 
@@ -81,6 +82,10 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
                 name=name,
                 tags=tags,
                 note=note,
+                group=request.get("group"),
+                priority=request.get("priority"),
+                watch_reason=request.get("watch_reason"),
+                research_status=research_status,
             )
             return {"success": success}
         except HTTPException:
@@ -111,6 +116,10 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
                 name=request.get("name"),
                 tags=tags,
                 note=request.get("note"),
+                group=request.get("group"),
+                priority=request.get("priority"),
+                watch_reason=request.get("watch_reason"),
+                research_status=request.get("research_status"),
             )
             if not success:
                 raise HTTPException(status_code=404, detail="Ticker not in watchlist")

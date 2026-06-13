@@ -137,6 +137,23 @@ def test_watchlist_priority_none_is_ignored():
     assert [a for a in actions if a["type"] == "focus_watchlist"] == []
 
 
+def test_research_status_generates_review_queue_action():
+    actions = generate_next_actions(
+        portfolio_summary={"success": True, "positions": [{"ticker": "AAPL"}]},
+        watchlist_items=[
+            {"ticker": "NVDA", "priority": 3, "research_status": "reviewing", "watch_reason": "需要复查 AI 需求证据"},
+        ],
+        reports_to_review=[],
+        alert_events=[],
+    )
+
+    review_actions = [a for a in actions if a["type"] == "research_review"]
+    assert len(review_actions) == 1
+    assert review_actions[0]["related_symbol"] == "NVDA"
+    assert review_actions[0]["target_route"] == "/dossier/NVDA"
+    assert review_actions[0]["severity"] == "medium"
+
+
 def test_severity_ordering():
     """验证操作按 severity 排序：critical > high > medium > low"""
     portfolio = {

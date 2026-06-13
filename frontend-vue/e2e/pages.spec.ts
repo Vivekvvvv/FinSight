@@ -196,6 +196,25 @@ test.beforeEach(async ({ page }) => {
       ],
       notes: ['Demo Mode 使用只读示例数据，不构成投资建议。'],
     }));
+
+  await page.route('**/api/data-sources/status', (r) =>
+    json(r, {
+      success: true,
+      demo_mode: true,
+      data_source: 'demo',
+      overall_status: 'demo',
+      as_of: new Date().toISOString(),
+      missing_services: ['FMP_API_KEY', 'OPENAI_COMPATIBLE_API_KEY'],
+      components: [
+        { key: 'market_us', label: '美股行情', status: 'demo', detail: 'Demo Mode 使用内置差异化行情。', required_action: null },
+        { key: 'market_cn', label: 'A 股行情', status: 'demo', detail: 'Demo Mode 使用内置 A 股样例。', required_action: null },
+        { key: 'market_hk', label: '港股行情', status: 'demo', detail: 'Demo Mode 使用内置港股样例。', required_action: null },
+        { key: 'llm', label: 'AI 研究生成', status: 'demo', detail: 'Demo Mode 使用模板化研究输出。', required_action: null },
+        { key: 'rag', label: '本地证据检索', status: 'fallback_ready', detail: 'hash fallback 可用。', required_action: null },
+        { key: 'auth', label: '访问控制', status: 'demo', detail: 'Demo 身份可用。', required_action: null },
+      ],
+      notes: ['所有行情、K 线和财务数据都应携带 evidence。'],
+    }));
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -386,9 +405,21 @@ test('/shell - data source status is visible in header and context drawer', asyn
 
   await expect(page.getByRole('button', { name: /DEMO/ })).toBeVisible();
   await page.getByRole('button', { name: /DEMO/ }).click();
-  await expect(page.getByText('数据源状态')).toBeVisible();
-  await expect(page.getByText('行情与股票筛选')).toBeVisible();
-  await expect(page.getByText('AI 研究生成')).toBeVisible();
+  const drawer = page.getByLabel('研究上下文');
+  await expect(drawer.getByText('数据源状态')).toBeVisible();
+  await expect(drawer.getByText('美股行情')).toBeVisible();
+  await expect(drawer.getByText('AI 研究生成')).toBeVisible();
+});
+
+test('/data-sources - shows source diagnostics', async ({ page }) => {
+  await page.goto('/data-sources');
+  await page.waitForLoadState('networkidle');
+
+  await expect(page.getByText('SOURCE CONTROL')).toBeVisible();
+  await expect(page.getByText('美股行情')).toBeVisible();
+  await expect(page.getByText('A 股行情')).toBeVisible();
+  await expect(page.getByText('港股行情')).toBeVisible();
+  await expect(page.getByText('本地证据检索')).toBeVisible();
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -419,7 +450,24 @@ test('/stocks - add to watchlist', async ({ page }) => {
 
   await expect.poll(() => addedPayload?.ticker).toBe('AAPL');
   await expect.poll(() => addedPayload?.group).toBe('发现池');
+  await expect.poll(() => addedPayload?.research_status).toBe('new');
   await expect(page.getByText('AAPL 已加入自选列表')).toBeVisible();
+});
+
+test('/stocks - batch add discovery pool', async ({ page }) => {
+  const payloads: Record<string, unknown>[] = [];
+  await setupStocksPageMocks(page);
+  await page.route('**/api/user/watchlist/add', async (r) => {
+    payloads.push(JSON.parse(r.request().postData() || '{}'));
+    return json(r, { success: true });
+  });
+
+  await page.goto('/stocks');
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: '批量加入发现池' }).click();
+
+  await expect.poll(() => payloads.length).toBeGreaterThan(1);
+  await expect.poll(() => payloads.every((item) => item.research_status === 'new')).toBe(true);
 });
 
 test('/stocks - import portfolio with confirm modal', async ({ page }) => {

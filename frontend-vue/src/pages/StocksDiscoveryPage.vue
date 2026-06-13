@@ -34,6 +34,7 @@ const importing = ref<ScreenerItem | null>(null);
 const importShares = ref('1');
 const importAvgCost = ref('');
 const importBusy = ref(false);
+const batchBusy = ref(false);
 
 const markets = computed<Market[]>(() => meta.value?.markets?.length ? meta.value.markets : ['US', 'CN', 'HK']);
 const sortOptions = computed(() => meta.value?.sort_by?.length ? meta.value.sort_by : ['marketCap', 'price', 'volume', 'changesPercentage']);
@@ -137,6 +138,7 @@ async function addToWatchlist(item: ScreenerItem) {
     group: '发现池',
     priority: 3,
     watch_reason: '股票发现中心导入',
+    research_status: 'new',
   });
   addedWatchlist.value = new Set([...addedWatchlist.value, item.symbol]);
   actionMsg.value = `${item.symbol} 已加入自选列表`;
@@ -178,6 +180,42 @@ function addToCompare(item: ScreenerItem) {
   if (compareBasket.value.some((entry) => entry.symbol === item.symbol)) return;
   compareBasket.value = [...compareBasket.value, item].slice(-4);
   actionMsg.value = `${item.symbol} 已加入对比篮子`;
+}
+
+async function batchAddWatchlist() {
+  if (batchBusy.value) return;
+  batchBusy.value = true;
+  errorMsg.value = null;
+  try {
+    const candidates = displayedItems.value.slice(0, Math.min(limit.value, 12));
+    for (const item of candidates) {
+      if (!addedWatchlist.value.has(item.symbol)) {
+        await addToWatchlist(item);
+      }
+    }
+    actionMsg.value = `已将 ${candidates.length} 个候选标的加入发现池`;
+  } catch (error) {
+    errorMsg.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    batchBusy.value = false;
+  }
+}
+
+async function batchCreateNotes() {
+  if (batchBusy.value) return;
+  batchBusy.value = true;
+  errorMsg.value = null;
+  try {
+    const candidates = displayedItems.value.slice(0, Math.min(limit.value, 8));
+    for (const item of candidates) {
+      await addWatchlistAndNote(item);
+    }
+    actionMsg.value = `已为 ${candidates.length} 个候选标的创建初始研究笔记`;
+  } catch (error) {
+    errorMsg.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    batchBusy.value = false;
+  }
 }
 
 function openImport(item: ScreenerItem) {
@@ -308,6 +346,20 @@ onMounted(async () => {
     <p v-if="response?.warning" class="notice warn">覆盖提示：{{ warningLabel(response.warning) }}</p>
     <p v-if="actionMsg" class="notice success">{{ actionMsg }}</p>
     <p v-if="errorMsg" class="notice danger">{{ errorMsg }}</p>
+
+    <section v-if="displayedItems.length" class="workflow-bar page-card">
+      <div>
+        <p class="kicker">RESEARCH WORKFLOW</p>
+        <h3>候选池批量动作</h3>
+        <span>把当前筛选结果转成可复查的研究资产，而不是交易建议。</span>
+      </div>
+      <button type="button" :disabled="batchBusy" @click="batchAddWatchlist">
+        {{ batchBusy ? '处理中...' : '批量加入发现池' }}
+      </button>
+      <button type="button" :disabled="batchBusy" @click="batchCreateNotes">
+        批量创建初始笔记
+      </button>
+    </section>
 
     <section v-if="compareBasket.length" class="compare-basket page-card">
       <div>
@@ -539,6 +591,35 @@ select {
 .compare-basket {
   align-items: center;
   padding: 16px;
+}
+
+.workflow-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.workflow-bar > div {
+  margin-right: auto;
+}
+
+.workflow-bar h3 {
+  margin: 0;
+}
+
+.workflow-bar span {
+  color: var(--fin-text-2);
+}
+
+.workflow-bar button {
+  border: 1px solid var(--fin-primary);
+  border-radius: 14px;
+  padding: 10px 13px;
+  background: var(--fin-primary);
+  color: var(--fin-bg);
+  cursor: pointer;
+  font-weight: 900;
 }
 
 .compare-basket h3 {

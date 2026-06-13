@@ -135,6 +135,11 @@ export const apiClient = {
     return data;
   },
 
+  async getDataSourceStatus(): Promise<DemoStatusResponse> {
+    const { data } = await http.get<DemoStatusResponse>('/api/data-sources/status');
+    return data;
+  },
+
   async getDashboard(symbol: string): Promise<DashboardResponse> {
     const { data } = await http.get<DashboardResponse>('/api/dashboard', { params: { symbol } });
     return data;
@@ -279,11 +284,11 @@ export const apiClient = {
     const { data } = await http.get('/api/user/watchlist', { params });
     return data;
   },
-  async addWatchlist(payload: { user_id?: string; ticker: string; name?: string; tags?: string[]; note?: string; group?: string; priority?: number; watch_reason?: string }) {
+  async addWatchlist(payload: { user_id?: string; ticker: string; name?: string; tags?: string[]; note?: string; group?: string; priority?: number; watch_reason?: string; research_status?: string }) {
     const { data } = await http.post('/api/user/watchlist/add', payload);
     return data;
   },
-  async updateWatchlist(payload: { user_id?: string; ticker: string; name?: string; tags?: string[]; note?: string; group?: string; priority?: number; watch_reason?: string }) {
+  async updateWatchlist(payload: { user_id?: string; ticker: string; name?: string; tags?: string[]; note?: string; group?: string; priority?: number; watch_reason?: string; research_status?: string }) {
     const { data } = await http.post('/api/user/watchlist/update', payload);
     return data;
   },
