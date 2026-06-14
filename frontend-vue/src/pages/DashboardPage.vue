@@ -10,6 +10,7 @@ import { apiClient } from '@/api/client';
 import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import EvidencePanel from '@/components/EvidencePanel.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
+import SkeletonLoader from '@/components/SkeletonLoader.vue';
 import type { DashboardInsightsResponse, EvidenceInfo, WhatChangedItem } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import { useThemeStore } from '@/stores/theme';
@@ -380,7 +381,8 @@ watch(() => route.params.symbol, (value) => {
           <EvidencePanel v-bind="klineEvidence" compact />
           <DataSourceBadge :evidence="klineEvidence" compact />
         </div>
-        <VChart v-if="hasKlineData" class="chart" :option="chartOption" autoresize />
+        <SkeletonLoader v-if="loading && !kline" type="chart" />
+        <VChart v-else-if="hasKlineData" class="chart" :option="chartOption" autoresize />
         <div v-else class="chart-empty">
           <strong>暂无 K 线数据</strong>
           <p>当前没有可用行情序列。可刷新、切换标的，或配置真实数据源；本页不会再用固定曲线伪装行情。</p>
