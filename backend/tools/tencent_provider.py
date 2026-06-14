@@ -365,60 +365,327 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
 
 def fetch_cn_top_list(symbol: str) -> dict[str, Any] | None:
     """
-    从腾讯财经获取A股龙虎榜数据（大额交易、机构席位）。
-    API: https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh600519,day,,,320,qfq
+    从东方财富获取A股龙虎榜数据（大额交易、机构席位）。
+    API: http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=200,page=1,sortRule=-1,sortType=,startDate=,endDate=,gpfw=0,js=var%20data_tab_1.html
 
-    注意：腾讯财经的龙虎榜API可能需要特殊权限或已下线，
-    本函数作为示例保留接口，实际使用时可能需要调整API地址或切换数据源。
+    参数:
+        symbol: 股票代码（如 600519.SS）
 
     返回格式:
         {
             "symbol": "600519.SS",
             "date": "2026-06-14",
-            "top_list_type": "涨跌幅偏离值",
+            "reason": "涨跌幅偏离值7%",
+            "buy_amount": 123456789.0,
+            "sell_amount": 98765432.0,
+            "net_buy": 24691357.0,
+            "turnover_rate": 1.23,
             "buy_seats": [
-                {"rank": 1, "seat_name": "机构专用", "buy_amount": 123456789.0},
-                {"rank": 2, "seat_name": "华泰证券北京分公司", "buy_amount": 98765432.0}
+                {"rank": 1, "seat_name": "机构专用", "buy_amount": 50000000.0, "sell_amount": 0.0},
+                {"rank": 2, "seat_name": "华泰证券北京分公司", "buy_amount": 30000000.0, "sell_amount": 5000000.0}
             ],
-            "sell_seats": [
-                {"rank": 1, "seat_name": "中信证券上海分公司", "sell_amount": 87654321.0}
-            ],
-            "net_buy": 123456789.0,
-            "source": "tencent"
+            "sell_seats": [...],
+            "source": "eastmoney"
         }
     """
     code = to_tencent_code(symbol)
     if code is None:
         return None
 
-    # 腾讯龙虎榜API示例（需要验证是否可用）
-    # 实际API地址可能需要调整
-    url = f"https://stock.gtimg.cn/data/index.php?appn=detail&action=data&c={code}&p=toplist"
+    # 提取纯数字代码（如sh600519 → 600519）
+    stock_code = code[2:] if len(code) > 2 else code
+
+    # 东方财富龙虎榜API
+    # 参数说明：
+    # - pagesize: 每页数量
+    # - gpfw: 股票范围 0=全部
+    # - sortRule: 排序规则 -1=降序
+    url = f"http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=50,page=1,sortRule=-1,sortType=,startDate=,endDate=,gpfw=0,js=var%20data_tab_1.html?code={stock_code}"
 
     try:
-        resp = _http_get(url, timeout=(3, 8))
+        resp = _http_get(url, timeout=(5, 10))
         if resp.status_code != 200:
-            logger.info("[Tencent] 龙虎榜 HTTP %d for %s", resp.status_code, symbol)
+            logger.info("[东方财富] 龙虎榜 HTTP %d for %s", resp.status_code, symbol)
             return None
 
-        # 由于腾讯财经龙虎榜API格式不明确，这里返回占位数据
-        # 生产环境建议使用东方财富、同花顺等专业龙虎榜数据源
-        logger.info("[Tencent] 龙虎榜功能暂未实现，请使用东方财富等数据源")
+        # 东方财富返回的是JavaScript变量赋值格式
+        # var data_tab_1 = [{"SCode":"600519","SName":"贵州茅台",...}]
+        text = resp.text.strip()
+
+        # 提取JSON数据
+        import re
+        match = re.search(r'var\s+data_tab_1\s*=\s*(\[.*?\]);?', text, re.DOTALL)
+        if not match:
+            logger.info("[东方财富] 龙虎榜数据解析失败 for %s", symbol)
+            return None
+
+        import json
+        data_list = json.loads(match.group(1))
+
+        if not data_list:
+            logger.info("[东方财富] 龙虎榜无数据 for %s", symbol)
+            return None
+
+        # 查找匹配的股票记录
+        record = None
+        for item in data_list:
+            if item.get("SCode") == stock_code:
+                record = item
+                break
+
+        if not record:
+            logger.info("[东方财富] 龙虎榜未找到 %s 的记录", symbol)
+            return None
+
+        # 解析龙虎榜数据
+        # 字段说明（东方财富API字段）：
+        # SCode: 股票代码, SName: 股票名称, ClosePrice: 收盘价
+        # Chgradio: 涨跌幅, JmMoney: 净买额(万元), Bmoney: 买入额(万元)
+        # Smoney: 卖出额(万元), Ctypedes: 上榜原因, Tdate: 交易日期
+        # TurnoverRate: 换手率
+
+        buy_amount = safe_float(record.get("Bmoney", 0)) * 10000  # 万元转元
+        sell_amount = safe_float(record.get("Smoney", 0)) * 10000
+        net_buy = safe_float(record.get("JmMoney", 0)) * 10000
 
         return {
             "symbol": symbol.upper(),
-            "date": datetime.now(timezone.utc).date().isoformat(),
-            "top_list_type": "功能开发中",
-            "buy_seats": [],
+            "stock_code": stock_code,
+            "stock_name": record.get("SName", ""),
+            "date": record.get("Tdate", datetime.now(timezone.utc).date().isoformat()),
+            "reason": record.get("Ctypedes", "上榜"),
+            "close_price": safe_float(record.get("ClosePrice")),
+            "change_percent": safe_float(record.get("Chgradio")),
+            "buy_amount": buy_amount,
+            "sell_amount": sell_amount,
+            "net_buy": net_buy,
+            "turnover_rate": safe_float(record.get("TurnoverRate")),
+            "buy_seats": [],  # 详细席位数据需要调用额外API
             "sell_seats": [],
-            "net_buy": 0.0,
-            "source": "tencent",
-            "status": "not_implemented",
-            "message": "龙虎榜功能暂未实现，建议使用东方财富API：http://data.eastmoney.com/stock/tradedetail.html"
+            "source": "eastmoney",
+            "api_note": "基础龙虎榜数据已实现，详细席位信息需调用 /DataCenter_V3/stock2016/TradeDetail/pagesize API"
         }
     except Exception as exc:
-        logger.info("[Tencent] 龙虎榜获取失败 %s: %s", symbol, exc)
+        logger.info("[东方财富] 龙虎榜获取失败 %s: %s", symbol, exc)
         return None
 
 
-__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday", "fetch_cn_top_list"]
+def fetch_north_flow(date: str | None = None) -> dict[str, Any] | None:
+    """
+    从东方财富获取北向资金流向数据（沪股通+深股通）。
+    API: http://push2.eastmoney.com/api/qt/kamt.rtmin/get
+
+    参数:
+        date: 查询日期（YYYY-MM-DD），默认为今天
+
+    返回格式:
+        {
+            "date": "2026-06-14",
+            "time": "15:00:00",
+            "north_flow": 12345678900.0,  # 北向资金净流入（元）
+            "sh_flow": 8000000000.0,      # 沪股通净流入
+            "sz_flow": 4345678900.0,      # 深股通净流入
+            "north_balance": 520000000000.0,  # 北向资金余额
+            "sh_balance": 308000000000.0,
+            "sz_balance": 212000000000.0,
+            "data_points": [
+                {"time": "09:30", "north": 123456789, "sh": 80000000, "sz": 43456789},
+                ...
+            ],
+            "source": "eastmoney"
+        }
+    """
+    if date is None:
+        date = datetime.now(timezone.utc).date().isoformat()
+
+    # 东方财富北向资金API
+    # fields1: hk2sh(沪股通),hk2sz(深股通),s2n(北向)
+    # fields2: 各时间点数据
+    url = "http://push2.eastmoney.com/api/qt/kamt.rtmin/get"
+    params = {
+        "fields1": "f1,f2,f3,f4",
+        "fields2": "f51,f52,f53,f54,f56",
+        "ut": "b2884a393a59ad64002292a3e90d46a5",
+        "cb": "jQuery"
+    }
+
+    try:
+        resp = _http_get(url, params=params, timeout=(5, 10))
+        if resp.status_code != 200:
+            logger.info("[东方财富] 北向资金 HTTP %d", resp.status_code)
+            return None
+
+        # 返回格式：jQuery({"rc":0,"rt":6,"svr":...,"data":{...}})
+        text = resp.text.strip()
+
+        # 提取JSON数据
+        import re
+        match = re.search(r'jQuery\((.*)\)', text)
+        if not match:
+            logger.info("[东方财富] 北向资金数据解析失败")
+            return None
+
+        import json
+        data = json.loads(match.group(1))
+
+        if data.get("rc") != 0 or not data.get("data"):
+            logger.info("[东方财富] 北向资金返回错误")
+            return None
+
+        result_data = data["data"]
+
+        # 解析实时数据
+        # s2n: 北向资金, hk2sh: 沪股通, hk2sz: 深股通
+        north_total = safe_float(result_data.get("s2n"))  # 单位：万元
+        sh_total = safe_float(result_data.get("hk2sh"))
+        sz_total = safe_float(result_data.get("hk2sz"))
+
+        # 转换为元
+        if north_total:
+            north_total = north_total * 10000
+        if sh_total:
+            sh_total = sh_total * 10000
+        if sz_total:
+            sz_total = sz_total * 10000
+
+        # 解析分时数据
+        data_points = []
+        north_list = result_data.get("s2n", {}).get("data", []) if isinstance(result_data.get("s2n"), dict) else []
+
+        for point in north_list[:30]:  # 取前30个数据点
+            if isinstance(point, list) and len(point) >= 2:
+                time_str = point[0]  # 时间：如 "0930"
+                flow_value = safe_float(point[1])  # 流入值（万元）
+
+                if time_str and len(time_str) == 4:
+                    formatted_time = f"{time_str[:2]}:{time_str[2:]}"
+                    data_points.append({
+                        "time": formatted_time,
+                        "north": flow_value * 10000 if flow_value else 0.0
+                    })
+
+        return {
+            "date": date,
+            "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            "north_flow": north_total or 0.0,
+            "sh_flow": sh_total or 0.0,
+            "sz_flow": sz_total or 0.0,
+            "data_points": data_points,
+            "source": "eastmoney",
+            "unit": "元"
+        }
+    except Exception as exc:
+        logger.info("[东方财富] 北向资金获取失败: %s", exc)
+        return None
+
+
+def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
+    """
+    从东方财富获取A股融资融券数据。
+    API: http://datacenter-web.eastmoney.com/api/data/v1/get
+
+    参数:
+        symbol: 股票代码（如 600519.SS）
+
+    返回格式:
+        {
+            "symbol": "600519.SS",
+            "date": "2026-06-14",
+            "margin_balance": 1234567890.0,     # 融资余额（元）
+            "margin_buy": 50000000.0,           # 融资买入额
+            "margin_repay": 30000000.0,         # 融资偿还额
+            "short_balance": 123456.0,          # 融券余量（股）
+            "short_sell": 10000.0,              # 融券卖出量
+            "short_repay": 5000.0,              # 融券偿还量
+            "margin_buy_ratio": 5.23,           # 融资买入占比(%)
+            "total_balance": 1234691346.0,      # 融资融券余额
+            "source": "eastmoney"
+        }
+    """
+    code = to_tencent_code(symbol)
+    if code is None:
+        return None
+
+    # 提取纯数字代码
+    stock_code = code[2:] if len(code) > 2 else code
+
+    # 东方财富融资融券API
+    # reportName: RPT_RZRQ_LSHJ (融资融券历史汇总)
+    # columns: TRADE_DATE,RZYE,RZMRE,RZCHE,RQYL,RQMCL,RQCHL,RZRQYE
+    url = "http://datacenter-web.eastmoney.com/api/data/v1/get"
+    params = {
+        "reportName": "RPT_RZRQ_LSHJ",
+        "columns": "TRADE_DATE,SECURITY_CODE,RZYE,RZMRE,RZCHE,RQYL,RQMCL,RQCHL,RZRQYE,RZMRE_CHG,RQMCL_CHG",
+        "quoteColumns": "",
+        "filter": f'(SECURITY_CODE="{stock_code}")',
+        "pageNumber": "1",
+        "pageSize": "10",
+        "sortTypes": "-1",
+        "sortColumns": "TRADE_DATE",
+        "source": "WEB",
+        "client": "WEB"
+    }
+
+    try:
+        resp = _http_get(url, params=params, timeout=(5, 10))
+        if resp.status_code != 200:
+            logger.info("[东方财富] 融资融券 HTTP %d for %s", resp.status_code, symbol)
+            return None
+
+        data = resp.json()
+
+        if data.get("code") != 0 or not data.get("result"):
+            logger.info("[东方财富] 融资融券返回错误 for %s", symbol)
+            return None
+
+        records = data["result"].get("data", [])
+        if not records:
+            logger.info("[东方财富] 融资融券无数据 for %s", symbol)
+            return None
+
+        # 取最新一条记录
+        latest = records[0]
+
+        # 字段说明（东方财富API）：
+        # TRADE_DATE: 交易日期
+        # RZYE: 融资余额（元）
+        # RZMRE: 融资买入额（元）
+        # RZCHE: 融资偿还额（元）
+        # RQYL: 融券余量（股）
+        # RQMCL: 融券卖出量（股）
+        # RQCHL: 融券偿还量（股）
+        # RZRQYE: 融资融券余额（元）
+
+        margin_balance = safe_float(latest.get("RZYE"))  # 融资余额
+        margin_buy = safe_float(latest.get("RZMRE"))      # 融资买入额
+        margin_repay = safe_float(latest.get("RZCHE"))    # 融资偿还额
+        short_balance = safe_float(latest.get("RQYL"))    # 融券余量（股）
+        short_sell = safe_float(latest.get("RQMCL"))      # 融券卖出量
+        short_repay = safe_float(latest.get("RQCHL"))     # 融券偿还量
+        total_balance = safe_float(latest.get("RZRQYE"))  # 融资融券余额
+
+        # 计算融资买入占比（需要获取当日成交额）
+        # 这里返回0，实际需要调用额外API获取成交额
+        margin_buy_ratio = 0.0
+
+        return {
+            "symbol": symbol.upper(),
+            "stock_code": stock_code,
+            "date": latest.get("TRADE_DATE", datetime.now(timezone.utc).date().isoformat()),
+            "margin_balance": margin_balance or 0.0,
+            "margin_buy": margin_buy or 0.0,
+            "margin_repay": margin_repay or 0.0,
+            "short_balance": short_balance or 0.0,
+            "short_sell": short_sell or 0.0,
+            "short_repay": short_repay or 0.0,
+            "margin_buy_ratio": margin_buy_ratio,
+            "total_balance": total_balance or 0.0,
+            "source": "eastmoney",
+            "unit": "融资单位=元，融券单位=股"
+        }
+    except Exception as exc:
+        logger.info("[东方财富] 融资融券获取失败 %s: %s", symbol, exc)
+        return None
+
+
+__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday", "fetch_cn_top_list", "fetch_north_flow", "fetch_margin_trading"]

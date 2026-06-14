@@ -449,11 +449,14 @@ watch(() => route.params.symbol, (value) => {
       </div>
 
       <div v-else-if="activeTab === 'news'" class="tab-content">
-        <article v-for="item in news.slice(0, 6)" :key="item.title || item.link" class="news-card">
-          <h4>{{ item.title || item.headline || '未命名新闻' }}</h4>
-          <p>{{ item.source || item.publisher || 'News' }} / {{ item.publishedAt || item.datetime || '最近' }}</p>
-        </article>
-        <article v-if="news.length === 0" class="news-card">暂无新闻数据。</article>
+        <SkeletonLoader v-if="slowLoading && news.length === 0" type="card" :rows="4" />
+        <template v-else>
+          <article v-for="item in news.slice(0, 6)" :key="item.title || item.link" class="news-card">
+            <h4>{{ item.title || item.headline || '未命名新闻' }}</h4>
+            <p>{{ item.source || item.publisher || 'News' }} / {{ item.publishedAt || item.datetime || '最近' }}</p>
+          </article>
+          <article v-if="news.length === 0" class="news-card">暂无新闻数据。</article>
+        </template>
       </div>
 
       <div v-else-if="activeTab === 'research'" class="tab-content research-pane">
