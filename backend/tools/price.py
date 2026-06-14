@@ -325,7 +325,7 @@ def _fetch_index_price(ticker: str):
         return None
     logger.info(f"  - Attempting index price via yfinance.download for {ticker}...")
     try:
-        hist = yf.download(ticker, period="3d", interval="1d", progress=False, timeout=20)
+        hist = yf.download(ticker, period="3d", interval="1d", progress=False, timeout=5)
         if not hist.empty and len(hist) > 0:
             closes = hist['Close'].dropna().tolist()
             if closes:
@@ -1185,9 +1185,9 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
             # 对于指数，使用不同的参数
             include_time = interval.endswith('h') or interval.endswith('m')
             if ticker.startswith('^'):
-                hist = stock.history(period=period, interval=interval, timeout=30, raise_errors=True)
+                hist = stock.history(period=period, interval=interval, timeout=5, raise_errors=True)
             else:
-                hist = stock.history(period=period, interval=interval, timeout=30, raise_errors=True)
+                hist = stock.history(period=period, interval=interval, timeout=5, raise_errors=True)
             
             if not hist.empty and len(hist) > 0:
                 data = []
@@ -1303,7 +1303,7 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
             # yfinance 支持的 period: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
             # yfinance 支持的 interval: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
             # 对于指数，yfinance 通常能正常工作
-            hist = stock.history(period=period, interval=interval, timeout=15)
+            hist = stock.history(period=period, interval=interval, timeout=5)
             
             if hist.empty:
                 if attempt < max_retries - 1:
@@ -1400,7 +1400,7 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
         try:
             # 对于指数，yfinance 通常支持，但可能需要特殊处理
             stock = yf.Ticker(ticker)
-            hist = stock.history(period=period, interval=interval, timeout=20)
+            hist = stock.history(period=period, interval=interval, timeout=5)
             
             if not hist.empty:
                 include_time = interval.endswith('h') or interval.endswith('m')

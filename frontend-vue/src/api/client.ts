@@ -35,7 +35,7 @@ import type {
 const http = axios.create({
   baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json; charset=utf-8' },
-  timeout: 60_000,
+  timeout: 15_000,
 });
 
 http.interceptors.request.use((config) => {

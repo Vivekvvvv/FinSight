@@ -9,7 +9,8 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.schemas import KlineResponse
 from backend.demo_mode import demo_financials, demo_kline, demo_quote, is_demo_mode
-from backend.tools.baostock_provider import fetch_cn_kline, fetch_cn_quote, is_cn_symbol
+from backend.tools.baostock_provider import is_cn_symbol
+from backend.tools.tencent_provider import fetch_cn_quote
 from backend.utils.market_evidence import attach_financials_evidence, attach_market_evidence
 from backend.utils.quote import parse_quote_payload, resolve_live_quote
 
@@ -182,17 +183,17 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     result = _market_payload(result, "cache", cached=True)
                     return {"ticker": normalized_ticker, "data": result, "cached": True}
 
-            if is_demo_mode():
-                demo = demo_quote(normalized_ticker)
-                if demo:
-                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
-
             if is_cn_symbol(normalized_ticker):
                 cn_quote = fetch_cn_quote(normalized_ticker)
                 if cn_quote is not None:
                     if orchestrator:
                         orchestrator.cache.set(f"price:{normalized_ticker}", cn_quote, ttl=300)
-                    return {"ticker": normalized_ticker, "data": _market_payload(cn_quote, "baostock"), "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(cn_quote, "tencent"), "cached": False}
+
+            if is_demo_mode():
+                demo = demo_quote(normalized_ticker)
+                if demo:
+                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
 
             quote, raw_payload = resolve_live_quote(normalized_ticker, deps.get_stock_price)
             if quote is not None:
