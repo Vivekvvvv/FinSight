@@ -623,4 +623,9 @@ export const apiClient = {
     });
     return data;
   },
+
+  async getSystemHealth(): Promise<any> {
+    const { data } = await http.get('/api/system/health');
+    return data;
+  },
 };

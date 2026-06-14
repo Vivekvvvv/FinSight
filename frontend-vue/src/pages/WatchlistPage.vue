@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import type { WatchlistItem } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
+import SkeletonLoader from '@/components/SkeletonLoader.vue';
 
 const identity = useIdentityStore();
 const router = useRouter();
@@ -177,14 +178,11 @@ watch(() => identity.userId, () => { void refresh(); });
     <!-- 错误 -->
     <div v-if="errorMsg" class="error-banner">{{ errorMsg }}</div>
 
-    <!-- 加载中 -->
-    <div v-if="loading" class="loading-state">
-      <span class="loader" />
-      <span>加载中…</span>
-    </div>
+    <!-- 加载骨架屏 -->
+    <SkeletonLoader v-if="loading && items.length === 0" type="list" :rows="6" />
 
     <!-- 空态 -->
-    <div v-else-if="items.length === 0" class="empty-state">
+    <div v-else-if="!loading && items.length === 0" class="empty-state">
       <div class="empty-icon">📋</div>
       <div class="empty-title">还没有自选标的</div>
       <div class="empty-hint">点击右上角「+ 添加标的」开始关注你感兴趣的股票</div>

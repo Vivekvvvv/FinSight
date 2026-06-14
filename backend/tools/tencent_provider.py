@@ -363,4 +363,62 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
         return None
 
 
-__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday"]
+def fetch_cn_top_list(symbol: str) -> dict[str, Any] | None:
+    """
+    从腾讯财经获取A股龙虎榜数据（大额交易、机构席位）。
+    API: https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh600519,day,,,320,qfq
+
+    注意：腾讯财经的龙虎榜API可能需要特殊权限或已下线，
+    本函数作为示例保留接口，实际使用时可能需要调整API地址或切换数据源。
+
+    返回格式:
+        {
+            "symbol": "600519.SS",
+            "date": "2026-06-14",
+            "top_list_type": "涨跌幅偏离值",
+            "buy_seats": [
+                {"rank": 1, "seat_name": "机构专用", "buy_amount": 123456789.0},
+                {"rank": 2, "seat_name": "华泰证券北京分公司", "buy_amount": 98765432.0}
+            ],
+            "sell_seats": [
+                {"rank": 1, "seat_name": "中信证券上海分公司", "sell_amount": 87654321.0}
+            ],
+            "net_buy": 123456789.0,
+            "source": "tencent"
+        }
+    """
+    code = to_tencent_code(symbol)
+    if code is None:
+        return None
+
+    # 腾讯龙虎榜API示例（需要验证是否可用）
+    # 实际API地址可能需要调整
+    url = f"https://stock.gtimg.cn/data/index.php?appn=detail&action=data&c={code}&p=toplist"
+
+    try:
+        resp = _http_get(url, timeout=(3, 8))
+        if resp.status_code != 200:
+            logger.info("[Tencent] 龙虎榜 HTTP %d for %s", resp.status_code, symbol)
+            return None
+
+        # 由于腾讯财经龙虎榜API格式不明确，这里返回占位数据
+        # 生产环境建议使用东方财富、同花顺等专业龙虎榜数据源
+        logger.info("[Tencent] 龙虎榜功能暂未实现，请使用东方财富等数据源")
+
+        return {
+            "symbol": symbol.upper(),
+            "date": datetime.now(timezone.utc).date().isoformat(),
+            "top_list_type": "功能开发中",
+            "buy_seats": [],
+            "sell_seats": [],
+            "net_buy": 0.0,
+            "source": "tencent",
+            "status": "not_implemented",
+            "message": "龙虎榜功能暂未实现，建议使用东方财富API：http://data.eastmoney.com/stock/tradedetail.html"
+        }
+    except Exception as exc:
+        logger.info("[Tencent] 龙虎榜获取失败 %s: %s", symbol, exc)
+        return None
+
+
+__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday", "fetch_cn_top_list"]

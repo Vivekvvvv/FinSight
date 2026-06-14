@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch, nextTick } from 'vue';
 import { apiClient } from '@/api/client';
 import type { PortfolioPosition } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
+import SkeletonLoader from '@/components/SkeletonLoader.vue';
 
 const identity = useIdentityStore();
 
@@ -244,13 +245,11 @@ watch(() => identity.sessionId, () => { void refresh(); });
 
     <div v-if="errorMsg" class="error-banner">{{ errorMsg }}</div>
 
-    <!-- 加载 -->
-    <div v-if="loading" class="loading-state">
-      <span class="loader" /><span>加载中…</span>
-    </div>
+    <!-- 加载骨架屏 -->
+    <SkeletonLoader v-if="loading && positions.length === 0" type="table" :rows="5" />
 
     <!-- 空态 -->
-    <div v-else-if="positions.length === 0" class="empty-state">
+    <div v-else-if="!loading && positions.length === 0" class="empty-state">
       <div class="empty-icon">💼</div>
       <div class="empty-title">还没有持仓记录</div>
       <div class="empty-hint">在上方添加第一笔持仓，或通过「导入 CSV」批量导入</div>

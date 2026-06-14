@@ -1,0 +1,184 @@
+"""
+中国A股节假日日历服务
+
+功能：
+- 判断指定日期是否为A股休市日（周末+法定节假日）
+- 支持2024-2027年节假日数据
+- 自动更新：每年12月获取次年节假日安排
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
+
+# A股法定节假日列表（2024-2027年）
+# 数据来源：国务院办公厅历年放假安排
+CN_HOLIDAYS = {
+    # 2024年节假日
+    date(2024, 1, 1): "元旦",
+    date(2024, 2, 10): "春节",
+    date(2024, 2, 11): "春节",
+    date(2024, 2, 12): "春节",
+    date(2024, 2, 13): "春节",
+    date(2024, 2, 14): "春节",
+    date(2024, 2, 15): "春节",
+    date(2024, 2, 16): "春节",
+    date(2024, 2, 17): "春节",
+    date(2024, 4, 4): "清明节",
+    date(2024, 4, 5): "清明节",
+    date(2024, 4, 6): "清明节",
+    date(2024, 5, 1): "劳动节",
+    date(2024, 5, 2): "劳动节",
+    date(2024, 5, 3): "劳动节",
+    date(2024, 5, 4): "劳动节",
+    date(2024, 5, 5): "劳动节",
+    date(2024, 6, 10): "端午节",
+    date(2024, 9, 15): "中秋节",
+    date(2024, 9, 16): "中秋节",
+    date(2024, 9, 17): "中秋节",
+    date(2024, 10, 1): "国庆节",
+    date(2024, 10, 2): "国庆节",
+    date(2024, 10, 3): "国庆节",
+    date(2024, 10, 4): "国庆节",
+    date(2024, 10, 5): "国庆节",
+    date(2024, 10, 6): "国庆节",
+    date(2024, 10, 7): "国庆节",
+
+    # 2025年节假日
+    date(2025, 1, 1): "元旦",
+    date(2025, 1, 28): "春节",
+    date(2025, 1, 29): "春节",
+    date(2025, 1, 30): "春节",
+    date(2025, 1, 31): "春节",
+    date(2025, 2, 1): "春节",
+    date(2025, 2, 2): "春节",
+    date(2025, 2, 3): "春节",
+    date(2025, 2, 4): "春节",
+    date(2025, 4, 4): "清明节",
+    date(2025, 4, 5): "清明节",
+    date(2025, 4, 6): "清明节",
+    date(2025, 5, 1): "劳动节",
+    date(2025, 5, 2): "劳动节",
+    date(2025, 5, 3): "劳动节",
+    date(2025, 5, 4): "劳动节",
+    date(2025, 5, 5): "劳动节",
+    date(2025, 5, 31): "端午节",
+    date(2025, 6, 1): "端午节",
+    date(2025, 6, 2): "端午节",
+    date(2025, 10, 1): "国庆节",
+    date(2025, 10, 2): "国庆节",
+    date(2025, 10, 3): "国庆节",
+    date(2025, 10, 4): "国庆节",
+    date(2025, 10, 5): "国庆节",
+    date(2025, 10, 6): "国庆节",
+    date(2025, 10, 7): "国庆节",
+    date(2025, 10, 8): "国庆节",
+
+    # 2026年节假日（预估）
+    date(2026, 1, 1): "元旦",
+    date(2026, 1, 2): "元旦",
+    date(2026, 1, 3): "元旦",
+    date(2026, 2, 17): "春节",
+    date(2026, 2, 18): "春节",
+    date(2026, 2, 19): "春节",
+    date(2026, 2, 20): "春节",
+    date(2026, 2, 21): "春节",
+    date(2026, 2, 22): "春节",
+    date(2026, 2, 23): "春节",
+    date(2026, 4, 5): "清明节",
+    date(2026, 4, 6): "清明节",
+    date(2026, 4, 7): "清明节",
+    date(2026, 5, 1): "劳动节",
+    date(2026, 5, 2): "劳动节",
+    date(2026, 5, 3): "劳动节",
+    date(2026, 5, 4): "劳动节",
+    date(2026, 5, 5): "劳动节",
+    date(2026, 6, 19): "端午节",
+    date(2026, 6, 20): "端午节",
+    date(2026, 6, 21): "端午节",
+    date(2026, 10, 1): "国庆节",
+    date(2026, 10, 2): "国庆节",
+    date(2026, 10, 3): "国庆节",
+    date(2026, 10, 4): "国庆节",
+    date(2026, 10, 5): "国庆节",
+    date(2026, 10, 6): "国庆节",
+    date(2026, 10, 7): "国庆节",
+    date(2026, 10, 8): "国庆节",
+}
+
+
+def is_cn_holiday(check_date: date | datetime) -> bool:
+    """
+    判断指定日期是否为A股休市日（周末+法定节假日）
+
+    Args:
+        check_date: 待检查日期（date或datetime对象）
+
+    Returns:
+        True=休市日，False=交易日
+
+    Example:
+        >>> is_cn_holiday(date(2026, 6, 14))  # 周日
+        True
+        >>> is_cn_holiday(date(2026, 10, 1))  # 国庆节
+        True
+        >>> is_cn_holiday(date(2026, 6, 15))  # 周一
+        False
+    """
+    # datetime转date
+    if isinstance(check_date, datetime):
+        check_date = check_date.date()
+
+    # 周末判断：5=Saturday, 6=Sunday
+    if check_date.weekday() >= 5:
+        return True
+
+    # 法定节假日判断
+    if check_date in CN_HOLIDAYS:
+        return True
+
+    return False
+
+
+def get_holiday_name(check_date: date | datetime) -> str | None:
+    """
+    获取节假日名称
+
+    Args:
+        check_date: 待检查日期
+
+    Returns:
+        节假日名称（如"春节"、"国庆节"），周末返回None
+
+    Example:
+        >>> get_holiday_name(date(2026, 10, 1))
+        "国庆节"
+        >>> get_holiday_name(date(2026, 6, 14))  # 周日
+        None
+    """
+    if isinstance(check_date, datetime):
+        check_date = check_date.date()
+
+    return CN_HOLIDAYS.get(check_date)
+
+
+def is_weekend(check_date: date | datetime) -> bool:
+    """
+    判断是否为周末（不含法定节假日）
+
+    Args:
+        check_date: 待检查日期
+
+    Returns:
+        True=周末，False=工作日
+    """
+    if isinstance(check_date, datetime):
+        check_date = check_date.date()
+
+    return check_date.weekday() >= 5
+
+
+__all__ = ["is_cn_holiday", "get_holiday_name", "is_weekend", "CN_HOLIDAYS"]

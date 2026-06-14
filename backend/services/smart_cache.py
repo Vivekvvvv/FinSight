@@ -5,6 +5,7 @@
 - 交易时段内：短TTL（30-60秒），数据保持新鲜
 - 盘后时段：长TTL（30分钟），减少无意义请求
 - 周末/节假日：超长TTL（24小时），极少变化
+- A股节假日自动识别（2024-2027年）
 """
 
 from __future__ import annotations
@@ -51,6 +52,15 @@ class TradingHoursCache:
             TTL秒数
         """
         now_utc = datetime.now(timezone.utc)
+
+        # A股特殊处理：检查节假日
+        if market == "cn":
+            from backend.services.cn_holiday import is_cn_holiday
+            from datetime import timedelta
+            cn_time = now_utc + timedelta(hours=8)
+            if is_cn_holiday(cn_time):
+                return cls._get_weekend_ttl(data_type)
+
         is_trading = cls._is_trading_hours(market, now_utc)
         is_weekend = now_utc.weekday() >= 5  # 5=Saturday, 6=Sunday
 

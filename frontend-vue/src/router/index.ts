@@ -21,6 +21,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/timeline/:symbol', name: 'timeline', component: () => import('@/pages/TimelinePage.vue'), meta: { requiresAuth: true } },
   { path: '/reports', name: 'reports', component: () => import('@/pages/ReportsLibraryPage.vue') },
   { path: '/alerts', name: 'alerts', component: () => import('@/pages/AlertsPage.vue'), meta: { requiresAuth: true } },
+  { path: '/system/health', name: 'system-health', component: () => import('@/pages/SystemHealthPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/welcome' },
 ];
 
