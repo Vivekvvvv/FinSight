@@ -105,4 +105,121 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
         return None
 
 
-__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote"]
+def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") -> dict[str, Any] | None:
+    """
+    从腾讯财经获取A股K线历史数据。
+    API: https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh600519,day,,,320,qfq
+
+    参数:
+        period: 时间周期 (5d/1mo/3mo/6mo/1y/2y)
+        interval: K线类型 (1d=日K, 1wk=周K, 1mo=月K)
+
+    返回格式:
+        "2026-01-12 1419.100 1423.230 1431.000 1417.100 36083.000"
+        格式为: 日期 开盘 收盘 最高 最低 成交量(手)
+    """
+    code = to_tencent_code(symbol)
+    if code is None:
+        return None
+
+    # 根据period计算需要的K线数量
+    period_to_count = {
+        "5d": 10,
+        "1mo": 30,
+        "3mo": 90,
+        "6mo": 150,
+        "1y": 280,
+        "2y": 520,
+        "5y": 1300,
+    }
+    count = period_to_count.get(period, 90)
+
+    # 根据interval选择K线类型
+    interval_map = {
+        "1d": "day",
+        "1wk": "week",
+        "1mo": "month",
+    }
+    kline_type = interval_map.get(interval, "day")
+
+    # 腾讯接口参数: param=代码,类型,开始日期,结束日期,数量,复权方式
+    # qfq=前复权, hfq=后复权, 空=不复权
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{kline_type},,,{count},qfq"
+
+    try:
+        resp = _http_get(url, timeout=(3, 8))
+        if resp.status_code != 200:
+            logger.info("[Tencent] K线 HTTP %d for %s", resp.status_code, symbol)
+            return None
+
+        data = resp.json()
+        if data.get("code") != 0:
+            logger.info("[Tencent] K线返回错误 for %s: %s", symbol, data.get("msg"))
+            return None
+
+        # 解析K线数据
+        stock_data = data.get("data", {}).get(code, {})
+        kline_key = f"qfq{kline_type}"  # qfqday / qfqweek / qfqmonth
+        raw_lines = stock_data.get(kline_key, [])
+
+        if not raw_lines:
+            logger.info("[Tencent] K线数据为空 for %s", symbol)
+            return None
+
+        # 解析每条K线: ['2026-04-29', '1405.000', '1401.170', '1409.750', '1400.280', '34813.000']
+        # 格式: [日期, 开盘, 收盘, 最高, 最低, 成交量(手)]
+        kline_data = []
+        dates = []
+        values = []
+
+        for line in raw_lines:
+            # 腾讯返回的是列表，不是字符串
+            if not isinstance(line, list) or len(line) < 6:
+                continue
+
+            date_str = str(line[0])  # 2026-04-29
+            open_price = safe_float(line[1])
+            close_price = safe_float(line[2])
+            high_price = safe_float(line[3])
+            low_price = safe_float(line[4])
+            volume = safe_float(line[5])
+
+            if close_price is None:
+                continue
+
+            # 成交量从手转为股
+            if volume:
+                volume = volume * 100
+
+            kline_data.append({
+                "time": date_str,
+                "open": open_price,
+                "close": close_price,
+                "high": high_price,
+                "low": low_price,
+                "volume": volume,
+            })
+
+            dates.append(date_str)
+            values.append([open_price, close_price, low_price, high_price])
+
+        if not kline_data:
+            return None
+
+        return {
+            "kline_data": kline_data,
+            "dates": dates,
+            "values": values,
+            "period": period,
+            "interval": interval,
+            "source": "tencent",
+            "as_of": dates[-1] if dates else datetime.now(timezone.utc).isoformat(),
+            "freshness_status": "live",
+            "fallback_level": 1,
+        }
+    except Exception as exc:
+        logger.info("[Tencent] K线获取失败 %s: %s", symbol, exc)
+        return None
+
+
+__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline"]

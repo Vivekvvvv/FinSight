@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.api.schemas import KlineResponse
 from backend.demo_mode import demo_financials, demo_kline, demo_quote, is_demo_mode
 from backend.tools.baostock_provider import is_cn_symbol
-from backend.tools.tencent_provider import fetch_cn_quote
+from backend.tools.tencent_provider import fetch_cn_quote, fetch_cn_kline
 from backend.utils.market_evidence import attach_financials_evidence, attach_market_evidence
 from backend.utils.quote import parse_quote_payload, resolve_live_quote
 
@@ -280,18 +280,18 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     deps.logger.info("[API] kline cache hit %s (%s,%s)", normalized_ticker, period, interval)
                     return {"ticker": normalized_ticker, "data": _market_payload(cached_data, "cache", cached=True), "cached": True}
 
-            if is_demo_mode():
-                demo = demo_kline(normalized_ticker, period=period, interval=interval)
-                if demo:
-                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
-
             if is_cn_symbol(normalized_ticker):
                 cn_kline = fetch_cn_kline(normalized_ticker, period=period, interval=interval)
                 if cn_kline is not None:
                     if orchestrator:
                         cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
                         orchestrator.cache.set(cache_key, cn_kline, ttl=3600)
-                    return {"ticker": normalized_ticker, "data": _market_payload(cn_kline, "baostock"), "cached": False}
+                    return {"ticker": normalized_ticker, "data": _market_payload(cn_kline, "tencent"), "cached": False}
+
+            if is_demo_mode():
+                demo = demo_kline(normalized_ticker, period=period, interval=interval)
+                if demo:
+                    return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
 
             kline_data = deps.get_stock_historical_data(normalized_ticker, period=period, interval=interval)
             if kline_data.get("error") and is_demo_mode():
