@@ -38,7 +38,31 @@ const http = axios.create({
   timeout: 15_000,
 });
 
+// 全局Loading状态管理
+let activeRequestCount = 0;
+const loadingCallbacks = new Set<(isLoading: boolean) => void>();
+
+export function onLoadingChange(callback: (isLoading: boolean) => void) {
+  loadingCallbacks.add(callback);
+  return () => loadingCallbacks.delete(callback);
+}
+
+function updateLoadingState(delta: number) {
+  activeRequestCount += delta;
+  const isLoading = activeRequestCount > 0;
+  loadingCallbacks.forEach(cb => {
+    try {
+      cb(isLoading);
+    } catch (e) {
+      console.error('Loading callback error:', e);
+    }
+  });
+}
+
 http.interceptors.request.use((config) => {
+  // 增加活跃请求计数
+  updateLoadingState(1);
+
   if (typeof window === 'undefined') return config;
   const token = String(window.localStorage.getItem('finsight-access-token') || '').trim();
   if (!token) return config;
@@ -55,11 +79,23 @@ http.interceptors.request.use((config) => {
   }
   config.headers = headers;
   return config;
+}, (error) => {
+  // 请求失败也要减少计数
+  updateLoadingState(-1);
+  return Promise.reject(error);
 });
 
 http.interceptors.response.use(
-  (resp) => resp,
-  (error: AxiosError) => Promise.reject(error),
+  (resp) => {
+    // 请求成功，减少计数
+    updateLoadingState(-1);
+    return resp;
+  },
+  (error: AxiosError) => {
+    // 请求失败，减少计数
+    updateLoadingState(-1);
+    return Promise.reject(error);
+  },
 );
 
 export interface ChatStreamCallbacks {

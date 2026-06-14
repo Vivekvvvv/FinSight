@@ -2,6 +2,7 @@
 import { computed, onMounted } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import AppShell from '@/components/AppShell.vue';
+import GlobalLoading from '@/components/GlobalLoading.vue';
 import { useIdentityStore } from '@/stores/identity';
 import { useThemeStore } from '@/stores/theme';
 
@@ -17,6 +18,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <GlobalLoading />
   <RouterView v-if="isLogin" />
   <AppShell v-else>
     <RouterView />
