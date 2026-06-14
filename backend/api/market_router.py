@@ -187,7 +187,9 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 cn_quote = fetch_cn_quote(normalized_ticker)
                 if cn_quote is not None:
                     if orchestrator:
-                        orchestrator.cache.set(f"price:{normalized_ticker}", cn_quote, ttl=300)
+                        from backend.services.smart_cache import get_smart_cache_ttl
+                        ttl = get_smart_cache_ttl(normalized_ticker, "quote")
+                        orchestrator.cache.set(f"price:{normalized_ticker}", cn_quote, ttl=ttl)
                     return {"ticker": normalized_ticker, "data": _market_payload(cn_quote, "tencent"), "cached": False}
 
             if is_demo_mode():
@@ -200,11 +202,15 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 quote_source = str(quote.get("source") or "live") if isinstance(quote, dict) else "live"
                 quote = _market_payload(quote, quote_source)
                 if orchestrator:
-                    orchestrator.cache.set(f"price:{normalized_ticker}", quote, ttl=60)
+                    from backend.services.smart_cache import get_smart_cache_ttl
+                    ttl = get_smart_cache_ttl(normalized_ticker, "quote")
+                    orchestrator.cache.set(f"price:{normalized_ticker}", quote, ttl=ttl)
                 return {"ticker": normalized_ticker, "data": quote}
 
             if orchestrator and raw_payload:
-                orchestrator.cache.set(f"price:{normalized_ticker}", raw_payload, ttl=60)
+                from backend.services.smart_cache import get_smart_cache_ttl
+                ttl = get_smart_cache_ttl(normalized_ticker, "quote")
+                orchestrator.cache.set(f"price:{normalized_ticker}", raw_payload, ttl=ttl)
             if is_demo_mode():
                 demo = demo_quote(normalized_ticker)
                 if demo:
@@ -284,8 +290,10 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 cn_kline = fetch_cn_kline(normalized_ticker, period=period, interval=interval)
                 if cn_kline is not None:
                     if orchestrator:
+                        from backend.services.smart_cache import get_smart_cache_ttl
                         cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
-                        orchestrator.cache.set(cache_key, cn_kline, ttl=3600)
+                        ttl = get_smart_cache_ttl(normalized_ticker, "kline")
+                        orchestrator.cache.set(cache_key, cn_kline, ttl=ttl)
                     return {"ticker": normalized_ticker, "data": _market_payload(cn_kline, "tencent"), "cached": False}
 
             if is_demo_mode():
@@ -299,8 +307,10 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 if demo:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
             if "error" not in kline_data and orchestrator:
+                from backend.services.smart_cache import get_smart_cache_ttl
                 cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
-                orchestrator.cache.set(cache_key, kline_data, ttl=3600)
+                ttl = get_smart_cache_ttl(normalized_ticker, "kline")
+                orchestrator.cache.set(cache_key, kline_data, ttl=ttl)
 
             kline_source = str(kline_data.get("source") or "kline") if isinstance(kline_data, dict) else "kline"
             return {"ticker": normalized_ticker, "data": _market_payload(kline_data, kline_source), "cached": False}
@@ -333,7 +343,9 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 cn_intraday = fetch_cn_intraday(normalized_ticker)
                 if cn_intraday is not None:
                     if orchestrator:
-                        orchestrator.cache.set(cache_key, cn_intraday, ttl=60)  # 分时数据缓存60秒
+                        from backend.services.smart_cache import get_smart_cache_ttl
+                        ttl = get_smart_cache_ttl(normalized_ticker, "intraday")
+                        orchestrator.cache.set(cache_key, cn_intraday, ttl=ttl)
                     return {"ticker": normalized_ticker, "data": _market_payload(cn_intraday, "tencent"), "cached": False}
 
             # 非A股或腾讯失败，返回错误
