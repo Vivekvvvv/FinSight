@@ -58,6 +58,7 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
         # 字段映射（腾讯接口字段索引）:
         # 3=现价, 4=昨收, 5=开盘, 6=成交量(手), 7=外盘, 8=内盘
         # 9=买一, 10=买一量, ..., 30=日期, 31=时间
+        # 39=市盈率PE, 43=振幅, 44=流通市值(亿), 45=总市值(亿), 46=市净率PB, 52=换手率
         price = safe_float(parts[3])
         prev_close = safe_float(parts[4])
         if price is None or prev_close is None or prev_close == 0:
@@ -68,6 +69,19 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
         volume = safe_float(parts[6])  # 成交量(手)
         if volume:
             volume = volume * 100  # 转换为股
+
+        # 基本面数据（字段39-52）
+        pe_ratio = safe_float(parts[39]) if len(parts) > 39 else None  # 市盈率
+        pb_ratio = safe_float(parts[46]) if len(parts) > 46 else None  # 市净率
+        market_cap = safe_float(parts[45]) if len(parts) > 45 else None  # 总市值(亿)
+        circulating_cap = safe_float(parts[44]) if len(parts) > 44 else None  # 流通市值(亿)
+        turnover_rate = safe_float(parts[52]) if len(parts) > 52 else None  # 换手率(%)
+
+        # 转换市值单位：亿 → 元
+        if market_cap:
+            market_cap = market_cap * 100_000_000
+        if circulating_cap:
+            circulating_cap = circulating_cap * 100_000_000
 
         # 拼接时间戳
         date_str = parts[30] if len(parts) > 30 else ""  # 20260614
@@ -94,6 +108,16 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
             "volume": volume,
             "regularMarketPreviousClose": prev_close,
             "previousClose": prev_close,
+            # 基本面数据
+            "pe_ratio": pe_ratio,
+            "trailingPE": pe_ratio,
+            "pb_ratio": pb_ratio,
+            "priceToBook": pb_ratio,
+            "market_cap": market_cap,
+            "marketCap": market_cap,
+            "circulating_cap": circulating_cap,
+            "turnover_rate": turnover_rate,
+            # 元数据
             "source": "tencent",
             "as_of": as_of,
             "freshness_status": "live",
