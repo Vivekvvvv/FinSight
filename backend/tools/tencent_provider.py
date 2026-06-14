@@ -222,4 +222,106 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
         return None
 
 
-__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline"]
+def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
+    """
+    从腾讯财经获取A股分时数据（当日逐分钟）。
+    API: https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=sh600519
+
+    返回格式:
+        data: ['0930 1271.18 415 52753970.34', '0931 1268.20 1156 146919161.70', ...]
+        格式为: 时间 价格 累计成交量(手) 累计成交额
+    """
+    code = to_tencent_code(symbol)
+    if code is None:
+        return None
+
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={code}"
+
+    try:
+        resp = _http_get(url, timeout=(3, 8))
+        if resp.status_code != 200:
+            logger.info("[Tencent] 分时 HTTP %d for %s", resp.status_code, symbol)
+            return None
+
+        data = resp.json()
+        if data.get("code") != 0:
+            logger.info("[Tencent] 分时返回错误 for %s: %s", symbol, data.get("msg"))
+            return None
+
+        # 解析分时数据
+        stock_data = data.get("data", {}).get(code, {})
+        minute_container = stock_data.get("data", {})
+
+        # 分时数据在 minute_container['data'] 中
+        if not isinstance(minute_container, dict):
+            logger.info("[Tencent] 分时数据格式错误 for %s", symbol)
+            return None
+
+        raw_lines = minute_container.get("data", [])
+        date_str = minute_container.get("date", "")
+
+        if not raw_lines:
+            logger.info("[Tencent] 分时数据为空 for %s", symbol)
+            return None
+
+        # 解析每条分时数据: '0930 1271.18 415 52753970.34'
+        # 格式: 时间 价格 累计成交量(手) 累计成交额
+        intraday_data = []
+        times = []
+        prices = []
+        volumes = []
+
+        for line in raw_lines:
+            parts = str(line).split()
+            if len(parts) < 4:
+                continue
+
+            time_str = parts[0]  # 0930
+            price = safe_float(parts[1])
+            cum_volume = safe_float(parts[2])  # 累计成交量(手)
+            cum_amount = safe_float(parts[3])  # 累计成交额
+
+            if price is None:
+                continue
+
+            # 转换为标准时间格式
+            if len(time_str) == 4:
+                formatted_time = f"{time_str[:2]}:{time_str[2:]}"
+            else:
+                formatted_time = time_str
+
+            # 成交量从手转为股
+            volume_shares = cum_volume * 100 if cum_volume else None
+
+            intraday_data.append({
+                "time": formatted_time,
+                "price": price,
+                "volume": volume_shares,
+                "amount": cum_amount,
+            })
+
+            times.append(formatted_time)
+            prices.append(price)
+            if volume_shares:
+                volumes.append(volume_shares)
+
+        if not intraday_data:
+            return None
+
+        return {
+            "intraday_data": intraday_data,
+            "times": times,
+            "prices": prices,
+            "volumes": volumes,
+            "date": date_str,
+            "source": "tencent",
+            "as_of": datetime.now(timezone.utc).isoformat(),
+            "freshness_status": "live",
+            "fallback_level": 1,
+        }
+    except Exception as exc:
+        logger.info("[Tencent] 分时获取失败 %s: %s", symbol, exc)
+        return None
+
+
+__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday"]

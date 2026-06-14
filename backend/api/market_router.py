@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.api.schemas import KlineResponse
 from backend.demo_mode import demo_financials, demo_kline, demo_quote, is_demo_mode
 from backend.tools.baostock_provider import is_cn_symbol
-from backend.tools.tencent_provider import fetch_cn_quote, fetch_cn_kline
+from backend.tools.tencent_provider import fetch_cn_quote, fetch_cn_kline, fetch_cn_intraday
 from backend.utils.market_evidence import attach_financials_evidence, attach_market_evidence
 from backend.utils.quote import parse_quote_payload, resolve_live_quote
 
@@ -315,6 +315,31 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
     def get_kline_alias(ticker: str, period: str = "1mo", interval: str = "1d"):
         """别名：与 /api/stock/kline 相同，返回 K 线数据"""
         return get_kline_data(ticker, period, interval)
+
+    @router.get("/api/stock/intraday/{ticker}")
+    def get_intraday_data(ticker: str):
+        """获取A股分时数据（当日逐分钟行情）"""
+        normalized_ticker = _validate_ticker_or_400(ticker)
+        try:
+            orchestrator = deps.get_orchestrator_safe()
+            if orchestrator:
+                cache_key = f"intraday:{normalized_ticker}"
+                cached_data = orchestrator.cache.get(cache_key)
+                if cached_data is not None:
+                    deps.logger.info("[API] intraday cache hit %s", normalized_ticker)
+                    return {"ticker": normalized_ticker, "data": _market_payload(cached_data, "cache", cached=True), "cached": True}
+
+            if is_cn_symbol(normalized_ticker):
+                cn_intraday = fetch_cn_intraday(normalized_ticker)
+                if cn_intraday is not None:
+                    if orchestrator:
+                        orchestrator.cache.set(cache_key, cn_intraday, ttl=60)  # 分时数据缓存60秒
+                    return {"ticker": normalized_ticker, "data": _market_payload(cn_intraday, "tencent"), "cached": False}
+
+            # 非A股或腾讯失败，返回错误
+            return {"ticker": normalized_ticker, "data": _market_payload({"error": "intraday data not available"}, "unknown"), "cached": False}
+        except Exception as exc:
+            return {"ticker": normalized_ticker, "data": _market_payload({"error": str(exc)}, "unknown"), "cached": False}
 
     @router.post("/api/export/pdf")
     async def export_pdf(request: dict, http_request: Request):
