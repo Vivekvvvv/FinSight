@@ -387,4 +387,12 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    @router.get("/api/system/health")
+    def get_system_health():
+        """数据源健康检查接口"""
+        from backend.services.datasource_monitor import get_monitor
+
+        monitor = get_monitor()
+        return monitor.get_health_report()
+
     return router

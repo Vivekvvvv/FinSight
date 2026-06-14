@@ -34,25 +34,36 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
     API: https://qt.gtimg.cn/q=sh600519,sz000001
     返回格式: v_sh600519="51~贵州茅台~600519~2086.00~2080.00~2085.00~..."
     """
+    from backend.services.datasource_monitor import get_monitor
+    import time
+
     code = to_tencent_code(symbol)
     if code is None:
         return None
 
     url = f"https://qt.gtimg.cn/q={code}"
+    monitor = get_monitor()
+    start_time = time.time()
+
     try:
         resp = _http_get(url, timeout=(3, 6))
+        response_time_ms = (time.time() - start_time) * 1000
+
         if resp.status_code != 200:
             logger.info("[Tencent] HTTP %d for %s", resp.status_code, symbol)
+            monitor.record_failure("tencent", f"HTTP {resp.status_code}")
             return None
 
         # 解析响应：v_sh600519="51~贵州茅台~600519~2086.00~2080.00~..."
         text = resp.text.strip()
         if not text or "~" not in text:
+            monitor.record_failure("tencent", "empty or invalid response")
             return None
 
         parts = text.split('"')[1].split("~") if '"' in text else []
         if len(parts) < 34:
             logger.info("[Tencent] 字段不足 for %s: %d fields", symbol, len(parts))
+            monitor.record_failure("tencent", f"insufficient fields: {len(parts)}")
             return None
 
         # 字段映射（腾讯接口字段索引）:
@@ -95,6 +106,9 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
             except Exception:
                 pass
 
+        # 记录成功
+        monitor.record_success("tencent", response_time_ms)
+
         return {
             "symbol": symbol.upper(),
             "currentPrice": price,
@@ -126,6 +140,7 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
         }
     except Exception as exc:
         logger.info("[Tencent] 获取失败 %s: %s", symbol, exc)
+        monitor.record_failure("tencent", str(exc))
         return None
 
 
