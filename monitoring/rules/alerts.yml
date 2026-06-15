@@ -1,0 +1,104 @@
+# FinSight API 告警规则
+
+groups:
+  - name: finsight_api_alerts
+    interval: 30s
+    rules:
+      # API错误率告警
+      - alert: HighAPIErrorRate
+        expr: |
+          (
+            sum(rate(finsight_api_errors_total[5m]))
+            /
+            sum(rate(finsight_api_requests_total[5m]))
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API错误率过高"
+          description: "过去5分钟API错误率 {{ $value | humanizePercentage }}，超过5%阈值"
+
+      # API响应时间告警
+      - alert: SlowAPIResponse
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(finsight_api_request_duration_seconds_bucket[5m])) by (le, endpoint)
+          ) > 2
+        for: 3m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API响应时间过慢"
+          description: "端点 {{ $labels.endpoint }} 的P95响应时间为 {{ $value }}秒，超过2秒阈值"
+
+      # 数据源降级告警
+      - alert: DataSourceDegraded
+        expr: finsight_data_source_health_status < 2
+        for: 5m
+        labels:
+          severity: warning
+          component: data_source
+        annotations:
+          summary: "数据源降级"
+          description: "数据源 {{ $labels.source_name }} 健康状态降级（{{ $value }}），持续5分钟"
+
+      # 数据源失败告警
+      - alert: DataSourceDown
+        expr: finsight_data_source_health_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: data_source
+        annotations:
+          summary: "数据源不可用"
+          description: "数据源 {{ $labels.source_name }} 完全不可用，持续2分钟"
+
+      # 缓存命中率过低告警
+      - alert: LowCacheHitRate
+        expr: finsight_cache_hit_rate < 50
+        for: 10m
+        labels:
+          severity: info
+          component: cache
+        annotations:
+          summary: "缓存命中率过低"
+          description: "缓存前缀 {{ $labels.cache_key_prefix }} 命中率为 {{ $value }}%，低于50%"
+
+      # 活跃请求数过高告警
+      - alert: HighActiveRequests
+        expr: finsight_active_requests > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "活跃请求数过高"
+          description: "当前活跃请求数 {{ $value }}，持续5分钟超过100"
+
+  - name: finsight_data_source_alerts
+    interval: 1m
+    rules:
+      # 数据源成功率告警
+      - alert: LowDataSourceSuccessRate
+        expr: finsight_data_source_success_rate < 80
+        for: 10m
+        labels:
+          severity: warning
+          component: data_source
+        annotations:
+          summary: "数据源成功率过低"
+          description: "数据源 {{ $labels.source_name }} 成功率为 {{ $value }}%，低于80%阈值"
+
+      # 数据源响应时间告警
+      - alert: SlowDataSourceResponse
+        expr: finsight_data_source_response_time_ms > 3000
+        for: 5m
+        labels:
+          severity: warning
+          component: data_source
+        annotations:
+          summary: "数据源响应时间过长"
+          description: "数据源 {{ $labels.source_name }} 平均响应时间 {{ $value }}ms，超过3秒"
