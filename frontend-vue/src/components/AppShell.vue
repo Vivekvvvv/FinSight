@@ -25,6 +25,7 @@ const navItems = [
   { to: '/workbench', label: '研究工作台', short: 'LAB' },
   { to: '/data-sources', label: '数据源状态', short: 'DATA' },
   { to: '/system/health', label: '系统健康', short: 'HLTH' },
+  { to: '/top-list/600519.SS', label: '龙虎榜', short: 'TOP' },
   { to: '/reports', label: '报告资产库', short: 'RPT' },
   { to: '/portfolio', label: '持仓管理', short: 'PORT' },
   { to: '/watchlist', label: '观察列表', short: 'WATCH' },
