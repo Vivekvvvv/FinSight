@@ -563,4 +563,74 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             "records": records
         }
 
+    @router.get("/api/market/north-flow")
+    def get_north_flow(date: str | None = None):
+        """
+        获取北向资金实时流向
+
+        Query Parameters:
+            date: 查询日期（YYYY-MM-DD），默认今天
+
+        Returns:
+            {
+                "date": "2026-06-14",
+                "time": "15:00:00",
+                "north_flow": 12345678900.0,
+                "sh_flow": 8000000000.0,
+                "sz_flow": 4345678900.0,
+                "data_points": [
+                    {"time": "09:30", "north": 123456789, "sh": 80000000, "sz": 43456789},
+                    ...
+                ],
+                "source": "eastmoney"
+            }
+        """
+        from backend.tools.tencent_provider import fetch_north_flow
+
+        data = fetch_north_flow(date=date)
+
+        if data is None:
+            raise HTTPException(
+                status_code=404,
+                detail="北向资金数据不可用"
+            )
+
+        return data
+
+    @router.get("/api/market/north-flow/history")
+    def get_north_flow_history(days: int = 30):
+        """
+        获取北向资金历史数据
+
+        Query Parameters:
+            days: 查询天数（默认30天，最大90天）
+
+        Returns:
+            {
+                "days": 30,
+                "total_records": 25,
+                "records": [
+                    {
+                        "date": "2026-06-14",
+                        "north_flow": 12345678900.0,
+                        "sh_flow": 8000000000.0,
+                        "sz_flow": 4345678900.0
+                    },
+                    ...
+                ]
+            }
+        """
+        if days < 1 or days > 90:
+            raise HTTPException(status_code=400, detail="days 参数必须在 1-90 之间")
+
+        from backend.tools.tencent_provider import fetch_north_flow_history
+
+        records = fetch_north_flow_history(days=days)
+
+        return {
+            "days": days,
+            "total_records": len(records),
+            "records": records
+        }
+
     return router

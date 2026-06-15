@@ -698,7 +698,7 @@ def fetch_cn_top_list_history(
         return []
 
 
-
+def fetch_north_flow(date: str | None = None) -> dict[str, Any] | None:
     """
     从东方财富获取北向资金流向数据（沪股通+深股通）。
     API: http://push2.eastmoney.com/api/qt/kamt.rtmin/get
@@ -715,6 +715,7 @@ def fetch_cn_top_list_history(
             "sz_flow": 4345678900.0,      # 深股通净流入
             "north_balance": 520000000000.0,  # 北向资金余额
             "sh_balance": 308000000000.0,
+            "sz_balance": 212000000000.0,
             "sz_balance": 212000000000.0,
             "data_points": [
                 {"time": "09:30", "north": 123456789, "sh": 80000000, "sz": 43456789},
@@ -805,6 +806,87 @@ def fetch_cn_top_list_history(
     except Exception as exc:
         logger.info("[东方财富] 北向资金获取失败: %s", exc)
         return None
+
+
+def fetch_north_flow_history(days: int = 30) -> list[dict[str, Any]]:
+    """
+    获取北向资金历史数据（批量查询）
+
+    参数:
+        days: 查询天数（默认30天，最大90天）
+
+    返回:
+        [
+            {
+                "date": "2026-06-14",
+                "north_flow": 12345678900.0,
+                "sh_flow": 8000000000.0,
+                "sz_flow": 4345678900.0
+            },
+            ...
+        ]
+    """
+    from datetime import timedelta
+
+    # 计算日期范围
+    end_date = datetime.now(timezone.utc).date()
+    start_date = end_date - timedelta(days=days)
+
+    # 东方财富北向资金历史API
+    # 数据中心：沪深港通资金流向
+    url = "http://push2his.eastmoney.com/api/qt/kamt.kline/get"
+    params = {
+        "fields1": "f1,f2,f3,f4",
+        "fields2": "f51,f52,f53,f54,f55,f56",
+        "klt": "101",  # 日线
+        "lmt": days,
+        "ut": "b2884a393a59ad64002292a3e90d46a5"
+    }
+
+    try:
+        resp = _http_get(url, params=params, timeout=(5, 10))
+        if resp.status_code != 200:
+            logger.info("[东方财富] 北向资金历史 HTTP %d", resp.status_code)
+            return []
+
+        import json
+        data = json.loads(resp.text)
+
+        if data.get("rc") != 0 or not data.get("data"):
+            logger.info("[东方财富] 北向资金历史返回错误")
+            return []
+
+        result_data = data["data"]
+
+        # 解析K线数据
+        # klines格式：["日期,北向,沪股通,深股通", ...]
+        klines = result_data.get("klines", [])
+
+        results = []
+        for kline in klines:
+            parts = kline.split(",")
+            if len(parts) >= 4:
+                date_str = parts[0]  # YYYY-MM-DD
+                north = safe_float(parts[1]) * 10000  # 万元转元
+                sh = safe_float(parts[2]) * 10000
+                sz = safe_float(parts[3]) * 10000
+
+                results.append({
+                    "date": date_str,
+                    "north_flow": north,
+                    "sh_flow": sh,
+                    "sz_flow": sz,
+                    "source": "eastmoney"
+                })
+
+        # 按日期降序排列
+        results.sort(key=lambda x: x["date"], reverse=True)
+
+        return results
+
+    except Exception as exc:
+        logger.info("[东方财富] 北向资金历史获取失败: %s", exc)
+        return []
 
 
 def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
@@ -916,4 +998,4 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
         return None
 
 
-__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday", "fetch_cn_top_list", "fetch_north_flow", "fetch_margin_trading"]
+__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday", "fetch_cn_top_list", "fetch_cn_top_list_history", "fetch_north_flow", "fetch_north_flow_history", "fetch_margin_trading"]
