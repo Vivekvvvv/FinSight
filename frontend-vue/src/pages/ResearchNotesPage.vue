@@ -6,6 +6,7 @@ import { apiClient } from '@/api/client';
 import type { ResearchNote } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import MarkdownEditor from '@/components/MarkdownEditor.vue';
+import SkeletonLoader from '@/components/SkeletonLoader.vue';
 
 const identity = useIdentityStore();
 const route = useRoute();
@@ -216,8 +217,10 @@ watch(() => identity.sessionId, () => { void refresh(); });
           <button class="filter-btn" :disabled="loading" @click="refresh">应用筛选</button>
         </div>
 
-        <div v-if="loading" class="empty">加载笔记中…</div>
-        <div v-else-if="filteredNotes.length === 0" class="empty">
+        <div v-if="loading && notes.length === 0" class="skeleton-wrap">
+          <SkeletonLoader type="card" :rows="5" />
+        </div>
+        <div v-else-if="!loading && filteredNotes.length === 0" class="empty">
           暂无研究笔记。先写下一个投资假设，笨蛋。
         </div>
         <button

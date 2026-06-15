@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { apiClient } from '@/api/client';
+import NotificationManager from '@/components/NotificationManager.vue';
 
 interface DataSourceStatus {
   status: string;
@@ -125,6 +126,7 @@ onBeforeUnmount(() => {
         </span>
       </div>
       <div class="header-right">
+        <NotificationManager />
         <button
           class="btn-toggle"
           :class="{ active: autoRefresh }"

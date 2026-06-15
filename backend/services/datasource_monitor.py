@@ -5,6 +5,7 @@
 - 记录腾讯/Yahoo/Demo三个源的成功率
 - 自动降级：腾讯财经连续失败3次→切换到demo
 - 健康仪表盘：/api/system/health
+- 持久化存储：定期保存到SQLite
 """
 
 from __future__ import annotations
@@ -16,6 +17,20 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
+
+# 延迟导入避免循环依赖
+_storage = None
+
+def _get_storage():
+    global _storage
+    if _storage is None:
+        try:
+            from backend.services.monitoring_storage import get_storage
+            _storage = get_storage()
+        except Exception as e:
+            logger.warning(f"监控存储初始化失败: {e}")
+            _storage = False  # 标记为失败，避免重复尝试
+    return _storage if _storage is not False else None
 
 DataSourceType = Literal["tencent", "yahoo", "demo", "unknown"]
 
@@ -138,8 +153,8 @@ class DataSourceMonitor:
         return "demo"
 
     def get_health_report(self) -> dict[str, Any]:
-        """生成健康报告"""
-        return {
+        """生成健康报告并持久化"""
+        report = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "overall_status": self._calculate_overall_status(),
             "degraded_sources": list(self._degraded_sources),
@@ -159,6 +174,16 @@ class DataSourceMonitor:
                 for name, m in self._metrics.items()
             },
         }
+
+        # 持久化存储（异步，不阻塞主流程）
+        try:
+            storage = _get_storage()
+            if storage:
+                storage.save_health_snapshot(report["sources"])
+        except Exception as e:
+            logger.debug(f"监控数据持久化失败（非致命）: {e}")
+
+        return report
 
     def _calculate_overall_status(self) -> str:
         """计算整体状态"""

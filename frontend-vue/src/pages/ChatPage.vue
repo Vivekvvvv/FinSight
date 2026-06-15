@@ -200,10 +200,12 @@ onMounted(() => {
             <div class="message-body">
               <div class="message-meta">
                 <strong>{{ item.role === 'user' ? identity.email || '研究员' : 'FinSight' }}</strong>
-                <span v-if="item.status === 'streaming'" class="running">生成中</span>
+                <span v-if="item.status === 'streaming'" class="running">
+                  <span class="thinking-dots">思考中</span>
+                </span>
                 <span v-if="item.status === 'error'" class="failed">失败</span>
               </div>
-              <pre class="bubble-body">{{ item.content || (item.status === 'streaming' ? '正在组织证据...' : '') }}</pre>
+              <pre class="bubble-body">{{ item.content || (item.status === 'streaming' ? '' : '') }}<span v-if="item.status === 'streaming'" class="cursor-blink">|</span></pre>
               <EvidencePanel
                 v-if="item.role === 'assistant' && item.status === 'done' && item.evidence"
                 v-bind="item.evidence"
@@ -400,6 +402,33 @@ pre {
 
 .running {
   color: var(--fin-success);
+}
+
+.thinking-dots {
+  display: inline-block;
+  font-weight: 600;
+}
+
+.thinking-dots::after {
+  content: '...';
+  animation: thinking 1.4s steps(4, end) infinite;
+}
+
+@keyframes thinking {
+  0%, 20% { content: ''; }
+  40% { content: '.'; }
+  60% { content: '..'; }
+  80%, 100% { content: '...'; }
+}
+
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+  color: var(--fin-primary);
+  font-weight: bold;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
 }
 
 .failed,

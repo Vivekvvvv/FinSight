@@ -407,4 +407,36 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         monitor = get_monitor()
         return monitor.get_health_report()
 
+    @router.get("/api/system/health/trend")
+    def get_health_trend(source: str | None = None, days: int = 7):
+        """
+        查询历史健康趋势
+
+        Query Parameters:
+            source: 数据源名称（可选，不填则返回所有源）
+            days: 查询天数（默认7天，最大30天）
+        """
+        from backend.services.monitoring_storage import get_storage
+
+        if days < 1 or days > 30:
+            raise HTTPException(status_code=400, detail="days 参数必须在 1-30 之间")
+
+        storage = get_storage()
+        trend_data = storage.get_trend(source_name=source, days=days)
+
+        return {
+            "source": source or "all",
+            "days": days,
+            "data_points": len(trend_data),
+            "records": trend_data
+        }
+
+    @router.get("/api/system/health/stats")
+    def get_storage_stats():
+        """获取监控数据库统计信息"""
+        from backend.services.monitoring_storage import get_storage
+
+        storage = get_storage()
+        return storage.get_stats()
+
     return router

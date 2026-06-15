@@ -3,7 +3,7 @@
 
 功能：
 - 判断指定日期是否为A股休市日（周末+法定节假日）
-- 支持2024-2028年节假日数据
+- 支持2024-2029年节假日数据
 - 自动更新：每年12月获取次年节假日安排
 """
 
@@ -167,12 +167,66 @@ CN_HOLIDAYS = {
     date(2028, 10, 5): "国庆节",
     date(2028, 10, 6): "国庆节",
     date(2028, 10, 7): "国庆节",
+
+    # 2029年节假日（预估）
+    date(2029, 1, 1): "元旦",
+    date(2029, 2, 13): "春节",
+    date(2029, 2, 14): "春节",
+    date(2029, 2, 15): "春节",
+    date(2029, 2, 16): "春节",
+    date(2029, 2, 17): "春节",
+    date(2029, 2, 18): "春节",
+    date(2029, 2, 19): "春节",
+    date(2029, 4, 4): "清明节",
+    date(2029, 4, 5): "清明节",
+    date(2029, 4, 6): "清明节",
+    date(2029, 5, 1): "劳动节",
+    date(2029, 5, 2): "劳动节",
+    date(2029, 5, 3): "劳动节",
+    date(2029, 5, 4): "劳动节",
+    date(2029, 5, 5): "劳动节",
+    date(2029, 6, 16): "端午节",
+    date(2029, 6, 17): "端午节",
+    date(2029, 6, 18): "端午节",
+    date(2029, 10, 1): "国庆节",
+    date(2029, 10, 2): "国庆节",
+    date(2029, 10, 3): "国庆节",
+    date(2029, 10, 4): "国庆节",
+    date(2029, 10, 5): "国庆节",
+    date(2029, 10, 6): "国庆节",
+    date(2029, 10, 7): "国庆节",
+}
+
+# 调休工作日（部分周末调整为工作日）
+WORKDAY_OVERRIDES = {
+    # 2026年调休工作日
+    date(2026, 2, 7): "春节前调休",    # 周六上班
+    date(2026, 2, 28): "春节后调休",   # 周六上班
+    date(2026, 9, 27): "国庆前调休",   # 周日上班
+    date(2026, 10, 10): "国庆后调休",  # 周六上班
+
+    # 2027年调休工作日（预估）
+    date(2027, 1, 30): "春节前调休",
+    date(2027, 2, 6): "春节前调休",
+    date(2027, 9, 26): "国庆前调休",
+    date(2027, 10, 9): "国庆后调休",
+
+    # 2028年调休工作日（预估）
+    date(2028, 1, 22): "春节前调休",
+    date(2028, 2, 5): "春节后调休",
+    date(2028, 9, 30): "国庆前调休",
+
+    # 2029年调休工作日（预估）
+    date(2029, 2, 11): "春节前调休",
+    date(2029, 2, 24): "春节后调休",
+    date(2029, 9, 29): "国庆前调休",
+    date(2029, 10, 8): "国庆后调休",
 }
 
 
 def is_cn_holiday(check_date: date | datetime) -> bool:
     """
-    判断指定日期是否为A股休市日（周末+法定节假日）
+    判断指定日期是否为A股休市日（周末+法定节假日-调休工作日）
 
     Args:
         check_date: 待检查日期（date或datetime对象）
@@ -185,12 +239,18 @@ def is_cn_holiday(check_date: date | datetime) -> bool:
         True
         >>> is_cn_holiday(date(2026, 10, 1))  # 国庆节
         True
+        >>> is_cn_holiday(date(2026, 2, 7))   # 周六但调休上班
+        False
         >>> is_cn_holiday(date(2026, 6, 15))  # 周一
         False
     """
     # datetime转date
     if isinstance(check_date, datetime):
         check_date = check_date.date()
+
+    # 调休工作日：周末但需要上班
+    if check_date in WORKDAY_OVERRIDES:
+        return False  # 调休工作日，不是休市日
 
     # 周末判断：5=Saturday, 6=Sunday
     if check_date.weekday() >= 5:
@@ -241,4 +301,4 @@ def is_weekend(check_date: date | datetime) -> bool:
     return check_date.weekday() >= 5
 
 
-__all__ = ["is_cn_holiday", "get_holiday_name", "is_weekend", "CN_HOLIDAYS"]
+__all__ = ["is_cn_holiday", "get_holiday_name", "is_weekend", "CN_HOLIDAYS", "WORKDAY_OVERRIDES"]
