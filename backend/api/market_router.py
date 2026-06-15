@@ -633,4 +633,95 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             "records": records
         }
 
+    @router.get("/api/stock/margin/{ticker}")
+    def get_margin_trading(ticker: str):
+        """
+        获取融资融券最新数据
+
+        Path Parameters:
+            ticker: 股票代码（如 600519.SS）
+
+        Returns:
+            {
+                "symbol": "600519.SS",
+                "date": "2026-06-14",
+                "margin_balance": 1234567890.0,
+                "margin_buy": 50000000.0,
+                "margin_repay": 30000000.0,
+                "short_balance": 123456.0,
+                "short_sell": 10000.0,
+                "short_repay": 5000.0,
+                "total_balance": 1234691346.0,
+                "source": "eastmoney"
+            }
+        """
+        ticker = _validate_ticker_or_400(ticker)
+
+        if not is_cn_symbol(ticker):
+            raise HTTPException(
+                status_code=400,
+                detail=f"融资融券仅支持A股，{ticker} 不是A股代码"
+            )
+
+        from backend.tools.tencent_provider import fetch_margin_trading
+
+        data = fetch_margin_trading(ticker)
+
+        if data is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"{ticker} 融资融券数据不可用"
+            )
+
+        return data
+
+    @router.get("/api/stock/margin/{ticker}/history")
+    def get_margin_trading_history(ticker: str, days: int = 90):
+        """
+        获取融资融券历史数据
+
+        Path Parameters:
+            ticker: 股票代码（如 600519.SS）
+
+        Query Parameters:
+            days: 查询天数（默认90天，最大180天）
+
+        Returns:
+            {
+                "ticker": "600519.SS",
+                "days": 90,
+                "total_records": 85,
+                "records": [
+                    {
+                        "date": "2026-06-14",
+                        "margin_balance": 1234567890.0,
+                        "margin_buy": 50000000.0,
+                        ...
+                    },
+                    ...
+                ]
+            }
+        """
+        ticker = _validate_ticker_or_400(ticker)
+
+        if not is_cn_symbol(ticker):
+            raise HTTPException(
+                status_code=400,
+                detail=f"融资融券仅支持A股，{ticker} 不是A股代码"
+            )
+
+        if days < 1 or days > 180:
+            raise HTTPException(status_code=400, detail="days 参数必须在 1-180 之间")
+
+        from backend.tools.tencent_provider import fetch_margin_trading_history
+
+        records = fetch_margin_trading_history(ticker, days=days)
+
+        return {
+            "ticker": ticker,
+            "days": days,
+            "total_records": len(records),
+            "records": records
+        }
+
     return router

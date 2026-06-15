@@ -998,4 +998,91 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
         return None
 
 
-__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday", "fetch_cn_top_list", "fetch_cn_top_list_history", "fetch_north_flow", "fetch_north_flow_history", "fetch_margin_trading"]
+def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, Any]]:
+    """
+    获取融资融券历史数据
+
+    参数:
+        symbol: 股票代码（如 600519.SS）
+        days: 查询天数（默认90天，最大180天）
+
+    返回:
+        [
+            {
+                "date": "2026-06-14",
+                "margin_balance": 1234567890.0,
+                "margin_buy": 50000000.0,
+                "margin_repay": 30000000.0,
+                "short_balance": 123456.0,
+                "short_sell": 10000.0,
+                "short_repay": 5000.0,
+                "total_balance": 1234691346.0
+            },
+            ...
+        ]
+    """
+    code = to_tencent_code(symbol)
+    if code is None:
+        return []
+
+    stock_code = code[2:] if len(code) > 2 else code
+
+    # 东方财富融资融券历史API
+    url = "http://datacenter-web.eastmoney.com/api/data/v1/get"
+    params = {
+        "reportName": "RPT_RZRQ_LSHJ",
+        "columns": "TRADE_DATE,SECURITY_CODE,RZYE,RZMRE,RZCHE,RQYL,RQMCL,RQCHL,RZRQYE",
+        "quoteColumns": "",
+        "filter": f'(SECURITY_CODE="{stock_code}")',
+        "pageNumber": "1",
+        "pageSize": str(days),
+        "sortTypes": "-1",
+        "sortColumns": "TRADE_DATE",
+        "source": "WEB",
+        "client": "WEB"
+    }
+
+    try:
+        resp = _http_get(url, params=params, timeout=(5, 10))
+        if resp.status_code != 200:
+            logger.info("[东方财富] 融资融券历史 HTTP %d for %s", resp.status_code, symbol)
+            return []
+
+        data = resp.json()
+
+        if data.get("code") != 0 or not data.get("result"):
+            logger.info("[东方财富] 融资融券历史返回错误 for %s", symbol)
+            return []
+
+        records = data["result"].get("data", [])
+        if not records:
+            return []
+
+        # 解析历史记录
+        results = []
+        for record in records:
+            results.append({
+                "symbol": symbol.upper(),
+                "stock_code": stock_code,
+                "date": record.get("TRADE_DATE", ""),
+                "margin_balance": safe_float(record.get("RZYE")) or 0.0,
+                "margin_buy": safe_float(record.get("RZMRE")) or 0.0,
+                "margin_repay": safe_float(record.get("RZCHE")) or 0.0,
+                "short_balance": safe_float(record.get("RQYL")) or 0.0,
+                "short_sell": safe_float(record.get("RQMCL")) or 0.0,
+                "short_repay": safe_float(record.get("RQCHL")) or 0.0,
+                "total_balance": safe_float(record.get("RZRQYE")) or 0.0,
+                "source": "eastmoney"
+            })
+
+        # 按日期降序排列
+        results.sort(key=lambda x: x["date"], reverse=True)
+
+        return results
+
+    except Exception as exc:
+        logger.info("[东方财富] 融资融券历史获取失败 %s: %s", symbol, exc)
+        return []
+
+
+__all__ = ["is_cn_symbol", "to_tencent_code", "fetch_cn_quote", "fetch_cn_kline", "fetch_cn_intraday", "fetch_cn_top_list", "fetch_cn_top_list_history", "fetch_north_flow", "fetch_north_flow_history", "fetch_margin_trading", "fetch_margin_trading_history"]
