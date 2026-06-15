@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import json
 import asyncio
 from fastapi import FastAPI, HTTPException, Request
@@ -63,7 +63,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Windows + psycopg async ��Ҫ Selector Event LoopPolicy�����򱾵� PostgreSQL checkpointer �����ᱨ����
+# Windows + psycopg async ??? Selector Event LoopPolicy???????? PostgreSQL checkpointer ??????????
 if sys.platform.startswith('win') and hasattr(asyncio, 'WindowsSelectorEventLoopPolicy'):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -78,7 +78,7 @@ if not logging.getLogger().handlers:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-# 灏濊瘯瀵煎叆鏍稿績宸ュ�?
+# 尝试导入核心工�??
 try:
     from backend.tools import (
         get_stock_price,
@@ -90,7 +90,7 @@ try:
     )
     logger.info("[Init] Core tools imported successfully.")
 except ImportError as e:
-    # 濡傛�?backend.tools 瀵煎叆澶辫触锛屽垯灏濊瘯浠庢牴鐩綍 tools 瀵煎叆锛堝吋瀹规棫缁撴瀯锛?
+    # 如�??backend.tools 导入失败，则尝试从根目录 tools 导入（兼容旧结构�?
     try:
         from tools import (
             get_stock_price,
@@ -112,7 +112,7 @@ except ImportError as e:
     logger.info(f"[Init] Error importing chart detector: {e}")
     ChartTypeDetector = None
 
-# 瀵煎�?MemoryService
+# 导�??MemoryService
 try:
     from backend.services.memory import MemoryService, UserProfile
     memory_service = MemoryService()
@@ -339,7 +339,7 @@ def _update_session_context(
 ) -> None:
     if not thread_id:
         return
-    # 鎸囦护鍨嬫搷浣滐紙濡?alert_set锛変笉搴旀薄鏌撳璇濅笂涓嬫枃
+    # 指令型操作（�?alert_set）不应污染对话上下文
     if skip_context:
         return
     try:
@@ -694,7 +694,7 @@ def _missing_production_env() -> list[str]:
 
 def _validate_production_runtime_config() -> None:
     if is_dev_mode():
-        logger.warning("DEV_MODE ON �� auth bypassed and rate limits disabled. Do not use in production.")
+        logger.warning("DEV_MODE ON ?? auth bypassed and rate limits disabled. Do not use in production.")
         return
     missing = _missing_production_env()
     if missing:
@@ -748,6 +748,10 @@ async def lifespan(app: FastAPI):
     _validate_production_runtime_config()
     # Ensure a working default LLM config exists on first boot.
     _init_default_user_config()
+
+    # Initialize Prometheus metrics
+    from backend.monitoring import init_app_info
+    init_app_info(version="1.8.0", environment=os.getenv("ENV", "production"))
 
     from backend.services.alert_scheduler import run_price_change_cycle
     from backend.services.scheduler_runner import start_interval_scheduler, start_price_change_scheduler
@@ -873,12 +877,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="FinSight API",
-    description="FinSight 鍚庣鏈嶅姟",
+    description="FinSight 后端服务",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-# CORS 閰嶇�?
+# CORS 配�??
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_origins(),
@@ -1145,7 +1149,7 @@ app.include_router(risk_lens_router)
 app.include_router(research_notes_router)
 app.include_router(timeline_router)
 app.include_router(what_changed_router)
-app.include_router(research_quality_router)
-# 鍚姩鍏ュ�U
+app.include_router(research_quality_router)`n`n# Prometheus metrics endpoint`nfrom backend.monitoring import metrics_router`napp.include_router(metrics_router)
+# 启动入�?U
 if __name__ == "__main__":
     uvicorn.run("backend.api.main:app", host="0.0.0.0", port=8000, reload=True)
