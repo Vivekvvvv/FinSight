@@ -439,4 +439,128 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         storage = get_storage()
         return storage.get_stats()
 
+    @router.get("/api/stock/top-list/{ticker}")
+    def get_top_list(ticker: str, include_seats: bool = True):
+        """
+        获取龙虎榜数据（含席位明细）
+
+        Path Parameters:
+            ticker: 股票代码（如 600519.SS）
+
+        Query Parameters:
+            include_seats: 是否包含席位明细（默认True）
+
+        Returns:
+            {
+                "symbol": "600519.SS",
+                "stock_code": "600519",
+                "stock_name": "贵州茅台",
+                "date": "2026-06-14",
+                "reason": "涨跌幅偏离值7%",
+                "close_price": 1580.50,
+                "change_percent": 5.32,
+                "buy_amount": 123456789.0,
+                "sell_amount": 98765432.0,
+                "net_buy": 24691357.0,
+                "turnover_rate": 1.23,
+                "buy_seats": [
+                    {
+                        "rank": 1,
+                        "seat_name": "机构专用",
+                        "buy_amount": 50000000.0,
+                        "sell_amount": 0.0,
+                        "net_amount": 50000000.0,
+                        "is_institution": True
+                    },
+                    ...
+                ],
+                "sell_seats": [...],
+                "source": "eastmoney"
+            }
+        """
+        ticker = _validate_ticker_or_400(ticker)
+
+        if not is_cn_symbol(ticker):
+            raise HTTPException(
+                status_code=400,
+                detail=f"龙虎榜仅支持A股，{ticker} 不是A股代码"
+            )
+
+        from backend.tools.tencent_provider import fetch_cn_top_list
+
+        data = fetch_cn_top_list(ticker, include_seats=include_seats)
+
+        if data is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"{ticker} 未上榜或数据不可用"
+            )
+
+        return data
+
+    @router.get("/api/stock/top-list/{ticker}/history")
+    def get_top_list_history(
+        ticker: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        days: int = 7
+    ):
+        """
+        获取龙虎榜历史记录
+
+        Path Parameters:
+            ticker: 股票代码（如 600519.SS）
+
+        Query Parameters:
+            start_date: 开始日期（YYYY-MM-DD），优先级高于days
+            end_date: 结束日期（YYYY-MM-DD），默认今天
+            days: 查询天数（默认7天，最大90天）
+
+        Returns:
+            {
+                "ticker": "600519.SS",
+                "start_date": "2026-06-07",
+                "end_date": "2026-06-14",
+                "total_records": 3,
+                "records": [
+                    {
+                        "date": "2026-06-14",
+                        "reason": "涨跌幅偏离值7%",
+                        "buy_amount": 123456789.0,
+                        "sell_amount": 98765432.0,
+                        "net_buy": 24691357.0,
+                        ...
+                    },
+                    ...
+                ]
+            }
+        """
+        ticker = _validate_ticker_or_400(ticker)
+
+        if not is_cn_symbol(ticker):
+            raise HTTPException(
+                status_code=400,
+                detail=f"龙虎榜仅支持A股，{ticker} 不是A股代码"
+            )
+
+        if days < 1 or days > 90:
+            raise HTTPException(status_code=400, detail="days 参数必须在 1-90 之间")
+
+        from backend.tools.tencent_provider import fetch_cn_top_list_history
+
+        records = fetch_cn_top_list_history(
+            ticker,
+            start_date=start_date,
+            end_date=end_date,
+            days=days
+        )
+
+        return {
+            "ticker": ticker,
+            "start_date": start_date or f"最近{days}天",
+            "end_date": end_date or "今天",
+            "total_records": len(records),
+            "records": records
+        }
+
     return router

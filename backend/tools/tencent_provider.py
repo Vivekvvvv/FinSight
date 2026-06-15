@@ -363,26 +363,41 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
         return None
 
 
-def fetch_cn_top_list(symbol: str) -> dict[str, Any] | None:
+def fetch_cn_top_list(symbol: str, include_seats: bool = True) -> dict[str, Any] | None:
     """
     从东方财富获取A股龙虎榜数据（大额交易、机构席位）。
-    API: http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=200,page=1,sortRule=-1,sortType=,startDate=,endDate=,gpfw=0,js=var%20data_tab_1.html
+
+    API:
+    - 基础数据: http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/...
+    - 席位明细: http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=200,page=1,...
 
     参数:
         symbol: 股票代码（如 600519.SS）
+        include_seats: 是否包含席位明细（默认True）
 
     返回格式:
         {
             "symbol": "600519.SS",
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
             "date": "2026-06-14",
             "reason": "涨跌幅偏离值7%",
+            "close_price": 1580.50,
+            "change_percent": 5.32,
             "buy_amount": 123456789.0,
             "sell_amount": 98765432.0,
             "net_buy": 24691357.0,
             "turnover_rate": 1.23,
             "buy_seats": [
-                {"rank": 1, "seat_name": "机构专用", "buy_amount": 50000000.0, "sell_amount": 0.0},
-                {"rank": 2, "seat_name": "华泰证券北京分公司", "buy_amount": 30000000.0, "sell_amount": 5000000.0}
+                {
+                    "rank": 1,
+                    "seat_name": "机构专用",
+                    "buy_amount": 50000000.0,
+                    "sell_amount": 0.0,
+                    "net_amount": 50000000.0,
+                    "is_institution": True
+                },
+                ...
             ],
             "sell_seats": [...],
             "source": "eastmoney"
@@ -396,10 +411,6 @@ def fetch_cn_top_list(symbol: str) -> dict[str, Any] | None:
     stock_code = code[2:] if len(code) > 2 else code
 
     # 东方财富龙虎榜API
-    # 参数说明：
-    # - pagesize: 每页数量
-    # - gpfw: 股票范围 0=全部
-    # - sortRule: 排序规则 -1=降序
     url = f"http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=50,page=1,sortRule=-1,sortType=,startDate=,endDate=,gpfw=0,js=var%20data_tab_1.html?code={stock_code}"
 
     try:
@@ -408,8 +419,6 @@ def fetch_cn_top_list(symbol: str) -> dict[str, Any] | None:
             logger.info("[东方财富] 龙虎榜 HTTP %d for %s", resp.status_code, symbol)
             return None
 
-        # 东方财富返回的是JavaScript变量赋值格式
-        # var data_tab_1 = [{"SCode":"600519","SName":"贵州茅台",...}]
         text = resp.text.strip()
 
         # 提取JSON数据
@@ -437,12 +446,128 @@ def fetch_cn_top_list(symbol: str) -> dict[str, Any] | None:
             logger.info("[东方财富] 龙虎榜未找到 %s 的记录", symbol)
             return None
 
-        # 解析龙虎榜数据
-        # 字段说明（东方财富API字段）：
-        # SCode: 股票代码, SName: 股票名称, ClosePrice: 收盘价
-        # Chgradio: 涨跌幅, JmMoney: 净买额(万元), Bmoney: 买入额(万元)
-        # Smoney: 卖出额(万元), Ctypedes: 上榜原因, Tdate: 交易日期
-        # TurnoverRate: 换手率
+        # 解析龙虎榜基础数据
+        buy_amount = safe_float(record.get("Bmoney", 0)) * 10000  # 万元转元
+        sell_amount = safe_float(record.get("Smoney", 0)) * 10000
+        net_buy = safe_float(record.get("JmMoney", 0)) * 10000
+
+        result = {
+            "symbol": symbol.upper(),
+            "stock_code": stock_code,
+            "stock_name": record.get("SName", ""),
+            "date": record.get("Tdate", datetime.now(timezone.utc).date().isoformat()),
+            "reason": record.get("Ctypedes", "上榜"),
+            "close_price": safe_float(record.get("ClosePrice")),
+            "change_percent": safe_float(record.get("Chgradio")),
+            "buy_amount": buy_amount,
+            "sell_amount": sell_amount,
+            "net_buy": net_buy,
+            "turnover_rate": safe_float(record.get("TurnoverRate")),
+            "buy_seats": [],
+            "sell_seats": [],
+            "source": "eastmoney"
+        }
+
+        # 获取席位明细
+        if include_seats:
+            seats = _fetch_top_list_seats(stock_code, record.get("Tdate"))
+            if seats:
+                result["buy_seats"] = seats.get("buy_seats", [])
+                result["sell_seats"] = seats.get("sell_seats", [])
+
+        return result
+
+    except Exception as exc:
+        logger.info("[东方财富] 龙虎榜获取失败 %s: %s", symbol, exc)
+        return None
+
+
+def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dict[str, Any] | None:
+    """
+    获取龙虎榜席位明细（买入/卖出前5席位）
+
+    参数:
+        stock_code: 纯数字代码（如 600519）
+        trade_date: 交易日期（YYYY-MM-DD）
+
+    返回:
+        {
+            "buy_seats": [
+                {"rank": 1, "seat_name": "机构专用", "buy_amount": 50000000.0, "sell_amount": 0.0, "net_amount": 50000000.0, "is_institution": True},
+                ...
+            ],
+            "sell_seats": [...]
+        }
+    """
+    if trade_date is None:
+        trade_date = datetime.now(timezone.utc).date().isoformat()
+
+    # 东方财富席位明细API
+    # 返回买入前5席位和卖出前5席位
+    url = f"http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=200,page=1,sortRule=-1,sortType=,startDate={trade_date},endDate={trade_date},gpfw=0,code={stock_code},js=var%20data_tab_2.html"
+
+    try:
+        resp = _http_get(url, timeout=(5, 10))
+        if resp.status_code != 200:
+            logger.debug("[东方财富] 席位明细 HTTP %d for %s", resp.status_code, stock_code)
+            return None
+
+        text = resp.text.strip()
+
+        # 提取JSON数据
+        import re
+        import json
+
+        # 买入席位：var data_tab_2
+        buy_match = re.search(r'var\s+data_tab_2\s*=\s*(\[.*?\]);?', text, re.DOTALL)
+        # 卖出席位：var data_tab_3
+        sell_match = re.search(r'var\s+data_tab_3\s*=\s*(\[.*?\]);?', text, re.DOTALL)
+
+        buy_seats = []
+        sell_seats = []
+
+        if buy_match:
+            buy_data = json.loads(buy_match.group(1))
+            for idx, seat in enumerate(buy_data[:5], 1):  # 前5席位
+                buy_amt = safe_float(seat.get("Bmoney", 0)) * 10000  # 万元转元
+                sell_amt = safe_float(seat.get("Smoney", 0)) * 10000
+                seat_name = seat.get("SName", "未知席位")
+                is_institution = "机构" in seat_name or "专用" in seat_name
+
+                buy_seats.append({
+                    "rank": idx,
+                    "seat_name": seat_name,
+                    "buy_amount": buy_amt,
+                    "sell_amount": sell_amt,
+                    "net_amount": buy_amt - sell_amt,
+                    "is_institution": is_institution
+                })
+
+        if sell_match:
+            sell_data = json.loads(sell_match.group(1))
+            for idx, seat in enumerate(sell_data[:5], 1):
+                buy_amt = safe_float(seat.get("Bmoney", 0)) * 10000
+                sell_amt = safe_float(seat.get("Smoney", 0)) * 10000
+                seat_name = seat.get("SName", "未知席位")
+                is_institution = "机构" in seat_name or "专用" in seat_name
+
+                sell_seats.append({
+                    "rank": idx,
+                    "seat_name": seat_name,
+                    "buy_amount": buy_amt,
+                    "sell_amount": sell_amt,
+                    "net_amount": buy_amt - sell_amt,
+                    "is_institution": is_institution
+                })
+
+        return {
+            "buy_seats": buy_seats,
+            "sell_seats": sell_seats
+        }
+
+    except Exception as exc:
+        logger.debug("[东方财富] 席位明细获取失败 %s: %s", stock_code, exc)
+        return None
 
         buy_amount = safe_float(record.get("Bmoney", 0)) * 10000  # 万元转元
         sell_amount = safe_float(record.get("Smoney", 0)) * 10000
@@ -470,7 +595,110 @@ def fetch_cn_top_list(symbol: str) -> dict[str, Any] | None:
         return None
 
 
-def fetch_north_flow(date: str | None = None) -> dict[str, Any] | None:
+def fetch_cn_top_list_history(
+    symbol: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    days: int = 7
+) -> list[dict[str, Any]]:
+    """
+    获取龙虎榜历史记录
+
+    参数:
+        symbol: 股票代码（如 600519.SS）
+        start_date: 开始日期（YYYY-MM-DD），优先级高于days
+        end_date: 结束日期（YYYY-MM-DD），默认今天
+        days: 查询天数（默认7天），当start_date为None时生效
+
+    返回:
+        [
+            {
+                "symbol": "600519.SS",
+                "date": "2026-06-14",
+                "reason": "涨跌幅偏离值7%",
+                "buy_amount": 123456789.0,
+                ...
+            },
+            ...
+        ]
+    """
+    from datetime import timedelta
+
+    code = to_tencent_code(symbol)
+    if code is None:
+        return []
+
+    stock_code = code[2:] if len(code) > 2 else code
+
+    # 计算日期范围
+    if end_date is None:
+        end_date = datetime.now(timezone.utc).date().isoformat()
+
+    if start_date is None:
+        end_dt = datetime.fromisoformat(end_date).date()
+        start_dt = end_dt - timedelta(days=days)
+        start_date = start_dt.isoformat()
+
+    # 东方财富历史龙虎榜API
+    url = f"http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=200,page=1,sortRule=-1,sortType=,startDate={start_date},endDate={end_date},gpfw=0,code={stock_code},js=var%20data_tab_1.html"
+
+    try:
+        resp = _http_get(url, timeout=(5, 10))
+        if resp.status_code != 200:
+            logger.info("[东方财富] 龙虎榜历史 HTTP %d for %s", resp.status_code, symbol)
+            return []
+
+        text = resp.text.strip()
+
+        import re
+        import json
+
+        match = re.search(r'var\s+data_tab_1\s*=\s*(\[.*?\]);?', text, re.DOTALL)
+        if not match:
+            logger.info("[东方财富] 龙虎榜历史数据解析失败 for %s", symbol)
+            return []
+
+        data_list = json.loads(match.group(1))
+
+        if not data_list:
+            return []
+
+        # 解析每条记录
+        results = []
+        for record in data_list:
+            if record.get("SCode") != stock_code:
+                continue
+
+            buy_amount = safe_float(record.get("Bmoney", 0)) * 10000
+            sell_amount = safe_float(record.get("Smoney", 0)) * 10000
+            net_buy = safe_float(record.get("JmMoney", 0)) * 10000
+
+            results.append({
+                "symbol": symbol.upper(),
+                "stock_code": stock_code,
+                "stock_name": record.get("SName", ""),
+                "date": record.get("Tdate", ""),
+                "reason": record.get("Ctypedes", "上榜"),
+                "close_price": safe_float(record.get("ClosePrice")),
+                "change_percent": safe_float(record.get("Chgradio")),
+                "buy_amount": buy_amount,
+                "sell_amount": sell_amount,
+                "net_buy": net_buy,
+                "turnover_rate": safe_float(record.get("TurnoverRate")),
+                "source": "eastmoney"
+            })
+
+        # 按日期降序排列
+        results.sort(key=lambda x: x["date"], reverse=True)
+
+        return results
+
+    except Exception as exc:
+        logger.info("[东方财富] 龙虎榜历史获取失败 %s: %s", symbol, exc)
+        return []
+
+
+
     """
     从东方财富获取北向资金流向数据（沪股通+深股通）。
     API: http://push2.eastmoney.com/api/qt/kamt.rtmin/get
