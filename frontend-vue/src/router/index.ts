@@ -25,6 +25,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/top-list/:ticker?', name: 'top-list', component: () => import('@/pages/TopListPage.vue') },
   { path: '/north-flow', name: 'north-flow', component: () => import('@/pages/NorthFlowPage.vue') },
   { path: '/margin-trading', name: 'margin-trading', component: () => import('@/pages/MarginTradingPage.vue') },
+  { path: '/research/report/:ticker?', name: 'research-report', component: () => import('@/pages/ResearchReportPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/welcome' },
 ];
 

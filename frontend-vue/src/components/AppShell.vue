@@ -28,6 +28,7 @@ const navItems = [
   { to: '/top-list/600519.SS', label: '龙虎榜', short: 'TOP' },
   { to: '/north-flow', label: '北向资金', short: 'NORTH' },
   { to: '/margin-trading', label: '融资融券', short: 'MARG' },
+  { to: '/research/report', label: 'AI研究报告', short: 'AI' },
   { to: '/reports', label: '报告资产库', short: 'RPT' },
   { to: '/portfolio', label: '持仓管理', short: 'PORT' },
   { to: '/watchlist', label: '观察列表', short: 'WATCH' },

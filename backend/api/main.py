@@ -1149,7 +1149,7 @@ app.include_router(risk_lens_router)
 app.include_router(research_notes_router)
 app.include_router(timeline_router)
 app.include_router(what_changed_router)
-app.include_router(research_quality_router)`n`n# Prometheus metrics endpoint`nfrom backend.monitoring import metrics_router`napp.include_router(metrics_router)
+app.include_router(research_quality_router)`n`n# Prometheus metrics endpoint`nfrom backend.monitoring import metrics_router`napp.include_router(metrics_router)`n`n# Research report endpoint`nfrom backend.api.research_router import router as research_router`napp.include_router(research_router)
 # 启动入�?U
 if __name__ == "__main__":
     uvicorn.run("backend.api.main:app", host="0.0.0.0", port=8000, reload=True)
