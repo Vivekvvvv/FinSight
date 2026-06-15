@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { apiClient } from '@/api/client';
 import NotificationManager from '@/components/NotificationManager.vue';
+import * as echarts from 'echarts';
+import type { EChartsOption } from 'echarts';
 
 interface DataSourceStatus {
   status: string;
@@ -23,11 +25,28 @@ interface HealthReport {
   sources: Record<string, DataSourceStatus>;
 }
 
+interface TrendRecord {
+  timestamp: string;
+  source_name: string;
+  success_rate: number;
+  avg_response_time_ms: number;
+  is_healthy: number;
+}
+
 const health = ref<HealthReport | null>(null);
 const loading = ref(false);
 const errorMsg = ref<string | null>(null);
 const autoRefresh = ref(true);
+const trendDays = ref(7);
+const selectedSource = ref<string>('tencent');
 let refreshTimer: number | null = null;
+let chartInstance: echarts.ECharts | null = null;
+const chartContainer = ref<HTMLElement | null>(null);
+
+const sourceOptions = computed(() => {
+  if (!health.value) return [];
+  return Object.keys(health.value.sources);
+});
 
 const statusColorMap: Record<string, string> = {
   healthy: '#52c41a',
@@ -80,12 +99,103 @@ async function refresh(): Promise<void> {
   }
 }
 
+async function loadTrendChart(): Promise<void> {
+  if (!chartContainer.value) return;
+
+  try {
+    const trendData = await apiClient.getHealthTrend(selectedSource.value, trendDays.value);
+    const records = (trendData.records || []) as TrendRecord[];
+
+    // 按时间升序排列
+    records.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const timestamps = records.map(r => {
+      const d = new Date(r.timestamp);
+      return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    });
+    const successRates = records.map(r => r.success_rate);
+    const responseTimes = records.map(r => r.avg_response_time_ms);
+
+    if (!chartInstance) {
+      chartInstance = echarts.init(chartContainer.value);
+    }
+
+    const option: EChartsOption = {
+      title: {
+        text: `${selectedSource.value} - 最近${trendDays.value}天趋势`,
+        left: 'center',
+        textStyle: { fontSize: 14, fontWeight: 600, color: '#1f2933' }
+      },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross' }
+      },
+      legend: {
+        data: ['成功率 (%)', '响应时间 (ms)'],
+        top: 30,
+        textStyle: { fontSize: 12 }
+      },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '3%',
+        top: 80,
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: timestamps,
+        axisLabel: { fontSize: 11, rotate: 45 }
+      },
+      yAxis: [
+        {
+          type: 'value',
+          name: '成功率 (%)',
+          position: 'left',
+          min: 0,
+          max: 100,
+          axisLabel: { formatter: '{value}%' }
+        },
+        {
+          type: 'value',
+          name: '响应时间 (ms)',
+          position: 'right',
+          axisLabel: { formatter: '{value}ms' }
+        }
+      ],
+      series: [
+        {
+          name: '成功率 (%)',
+          type: 'line',
+          smooth: true,
+          data: successRates,
+          itemStyle: { color: '#52c41a' },
+          areaStyle: { color: 'rgba(82, 196, 26, 0.1)' }
+        },
+        {
+          name: '响应时间 (ms)',
+          type: 'line',
+          smooth: true,
+          yAxisIndex: 1,
+          data: responseTimes,
+          itemStyle: { color: '#1890ff' }
+        }
+      ]
+    };
+
+    chartInstance.setOption(option);
+  } catch (e) {
+    console.error('加载趋势图失败:', e);
+  }
+}
+
 function startAutoRefresh() {
   if (refreshTimer) clearInterval(refreshTimer);
   if (autoRefresh.value) {
     refreshTimer = window.setInterval(() => {
       void refresh();
-    }, 10000); // 每10秒刷新
+    }, 10000);
   }
 }
 
@@ -99,16 +209,25 @@ function toggleAutoRefresh() {
   }
 }
 
-onMounted(() => {
-  void refresh();
+async function handleTrendChange() {
+  await loadTrendChart();
+}
+
+onMounted(async () => {
+  await refresh();
   startAutoRefresh();
+  await loadTrendChart();
 });
 
-// 组件卸载时清理定时器
 import { onBeforeUnmount } from 'vue';
 onBeforeUnmount(() => {
   if (refreshTimer) clearInterval(refreshTimer);
+  if (chartInstance) {
+    chartInstance.dispose();
+    chartInstance = null;
+  }
 });
+
 </script>
 
 <template>
@@ -151,6 +270,29 @@ onBeforeUnmount(() => {
 
     <!-- 健康仪表盘 -->
     <div v-else-if="health" class="dashboard">
+      <!-- 趋势图 -->
+      <div class="trend-card">
+        <div class="trend-controls">
+          <label>
+            数据源
+            <select v-model="selectedSource" @change="handleTrendChange">
+              <option v-for="src in sourceOptions" :key="src" :value="src">
+                {{ src === 'tencent' ? '腾讯财经' : src === 'yahoo' ? 'Yahoo Finance' : src === 'demo' ? 'Demo模式' : src }}
+              </option>
+            </select>
+          </label>
+          <label>
+            时间范围
+            <select v-model="trendDays" @change="handleTrendChange">
+              <option :value="1">最近1天</option>
+              <option :value="7">最近7天</option>
+              <option :value="30">最近30天</option>
+            </select>
+          </label>
+        </div>
+        <div ref="chartContainer" class="chart-container" />
+      </div>
+
       <!-- 降级源警告 -->
       <div v-if="health.degraded_sources.length > 0" class="alert-card">
         <div class="alert-icon">⚠️</div>
@@ -298,6 +440,45 @@ onBeforeUnmount(() => {
 .loader { width: 20px; height: 20px; border: 2px solid var(--fin-border); border-top-color: var(--fin-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
 
 .dashboard { display: flex; flex-direction: column; gap: 16px; }
+
+/* 趋势图卡片 */
+.trend-card {
+  padding: 20px;
+  background: var(--fin-card);
+  border: 1.5px solid var(--fin-border);
+  border-radius: 14px;
+}
+
+.trend-controls {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.trend-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fin-muted);
+}
+
+.trend-controls select {
+  padding: 8px 12px;
+  border: 1.5px solid var(--fin-border);
+  border-radius: 8px;
+  background: var(--fin-card);
+  color: var(--fin-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chart-container {
+  width: 100%;
+  height: 400px;
+}
 
 /* 警告卡片 */
 .alert-card {

@@ -1,0 +1,83 @@
+name: Auto Update CN Holidays
+
+on:
+  schedule:
+    # 每年12月1日 UTC 00:00 (北京时间 08:00) 执行
+    - cron: '0 0 1 12 *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  update-holidays:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 lxml
+
+      - name: Fetch next year holidays
+        id: fetch
+        run: |
+          python scripts/fetch_holidays.py
+        continue-on-error: true
+
+      - name: Check for changes
+        id: check
+        run: |
+          if git diff --quiet backend/services/cn_holiday.py; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.check.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: |
+            feat: 自动更新次年节假日数据
+
+            - 来源：国务院办公厅放假安排
+            - 更新时间：${{ github.run_id }}
+            - 自动生成，请人工审核
+
+            Co-Authored-By: GitHub Actions <actions@github.com>
+          branch: auto-update-holidays-${{ github.run_number }}
+          title: '🗓️ 自动更新次年节假日数据'
+          body: |
+            ## 自动更新节假日数据
+
+            **数据来源**: 国务院办公厅放假安排通知
+            **更新时间**: ${{ github.event.repository.updated_at }}
+            **工作流**: ${{ github.workflow }}
+
+            ### 变更内容
+            - 更新 `backend/services/cn_holiday.py` 中的节假日数据
+            - 添加次年法定节假日日期
+            - 添加次年调休工作日覆盖
+
+            ### 审核清单
+            - [ ] 检查节假日日期是否正确
+            - [ ] 检查调休工作日是否准确
+            - [ ] 运行单元测试验证功能
+            - [ ] 确认数据来源可靠
+
+            ---
+
+            🤖 此PR由GitHub Actions自动生成，请人工审核后合并。
+          labels: |
+            enhancement
+            automated
+            holiday-update
+          assignees: ${{ github.repository_owner }}

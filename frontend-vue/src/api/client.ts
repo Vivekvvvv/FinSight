@@ -628,4 +628,17 @@ export const apiClient = {
     const { data } = await http.get('/api/system/health');
     return data;
   },
+
+  async getHealthTrend(source?: string, days: number = 7): Promise<any> {
+    const params = new URLSearchParams();
+    if (source) params.append('source', source);
+    params.append('days', String(days));
+    const { data } = await http.get(`/api/system/health/trend?${params.toString()}`);
+    return data;
+  },
+
+  async getHealthStats(): Promise<any> {
+    const { data } = await http.get('/api/system/health/stats');
+    return data;
+  },
 };
