@@ -28,6 +28,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/research/report/:ticker?', name: 'research-report', component: () => import('@/pages/ResearchReportPage.vue') },
   { path: '/research/financials', name: 'research-financials', component: () => import('@/pages/FinancialsAnalyzePage.vue') },
   { path: '/research/qa', name: 'research-qa', component: () => import('@/pages/SmartQAPage.vue') },
+  { path: '/backtest', name: 'backtest', component: () => import('@/pages/BacktestPage.vue') },
+  { path: '/portfolio/optimize', name: 'portfolio-optimize', component: () => import('@/pages/PortfolioOptimizePage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/welcome' },
 ];
 

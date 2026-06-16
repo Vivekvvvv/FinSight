@@ -255,4 +255,72 @@ async def remove_position_endpoint(ticker: str, session_id: str, current_user: P
     }
 
 
+# ── 组合优化 ──────────────────────────────────────────────────────────────────
+
+class PortfolioOptimizeRequest(BaseModel):
+    tickers: list[str]
+    risk_free_rate: float = 0.02
+    n_simulations: int = 2000
+
+
+@portfolio_router.post("/api/portfolio/optimize")
+async def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
+    """
+    马科维茨均值方差组合优化
+
+    - 输入：股票列表（2-10只）
+    - 输出：有效前沿、最大夏普组合、最小波动率组合、相关系数矩阵
+    """
+    if len(request.tickers) < 2:
+        raise HTTPException(status_code=422, detail="至少需要2只股票")
+    if len(request.tickers) > 10:
+        raise HTTPException(status_code=422, detail="最多支持10只股票")
+
+    tickers = [t.strip().upper() for t in request.tickers]
+
+    from backend.tools import get_stock_historical_data
+    from backend.services.portfolio_optimizer import optimize_portfolio
+
+    returns_matrix: list[list[float]] = []
+    failed: list[str] = []
+
+    for t in tickers:
+        try:
+            payload = get_stock_historical_data(t, period="2y", interval="1d")
+            kline: list = []
+            if isinstance(payload, dict):
+                kline = payload.get("kline_data") or []
+            closes = [float(p["close"]) for p in kline if p.get("close") is not None]
+            if len(closes) < 20:
+                failed.append(t)
+                continue
+            daily_returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
+            returns_matrix.append(daily_returns)
+        except Exception as e:
+            logger.warning("获取 %s 历史数据失败: %s", t, e)
+            failed.append(t)
+
+    valid_tickers = [t for t in tickers if t not in failed]
+    if len(valid_tickers) < 2:
+        raise HTTPException(status_code=422, detail=f"有效股票不足2只，失败: {failed}")
+
+    # 对齐数据长度
+    min_len = min(len(r) for r in returns_matrix)
+    aligned = [r[-min_len:] for r in returns_matrix]
+
+    try:
+        result = optimize_portfolio(
+            returns_matrix=aligned,
+            tickers=valid_tickers,
+            risk_free_rate=request.risk_free_rate,
+            n_simulations=request.n_simulations,
+        )
+        if failed:
+            result["warnings"] = [f"{t} 数据不足，已跳过" for t in failed]
+        return result
+    except Exception as e:
+        logger.exception("组合优化失败: %s", e)
+        raise HTTPException(status_code=500, detail=f"优化失败: {e}")
+
+
 __all__ = ["portfolio_router"]

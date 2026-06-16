@@ -31,11 +31,22 @@ const navItems = [
   { to: '/research/report', label: 'AI研究报告', short: 'AI' },
   { to: '/research/financials', label: 'AI财报分析', short: 'FIN' },
   { to: '/research/qa', label: '智能问答', short: 'QA' },
+  { to: '/backtest', label: '策略回测', short: 'BT' },
+  { to: '/portfolio/optimize', label: '组合优化', short: 'OPT' },
   { to: '/reports', label: '报告资产库', short: 'RPT' },
   { to: '/portfolio', label: '持仓管理', short: 'PORT' },
   { to: '/watchlist', label: '观察列表', short: 'WATCH' },
   { to: '/alerts', label: '提醒中心', short: 'ALERT' },
   { to: '/notes', label: '研究笔记', short: 'NOTE' },
+];
+
+// 移动端底部导航（5个核心入口）
+const mobileNavItems = [
+  { to: '/welcome', label: '工作台', icon: '⊞' },
+  { to: '/dashboard/AAPL', label: '仪表盘', icon: '◈' },
+  { to: '/research/qa', label: '问答', icon: '✦' },
+  { to: '/backtest', label: '回测', icon: '↺' },
+  { to: '/portfolio', label: '持仓', icon: '◉' },
 ];
 
 const marketStrip = [
@@ -228,6 +239,20 @@ onMounted(() => {
 
     <div v-if="sidebarOpen" class="mobile-mask" @click="closeSidebar" />
     <div v-if="contextOpen" class="drawer-mask" @click="contextOpen = false" />
+
+    <!-- 移动端底部导航（<820px） -->
+    <nav class="mobile-bottom-nav" aria-label="移动端导航">
+      <RouterLink
+        v-for="item in mobileNavItems"
+        :key="item.to"
+        :to="item.to"
+        class="mb-nav-item"
+        active-class="active"
+      >
+        <span class="mb-icon">{{ item.icon }}</span>
+        <span class="mb-label">{{ item.label }}</span>
+      </RouterLink>
+    </nav>
   </div>
 </template>
 
@@ -675,6 +700,57 @@ onMounted(() => {
 @media (min-width: 821px) {
   .drawer-mask {
     display: block;
+  }
+}
+
+/* ── 移动端底部导航 ─────────────────────────────────────────────── */
+.mobile-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 70;
+    background: color-mix(in srgb, var(--fin-bg) 95%, transparent);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid var(--fin-border);
+    padding: 6px 0 max(6px, env(safe-area-inset-bottom));
+  }
+
+  .workspace-main {
+    padding-bottom: 72px !important;
+  }
+
+  .mb-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 4px;
+    color: var(--fin-muted);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .mb-nav-item.active {
+    color: var(--fin-primary);
+  }
+
+  .mb-icon {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .mb-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
   }
 }
 </style>
