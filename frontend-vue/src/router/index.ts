@@ -26,6 +26,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/north-flow', name: 'north-flow', component: () => import('@/pages/NorthFlowPage.vue') },
   { path: '/margin-trading', name: 'margin-trading', component: () => import('@/pages/MarginTradingPage.vue') },
   { path: '/research/report/:ticker?', name: 'research-report', component: () => import('@/pages/ResearchReportPage.vue') },
+  { path: '/research/financials', name: 'research-financials', component: () => import('@/pages/FinancialsAnalyzePage.vue') },
+  { path: '/research/qa', name: 'research-qa', component: () => import('@/pages/SmartQAPage.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/welcome' },
 ];
 
