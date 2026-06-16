@@ -11,7 +11,6 @@ import {
   setupResearchQualityMocks,
   setupReportsMocks,
   setupTodayWorkspaceMocks,
-  setupPhase45CoreMocks,
 } from './helpers/apiMocks';
 
 const SESSION_ID = 'public:anonymous:vue-e2e';
@@ -928,10 +927,10 @@ test('/reports (资产化) — 标签筛选', async ({ page }) => {
 
 // ── 9d. 收藏切换
 test('/reports (资产化) — 收藏切换', async ({ page }) => {
-  let favBody: unknown;
+  let _favBody: unknown;
   setupReportsPageMocks(page);
   await page.route('**/api/reports/*/favorite', async (r) => {
-    favBody = JSON.parse((await r.request().postData()) || '{}');
+    _favBody = JSON.parse((await r.request().postData()) || '{}');
     return json(r, { success: true, is_favorite: true });
   });
 
@@ -1206,7 +1205,7 @@ test('/welcome (Today Workspace) — NextActions 点击跳转', async ({ page })
 
 // ── 10f. Portfolio 页 — 新字段编辑
 test('/portfolio — 新字段 sector/currency/opened_at 可编辑', async ({ page }) => {
-  let updatedData: any = null;
+  let updatedData: unknown = null;
   await page.route('**/api/portfolio/summary**', (r) => json(r, PORTFOLIO_SUMMARY));
   await page.route('**/api/portfolio/positions/**', async (r) => {
     const req = r.request();
@@ -1242,7 +1241,7 @@ test('/portfolio — 新字段 sector/currency/opened_at 可编辑', async ({ pa
 
 // ── 10g. Watchlist 页 — 新字段编辑
 test('/watchlist — 新字段 group/priority/watch_reason 可编辑', async ({ page }) => {
-  let addedData: any = null;
+  let addedData: unknown = null;
 
   await page.route('**/api/user/watchlist', async (r) => {
     if (r.request().method() === 'GET') {
@@ -1298,7 +1297,7 @@ test('/watchlist — 新字段 group/priority/watch_reason 可编辑', async ({ 
 
 test('/notes — 创建笔记', async ({ page }) => {
   const noteId = 'note_test_001';
-  const createPayload = {
+  const _createPayload = {
     session_id: SESSION_ID,
     user_id: USER_ID,
     title: '测试笔记',
@@ -1842,7 +1841,7 @@ test('/timeline/:symbol — 高风险事件样式显示', async ({ page }) => {
 
   // 验证高风险事件边框颜色
   const eventCard = page.locator('[data-testid="event-card"]').first();
-  const borderColor = await eventCard.evaluate((el) => {
+  const _borderColor = await eventCard.evaluate((el) => {
     return window.getComputedStyle(el).borderLeftColor;
   });
 

@@ -326,7 +326,7 @@ export interface TodayWorkspaceResponse {
     risk_positions: PortfolioPosition[];
     position_count: number;
   };
-  watchlist_movers: any[];
+  watchlist_movers: Array<{ ticker: string; name?: string; change?: number }>;
   alert_feed: AlertEvent[];
   reports_to_review: ReportIndexItem[];
   next_actions: NextAction[];
@@ -542,5 +542,5 @@ export interface ResearchQualityResponse {
   as_of: string;
   summary: ResearchQualitySummary;
   top_issues: ResearchQualityIssue[];
-  next_actions: any[];
+  next_actions: unknown[];
 }

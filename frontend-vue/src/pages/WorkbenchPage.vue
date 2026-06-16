@@ -75,6 +75,7 @@ async function refresh() {
     if (results[0].status === 'fulfilled') portfolio.value = results[0].value;
     if (results[1].status === 'fulfilled') reports.value = results[1].value.items || [];
     if (results[2].status === 'fulfilled') tasks.value = results[2].value.tasks || [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if (results[3].status === 'fulfilled') alerts.value = (results[3].value as any).events || [];
     if (results[4].status === 'fulfilled') watchlist.value = results[4].value.items || [];
   } catch (error) {

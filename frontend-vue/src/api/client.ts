@@ -17,7 +17,6 @@ import type {
   TodayWorkspaceResponse,
   PortfolioRiskLensResponse,
   RiskLensHistoryResponse,
-  ResearchNote,
   CreateNoteRequest,
   UpdateNoteRequest,
   ResearchNotesListResponse,
@@ -111,8 +110,9 @@ function _extractEvidence(payload: Record<string, unknown>): EvidenceInfo {
   const metrics = payload.metrics as Record<string, unknown> | null | undefined;
   const report = payload.report as Record<string, unknown> | null | undefined;
 
-  const citationCount =
+    const citationCount =
     typeof report?.citation_count === 'number' ? report.citation_count :
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     typeof (payload as any).citation_count === 'number' ? (payload as any).citation_count : null;
 
   const confidenceScore =
@@ -188,22 +188,22 @@ export const apiClient = {
     return data;
   },
 
-  async getQuote(symbol: string): Promise<any> {
+  async getQuote(symbol: string): Promise<unknown> {
     const { data } = await http.get(`/api/quote/${symbol}`);
     return data;
   },
 
-  async getKline(symbol: string, period = '1mo', interval = '1d'): Promise<any> {
+  async getKline(symbol: string, period = '1mo', interval = '1d'): Promise<unknown> {
     const { data } = await http.get(`/api/kline/${symbol}`, { params: { period, interval } });
     return data;
   },
 
-  async getNews(symbol: string): Promise<any> {
+  async getNews(symbol: string): Promise<unknown> {
     const { data } = await http.get(`/api/stock/news/${symbol}`);
     return data;
   },
 
-  async getFinancials(symbol: string): Promise<any> {
+  async getFinancials(symbol: string): Promise<unknown> {
     const { data } = await http.get(`/api/financials/${symbol}`);
     return data;
   },
@@ -454,14 +454,14 @@ export const apiClient = {
     return data;
   },
 
-  async compareReports(params: { sessionId: string; id1: string; id2: string }): Promise<any> {
+  async compareReports(params: { sessionId: string; id1: string; id2: string }): Promise<unknown> {
     const { data } = await http.get('/api/reports/compare', {
       params: { session_id: params.sessionId, id1: params.id1, id2: params.id2 },
     });
     return data;
   },
 
-  async getReportReplay(params: { sessionId: string; reportId: string }): Promise<any> {
+  async getReportReplay(params: { sessionId: string; reportId: string }): Promise<unknown> {
     const { data } = await http.get(`/api/reports/replay/${encodeURIComponent(params.reportId)}`, {
       params: { session_id: params.sessionId },
     });
@@ -624,12 +624,12 @@ export const apiClient = {
     return data;
   },
 
-  async getSystemHealth(): Promise<any> {
+  async getSystemHealth(): Promise<unknown> {
     const { data } = await http.get('/api/system/health');
     return data;
   },
 
-  async getHealthTrend(source?: string, days: number = 7): Promise<any> {
+  async getHealthTrend(source?: string, days: number = 7): Promise<unknown> {
     const params = new URLSearchParams();
     if (source) params.append('source', source);
     params.append('days', String(days));
@@ -637,7 +637,7 @@ export const apiClient = {
     return data;
   },
 
-  async getHealthStats(): Promise<any> {
+  async getHealthStats(): Promise<unknown> {
     const { data } = await http.get('/api/system/health/stats');
     return data;
   },

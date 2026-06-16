@@ -57,9 +57,9 @@ async function loadTimeline() {
     }
 
     whatChanged.value = changesResp.items;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to load timeline:', error);
-    errorMsg.value = error.response?.data?.detail || error.message || '加载时间线失败';
+    errorMsg.value = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as { message?: string })?.message || '加载时间线失败';
   } finally {
     loading.value = false;
   }

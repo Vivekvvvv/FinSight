@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, onUnmounted } from 'vue';
-import { useRoute } from 'vue-router';
-import { apiClient, http } from '@/api/client';
+import { http } from '@/api/client';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 
@@ -17,7 +16,6 @@ interface MarginRecord {
   close_price?: number;
 }
 
-const route = useRoute();
 const ticker = ref('600519.SS');
 const days = ref(90);
 const loading = ref(false);
@@ -177,8 +175,8 @@ function renderRatioChart(): void {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      formatter: (params: any) => {
-        const item = params[0];
+      formatter: (params: unknown) => {
+        const item = (params as Array<{name: string; seriesName: string; value: number}>)[0];
         return `${item.name}<br/>${item.seriesName}: ${item.value}%`;
       },
     },
@@ -207,6 +205,7 @@ function renderRatioChart(): void {
         type: 'bar',
         data: marginBuyRatios,
         itemStyle: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           color: (params: any) => {
             const value = parseFloat(params.value);
             return value >= 50 ? '#f56c6c' : '#67c23a';

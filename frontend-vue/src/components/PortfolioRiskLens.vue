@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { apiClient } from '@/api/client';
-import type { PortfolioRiskLensResponse, RiskItem, RiskSnapshot } from '@/api/types';
+import type { PortfolioRiskLensResponse, RiskSnapshot } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import RiskTrendChart from './RiskTrendChart.vue';
 
@@ -24,9 +24,9 @@ async function loadRiskLens() {
   try {
     const data = await apiClient.getPortfolioRiskLens(sessionId.value, userId.value);
     riskLens.value = data;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to load risk lens:', err);
-    errorMsg.value = err.response?.data?.error || err.message || 'Unknown error';
+    errorMsg.value = (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error || (err as { message?: string })?.message || 'Unknown error';
   } finally {
     loading.value = false;
   }
@@ -40,7 +40,7 @@ async function loadHistory(days: number = 30) {
     if (data.success) {
       history.value = data.snapshots;
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to load history:', err);
   }
 }

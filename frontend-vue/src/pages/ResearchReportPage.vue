@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { apiClient, http } from '@/api/client';
+import { http } from '@/api/client';
 import { marked } from 'marked';
 
 interface ReportRequest {
@@ -74,8 +74,8 @@ async function generateReport(): Promise<void> {
     }
 
     progress.value = 100;
-  } catch (e: any) {
-    errorMsg.value = e.response?.data?.detail || e.message || '生成报告失败';
+  } catch (e: unknown) {
+    errorMsg.value = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (e as { message?: string })?.message || '生成报告失败';
   } finally {
     clearInterval(progressInterval);
     loading.value = false;

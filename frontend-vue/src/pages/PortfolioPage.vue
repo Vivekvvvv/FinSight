@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, nextTick } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { apiClient } from '@/api/client';
 import type { PortfolioPosition } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';

@@ -103,7 +103,8 @@ async function loadTrendChart(): Promise<void> {
   if (!chartContainer.value) return;
 
   try {
-    const trendData = await apiClient.getHealthTrend(selectedSource.value, trendDays.value);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const trendData = await apiClient.getHealthTrend(selectedSource.value, trendDays.value) as any;
     const records = (trendData.records || []) as TrendRecord[];
 
     // 按时间升序排列

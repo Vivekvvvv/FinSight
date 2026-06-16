@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { apiClient, http } from '@/api/client';
+import { http } from '@/api/client';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 
@@ -113,9 +113,11 @@ function renderIntradayChart(): void {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       formatter: (params: any) => {
         const time = params[0].name;
         let text = `${time}<br/>`;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         params.forEach((p: any) => {
           text += `${p.marker}${p.seriesName}: ${p.value.toFixed(2)}亿<br/>`;
         });

@@ -37,8 +37,8 @@ async function handleLogin() {
     });
     await identity.bootstrap();
     await router.push('/welcome');
-  } catch (error: any) {
-    errorMsg.value = error.response?.data?.detail || error.message || '登录失败，请检查后端服务或账号配置';
+  } catch (error: unknown) {
+    errorMsg.value = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as { message?: string })?.message || '登录失败，请检查后端服务或账号配置';
   } finally {
     loading.value = false;
   }

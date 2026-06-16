@@ -38,8 +38,8 @@ async function ask(): Promise<void> {
     result.value = resp.data;
     history.value.unshift(resp.data);
     if (history.value.length > 10) history.value.pop();
-  } catch (e: any) {
-    errorMsg.value = e.response?.data?.detail || e.message || '问答失败';
+  } catch (e: unknown) {
+    errorMsg.value = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (e as { message?: string })?.message || '问答失败';
   } finally {
     loading.value = false;
   }

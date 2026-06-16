@@ -36,8 +36,11 @@ export function withTouchSupport(option: EChartsOption): EChartsOption {
   if (typeof window === 'undefined' || window.innerWidth >= 768) return option;
   return {
     ...option,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tooltip: { ...touchTooltip, ...(option.tooltip as object || {}) } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     toolbox: touchToolbox as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     dataZoom: [...(touchDataZoom as any[]), ...((option.dataZoom as any[]) || [])],
   };
 }

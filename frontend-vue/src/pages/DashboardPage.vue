@@ -31,14 +31,17 @@ const quotePending = ref(false);
 const slowLoading = ref(false);
 const deepLoading = ref(false);
 const errorMsg = ref<string | null>(null);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const quote = ref<any>(null);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const kline = ref<any>(null);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const financials = ref<any>(null);
-const news = ref<any[]>([]);
+const news = ref<Array<{ title?: string; headline?: string; link?: string; source?: string; publisher?: string; publishedAt?: string; datetime?: string }>>([]);
 const insights = ref<DashboardInsightsResponse | null>(null);
 const changes = ref<WhatChangedItem[]>([]);
 const deepAnalysis = ref('');
-const deepEvidence = ref<any>(null);
+const deepEvidence = ref<EvidenceInfo | null>(null);
 let refreshRunId = 0;
 
 const tabs = [
@@ -97,10 +100,12 @@ const q = computed(() => {
 });
 
 const insightCards = computed(() =>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Object.entries(insights.value?.insights || {}).map(([key, value]: [string, any]) => ({ key, ...value })),
 );
 
 const primaryScore = computed(() => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scores = insightCards.value.map((item: any) => Number(item.score || 0)).filter(Boolean);
   return scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 7.4;
 });
@@ -131,6 +136,7 @@ const normalizedKline = computed(() => {
 
 const hasKlineData = computed(() => normalizedKline.value.dates.length > 0 && normalizedKline.value.values.length > 0);
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function evidenceFromPayload(payload: any, fallbackSource: string): EvidenceInfo {
   const source = payload?.source || fallbackSource;
   const freshnessStatus = payload?.freshness_status || payload?.freshnessStatus || (source === 'demo' ? 'demo' : 'live');
@@ -304,7 +310,9 @@ async function refreshSlowData(symbol: string, runId: number) {
     keepLatest(financialsPromise, runId, (value) => { financials.value = value; });
     keepLatest(insightsPromise, runId, (value) => { insights.value = value; });
     keepLatest(newsPromise, runId, (value) => {
-      if (Array.isArray(value?.data)) news.value = value.data;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const v = value as any;
+      if (Array.isArray(v?.data)) news.value = v.data;
     });
 
     await Promise.allSettled([

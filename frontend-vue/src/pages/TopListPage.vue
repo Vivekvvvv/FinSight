@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { apiClient, http } from '@/api/client';
+import { http } from '@/api/client';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 
@@ -90,7 +90,7 @@ async function loadHistory(): Promise<void> {
   }
 }
 
-async function viewDetail(record: TopListRecord): Promise<void> {
+async function viewDetail(_record: TopListRecord): Promise<void> {
   try {
     const resp = await http.get(`/api/stock/top-list/${ticker.value}?include_seats=true`);
     selectedDetail.value = resp.data;
@@ -129,6 +129,7 @@ function renderBuyVsSellChart(): void {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       formatter: (params: any) => {
         const date = params[0].name;
         const buy = params[0].value.toFixed(2);

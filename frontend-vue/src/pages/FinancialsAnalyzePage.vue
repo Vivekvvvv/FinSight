@@ -29,8 +29,8 @@ async function analyze(): Promise<void> {
       ticker: ticker.value.trim().toUpperCase(),
     });
     result.value = resp.data;
-  } catch (e: any) {
-    errorMsg.value = e.response?.data?.detail || e.message || '分析失败';
+  } catch (e: unknown) {
+    errorMsg.value = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (e as { message?: string })?.message || '分析失败';
   } finally {
     loading.value = false;
   }

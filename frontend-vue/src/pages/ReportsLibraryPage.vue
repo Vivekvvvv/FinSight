@@ -132,6 +132,7 @@ async function setReviewStatus(item: ReportIndexItem, status: string, e: Event):
   e.stopPropagation();
   try {
     await apiClient.patchReportReviewStatus({ sessionId: identity.sessionId, reportId: item.report_id, reviewStatus: status });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     item.review_status = status as any;
   } catch (err) { errorMsg.value = err instanceof Error ? err.message : String(err); }
 }
@@ -158,6 +159,7 @@ async function saveTagEdit(): Promise<void> {
 
 // ── 报告详情侧边栏 ─────────────────────────────────────────────
 const sidebarItem = ref<ReportIndexItem | null>(null);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sidebarReplay = ref<any>(null);
 const sidebarLoading = ref(false);
 const noteText = ref('');
@@ -202,6 +204,7 @@ async function saveNote(): Promise<void> {
 const compareMode = ref(false);
 const compareA = ref<ReportIndexItem | null>(null);
 const compareB = ref<ReportIndexItem | null>(null);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const compareResult = ref<any>(null);
 const compareLoading = ref(false);
 const compareError = ref<string | null>(null);

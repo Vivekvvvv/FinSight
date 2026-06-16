@@ -128,8 +128,8 @@ async function runBacktest() {
     result.value = data;
     await nextTick();
     renderChart();
-  } catch (e: any) {
-    errorMsg.value = e.response?.data?.detail || e.message || '回测失败';
+  } catch (e: unknown) {
+    errorMsg.value = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (e as { message?: string })?.message || '回测失败';
   } finally {
     loading.value = false;
   }
@@ -213,6 +213,7 @@ function renderChart() {
         },
       },
     ],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }
 

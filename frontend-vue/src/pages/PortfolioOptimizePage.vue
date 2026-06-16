@@ -50,8 +50,8 @@ async function run() {
     await nextTick();
     renderFrontier();
     renderCorr();
-  } catch (e: any) {
-    errorMsg.value = e.response?.data?.detail || e.message || '优化失败';
+  } catch (e: unknown) {
+    errorMsg.value = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (e as { message?: string })?.message || '优化失败';
   } finally {
     loading.value = false;
   }
@@ -70,9 +70,10 @@ function renderFrontier() {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
-      formatter: (p: any) => {
-        if (p.seriesName === '有效前沿') return `波动率: ${p.data[0]}%<br/>收益率: ${p.data[1]}%<br/>夏普: ${p.data[2]}`;
-        return `${p.seriesName}<br/>波动率: ${p.data[0]}%<br/>收益率: ${p.data[1]}%<br/>夏普: ${p.data[2]}`;
+      formatter: (p: unknown) => {
+        const pt = p as { seriesName: string; data: [number, number, number] };
+        if (pt.seriesName === '有效前沿') return `波动率: ${pt.data[0]}%<br/>收益率: ${pt.data[1]}%<br/>夏普: ${pt.data[2]}`;
+        return `${pt.seriesName}<br/>波动率: ${pt.data[0]}%<br/>收益率: ${pt.data[1]}%<br/>夏普: ${pt.data[2]}`;
       },
     },
     legend: { textStyle: { color: '#999' } },
@@ -85,6 +86,7 @@ function renderFrontier() {
         data: pts.map(p => [p.volatility, p.return, p.sharpe]),
         symbolSize: 4,
         itemStyle: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           color: (p: any) => {
             const s = p.data[2];
             const t = Math.min(Math.max((s + 0.5) / 3, 0), 1);
@@ -123,6 +125,7 @@ function renderFrontier() {
         label: { show: true, formatter: '等权', position: 'top', color: '#999', fontSize: 11 },
       },
     ],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }
 
@@ -140,6 +143,7 @@ function renderCorr() {
 
   corrChart.setOption({
     backgroundColor: 'transparent',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tooltip: { formatter: (p: any) => `${tickers[p.data[1]]} × ${tickers[p.data[0]]}: ${p.data[2]}` },
     xAxis: { type: 'category', data: tickers, axisLabel: { color: '#888', rotate: 30 } },
     yAxis: { type: 'category', data: tickers, axisLabel: { color: '#888' } },
@@ -147,8 +151,10 @@ function renderCorr() {
     series: [{
       type: 'heatmap',
       data: cells,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       label: { show: true, formatter: (p: any) => p.data[2], fontSize: 11 },
     }],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 }
 
