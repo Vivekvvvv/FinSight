@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { apiClient } from '@/api/client';
+import { apiClient, http } from '@/api/client';
 import { marked } from 'marked';
 
 interface ReportRequest {
@@ -65,7 +65,7 @@ async function generateReport(): Promise<void> {
       include_technical: includeTechnical.value,
     };
 
-    const response = await apiClient.post('/api/research/report/generate', requestData);
+    const response = await http.post('/api/research/report/generate', requestData);
     report.value = response.data;
 
     // 渲染Markdown内容

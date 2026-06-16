@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { apiClient } from '@/api/client';
+import { apiClient, http } from '@/api/client';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 
@@ -77,7 +77,7 @@ async function loadHistory(): Promise<void> {
   loading.value = true;
   errorMsg.value = null;
   try {
-    const resp = await apiClient.get(`/api/stock/top-list/${ticker.value}/history?days=${days.value}`);
+    const resp = await http.get(`/api/stock/top-list/${ticker.value}/history?days=${days.value}`);
     records.value = resp.data.records || [];
 
     if (records.value.length > 0) {
@@ -92,7 +92,7 @@ async function loadHistory(): Promise<void> {
 
 async function viewDetail(record: TopListRecord): Promise<void> {
   try {
-    const resp = await apiClient.get(`/api/stock/top-list/${ticker.value}?include_seats=true`);
+    const resp = await http.get(`/api/stock/top-list/${ticker.value}?include_seats=true`);
     selectedDetail.value = resp.data;
     showSeatModal.value = true;
 

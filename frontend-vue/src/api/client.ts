@@ -642,3 +642,6 @@ export const apiClient = {
     return data;
   },
 };
+
+// 导出底层 axios 实例，供需要直接调用 get/post 的页面使用
+export { http };

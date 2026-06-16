@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { apiClient } from '@/api/client';
+import { apiClient, http } from '@/api/client';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 
@@ -59,7 +59,7 @@ async function loadHistory(): Promise<void> {
   loading.value = true;
   errorMsg.value = null;
   try {
-    const resp = await apiClient.get(`/api/stock/margin/${ticker.value}/history?days=${days.value}`);
+    const resp = await http.get(`/api/stock/margin/${ticker.value}/history?days=${days.value}`);
     records.value = resp.data.records || [];
 
     if (records.value.length > 0) {

@@ -78,7 +78,7 @@ if not logging.getLogger().handlers:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-# 尝试导入核心工�??
+# 尝试导入核心工�??
 try:
     from backend.tools import (
         get_stock_price,
@@ -90,7 +90,7 @@ try:
     )
     logger.info("[Init] Core tools imported successfully.")
 except ImportError as e:
-    # 如�??backend.tools 导入失败，则尝试从根目录 tools 导入（兼容旧结构�?
+    # 如�??backend.tools 导入失败，则尝试从根目录 tools 导入（兼容旧结构�?
     try:
         from tools import (
             get_stock_price,
@@ -112,7 +112,7 @@ except ImportError as e:
     logger.info(f"[Init] Error importing chart detector: {e}")
     ChartTypeDetector = None
 
-# 导�??MemoryService
+# 导�??MemoryService
 try:
     from backend.services.memory import MemoryService, UserProfile
     memory_service = MemoryService()
@@ -339,7 +339,7 @@ def _update_session_context(
 ) -> None:
     if not thread_id:
         return
-    # 指令型操作（�?alert_set）不应污染对话上下文
+    # 指令型操作（�?alert_set）不应污染对话上下文
     if skip_context:
         return
     try:
@@ -882,7 +882,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配�??
+# CORS 配�??
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_origins(),
@@ -1149,7 +1149,15 @@ app.include_router(risk_lens_router)
 app.include_router(research_notes_router)
 app.include_router(timeline_router)
 app.include_router(what_changed_router)
-app.include_router(research_quality_router)`n`n# Prometheus metrics endpoint`nfrom backend.monitoring import metrics_router`napp.include_router(metrics_router)`n`n# Research report endpoint`nfrom backend.api.research_router import router as research_router`napp.include_router(research_router)
-# 启动入�?U
+app.include_router(research_quality_router)
+
+# Prometheus metrics endpoint
+from backend.monitoring import metrics_router
+app.include_router(metrics_router)
+
+# Research report endpoint
+from backend.api.research_router import router as research_router
+app.include_router(research_router)
+# 启动入�?U
 if __name__ == "__main__":
     uvicorn.run("backend.api.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { apiClient } from '@/api/client';
+import { apiClient, http } from '@/api/client';
 import * as echarts from 'echarts';
 import type { EChartsOption } from 'echarts';
 
@@ -65,7 +65,7 @@ async function loadRealtime(): Promise<void> {
   loading.value = true;
   errorMsg.value = null;
   try {
-    const resp = await apiClient.get('/api/market/north-flow');
+    const resp = await http.get('/api/market/north-flow');
     realtimeData.value = resp.data;
 
     if (realtimeData.value) {
@@ -80,7 +80,7 @@ async function loadRealtime(): Promise<void> {
 
 async function loadHistory(): Promise<void> {
   try {
-    const resp = await apiClient.get(`/api/market/north-flow/history?days=${days.value}`);
+    const resp = await http.get(`/api/market/north-flow/history?days=${days.value}`);
     historyData.value = resp.data.records || [];
 
     if (historyData.value.length > 0) {
