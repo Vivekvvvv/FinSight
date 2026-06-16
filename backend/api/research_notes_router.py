@@ -391,6 +391,9 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         - **limit**: 返回数量（最大20）
         - 向量服务不可用时自动降级为关键词搜索
         """
+        # 权限验证：确保用户只能搜索自己的笔记
+        require_matching_identity(current_user, session_id, user_id)
+
         try:
             from backend.services.notes_rag import semantic_search_notes
             results = semantic_search_notes(

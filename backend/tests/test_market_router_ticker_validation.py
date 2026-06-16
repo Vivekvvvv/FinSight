@@ -35,6 +35,7 @@ def _build_client(
     return TestClient(app)
 
 
+@pytest.mark.network
 def test_price_endpoint_normalizes_ticker_before_fetch():
     called: list[str] = []
 

@@ -661,6 +661,7 @@ def test_fetch_document_uses_jina_fallback_for_short_trusted_content(monkeypatch
     assert bool(doc.get("degraded")) is False
 
 
+@pytest.mark.network
 def test_fetch_document_uses_wayback_fallback_when_jina_misses(monkeypatch):
     mock_cache = MagicMock()
     mock_tools = MagicMock()

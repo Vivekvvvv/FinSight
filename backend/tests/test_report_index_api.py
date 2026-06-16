@@ -311,6 +311,7 @@ def test_report_citation_index_filters_by_source_and_query(tmp_path, monkeypatch
     assert source_data["items"][0].get("source_id") == first_source_id
 
 
+@pytest.mark.integration
 def test_report_index_hides_blocked_by_default_and_supports_include_blocked(tmp_path, monkeypatch):
     sqlite_path = tmp_path / "report_index.sqlite"
     monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(sqlite_path))

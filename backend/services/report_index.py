@@ -106,7 +106,13 @@ def _derive_quality_fields(report: dict[str, Any]) -> tuple[str, int, str]:
 
 class ReportIndexStore:
     def __init__(self) -> None:
-        path = os.getenv("REPORT_INDEX_SQLITE_PATH", "backend/data/report_index.sqlite")
+        # 使用绝对路径，避免工作目录依赖
+        default_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data",
+            "report_index.sqlite"
+        )
+        path = os.getenv("REPORT_INDEX_SQLITE_PATH", default_path)
         self._path = os.path.abspath(path)
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
         self._lock = threading.Lock()

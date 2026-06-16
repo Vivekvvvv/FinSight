@@ -172,10 +172,14 @@ def _build_sync_bundle() -> CheckpointerBundle:
         if backend == "memory":
             bundle = _memory_bundle(reason=None, fallback_used=False)
         elif backend == "sqlite":
-            sqlite_path = os.getenv(
-                "LANGGRAPH_CHECKPOINT_SQLITE_PATH",
-                os.path.join("data", "langgraph", "checkpoints.sqlite"),
+            # 使用绝对路径，避免工作目录依赖
+            default_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "data",
+                "langgraph",
+                "checkpoints.sqlite"
             )
+            sqlite_path = os.getenv("LANGGRAPH_CHECKPOINT_SQLITE_PATH", default_path)
             bundle = _create_sync_sqlite_bundle(sqlite_path)
         elif backend == "postgres":
             dsn = (os.getenv("LANGGRAPH_CHECKPOINT_POSTGRES_DSN") or "").strip()
@@ -202,10 +206,14 @@ async def _build_async_bundle() -> CheckpointerBundle:
         if backend == "memory":
             bundle = _memory_bundle(reason=None, fallback_used=False)
         elif backend == "sqlite":
-            sqlite_path = os.getenv(
-                "LANGGRAPH_CHECKPOINT_SQLITE_PATH",
-                os.path.join("data", "langgraph", "checkpoints.sqlite"),
+            # 使用绝对路径，避免工作目录依赖
+            default_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "data",
+                "langgraph",
+                "checkpoints.sqlite"
             )
+            sqlite_path = os.getenv("LANGGRAPH_CHECKPOINT_SQLITE_PATH", default_path)
             bundle = await _create_async_sqlite_bundle(sqlite_path)
         elif backend == "postgres":
             dsn = (os.getenv("LANGGRAPH_CHECKPOINT_POSTGRES_DSN") or "").strip()

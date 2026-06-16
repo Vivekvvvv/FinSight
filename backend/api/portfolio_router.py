@@ -262,7 +262,12 @@ async def get_risk_attribution(session_id: str, current_user: Principal = Depend
     """组合风险归因：市场系统性风险、个股特质风险、行业风险贡献度"""
     from backend.services.portfolio_store import get_positions
     from backend.services.risk_attribution import calculate_risk_attribution
+
+    # 权限验证：确保用户只能访问自己的持仓数据
     resolved = session_id if current_user.auth_type == "dev" else current_user.session_id
+    if current_user.auth_type != "dev" and session_id != current_user.session_id:
+        raise HTTPException(status_code=403, detail="无权访问其他用户的持仓数据")
+
     positions = get_positions(session_id=resolved)
     if not positions:
         raise HTTPException(status_code=404, detail="暂无持仓数据")

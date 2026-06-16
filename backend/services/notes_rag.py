@@ -16,7 +16,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DB_PATH = Path("./data/research_notes.db")
+# 使用绝对路径，避免工作目录依赖
+_DB_PATH = Path(__file__).parent.parent / "data" / "research_notes.db"
 _lock = threading.RLock()
 
 
@@ -88,7 +89,8 @@ def vectorize_note(note_id: str, title: str, content: str) -> bool:
     vec = _embed(text)
     if vec is None:
         return False
-    now = __import__("datetime").datetime.utcnow().isoformat()
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     try:
         with _lock, _conn() as c:
             c.execute(
