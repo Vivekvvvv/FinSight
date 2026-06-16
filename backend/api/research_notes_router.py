@@ -376,4 +376,45 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
                 "error": str(exc),
             }
 
+    @router.get("/api/research-notes/semantic-search")
+    async def semantic_search(
+        session_id: str,
+        user_id: str,
+        q: str,
+        limit: int = 10,
+        current_user: Principal = Depends(get_current_user),
+    ):
+        """
+        语义搜索笔记（向量相似度）
+
+        - **q**: 搜索问题，如"关于茅台的估值笔记"
+        - **limit**: 返回数量（最大20）
+        - 向量服务不可用时自动降级为关键词搜索
+        """
+        try:
+            from backend.services.notes_rag import semantic_search_notes
+            results = semantic_search_notes(
+                session_id=session_id,
+                user_id=user_id,
+                query=q,
+                limit=min(limit, 20),
+            )
+            return {"results": results, "query": q, "total": len(results)}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    @router.post("/api/research-notes/vectorize-all")
+    async def vectorize_all(
+        session_id: str,
+        user_id: str,
+        current_user: Principal = Depends(get_current_user),
+    ):
+        """批量向量化所有未向量化的笔记"""
+        try:
+            from backend.services.notes_rag import vectorize_all_notes
+            stats = vectorize_all_notes(session_id=session_id, user_id=user_id)
+            return {"success": True, **stats}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
     return router

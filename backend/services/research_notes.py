@@ -105,6 +105,13 @@ def create_note(
         ))
         conn.commit()
 
+    # 异步向量化（失败不影响主流程）
+    try:
+        from backend.services.notes_rag import vectorize_note as _vn
+        _vn(note_id, title, content or "")
+    except Exception:
+        pass
+
     return note_id
 
 
@@ -161,7 +168,19 @@ def update_note(
             params
         )
         conn.commit()
-        return cursor.rowcount > 0
+        updated = cursor.rowcount > 0
+
+    # 重新向量化（失败不影响主流程）
+    if updated:
+        try:
+            note = get_note(note_id)
+            if note:
+                from backend.services.notes_rag import vectorize_note as _vn
+                _vn(note_id, note.get("title", ""), note.get("content", ""))
+        except Exception:
+            pass
+
+    return updated
 
 
 def delete_note(note_id: str) -> bool:

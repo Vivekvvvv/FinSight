@@ -724,4 +724,48 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             "records": records
         }
 
+    # ── 历史K线（带缓存+复权+清洗） ──────────────────────────────────────────
+
+    @router.get("/api/market/historical/{ticker}")
+    async def get_historical_kline(
+        ticker: str,
+        start: str = "2020-01-01",
+        end: str | None = None,
+        adjust: str = "qfq",
+    ):
+        """
+        历史K线（A股支持前复权/后复权）
+
+        - **adjust**: qfq前复权（默认）、hfq后复权、none不复权
+        - 数据来源：baostock 优先，不可用时降级为 yfinance
+        - 结果缓存到 SQLite 避免重复请求
+        """
+        clean_ticker = _validate_ticker_or_400(ticker)
+        valid_adjust = adjust.lower() if adjust.lower() in ("qfq", "hfq", "none") else "qfq"
+        try:
+            from backend.services.historical_data_store import fetch_and_cache_kline
+            bars = fetch_and_cache_kline(
+                ticker=clean_ticker,
+                start_date=start,
+                end_date=end,
+                adjust=valid_adjust,
+            )
+            return {
+                "ticker": clean_ticker,
+                "adjust": valid_adjust,
+                "start": start,
+                "end": end,
+                "bars": len(bars),
+                "data": bars,
+            }
+        except Exception as e:
+            deps.logger.exception("historical kline error %s: %s", clean_ticker, e)
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/api/market/historical-cache/tickers")
+    async def list_cached_tickers():
+        """列出已有历史缓存的股票代码"""
+        from backend.services.historical_data_store import get_cached_tickers
+        return {"tickers": get_cached_tickers()}
+
     return router

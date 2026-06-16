@@ -14,6 +14,8 @@ import SkeletonLoader from '@/components/SkeletonLoader.vue';
 import type { DashboardInsightsResponse, EvidenceInfo, WhatChangedItem } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import { useThemeStore } from '@/stores/theme';
+import { useSwipe } from '@/composables/useSwipe';
+import { withTouchSupport } from '@/composables/useEchartsTouch';
 
 use([CanvasRenderer, CandlestickChart, RadarChart, BarChart, GridComponent, TooltipComponent, RadarComponent]);
 
@@ -47,6 +49,19 @@ const tabs = [
   ['research', '深度研究'],
   ['peers', '同行对比'],
 ];
+
+// 滑动切换 Tab
+const tabKeys = tabs.map(([k]) => k);
+const { onTouchStart: swipeTouchStart, onTouchEnd: swipeTouchEnd } = useSwipe({
+  onLeft() {
+    const idx = tabKeys.indexOf(activeTab.value);
+    if (idx < tabKeys.length - 1) activeTab.value = tabKeys[idx + 1];
+  },
+  onRight() {
+    const idx = tabKeys.indexOf(activeTab.value);
+    if (idx > 0) activeTab.value = tabKeys[idx - 1];
+  },
+});
 
 const chartPalette = computed(() => theme.resolved === 'dark'
   ? {
@@ -160,7 +175,7 @@ const metricStrip = computed(() => [
 
 const chartOption = computed(() => {
   const colors = chartPalette.value;
-  return {
+  return withTouchSupport({
     backgroundColor: 'transparent',
     grid: { left: 42, right: 18, top: 28, bottom: 34 },
     tooltip: {
@@ -187,7 +202,7 @@ const chartOption = computed(() => {
       data: normalizedKline.value.values,
       itemStyle: { color: colors.up, color0: colors.down, borderColor: colors.up, borderColor0: colors.down },
     }],
-  };
+  });
 });
 
 const radarOption = computed(() => {
@@ -416,7 +431,8 @@ watch(() => route.params.symbol, (value) => {
         </button>
       </div>
 
-      <div v-if="activeTab === 'overview'" class="tab-content">
+      <div v-if="activeTab === 'overview'" class="tab-content"
+        @touchstart="swipeTouchStart" @touchend="swipeTouchEnd">
         <article v-for="item in insightCards.slice(0, 3)" :key="item.key" class="insight-card">
           <span class="score-label">{{ item.score_label || item.key }}</span>
           <h4>{{ item.summary }}</h4>
@@ -430,7 +446,8 @@ watch(() => route.params.symbol, (value) => {
         </article>
       </div>
 
-      <div v-else-if="activeTab === 'financial'" class="tab-content dense">
+      <div v-else-if="activeTab === 'financial'" class="tab-content dense"
+        @touchstart="swipeTouchStart" @touchend="swipeTouchEnd">
         <div class="source-row full-row">
           <EvidencePanel v-bind="financialEvidence" compact />
           <DataSourceBadge :evidence="financialEvidence" compact />
@@ -441,14 +458,16 @@ watch(() => route.params.symbol, (value) => {
         </article>
       </div>
 
-      <div v-else-if="activeTab === 'technical'" class="tab-content dense">
+      <div v-else-if="activeTab === 'technical'" class="tab-content dense"
+        @touchstart="swipeTouchStart" @touchend="swipeTouchEnd">
         <article class="data-row"><span>日内高低</span><strong>{{ fmt(q.regularMarketDayLow) }} / {{ fmt(q.regularMarketDayHigh) }}</strong></article>
         <article class="data-row"><span>成交量</span><strong>{{ fmt(q.regularMarketVolume) }}</strong></article>
         <article class="data-row"><span>Beta</span><strong>{{ fmt(q.beta) }}</strong></article>
         <EvidencePanel v-bind="quoteEvidence" compact />
       </div>
 
-      <div v-else-if="activeTab === 'news'" class="tab-content">
+      <div v-else-if="activeTab === 'news'" class="tab-content"
+        @touchstart="swipeTouchStart" @touchend="swipeTouchEnd">
         <SkeletonLoader v-if="slowLoading && news.length === 0" type="card" :rows="4" />
         <template v-else>
           <article v-for="item in news.slice(0, 6)" :key="item.title || item.link" class="news-card">
@@ -459,7 +478,8 @@ watch(() => route.params.symbol, (value) => {
         </template>
       </div>
 
-      <div v-else-if="activeTab === 'research'" class="tab-content research-pane">
+      <div v-else-if="activeTab === 'research'" class="tab-content research-pane"
+        @touchstart="swipeTouchStart" @touchend="swipeTouchEnd">
         <button class="primary" :disabled="deepLoading" @click="runDeepAnalysis">
           {{ deepLoading ? '生成中...' : '生成深度复查摘要' }}
         </button>

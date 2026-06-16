@@ -255,7 +255,21 @@ async def remove_position_endpoint(ticker: str, session_id: str, current_user: P
     }
 
 
-# ── 组合优化 ──────────────────────────────────────────────────────────────────
+# ── 风险归因分析 ─────────────────────────────────────────────────────────────
+
+@portfolio_router.get("/api/portfolio/risk-attribution")
+async def get_risk_attribution(session_id: str, current_user: Principal = Depends(get_current_user)):
+    """组合风险归因：市场系统性风险、个股特质风险、行业风险贡献度"""
+    from backend.services.portfolio_store import get_positions
+    from backend.services.risk_attribution import calculate_risk_attribution
+    resolved = session_id if current_user.auth_type == "dev" else current_user.session_id
+    positions = get_positions(session_id=resolved)
+    if not positions:
+        raise HTTPException(status_code=404, detail="暂无持仓数据")
+    return calculate_risk_attribution(positions)
+
+
+# ── 组合优化 ─────────────────────────────────────────────────────────────────
 
 class PortfolioOptimizeRequest(BaseModel):
     tickers: list[str]

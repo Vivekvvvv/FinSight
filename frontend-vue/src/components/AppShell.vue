@@ -6,6 +6,7 @@ import IdentityPanel from '@/components/IdentityPanel.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 import { useIdentityStore } from '@/stores/identity';
 import type { DemoStatusResponse, PortfolioSummary, WatchlistItem } from '@/api/types';
+import { usePullToRefresh } from '@/composables/usePullToRefresh';
 
 const route = useRoute();
 const router = useRouter();
@@ -106,6 +107,8 @@ async function loadContext() {
 onMounted(() => {
   void loadContext();
 });
+
+const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 </script>
 
 <template>
@@ -177,7 +180,9 @@ onMounted(() => {
         <button class="context-button" type="button" @click="contextOpen = true">上下文</button>
       </header>
 
-      <main class="workspace-main">
+      <main class="workspace-main" :style="pullStyle">
+        <!-- 下拉刷新指示器 -->
+        <div v-if="isRefreshing" class="pull-indicator">↻ 刷新中...</div>
         <slot />
       </main>
     </div>
@@ -752,5 +757,20 @@ onMounted(() => {
     font-weight: 600;
     letter-spacing: 0.02em;
   }
+}
+
+/* ── 下拉刷新指示器 ────────────────────────────────────────────── */
+.pull-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 6px 18px;
+  border-radius: 0 0 18px 18px;
+  background: var(--fin-primary);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
 }
 </style>
