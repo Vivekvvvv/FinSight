@@ -185,7 +185,7 @@ async function handleImageUpload(file: File): Promise<void> {
 
 function goDashboard(): void {
   const symbol = ticker.value.trim().toUpperCase();
-  if (symbol) void router.push(`/dashboard/${encodeURIComponent(symbol)}`);
+  if (symbol) void router.push(`/dossier/${encodeURIComponent(symbol)}`);
 }
 
 onMounted(refresh);
@@ -251,7 +251,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
           </div>
           <div class="editor-actions">
             <button class="secondary-btn" :disabled="!ticker.trim()" @click="goDashboard">查看标的</button>
-            <button class="secondary-btn" :disabled="!ticker.trim()" @click="router.push(`/timeline/${ticker.trim().toUpperCase()}`)">查看时间线</button>
+            <button class="secondary-btn" :disabled="!ticker.trim()" @click="router.push(`/dossier/${ticker.trim().toUpperCase()}`)">查看时间线</button>
             <button v-if="selected" class="danger-btn" :disabled="saving" @click="deleteSelected">删除</button>
             <button class="primary-btn" :disabled="saving || uploading" @click="saveNote">
               {{ saving ? '保存中…' : uploading ? '上传中…' : '保存' }}

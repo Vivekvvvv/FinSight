@@ -30,6 +30,7 @@ class ChatRouterDeps:
     is_raw_trace_event: Callable[[dict[str, Any]], bool]
     redact_sensitive_payload: Callable[[Any], Any]
     get_session_context: Callable[[str], Any]
+    chat_history_store: Any | None
     chat_response_schema_version: str
     sse_event_schema_version: str
 
@@ -105,6 +106,12 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
                 subject=state.get("subject"),
                 skip_context=bool(state.get("skip_session_context")),
             )
+            if deps.chat_history_store is not None and markdown:
+                deps.chat_history_store.append_turn(
+                    session_id=thread_id,
+                    user_content=request.query,
+                    assistant_content=markdown,
+                )
 
             _elapsed_ms = int((_time.perf_counter() - _t0) * 1000)
             return {
@@ -173,6 +180,11 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             get_graph_runner=deps.get_graph_runner,
             schedule_report_index=deps.schedule_report_index,
             update_session_context=deps.update_session_context,
+            record_chat_turn=(
+                deps.chat_history_store.append_turn
+                if deps.chat_history_store is not None
+                else None
+            ),
             redact_sensitive_payload=deps.redact_sensitive_payload,
             is_raw_trace_event=deps.is_raw_trace_event,
             contract_info=deps.contract_info,
@@ -212,6 +224,34 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
+
+    @router.get("/api/chat/history")
+    async def list_chat_history(session_id: str, limit: int = 100):
+        if deps.chat_history_store is None:
+            return {"success": True, "session_id": session_id, "messages": [], "count": 0}
+        try:
+            thread_id = deps.resolve_thread_id(session_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        messages = deps.chat_history_store.list_messages(session_id=thread_id, limit=limit)
+        return {
+            "success": True,
+            "session_id": thread_id,
+            "messages": messages,
+            "count": len(messages),
+        }
+
+    @router.delete("/api/chat/history")
+    async def clear_chat_history(session_id: str):
+        if deps.chat_history_store is None:
+            return {"success": True, "session_id": session_id}
+        try:
+            thread_id = deps.resolve_thread_id(session_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        deps.chat_history_store.clear(session_id=thread_id)
+        deps.get_session_context(thread_id).clear()
+        return {"success": True, "session_id": thread_id}
 
     @router.post("/api/chat/add-chart-data", response_model=ChartDataResponse)
     async def add_chart_data(request: dict):

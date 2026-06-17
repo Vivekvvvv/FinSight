@@ -9,7 +9,9 @@ function normalize(value: string): string {
 function resolveBrowserDefault(): string {
   if (typeof window === 'undefined') return DEFAULT_API_BASE_URL;
   const { protocol, hostname, port } = window.location;
-  if (port === '5173' || port === '5174') {
+  // Vite dev server 通常在 5173-5179 端口，统一指向后端 8000
+  const portNum = parseInt(port, 10);
+  if (portNum >= 5173 && portNum <= 5179) {
     return `${protocol}//${hostname}:8000`;
   }
   return normalize(`${protocol}//${hostname}${port ? `:${port}` : ''}`);

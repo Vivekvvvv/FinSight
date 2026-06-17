@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import IdentityPanel from '@/components/IdentityPanel.vue';
@@ -18,36 +18,22 @@ const watchlist = ref<WatchlistItem[]>([]);
 const demoStatus = ref<DemoStatusResponse | null>(null);
 
 const navItems = [
-  { to: '/welcome', label: '今日工作台', short: 'TODAY' },
-  { to: '/stocks', label: '股票发现', short: 'STOCK' },
-  { to: '/dossier/AAPL', label: '标的档案', short: 'DOS' },
-  { to: '/dashboard/AAPL', label: '市场仪表盘', short: 'DASH' },
-  { to: '/chat', label: '研究对话', short: 'CHAT' },
-  { to: '/workbench', label: '研究工作台', short: 'LAB' },
-  { to: '/data-sources', label: '数据源状态', short: 'DATA' },
-  { to: '/system/health', label: '系统健康', short: 'HLTH' },
-  { to: '/top-list/600519.SS', label: '龙虎榜', short: 'TOP' },
-  { to: '/north-flow', label: '北向资金', short: 'NORTH' },
-  { to: '/margin-trading', label: '融资融券', short: 'MARG' },
-  { to: '/research/report', label: 'AI研究报告', short: 'AI' },
-  { to: '/research/financials', label: 'AI财报分析', short: 'FIN' },
-  { to: '/research/qa', label: '智能问答', short: 'QA' },
-  { to: '/backtest', label: '策略回测', short: 'BT' },
-  { to: '/portfolio/optimize', label: '组合优化', short: 'OPT' },
-  { to: '/reports', label: '报告资产库', short: 'RPT' },
-  { to: '/portfolio', label: '持仓管理', short: 'PORT' },
-  { to: '/watchlist', label: '观察列表', short: 'WATCH' },
-  { to: '/alerts', label: '提醒中心', short: 'ALERT' },
-  { to: '/notes', label: '研究笔记', short: 'NOTE' },
+  { to: '/welcome', label: '今日工作台', group: '每日流程', icon: '今' },
+  { to: '/dossier/AAPL', label: '标的研究', group: '研究对象', icon: '研' },
+  { to: '/stocks', label: '股票发现', group: '发现候选', icon: '股' },
+  { to: '/portfolio', label: '组合管理', group: '持仓复查', icon: '组' },
+  { to: '/reports', label: '报告库', group: '研究资产', icon: '报' },
+  { to: '/notes', label: '研究笔记', group: '证据沉淀', icon: '记' },
+  { to: '/chat', label: 'AI 助手', group: '问答生成', icon: 'AI' },
 ];
 
-// 移动端底部导航（5个核心入口）
+// 移动端底部导航保留最高频 5 个入口。
 const mobileNavItems = [
-  { to: '/welcome', label: '工作台', icon: '⊞' },
-  { to: '/dashboard/AAPL', label: '仪表盘', icon: '◈' },
-  { to: '/research/qa', label: '问答', icon: '✦' },
-  { to: '/backtest', label: '回测', icon: '↺' },
-  { to: '/portfolio', label: '持仓', icon: '◉' },
+  { to: '/welcome', label: '今日', icon: '今' },
+  { to: '/dossier/AAPL', label: '研究', icon: '研' },
+  { to: '/stocks', label: '发现', icon: '股' },
+  { to: '/portfolio', label: '组合', icon: '组' },
+  { to: '/chat', label: '助手', icon: 'AI' },
 ];
 
 const marketStrip = [
@@ -58,13 +44,13 @@ const marketStrip = [
 ];
 
 const routeTitle = computed(() => {
-  if (route.path.startsWith('/dashboard')) return 'Market Intelligence';
-  if (route.path.startsWith('/dossier')) return 'Research Dossier';
-  if (route.path.startsWith('/chat')) return 'Research Copilot';
-  if (route.path.startsWith('/workbench')) return 'Daily Research Lab';
-  if (route.path.startsWith('/reports')) return 'Report Archive';
-  if (route.path.startsWith('/timeline')) return 'Evidence Timeline';
-  if (route.path.startsWith('/notes')) return 'Research Notebook';
+  if (route.path.startsWith('/welcome')) return '今日工作台';
+  if (route.path.startsWith('/dossier')) return '标的研究';
+  if (route.path.startsWith('/stocks')) return '股票发现';
+  if (route.path.startsWith('/portfolio')) return '组合管理';
+  if (route.path.startsWith('/reports')) return '报告库';
+  if (route.path.startsWith('/notes')) return '研究笔记';
+  if (route.path.startsWith('/chat')) return 'AI 助手';
   return 'FinSight AI';
 });
 
@@ -108,6 +94,14 @@ onMounted(() => {
   void loadContext();
 });
 
+watch(
+  () => route.query.drawer,
+  (drawer) => {
+    if (drawer === 'data' || drawer === 'system') contextOpen.value = true;
+  },
+  { immediate: true },
+);
+
 const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 </script>
 
@@ -131,8 +125,11 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
           active-class="active"
           @click="closeSidebar"
         >
-          <span>{{ item.short }}</span>
-          <strong>{{ item.label }}</strong>
+          <span class="nav-icon">{{ item.icon }}</span>
+          <strong>
+            {{ item.label }}
+            <small>{{ item.group }}</small>
+          </strong>
         </RouterLink>
       </nav>
 
@@ -160,7 +157,7 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
             :key="item.symbol"
             class="ticker-pill"
             type="button"
-            @click="router.push(`/dashboard/${item.symbol}`)"
+            @click="router.push(`/dossier/${item.symbol}`)"
           >
             <strong>{{ item.symbol }}</strong>
             <span>{{ item.price }}</span>
@@ -203,12 +200,12 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
           :key="item.ticker"
           class="watch-chip"
           type="button"
-          @click="router.push(`/dashboard/${item.ticker}`)"
+          @click="router.push(`/dossier/${item.ticker}`)"
         >
           <strong>{{ item.ticker }}</strong>
           <span>{{ item.watch_reason || item.name || '研究关注' }}</span>
         </button>
-        <button v-if="watchlist.length === 0" class="empty-action" type="button" @click="router.push('/watchlist')">
+        <button v-if="watchlist.length === 0" class="empty-action" type="button" @click="router.push('/stocks')">
           添加重点标的
         </button>
       </section>
@@ -325,16 +322,34 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 
 .nav-link {
   display: grid;
-  grid-template-columns: 56px 1fr;
+  grid-template-columns: 38px 1fr;
   align-items: center;
   gap: 10px;
   padding: 12px 13px;
-  border-radius: 16px;
+  border-radius: 8px;
   color: var(--fin-text-2);
   border: 1px solid transparent;
 }
 
-.nav-link span,
+.nav-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--fin-card-inset);
+  color: var(--fin-primary);
+  font-weight: 900;
+}
+
+.nav-link small {
+  display: block;
+  margin-top: 2px;
+  color: var(--fin-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .rail-kicker,
 .terminal-kicker {
   font-family: var(--fin-mono);

@@ -122,6 +122,7 @@ class ExecutionDeps:
     get_graph_runner: Callable[[], Awaitable[Any]]
     schedule_report_index: Callable[..., None]
     update_session_context: Callable[..., None]
+    record_chat_turn: Callable[..., Any] | None
     redact_sensitive_payload: Callable[[Any], Any]
     is_raw_trace_event: Callable[[dict[str, Any]], bool]
     contract_info: Callable[[], dict[str, str]]
@@ -389,6 +390,15 @@ async def run_graph_pipeline(
                 subject=state.get("subject"),
                 skip_context=bool(state.get("skip_session_context")),
             )
+            if deps.record_chat_turn is not None and response_markdown:
+                try:
+                    deps.record_chat_turn(
+                        session_id=thread_id,
+                        user_content=original_query or query,
+                        assistant_content=response_markdown,
+                    )
+                except Exception as exc:
+                    logger.warning("[execution_service] record chat turn failed: %s", exc)
 
             # 5b. Persist lightweight long-term memory snapshot (best-effort)
             if not quality_blocked or soft_blocked:
@@ -673,6 +683,16 @@ async def resume_graph_pipeline(
                 deps.schedule_report_index(
                     session_id=thread_id, report=report, state=final_state,
                 )
+
+            if deps.record_chat_turn is not None and response_markdown:
+                try:
+                    deps.record_chat_turn(
+                        session_id=thread_id,
+                        user_content=str(final_state.get("query") or ""),
+                        assistant_content=response_markdown,
+                    )
+                except Exception as exc:
+                    logger.warning("[resume_pipeline] record chat turn failed: %s", exc)
 
             # Persist lightweight long-term memory snapshot (best-effort)
             if not quality_blocked or soft_blocked:

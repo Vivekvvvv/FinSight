@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
-import type { EvidenceInfo, ResearchQualityIssue, ResearchQualitySummary, TodayWorkspaceResponse, WhatChangedItem } from '@/api/types';
+import type { DailyTask, EvidenceInfo, ResearchQualityIssue, ResearchQualitySummary, TodayWorkspaceResponse, WhatChangedItem } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
@@ -12,6 +12,7 @@ const identity = useIdentityStore();
 const router = useRouter();
 
 const workspace = ref<TodayWorkspaceResponse | null>(null);
+const dailyTasks = ref<DailyTask[]>([]);
 const whatChanged = ref<WhatChangedItem[]>([]);
 const qualitySummary = ref<ResearchQualitySummary>({
   total_reports: 0,
@@ -76,19 +77,37 @@ const severityIcons: Record<string, string> = {
   low: 'LO',
 };
 
+function integratedRoute(path?: string | null): string {
+  if (!path) return '/welcome';
+  if (path.startsWith('/dashboard/')) return path.replace('/dashboard/', '/dossier/');
+  if (path === '/dashboard') return '/dossier/AAPL';
+  if (path.startsWith('/timeline/')) return path.replace('/timeline/', '/dossier/');
+  if (path === '/watchlist') return '/stocks?tab=watchlist';
+  if (path === '/alerts') return '/welcome';
+  if (path === '/backtest') return '/portfolio?tool=backtest';
+  if (path === '/portfolio/optimize') return '/portfolio?tool=optimize';
+  if (path === '/portfolio/risk-lens') return '/portfolio?tool=risk';
+  if (path.startsWith('/research/qa')) return '/chat?mode=qa';
+  if (path.startsWith('/research/report')) return '/reports?tool=generate';
+  if (path.startsWith('/research/financials')) return '/reports?tool=financials';
+  return path;
+}
+
 async function refresh(): Promise<void> {
   loading.value = true;
   errorMsg.value = null;
   try {
-    const [workspaceData, changesData, qualityData] = await Promise.all([
+    const [workspaceData, changesData, qualityData, taskData] = await Promise.all([
       apiClient.getTodayWorkspace(identity.sessionId, identity.userId),
       apiClient.getWhatChanged({ sessionId: identity.sessionId, userId: identity.userId, limit: 5 }),
       apiClient.getResearchQuality({ sessionId: identity.sessionId, userId: identity.userId }),
+      apiClient.getDailyTasks(identity.sessionId).catch(() => ({ success: false, session_id: identity.sessionId, tasks: [], count: 0 })),
     ]);
     workspace.value = workspaceData;
     whatChanged.value = changesData.items;
     qualitySummary.value = qualityData.summary;
     qualityIssues.value = qualityData.top_issues;
+    dailyTasks.value = taskData.tasks || [];
   } catch (error) {
     errorMsg.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -126,6 +145,31 @@ watch(() => identity.sessionId, () => { void refresh(); });
     </div>
 
     <template v-else-if="workspace">
+      <div class="panel task-panel" data-testid="daily-tasks-panel">
+        <div class="panel-header">
+          <div>
+            <p class="kicker">TODAY TASKS</p>
+            <h2 class="panel-title">今日任务</h2>
+          </div>
+          <span class="panel-count">{{ dailyTasks.length }}</span>
+        </div>
+        <div v-if="dailyTasks.length === 0" class="panel-empty">暂无任务。添加持仓或候选标的后，系统会生成研究复查动作。</div>
+        <div v-else class="tasks-grid">
+          <button
+            v-for="task in dailyTasks.slice(0, 6)"
+            :key="task.id"
+            class="task-card"
+            type="button"
+            @click="router.push(integratedRoute(task.action_url))"
+          >
+            <span>{{ task.category || '研究' }}</span>
+            <strong>{{ task.title }}</strong>
+            <em>{{ task.reason || '进入对应页面复查证据。' }}</em>
+            <b>P{{ task.priority ?? '-' }}</b>
+          </button>
+        </div>
+      </div>
+
       <div v-if="whatChanged.length > 0" class="panel what-changed-panel" data-testid="what-changed-panel">
         <div class="panel-header">
           <div>
@@ -190,7 +234,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
               v-for="position in workspace.portfolio_snapshot.risk_positions.slice(0, 3)"
               :key="position.ticker"
               class="risk-item"
-              @click="router.push(`/dashboard/${position.ticker}`)"
+              @click="router.push(`/dossier/${position.ticker}`)"
             >
               <span class="risk-ticker">{{ position.ticker }}</span>
               <span v-if="position.name" class="risk-name">{{ position.name }}</span>
@@ -204,18 +248,18 @@ watch(() => identity.sessionId, () => { void refresh(); });
         <div class="panel">
           <div class="panel-header">
             <h2 class="panel-title">自选清单</h2>
-            <button class="panel-link" @click="router.push('/watchlist')">管理</button>
+            <button class="panel-link" @click="router.push('/stocks?tab=watchlist')">管理</button>
           </div>
           <div v-if="workspace.watchlist_movers.length === 0" class="panel-empty">
             还没有自选标的
-            <button class="link-btn" @click="router.push('/watchlist')">去添加</button>
+            <button class="link-btn" @click="router.push('/stocks')">去添加</button>
           </div>
           <div v-else class="simple-list">
             <div
               v-for="item in workspace.watchlist_movers.slice(0, 5)"
               :key="item.ticker"
               class="simple-item"
-              @click="router.push(`/dashboard/${item.ticker}`)"
+              @click="router.push(`/dossier/${item.ticker}`)"
             >
               <span class="si-ticker">{{ item.ticker }}</span>
               <span v-if="item.name" class="si-name">{{ item.name }}</span>
@@ -227,7 +271,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
         <div class="panel">
           <div class="panel-header">
             <h2 class="panel-title">最新提醒</h2>
-            <button class="panel-link" @click="router.push('/alerts')">全部</button>
+            <button class="panel-link" @click="router.push('/welcome')">全部</button>
           </div>
           <div v-if="workspace.alert_feed.length === 0" class="panel-empty">暂无触发提醒</div>
           <div v-for="event in workspace.alert_feed.slice(0, 4)" :key="event.id" class="alert-item">
@@ -281,7 +325,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
             :key="action.id"
             class="action-card"
             :class="`sev-${action.severity}`"
-            @click="router.push(action.target_route)"
+            @click="router.push(integratedRoute(action.target_route))"
           >
             <div class="ac-icon">{{ severityIcons[action.severity] || 'GO' }}</div>
             <div class="ac-body">
@@ -454,6 +498,54 @@ watch(() => identity.sessionId, () => { void refresh(); });
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 14px;
+}
+
+.tasks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.task-card {
+  position: relative;
+  min-height: 132px;
+  border: 1px solid var(--fin-border);
+  border-radius: 8px;
+  padding: 16px 48px 16px 16px;
+  background: var(--fin-card-inset);
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-card:hover {
+  border-color: var(--fin-border-strong);
+  background: var(--fin-card-soft);
+}
+
+.task-card span,
+.task-card em {
+  display: block;
+  color: var(--fin-muted);
+  font-size: 13px;
+  font-style: normal;
+}
+
+.task-card strong {
+  display: block;
+  margin: 8px 0;
+  font-size: 16px;
+}
+
+.task-card b {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary);
+  font-size: 11px;
 }
 
 .summary-cards,

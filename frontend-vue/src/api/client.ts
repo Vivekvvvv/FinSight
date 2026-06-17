@@ -26,6 +26,7 @@ import type {
   WhatChangedResponse,
   ResearchQualityResponse,
   ExecutionTraceEvent,
+  ChatHistoryResponse,
   ScreenerMetaResponse,
   ScreenerRunRequest,
   ScreenerRunResponse,
@@ -270,6 +271,22 @@ export const apiClient = {
         fallback_only: params?.fallbackOnly ?? false,
         limit: params?.limit ?? 20,
       },
+    });
+    return data;
+  },
+
+  async getChatHistory(sessionId: string, limit = 100): Promise<ChatHistoryResponse> {
+    const { data } = await http.get<ChatHistoryResponse>('/api/chat/history', {
+      params: { session_id: sessionId, limit },
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
+    });
+    return data;
+  },
+
+  async clearChatHistory(sessionId: string): Promise<{ success: boolean; session_id: string }> {
+    const { data } = await http.delete('/api/chat/history', {
+      params: { session_id: sessionId },
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
     });
     return data;
   },

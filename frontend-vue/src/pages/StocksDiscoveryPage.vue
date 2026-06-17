@@ -35,6 +35,7 @@ const importShares = ref('1');
 const importAvgCost = ref('');
 const importBusy = ref(false);
 const batchBusy = ref(false);
+const showChinaTools = ref(false);
 
 const markets = computed<Market[]>(() => meta.value?.markets?.length ? meta.value.markets : ['US', 'CN', 'HK']);
 const sortOptions = computed(() => meta.value?.sort_by?.length ? meta.value.sort_by : ['marketCap', 'price', 'volume', 'changesPercentage']);
@@ -260,16 +261,14 @@ async function confirmImport() {
   }
 }
 
-function goDashboard(symbol: string) {
-  void router.push(`/dashboard/${encodeURIComponent(symbol)}`);
-}
-
 function goDossier(symbol: string) {
   void router.push(`/dossier/${encodeURIComponent(symbol)}`);
 }
 
-function goTimeline(symbol: string) {
-  void router.push(`/timeline/${encodeURIComponent(symbol)}`);
+function activateMarketTool(tool: 'top-list' | 'north-flow' | 'margin') {
+  market.value = 'CN';
+  showChinaTools.value = true;
+  void router.replace({ path: '/stocks', query: { tool } });
 }
 
 onMounted(async () => {
@@ -366,9 +365,33 @@ onMounted(async () => {
         <p class="kicker">COMPARE BASKET</p>
         <h3>对比篮子</h3>
       </div>
-      <button v-for="item in compareBasket" :key="item.symbol" type="button" @click="goDashboard(item.symbol)">
+      <button v-for="item in compareBasket" :key="item.symbol" type="button" @click="goDossier(item.symbol)">
         {{ item.symbol }}
       </button>
+    </section>
+
+    <section class="market-tools page-card">
+      <button class="tools-head" type="button" @click="showChinaTools = !showChinaTools">
+        <span>
+          <strong>A股市场工具</strong>
+          <em>龙虎榜、北向资金、融资融券已下沉为辅助入口</em>
+        </span>
+        <b>{{ showChinaTools ? '收起' : '展开' }}</b>
+      </button>
+      <div v-if="showChinaTools" class="tools-grid">
+        <button type="button" @click="activateMarketTool('top-list')">
+          <strong>龙虎榜异动</strong>
+          <span>用于发现短期异动候选，后续进入标的研究复查。</span>
+        </button>
+        <button type="button" @click="activateMarketTool('north-flow')">
+          <strong>北向资金</strong>
+          <span>作为市场情绪背景，不单独占据主导航。</span>
+        </button>
+        <button type="button" @click="activateMarketTool('margin')">
+          <strong>融资融券</strong>
+          <span>用于观察杠杆变化，结论沉淀到报告或笔记。</span>
+        </button>
+      </div>
     </section>
 
     <section v-if="displayedItems.length === 0" class="state-card page-card">
@@ -404,10 +427,10 @@ onMounted(async () => {
           </button>
           <button class="ghost" @click="addWatchlistAndNote(item)">自选+笔记</button>
           <button class="ghost" @click="openImport(item)">导入持仓</button>
-          <button class="ghost" @click="goDashboard(item.symbol)">查看分析</button>
+          <button class="ghost" @click="goDossier(item.symbol)">查看分析</button>
           <button class="ghost" @click="goDossier(item.symbol)">生成档案</button>
           <button class="ghost" @click="addToCompare(item)">加入对比</button>
-          <button class="ghost" @click="goTimeline(item.symbol)">时间线</button>
+          <button class="ghost" @click="goDossier(item.symbol)">时间线</button>
         </div>
       </article>
     </section>
@@ -622,6 +645,71 @@ select {
   font-weight: 900;
 }
 
+.market-tools {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.tools-head {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fin-text);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tools-head span {
+  display: grid;
+  gap: 3px;
+}
+
+.tools-head strong {
+  font-size: 16px;
+}
+
+.tools-head em,
+.tools-grid span {
+  color: var(--fin-muted);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.tools-head b {
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary);
+  font-size: 12px;
+}
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tools-grid button {
+  border: 1px solid var(--fin-border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--fin-card-inset);
+  color: var(--fin-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tools-grid button:hover {
+  border-color: var(--fin-border-strong);
+  background: var(--fin-card-soft);
+}
+
 .compare-basket h3 {
   margin: 0;
 }
@@ -767,7 +855,8 @@ select {
   .hero,
   .filters,
   .stock-grid,
-  .metrics {
+  .metrics,
+  .tools-grid {
     grid-template-columns: 1fr;
     display: grid;
   }

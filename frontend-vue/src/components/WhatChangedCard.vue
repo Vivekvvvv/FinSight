@@ -57,9 +57,24 @@ const severityName = computed(() => {
   return mapping[props.item.severity] || props.item.severity;
 });
 
+function integratedRoute(path: string): string {
+  if (path.startsWith('/dashboard/')) return path.replace('/dashboard/', '/dossier/');
+  if (path === '/dashboard') return '/dossier/AAPL';
+  if (path.startsWith('/timeline/')) return path.replace('/timeline/', '/dossier/');
+  if (path === '/watchlist') return '/stocks?tab=watchlist';
+  if (path === '/alerts') return '/welcome';
+  if (path === '/backtest') return '/portfolio?tool=backtest';
+  if (path === '/portfolio/optimize') return '/portfolio?tool=optimize';
+  if (path === '/portfolio/risk-lens') return '/portfolio?tool=risk';
+  if (path.startsWith('/research/qa')) return '/chat?mode=qa';
+  if (path.startsWith('/research/report')) return '/reports?tool=generate';
+  if (path.startsWith('/research/financials')) return '/reports?tool=financials';
+  return path;
+}
+
 function handleClick() {
   if (props.item.target_route) {
-    void router.push(props.item.target_route);
+    void router.push(integratedRoute(props.item.target_route));
   }
 }
 </script>

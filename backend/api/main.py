@@ -53,6 +53,7 @@ from backend.graph.nodes.planner import get_planner_ab_metrics
 from backend.rag import get_rag_observability_store, install_rag_observability_hooks
 from backend.security.auth import dev_principal, env_bool as _auth_env_bool, is_dev_mode, principal_from_api_key, guest_principal
 from backend.services.langfuse_tracer import flush_langfuse, shutdown_langfuse
+from backend.services.chat_history import ChatHistoryStore
 from backend.services.portfolio_store import get_positions as get_portfolio_positions
 from backend.services.report_index import get_report_index_store
 
@@ -126,6 +127,7 @@ _schedulers = []
 _reference_contexts: Dict[str, ContextManager] = {}
 _reference_context_last_access: Dict[str, float] = {}
 _reference_lock = Lock()
+chat_history_store = ChatHistoryStore()
 _AUTH_IDENTITY_CACHE_SENTINEL = object()
 _auth_identity_cache: Dict[str, tuple[float, Optional[Dict[str, Any]]]] = {}
 _auth_identity_lock = Lock()
@@ -947,6 +949,7 @@ chat_router = create_chat_router(
         is_raw_trace_event=_is_raw_trace_event,
         redact_sensitive_payload=_redact_sensitive_payload,
         get_session_context=_get_session_context,
+        chat_history_store=chat_history_store,
         chat_response_schema_version=CHAT_RESPONSE_SCHEMA_VERSION,
         sse_event_schema_version=SSE_EVENT_SCHEMA_VERSION,
     )

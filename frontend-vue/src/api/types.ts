@@ -125,6 +125,7 @@ export interface ChatStreamMessage {
   role: 'user' | 'assistant';
   content: string;
   status?: 'streaming' | 'done' | 'error';
+  created_at?: string | null;
   evidence?: EvidenceInfo | null;       // AI 消息完成后附上
   metrics?: {
     llm_total_calls?: number;
@@ -133,6 +134,13 @@ export interface ChatStreamMessage {
     request_finished_at?: string;
     [key: string]: unknown;
   } | null;
+}
+
+export interface ChatHistoryResponse {
+  success: boolean;
+  session_id: string;
+  messages: ChatStreamMessage[];
+  count: number;
 }
 
 export interface ExecutionTraceEvent {

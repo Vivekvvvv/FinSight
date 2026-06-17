@@ -5,12 +5,13 @@ from typing import Any
 
 import yfinance as yf
 
-from backend.tools.env import FMP_API_KEY
+from backend.tools.env import ALPHA_VANTAGE_API_KEY, FMP_API_KEY
 from backend.tools.http import _http_get
 
 logger = logging.getLogger(__name__)
 
 _FMP_SCREENER_URL = "https://financialmodelingprep.com/api/v3/stock-screener"
+_ALPHA_TOP_MOVERS_URL = "https://www.alphavantage.co/query"
 _ALLOWED_SORT_BY = {
     "marketCap",
     "price",
@@ -278,6 +279,103 @@ def _yfinance_screen_stocks(
     return _yfinance_popular_stocks(market_norm, filters, limit, sort_by, sort_order)
 
 
+def _parse_percent(value: Any) -> float | None:
+    if value is None:
+        return None
+    return _clean_float(str(value).strip().rstrip("%"))
+
+
+def _alpha_vantage_screen_stocks(
+    market: str,
+    filters: dict[str, Any] | None,
+    limit: int,
+    sort_by: str,
+    sort_order: str,
+) -> dict[str, Any] | None:
+    """Use Alpha Vantage free top movers when FMP screener is unavailable."""
+    market_norm = str(market or "US").strip().upper()
+    if market_norm != "US" or not ALPHA_VANTAGE_API_KEY:
+        return None
+
+    try:
+        response = _http_get(
+            _ALPHA_TOP_MOVERS_URL,
+            params={"function": "TOP_GAINERS_LOSERS", "apikey": ALPHA_VANTAGE_API_KEY},
+            timeout=15,
+        )
+        if getattr(response, "status_code", 0) != 200:
+            logger.info("Alpha Vantage top movers returned %s", getattr(response, "status_code", "unknown"))
+            return None
+
+        raw = response.json()
+        if not isinstance(raw, dict) or raw.get("Information") or raw.get("Note"):
+            logger.info("Alpha Vantage top movers unavailable: %s", raw.get("Information") or raw.get("Note"))
+            return None
+
+        rows = [
+            *(raw.get("most_actively_traded") or []),
+            *(raw.get("top_gainers") or []),
+            *(raw.get("top_losers") or []),
+        ]
+        seen: set[str] = set()
+        items: list[dict[str, Any]] = []
+        active_filters = filters if isinstance(filters, dict) else {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("ticker") or "").strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+
+            price = _clean_float(row.get("price"))
+            volume = _clean_float(row.get("volume"))
+            change_percent = _parse_percent(row.get("change_percentage"))
+            if active_filters.get("priceMoreThan") and price and price < float(active_filters["priceMoreThan"]):
+                continue
+            if active_filters.get("priceLowerThan") and price and price > float(active_filters["priceLowerThan"]):
+                continue
+            if active_filters.get("volumeMoreThan") and volume and volume < float(active_filters["volumeMoreThan"]):
+                continue
+
+            items.append({
+                "symbol": symbol,
+                "name": symbol,
+                "sector": None,
+                "industry": "Alpha Vantage top movers",
+                "country": "US",
+                "exchange": "US",
+                "price": price,
+                "market_cap": None,
+                "volume": volume,
+                "beta": None,
+                "dividend": None,
+                "change_percent": change_percent,
+            })
+            if len(items) >= max(limit, 50):
+                break
+
+        if not items:
+            return None
+
+        items = _sort_screener_items(items, sort_by, sort_order)
+        sliced = items[:limit]
+        return {
+            "success": True,
+            "market": market_norm,
+            "filters": active_filters,
+            "sort": {"by": sort_by, "order": sort_order},
+            "items": sliced,
+            "count": len(sliced),
+            "results": sliced,
+            "source": "alpha_vantage_top_movers",
+            "capability_note": "Using Alpha Vantage free top movers because FMP screener is not configured.",
+        }
+    except Exception as exc:
+        logger.info("Alpha Vantage top movers fallback failed: %s", exc)
+        return None
+
+
 def _yfinance_popular_stocks(
     market: str,
     filters: dict[str, Any] | None,
@@ -287,6 +385,10 @@ def _yfinance_popular_stocks(
 ) -> dict[str, Any]:
     """Fetch data for popular stocks when screener API fails."""
     market_norm = str(market or "US").strip().upper()
+
+    alpha_result = _alpha_vantage_screen_stocks(market_norm, filters, limit, sort_by, sort_order)
+    if alpha_result:
+        return alpha_result
 
     # 无外部 screener 覆盖时，先使用内置候选池，保证 Demo Mode 和无密钥本地环境可用。
     static_items = _sort_screener_items(_static_fallback_items(market_norm, filters), sort_by, sort_order)

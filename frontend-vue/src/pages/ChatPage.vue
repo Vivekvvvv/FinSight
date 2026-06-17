@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useIdentityStore } from '@/stores/identity';
@@ -16,6 +16,7 @@ const sending = ref(false);
 const errorMsg = ref<string | null>(null);
 const threadEl = ref<HTMLElement | null>(null);
 const traceEvents = ref<ExecutionTraceEvent[]>([]);
+const hydrating = ref(true);
 
 const suggestions = [
   'AAPL 最近的基本面如何？',
@@ -25,21 +26,83 @@ const suggestions = [
   '对比 MSFT 和 GOOGL 的证据质量',
 ];
 
-const messages = ref<ChatStreamMessage[]>([
-  {
-    id: 'welcome',
-    role: 'assistant',
-    content: '欢迎使用 FinSight 研究对话。你可以要求本系统生成复查摘要、解释风险变化、整理报告证据。所有输出仅用于研究，不构成投资建议。',
-    status: 'done',
-  },
-]);
+const welcomeMessage: ChatStreamMessage = {
+  id: 'welcome',
+  role: 'assistant',
+  content: '欢迎使用 FinSight 研究对话。你可以要求本系统生成复查摘要、解释风险变化、整理报告证据。所有输出仅用于研究，不构成投资建议。',
+  status: 'done',
+};
+
+const messages = ref<ChatStreamMessage[]>([welcomeMessage]);
 
 const canSend = computed(() => input.value.trim().length > 0 && !sending.value);
 const lastAssistant = computed(() => [...messages.value].reverse().find((message) => message.role === 'assistant' && message.id !== 'welcome'));
+const modeLabel = computed(() => {
+  const mode = String(route.query.mode || '');
+  if (mode === 'qa') return '智能问答';
+  if (mode === 'financials') return '财报分析';
+  if (mode === 'report') return '报告生成';
+  return '对话研究';
+});
 
 async function scrollToBottom() {
   await nextTick();
   if (threadEl.value) threadEl.value.scrollTop = threadEl.value.scrollHeight;
+}
+
+function chatStorageKey() {
+  return `finsight-chat-history:${identity.sessionId}`;
+}
+
+function normalizeHistoryMessage(message: ChatStreamMessage): ChatStreamMessage | null {
+  const role = message.role === 'user' || message.role === 'assistant' ? message.role : null;
+  const content = String(message.content || '').trim();
+  if (!role || !content) return null;
+  return {
+    ...message,
+    id: String(message.id || `${role}-${Date.now()}`),
+    role,
+    content,
+    status: message.status === 'error' ? 'error' : 'done',
+  };
+}
+
+function applyHistory(history: ChatStreamMessage[]) {
+  const normalized = history
+    .map((message) => normalizeHistoryMessage(message))
+    .filter((message): message is ChatStreamMessage => Boolean(message));
+  messages.value = [welcomeMessage, ...normalized];
+}
+
+function loadLocalHistory() {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.localStorage.getItem(chatStorageKey());
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return;
+    applyHistory(parsed as ChatStreamMessage[]);
+  } catch {
+    window.localStorage.removeItem(chatStorageKey());
+  }
+}
+
+function persistLocalHistory() {
+  if (typeof window === 'undefined' || hydrating.value) return;
+  const history = messages.value
+    .filter((message) => message.id !== 'welcome' && message.status !== 'streaming')
+    .slice(-100)
+    .map((message) => ({ ...message, status: message.status === 'error' ? 'error' : 'done' }));
+  window.localStorage.setItem(chatStorageKey(), JSON.stringify(history));
+}
+
+async function loadRemoteHistory() {
+  try {
+    const data = await apiClient.getChatHistory(identity.sessionId, 100);
+    if (data.messages.length > 0) applyHistory(data.messages);
+  } catch {
+    // 后端历史不可用时保留本地缓存，不阻断对话。
+  }
 }
 
 function seedTrace(query: string) {
@@ -135,10 +198,18 @@ async function send(text?: string): Promise<void> {
   }
 }
 
-function clearChat() {
-  messages.value = messages.value.slice(0, 1);
+async function clearChat() {
+  messages.value = [welcomeMessage];
   traceEvents.value = [];
   errorMsg.value = null;
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(chatStorageKey());
+  }
+  try {
+    await apiClient.clearChatHistory(identity.sessionId);
+  } catch {
+    // 清空本地体验优先，远端失败不阻断用户继续使用。
+  }
 }
 
 function exportMarkdown() {
@@ -155,10 +226,19 @@ function exportMarkdown() {
   URL.revokeObjectURL(url);
 }
 
-onMounted(() => {
+watch(messages, persistLocalHistory, { deep: true });
+
+onMounted(async () => {
   const prefill = String(route.query.prefill || '').trim();
   const symbol = String(route.query.symbol || '').trim().toUpperCase();
+  const mode = String(route.query.mode || '');
   if (symbol) activeSymbol.value = symbol;
+  if (mode === 'financials') outputMode.value = 'brief';
+  if (mode === 'report') outputMode.value = 'investment_report';
+  loadLocalHistory();
+  await loadRemoteHistory();
+  hydrating.value = false;
+  persistLocalHistory();
   if (prefill) {
     input.value = prefill;
     void send(prefill);
@@ -172,7 +252,7 @@ onMounted(() => {
       <div>
         <p class="kicker">RESEARCH COPILOT</p>
         <h2>对话式研究与报告生成</h2>
-        <p>输出报告、复查风险、解释证据变化；右侧实时展示执行过程。</p>
+        <p>当前模式：{{ modeLabel }}。输出报告、复查风险、解释证据变化；右侧实时展示执行过程。</p>
       </div>
       <div class="controls">
         <label>

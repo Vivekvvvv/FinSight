@@ -296,6 +296,13 @@ function reanalyze(item: ReportIndexItem, e: Event) {
   void router.push({ name: 'chat', query: { prefill: q } });
 }
 
+function startReportTool(tool: 'generate' | 'financials'): void {
+  const prefill = tool === 'generate'
+    ? '请生成一份可复查的 AI 研究报告，要求列出关键证据、风险、引用质量和待确认问题，不给买卖建议。'
+    : '请分析最新财报，按收入、利润率、现金流、资产负债和风险假设输出复查清单，不给交易建议。';
+  void router.push({ path: '/chat', query: { mode: tool === 'financials' ? 'financials' : 'report', prefill } });
+}
+
 onMounted(refresh);
 watch(() => identity.sessionId, () => void refresh());
 </script>
@@ -317,6 +324,21 @@ watch(() => identity.sessionId, () => void refresh());
         </button>
       </div>
     </div>
+
+    <section class="report-tools" data-testid="report-tools">
+      <article>
+        <span>生成报告</span>
+        <strong>AI 研究报告</strong>
+        <p>从报告库发起生成，产物回流到这里复查、收藏和对比。</p>
+        <button type="button" @click="startReportTool('generate')">进入生成</button>
+      </article>
+      <article>
+        <span>财报分析</span>
+        <strong>财务复查入口</strong>
+        <p>财报拆解不再单独占页面，作为报告库的生成工具使用。</p>
+        <button type="button" @click="startReportTool('financials')">分析财报</button>
+      </article>
+    </section>
 
     <!-- ── 对比模式提示栏 ── -->
     <div v-if="compareMode" class="compare-bar">
@@ -599,7 +621,7 @@ watch(() => identity.sessionId, () => void refresh());
               </span>
             </div>
             <div class="sidebar-head-actions">
-              <button v-if="sidebarItem.ticker" class="btn-action" @click="router.push(`/timeline/${sidebarItem.ticker}`)">📅 时间线</button>
+              <button v-if="sidebarItem.ticker" class="btn-action" @click="router.push(`/dossier/${sidebarItem.ticker}`)">时间线</button>
               <button class="btn-action" @click="e => exportMarkdown(sidebarItem!, e)">↓ MD</button>
               <button class="btn-action" @click="e => reanalyze(sidebarItem!, e)">↺ 刷新</button>
               <button class="sidebar-close" @click="closeSidebar">✕</button>
@@ -680,8 +702,8 @@ watch(() => identity.sessionId, () => void refresh());
 
           <!-- 跳转 -->
           <div class="sidebar-nav-btns">
-            <button v-if="sidebarItem.ticker" class="btn-nav" @click="router.push(`/dashboard/${sidebarItem.ticker}`)">
-              查看 {{ sidebarItem.ticker }} 实时行情
+            <button v-if="sidebarItem.ticker" class="btn-nav" @click="router.push(`/dossier/${sidebarItem.ticker}`)">
+              查看 {{ sidebarItem.ticker }} 标的档案
             </button>
             <button class="btn-nav outline" @click="e => { reanalyze(sidebarItem!, e); closeSidebar(); }">
               发起 Chat 追问
@@ -707,6 +729,13 @@ watch(() => identity.sessionId, () => void refresh());
 .btn-ghost { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border: 1.5px solid var(--fin-border); border-radius: 10px; background: var(--fin-card); cursor: pointer; font-size: 15px; color: var(--fin-muted); }
 .spinning { display: inline-block; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.report-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.report-tools article { border: 1.5px solid var(--fin-border); border-radius: 8px; padding: 16px; background: var(--fin-card); }
+.report-tools span { display: block; color: var(--fin-primary); font-size: 12px; font-weight: 800; }
+.report-tools strong { display: block; margin-top: 6px; color: var(--fin-text); font-size: 18px; }
+.report-tools p { margin: 8px 0 14px; color: var(--fin-muted); line-height: 1.6; }
+.report-tools button { border: 0; border-radius: 8px; padding: 9px 12px; background: var(--fin-primary); color: #fff; cursor: pointer; font-weight: 700; }
 
 /* ── 对比栏 ── */
 .compare-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 18px; background: var(--fin-primary-soft); border: 1.5px solid var(--fin-primary); border-radius: 12px; flex-wrap: wrap; }
@@ -901,6 +930,7 @@ watch(() => identity.sessionId, () => void refresh());
 
 @media (max-width: 640px) {
   .cr-grid { grid-template-columns: 1fr 1fr; }
+  .report-tools { grid-template-columns: 1fr; }
   .toolbar { flex-direction: column; align-items: stretch; }
   .sort-select, .review-select, .ticker-input { width: 100%; box-sizing: border-box; }
 }

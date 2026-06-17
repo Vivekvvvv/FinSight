@@ -25,6 +25,15 @@ type ConflictReviewItem = {
   sourceLabel: string;
   targetRoute: string;
 };
+type QuoteView = {
+  name: string;
+  price: number | null;
+  change: number | null;
+  changePercent: number | null;
+  volume: number | null;
+  marketCap: number | null;
+  freshnessStatus: string;
+};
 
 const route = useRoute();
 const router = useRouter();
@@ -35,6 +44,7 @@ const loadState = ref<LoadState>('idle');
 const errorMsg = ref<string | null>(null);
 
 const whatChanged = ref<WhatChangedItem[]>([]);
+const quote = ref<unknown>(null);
 const timelineEvents = ref<TimelineEvent[]>([]);
 const reports = ref<ReportIndexItem[]>([]);
 const notes = ref<ResearchNote[]>([]);
@@ -50,6 +60,19 @@ const latestNote = computed(() => notes.value[0] || null);
 const criticalChanges = computed(() => whatChanged.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
 const criticalTimeline = computed(() => timelineEvents.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
 const healthScore = computed(() => qualitySummary.value?.health_score ?? 100);
+const quoteView = computed<QuoteView>(() => {
+  const payload = quote.value as { ticker?: string; data?: Record<string, unknown> } | null;
+  const raw = payload?.data || {};
+  return {
+    name: String(raw.shortName || raw.longName || raw.name || payload?.ticker || symbol.value),
+    price: typeof raw.currentPrice === 'number' ? raw.currentPrice : null,
+    change: typeof raw.regularMarketChange === 'number' ? raw.regularMarketChange : null,
+    changePercent: typeof raw.regularMarketChangePercent === 'number' ? raw.regularMarketChangePercent : null,
+    volume: typeof raw.regularMarketVolume === 'number' ? raw.regularMarketVolume : null,
+    marketCap: typeof raw.marketCap === 'number' ? raw.marketCap : null,
+    freshnessStatus: String(raw.freshness_status || raw.freshnessStatus || 'unknown'),
+  };
+});
 const dossierEvidence = computed<EvidenceInfo>(() => {
   const source = latestReport.value?.source_type || 'dossier-aggregate';
   const rawFreshness = latestReport.value?.freshness_status || (timelineEvents.value.length ? 'live' : 'unknown');
@@ -146,6 +169,14 @@ function fmtDate(value?: string | null): string {
   });
 }
 
+function compactNumber(value: number | null): string {
+  if (value == null || Number.isNaN(value)) return '--';
+  if (Math.abs(value) >= 1_000_000_000_000) return `${(value / 1_000_000_000_000).toFixed(2)}T`;
+  if (Math.abs(value) >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+}
+
 function severityLabel(value?: string | null): string {
   const labels: Record<string, string> = {
     critical: '严重',
@@ -157,6 +188,14 @@ function severityLabel(value?: string | null): string {
 }
 
 function routeTo(path: string): void {
+  if (path.startsWith('/dashboard/')) {
+    void router.push(path.replace('/dashboard/', '/dossier/'));
+    return;
+  }
+  if (path.startsWith('/timeline/')) {
+    void router.push(path.replace('/timeline/', '/dossier/'));
+    return;
+  }
   void router.push(path);
 }
 
@@ -171,13 +210,17 @@ async function loadDossier(): Promise<void> {
   loadState.value = 'loading';
   errorMsg.value = null;
 
-  const [changes, timeline, reportList, noteList, quality] = await Promise.allSettled([
+  const [quoteResp, changes, timeline, reportList, noteList, quality] = await Promise.allSettled([
+    apiClient.getQuote(symbol.value),
     apiClient.getWhatChanged({ sessionId: sessionId.value, userId: userId.value, symbol: symbol.value, limit: 5 }),
     apiClient.getTimeline({ symbol: symbol.value, sessionId: sessionId.value, userId: userId.value, limit: 8 }),
     apiClient.listReports({ sessionId: sessionId.value, ticker: symbol.value, sortBy: 'generated_at_desc', limit: 5 }),
     apiClient.listNotes(sessionId.value, userId.value, symbol.value, undefined, 5),
     apiClient.getResearchQuality({ sessionId: sessionId.value, userId: userId.value, symbol: symbol.value }),
   ]);
+
+  if (quoteResp.status === 'fulfilled') quote.value = quoteResp.value;
+  else quote.value = null;
 
   if (changes.status === 'fulfilled') whatChanged.value = changes.value.items || [];
   else whatChanged.value = [];
@@ -199,7 +242,7 @@ async function loadDossier(): Promise<void> {
     qualityIssues.value = [];
   }
 
-  const failed = [changes, timeline, reportList, noteList, quality].filter((item) => item.status === 'rejected').length;
+  const failed = [quoteResp, changes, timeline, reportList, noteList, quality].filter((item) => item.status === 'rejected').length;
   errorMsg.value = failed ? `${failed} 个数据模块暂时不可用，已展示其余研究材料。` : null;
   loadState.value = 'ready';
 }
@@ -234,6 +277,13 @@ watch(() => route.params.symbol, () => {
     <div v-if="errorMsg" class="status-banner">{{ errorMsg }}</div>
 
     <section class="metric-grid">
+      <article class="metric-card market-metric">
+        <span>行情概览</span>
+        <strong>{{ quoteView.price == null ? '--' : quoteView.price.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) }}</strong>
+        <em :class="Number(quoteView.changePercent || 0) >= 0 ? 'gain-text' : 'loss-text'">
+          {{ quoteView.name }} · {{ quoteView.changePercent == null ? '涨跌幅 --' : `${quoteView.changePercent >= 0 ? '+' : ''}${quoteView.changePercent.toFixed(2)}%` }}
+        </em>
+      </article>
       <article class="metric-card">
         <span>重要变化</span>
         <strong>{{ whatChanged.length }}</strong>
@@ -262,10 +312,40 @@ watch(() => route.params.symbol, () => {
     </section>
 
     <section class="action-strip">
-      <button type="button" @click="routeTo(`/dashboard/${symbol}`)">市场仪表盘</button>
-      <button type="button" @click="routeTo(`/timeline/${symbol}`)">证据时间线</button>
+      <button type="button" @click="routeTo(`/dossier/${symbol}`)">行情与证据</button>
       <button type="button" @click="routeTo(`/reports?ticker=${symbol}`)">相关报告</button>
       <button type="button" @click="routeTo(`/notes?ticker=${symbol}`)">研究笔记</button>
+      <button type="button" @click="routeTo(`/chat?symbol=${symbol}&mode=qa`)">打开问答</button>
+    </section>
+
+    <section class="panel market-panel" data-testid="market-overview">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Market</p>
+          <h2>行情概览</h2>
+        </div>
+        <span class="freshness-pill">{{ quoteView.freshnessStatus }}</span>
+      </div>
+      <div class="market-grid">
+        <article>
+          <span>最新价</span>
+          <strong>{{ quoteView.price == null ? '--' : quoteView.price.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) }}</strong>
+        </article>
+        <article>
+          <span>涨跌额</span>
+          <strong :class="Number(quoteView.change || 0) >= 0 ? 'gain-text' : 'loss-text'">
+            {{ quoteView.change == null ? '--' : `${quoteView.change >= 0 ? '+' : ''}${quoteView.change.toFixed(2)}` }}
+          </strong>
+        </article>
+        <article>
+          <span>成交量</span>
+          <strong>{{ compactNumber(quoteView.volume) }}</strong>
+        </article>
+        <article>
+          <span>市值</span>
+          <strong>{{ compactNumber(quoteView.marketCap) }}</strong>
+        </article>
+      </div>
     </section>
 
     <div v-if="loadState === 'loading'" class="loading-card">正在汇总 {{ symbol }} 的研究档案...</div>
@@ -505,6 +585,14 @@ h2 {
   font-style: normal;
 }
 
+.gain-text {
+  color: var(--fin-success) !important;
+}
+
+.loss-text {
+  color: var(--fin-danger) !important;
+}
+
 .action-strip {
   display: flex;
   flex-wrap: wrap;
@@ -515,6 +603,48 @@ h2 {
   background: var(--fin-surface-2);
   color: var(--fin-text);
   border: 1px solid var(--fin-border);
+}
+
+.market-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.freshness-pill {
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.market-grid article {
+  border: 1px solid var(--fin-border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--fin-surface-2);
+}
+
+.market-grid span {
+  display: block;
+  color: var(--fin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.market-grid strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--fin-text);
+  font-size: 20px;
 }
 
 .dossier-grid {
@@ -632,6 +762,10 @@ h2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .market-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .symbol-search {
     min-width: 0;
   }
@@ -639,6 +773,10 @@ h2 {
 
 @media (max-width: 640px) {
   .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .market-grid {
     grid-template-columns: 1fr;
   }
 

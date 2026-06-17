@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import type { PortfolioPosition } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import SkeletonLoader from '@/components/SkeletonLoader.vue';
 
 const identity = useIdentityStore();
+const route = useRoute();
+const router = useRouter();
 
 const positions = ref<PortfolioPosition[]>([]);
 const totals = ref<{ value: number | null; cost: number | null; pnl: number | null }>({ value: null, cost: null, pnl: null });
@@ -36,6 +39,27 @@ const pnlPercent = computed(() => {
   if (!totals.value.cost || !totals.value.pnl) return null;
   return ((totals.value.pnl / totals.value.cost) * 100).toFixed(2);
 });
+const activeTool = computed(() => String(route.query.tool || 'risk'));
+const portfolioTools = [
+  {
+    key: 'risk',
+    title: '风险透镜',
+    summary: '集中度、亏损持仓、研究覆盖缺口都在这里复查。',
+    action: '生成风险复查清单',
+  },
+  {
+    key: 'optimize',
+    title: '组合优化',
+    summary: '把仓位约束转成研究问题，由 AI 输出可复核的调整清单。',
+    action: '打开优化问答',
+  },
+  {
+    key: 'backtest',
+    title: '策略回测',
+    summary: '回测不再单独占导航，作为组合工具的一种验证动作。',
+    action: '准备回测问题',
+  },
+];
 
 // ── CSV import ──
 const showImport = ref(false);
@@ -161,6 +185,21 @@ async function save(): Promise<void> {
   } catch (e) { errorMsg.value = e instanceof Error ? e.message : String(e); }
 }
 
+function openTool(tool: string): void {
+  const promptMap: Record<string, string> = {
+    risk: '请基于当前组合生成风险透镜复查清单，重点看集中度、亏损持仓和研究覆盖缺口，不给买卖建议。',
+    optimize: '请基于当前组合做组合优化复查，只输出仓位约束、风险暴露和需要人工确认的问题，不给交易指令。',
+    backtest: '请帮我准备一个策略回测研究计划，说明标的、区间、基准和风险指标，不输出收益承诺。',
+  };
+  void router.push({
+    path: '/chat',
+    query: {
+      mode: 'qa',
+      prefill: promptMap[tool] || promptMap.risk,
+    },
+  });
+}
+
 async function remove(ticker: string): Promise<void> {
   try {
     await apiClient.removePosition({ sessionId: identity.sessionId, ticker });
@@ -207,6 +246,28 @@ watch(() => identity.sessionId, () => { void refresh(); });
         </div>
       </div>
     </div>
+
+    <section class="tool-panel" data-testid="portfolio-tools">
+      <div class="tool-panel-head">
+        <div>
+          <p class="tool-kicker">PORTFOLIO TOOLS</p>
+          <h2>组合工具</h2>
+        </div>
+        <span>风险透镜 / 组合优化 / 策略回测</span>
+      </div>
+      <div class="tool-grid">
+        <article
+          v-for="tool in portfolioTools"
+          :key="tool.key"
+          class="tool-card"
+          :class="{ active: activeTool === tool.key }"
+        >
+          <strong>{{ tool.title }}</strong>
+          <p>{{ tool.summary }}</p>
+          <button type="button" @click="openTool(tool.key)">{{ tool.action }}</button>
+        </article>
+      </div>
+    </section>
 
     <!-- 添加持仓表单 -->
     <Transition name="slide-down">
@@ -374,6 +435,19 @@ watch(() => identity.sessionId, () => { void refresh(); });
 .summary-card.loss .summary-value { color: #e74c3c; }
 .pnl-pct { font-size: 14px; font-weight: 600; }
 
+.tool-panel { padding: 18px; background: var(--fin-card); border: 1.5px solid var(--fin-border); border-radius: 12px; }
+.tool-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.tool-panel-head h2 { margin: 0; color: var(--fin-text); font-size: 20px; }
+.tool-panel-head span,
+.tool-card p { color: var(--fin-muted); }
+.tool-kicker { margin: 0 0 4px; color: var(--fin-primary); font-family: var(--fin-mono); font-size: 11px; font-weight: 900; letter-spacing: .14em; }
+.tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.tool-card { border: 1.5px solid var(--fin-border); border-radius: 8px; padding: 16px; background: var(--fin-bg); }
+.tool-card.active { border-color: var(--fin-primary); background: var(--fin-primary-soft); }
+.tool-card strong { color: var(--fin-text); font-size: 16px; }
+.tool-card p { min-height: 44px; margin: 8px 0 14px; line-height: 1.6; }
+.tool-card button { border: 0; border-radius: 8px; padding: 9px 12px; background: var(--fin-primary); color: #fff; cursor: pointer; font-weight: 700; }
+
 /* 表单 */
 .add-card { background: var(--fin-card); border: 2px solid var(--fin-primary); border-radius: 14px; padding: 20px 24px; }
 .add-fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
@@ -463,7 +537,8 @@ watch(() => identity.sessionId, () => { void refresh(); });
 .modal-actions { display: flex; gap: 10px; }
 
 @media (max-width: 768px) {
-  .summary-grid { grid-template-columns: 1fr; }
+  .summary-grid, .tool-grid { grid-template-columns: 1fr; }
+  .tool-panel-head { display: grid; }
   .add-fields { grid-template-columns: 1fr 1fr; }
   .edit-grid { grid-template-columns: 1fr 1fr; }
 }
