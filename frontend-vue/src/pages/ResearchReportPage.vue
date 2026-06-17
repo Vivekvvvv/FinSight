@@ -30,6 +30,7 @@ const loading = ref(false);
 const errorMsg = ref<string | null>(null);
 const report = ref<ReportResponse | null>(null);
 const progress = ref(0);
+const pdfLoading = ref(false);
 
 const reportTypeOptions = [
   { value: 'comprehensive', label: '综合分析报告', desc: '结合基本面、技术面和市场情绪的全面分析' },
@@ -82,11 +83,45 @@ async function generateReport(): Promise<void> {
   }
 }
 
-function downloadPDF(): void {
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildPdfMessages(currentReport: ReportResponse): Array<{ role: string; content: string }> {
+  return [
+    {
+      role: 'assistant',
+      content: `# ${currentReport.title}\n\n${currentReport.content}`,
+    },
+  ];
+}
+
+async function downloadPDF(): Promise<void> {
   if (!report.value) return;
 
-  // TODO: 实现PDF下载功能
-  alert('PDF导出功能开发中');
+  pdfLoading.value = true;
+  errorMsg.value = null;
+  try {
+    const response = await http.post('/api/export/pdf', {
+      title: report.value.title,
+      messages: buildPdfMessages(report.value),
+    }, {
+      responseType: 'blob',
+    });
+    const safeTicker = report.value.ticker.replace(/[^A-Z0-9._-]/gi, '_');
+    saveBlob(response.data, `finsight-report-${safeTicker}-${Date.now()}.pdf`);
+  } catch (e: unknown) {
+    errorMsg.value = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (e as { message?: string })?.message || 'PDF导出失败';
+  } finally {
+    pdfLoading.value = false;
+  }
 }
 
 function copyMarkdown(): void {
@@ -181,7 +216,9 @@ onMounted(() => {
         </div>
         <div class="report-actions">
           <button class="btn-secondary" @click="copyMarkdown">复制Markdown</button>
-          <button class="btn-secondary" @click="downloadPDF">下载PDF</button>
+          <button class="btn-secondary" :disabled="pdfLoading" @click="downloadPDF">
+            {{ pdfLoading ? '导出中...' : '下载PDF' }}
+          </button>
         </div>
       </header>
 

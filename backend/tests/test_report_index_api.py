@@ -1,6 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 import importlib
 
+import pytest
 from fastapi.testclient import TestClient
 
 

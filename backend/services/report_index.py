@@ -96,6 +96,15 @@ def _derive_analysis_depth(
     return "report"
 
 
+def _resolve_report_index_path() -> str:
+    default_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data",
+        "report_index.sqlite",
+    )
+    return os.path.abspath(os.getenv("REPORT_INDEX_SQLITE_PATH", default_path))
+
+
 def _derive_quality_fields(report: dict[str, Any]) -> tuple[str, int, str]:
     quality, blocked = apply_quality_to_report(report)
     state = str(quality.get("state") or "pass").strip().lower() or "pass"
@@ -106,14 +115,7 @@ def _derive_quality_fields(report: dict[str, Any]) -> tuple[str, int, str]:
 
 class ReportIndexStore:
     def __init__(self) -> None:
-        # 使用绝对路径，避免工作目录依赖
-        default_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "data",
-            "report_index.sqlite"
-        )
-        path = os.getenv("REPORT_INDEX_SQLITE_PATH", default_path)
-        self._path = os.path.abspath(path)
+        self._path = _resolve_report_index_path()
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
         self._lock = threading.Lock()
         self._init_db()
@@ -705,6 +707,7 @@ _REPORT_INDEX_STORE: ReportIndexStore | None = None
 
 def get_report_index_store() -> ReportIndexStore:
     global _REPORT_INDEX_STORE
-    if _REPORT_INDEX_STORE is None:
+    current_path = _resolve_report_index_path()
+    if _REPORT_INDEX_STORE is None or _REPORT_INDEX_STORE.path != current_path:
         _REPORT_INDEX_STORE = ReportIndexStore()
     return _REPORT_INDEX_STORE

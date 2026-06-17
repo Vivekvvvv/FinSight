@@ -36,7 +36,8 @@ def _build_client(
 
 
 @pytest.mark.network
-def test_price_endpoint_normalizes_ticker_before_fetch():
+def test_price_endpoint_normalizes_ticker_before_fetch(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
     called: list[str] = []
 
     def _get_stock_price(ticker: str):

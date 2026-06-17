@@ -65,7 +65,24 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
             include_blocked=bool(include_blocked),
             limit=limit,
         )
-        if is_demo_mode() and not rows:
+        has_filtered_real_rows = False
+        if not rows and not include_blocked:
+            has_filtered_real_rows = bool(store.list_reports(
+                session_id=normalized_session,
+                ticker=ticker,
+                query=query,
+                date_from=date_from,
+                date_to=date_to,
+                tag=tag,
+                source_type=source_type,
+                review_status=review_status,
+                quality_state_filter=quality_state_filter,
+                sort_by=sort_by,
+                favorite_only=bool(favorite_only),
+                include_blocked=True,
+                limit=1,
+            ))
+        if is_demo_mode() and not rows and not has_filtered_real_rows:
             rows = demo_reports(normalized_session, limit=limit)
         return {"success": True, "session_id": normalized_session, "items": rows, "count": len(rows)}
 

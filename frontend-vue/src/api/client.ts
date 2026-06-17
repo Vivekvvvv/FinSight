@@ -37,6 +37,8 @@ const http = axios.create({
   timeout: 15_000,
 });
 
+const SKIP_GLOBAL_LOADING_HEADER = 'X-Skip-Global-Loading';
+
 // 全局Loading状态管理
 let activeRequestCount = 0;
 const loadingCallbacks = new Set<(isLoading: boolean) => void>();
@@ -47,7 +49,7 @@ export function onLoadingChange(callback: (isLoading: boolean) => void) {
 }
 
 function updateLoadingState(delta: number) {
-  activeRequestCount += delta;
+  activeRequestCount = Math.max(0, activeRequestCount + delta);
   const isLoading = activeRequestCount > 0;
   loadingCallbacks.forEach(cb => {
     try {
@@ -58,9 +60,36 @@ function updateLoadingState(delta: number) {
   });
 }
 
+function getHeaderValue(headers: unknown, key: string): unknown {
+  if (!headers) return undefined;
+  if (typeof (headers as { get?: unknown }).get === 'function') {
+    return (headers as { get: (name: string) => unknown }).get(key);
+  }
+  return (headers as Record<string, unknown>)[key];
+}
+
+function removeHeader(headers: unknown, key: string): void {
+  if (!headers) return;
+  if (typeof (headers as { delete?: unknown }).delete === 'function') {
+    (headers as { delete: (name: string) => void }).delete(key);
+    return;
+  }
+  delete (headers as Record<string, unknown>)[key];
+}
+
+function shouldSkipGlobalLoading(config: { headers?: unknown }): boolean {
+  return String(getHeaderValue(config.headers, SKIP_GLOBAL_LOADING_HEADER) || '').trim() === '1';
+}
+
 http.interceptors.request.use((config) => {
-  // 增加活跃请求计数
-  updateLoadingState(1);
+  const configWithMeta = config as typeof config & { skipGlobalLoading?: boolean };
+  configWithMeta.skipGlobalLoading = shouldSkipGlobalLoading(config);
+  removeHeader(config.headers, SKIP_GLOBAL_LOADING_HEADER);
+
+  if (!configWithMeta.skipGlobalLoading) {
+    // 增加活跃请求计数
+    updateLoadingState(1);
+  }
 
   if (typeof window === 'undefined') return config;
   const token = String(window.localStorage.getItem('finsight-access-token') || '').trim();
@@ -86,13 +115,17 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (resp) => {
-    // 请求成功，减少计数
-    updateLoadingState(-1);
+    if (!(resp.config as typeof resp.config & { skipGlobalLoading?: boolean }).skipGlobalLoading) {
+      // 请求成功，减少计数
+      updateLoadingState(-1);
+    }
     return resp;
   },
   (error: AxiosError) => {
-    // 请求失败，减少计数
-    updateLoadingState(-1);
+    if (!(error.config as typeof error.config & { skipGlobalLoading?: boolean } | undefined)?.skipGlobalLoading) {
+      // 请求失败，减少计数
+      updateLoadingState(-1);
+    }
     return Promise.reject(error);
   },
 );

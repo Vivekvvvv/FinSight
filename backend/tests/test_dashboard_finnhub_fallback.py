@@ -166,7 +166,13 @@ def test_fetch_financials_uses_cn_hk_route_for_cn_symbol(monkeypatch):
     assert result == payload
 
 
-def test_resolve_peers_uses_market_specific_defaults():
+def test_resolve_peers_uses_market_specific_defaults(monkeypatch):
+    class EmptyTicker:
+        def __init__(self, symbol: str):
+            self.info = {}
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=EmptyTicker))
+
     cn_peers = peer_service.resolve_peers("600519.SS", limit=3)
     hk_peers = peer_service.resolve_peers("0700.HK", limit=3)
     us_peers = peer_service.resolve_peers("AAPL", limit=3)

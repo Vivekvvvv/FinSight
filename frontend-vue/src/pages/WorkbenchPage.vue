@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { apiClient } from '@/api/client';
+import { http } from '@/api/client';
 import { useIdentityStore } from '@/stores/identity';
 import type { AlertEvent, DailyTask, PortfolioSummary, ReportIndexItem, WatchlistItem } from '@/api/types';
 
@@ -18,6 +18,7 @@ const rebalanceStyle = ref('balanced');
 const maxPosition = ref(25);
 const minCash = ref(8);
 const useAiEnhance = ref(true);
+const WORKBENCH_TIMEOUT_MS = 6000;
 
 const today = computed(() => new Date().toLocaleDateString('zh-CN', { weekday: 'long', month: 'long', day: 'numeric' }));
 const positions = computed(() => portfolio.value?.positions || []);
@@ -66,18 +67,44 @@ async function refresh() {
   errorMsg.value = null;
   try {
     const results = await Promise.allSettled([
-      apiClient.getPortfolioSummary(identity.sessionId),
-      apiClient.listReports({ sessionId: identity.sessionId, limit: 10 }),
-      apiClient.getDailyTasks(identity.sessionId),
-      identity.email ? apiClient.alertsFeed(identity.email, 10) : Promise.resolve({ events: [] }),
-      apiClient.listWatchlist(identity.userId),
+      http.get<PortfolioSummary>('/api/portfolio/summary', {
+        params: { session_id: identity.sessionId },
+        timeout: WORKBENCH_TIMEOUT_MS,
+        headers: { 'X-Skip-Global-Loading': '1' },
+      }).then((resp) => resp.data),
+      http.get<{ success: boolean; items: ReportIndexItem[]; count: number }>('/api/reports/index', {
+        params: { session_id: identity.sessionId, sort_by: 'generated_at_desc', limit: 10 },
+        timeout: WORKBENCH_TIMEOUT_MS,
+        headers: { 'X-Skip-Global-Loading': '1' },
+      }).then((resp) => resp.data),
+      http.get<{ success: boolean; tasks: DailyTask[]; count: number }>('/api/tasks/daily', {
+        params: { session_id: identity.sessionId },
+        timeout: WORKBENCH_TIMEOUT_MS,
+        headers: { 'X-Skip-Global-Loading': '1' },
+      }).then((resp) => resp.data),
+      identity.email
+        ? http.get<{ success: boolean; events: AlertEvent[]; count: number }>('/api/alerts/feed', {
+          params: { email: identity.email, limit: 10 },
+          timeout: WORKBENCH_TIMEOUT_MS,
+          headers: { 'X-Skip-Global-Loading': '1' },
+        }).then((resp) => resp.data)
+        : Promise.resolve({ events: [] }),
+      http.get<{ success: boolean; items: WatchlistItem[]; count: number }>('/api/user/watchlist', {
+        params: { user_id: identity.userId },
+        timeout: WORKBENCH_TIMEOUT_MS,
+        headers: { 'X-Skip-Global-Loading': '1' },
+      }).then((resp) => resp.data),
     ]);
     if (results[0].status === 'fulfilled') portfolio.value = results[0].value;
     if (results[1].status === 'fulfilled') reports.value = results[1].value.items || [];
     if (results[2].status === 'fulfilled') tasks.value = results[2].value.tasks || [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (results[3].status === 'fulfilled') alerts.value = (results[3].value as any).events || [];
+    if (results[3].status === 'fulfilled') alerts.value = results[3].value.events || [];
     if (results[4].status === 'fulfilled') watchlist.value = results[4].value.items || [];
+
+    const failedCount = results.filter((item) => item.status === 'rejected').length;
+    if (failedCount > 0) {
+      errorMsg.value = `${failedCount} 个工作台数据源暂时不可用，已先展示可用数据。`;
+    }
   } catch (error) {
     errorMsg.value = error instanceof Error ? error.message : String(error);
   } finally {

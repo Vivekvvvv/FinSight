@@ -640,7 +640,7 @@ class TestInsightsOrchestrator:
     async def test_generate_force_bypasses_cache(self):
         """force=True should bypass cache and regenerate."""
         cache = DashboardCache()
-        cache.set("AAPL", "technicals", {})
+        cache.set("AAPL", "technicals", {"rsi": 55.0})
         cache.set("AAPL", "financials", {})
         cache.set("AAPL", "valuation", {})
         cache.set("AAPL", "news", {"market": [{"title": "cached news"}], "impact": []})
