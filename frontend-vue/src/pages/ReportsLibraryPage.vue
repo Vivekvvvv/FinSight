@@ -4,8 +4,13 @@ import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import type { ReportIndexItem, ResearchQualitySummary, ResearchQualityIssue } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
+import ActionButton from '@/components/ActionButton.vue';
+import EmptyState from '@/components/EmptyState.vue';
 import EvidencePanel from '@/components/EvidencePanel.vue';
+import LoadingState from '@/components/LoadingState.vue';
 import ResearchQualityOverview from '@/components/ResearchQualityOverview.vue';
+import StatusBanner from '@/components/StatusBanner.vue';
+import { reportFriendlyError } from '@/utils/error';
 
 const identity = useIdentityStore();
 const router = useRouter();
@@ -113,7 +118,7 @@ async function refresh(): Promise<void> {
     items.value = reportsResp.items || [];
     qualitySummary.value = qualityResp.summary;
     qualityIssues.value = qualityResp.top_issues;
-  } catch (e) { errorMsg.value = e instanceof Error ? e.message : String(e); }
+  } catch (e) { errorMsg.value = reportFriendlyError(e, '报告库暂时加载失败，请刷新重试。'); }
   finally { loading.value = false; }
 }
 
@@ -124,7 +129,7 @@ async function toggleFav(item: ReportIndexItem, e: Event): Promise<void> {
   try {
     await apiClient.setReportFavorite({ sessionId: identity.sessionId, reportId: item.report_id, isFavorite: next });
     item.is_favorite = next;
-  } catch (err) { errorMsg.value = err instanceof Error ? err.message : String(err); }
+  } catch (err) { errorMsg.value = reportFriendlyError(err, '收藏状态更新失败，请稍后重试。'); }
 }
 
 // ── 复查状态切换 ──────────────────────────────────────────────
@@ -134,7 +139,7 @@ async function setReviewStatus(item: ReportIndexItem, status: string, e: Event):
     await apiClient.patchReportReviewStatus({ sessionId: identity.sessionId, reportId: item.report_id, reviewStatus: status });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     item.review_status = status as any;
-  } catch (err) { errorMsg.value = err instanceof Error ? err.message : String(err); }
+  } catch (err) { errorMsg.value = reportFriendlyError(err, '复查状态更新失败，请稍后重试。'); }
 }
 
 // ── 标签管理 ──────────────────────────────────────────────────
@@ -154,7 +159,7 @@ async function saveTagEdit(): Promise<void> {
     await apiClient.patchReportTags({ sessionId: identity.sessionId, reportId: tagEditItem.value.report_id, tags });
     tagEditItem.value.tags = tags;
     tagEditItem.value = null;
-  } catch (err) { errorMsg.value = err instanceof Error ? err.message : String(err); }
+  } catch (err) { errorMsg.value = reportFriendlyError(err, '标签保存失败，请稍后重试。'); }
 }
 
 // ── 报告详情侧边栏 ─────────────────────────────────────────────
@@ -196,7 +201,7 @@ async function saveNote(): Promise<void> {
   try {
     await apiClient.patchReportNote({ sessionId: identity.sessionId, reportId: sidebarItem.value.report_id, note: noteText.value });
     sidebarItem.value.user_note = noteText.value;
-  } catch (err) { errorMsg.value = err instanceof Error ? err.message : String(err); }
+  } catch (err) { errorMsg.value = reportFriendlyError(err, '个人备注保存失败，请稍后重试。'); }
   finally { noteSaving.value = false; }
 }
 
@@ -232,7 +237,7 @@ async function runCompare(): Promise<void> {
   try {
     const res = await apiClient.compareReports({ sessionId: identity.sessionId, id1: compareA.value.report_id, id2: compareB.value.report_id });
     compareResult.value = res;
-  } catch (e) { compareError.value = e instanceof Error ? e.message : String(e); }
+  } catch (e) { compareError.value = reportFriendlyError(e, '报告对比失败，请稍后重试。'); }
   finally { compareLoading.value = false; }
 }
 
@@ -319,9 +324,9 @@ watch(() => identity.sessionId, () => void refresh());
         <button class="btn-compare" :class="{ active: compareMode }" @click="compareMode ? exitCompare() : (compareMode = true)">
           {{ compareMode ? '退出对比' : '⚖ 版本对比' }}
         </button>
-        <button class="btn-ghost" :disabled="loading" @click="refresh">
-          <span :class="{ spinning: loading }">↻</span>
-        </button>
+        <ActionButton variant="ghost" :loading="loading" loading-text="刷新中..." @click="refresh">
+          刷新
+        </ActionButton>
       </div>
     </div>
 
@@ -330,13 +335,13 @@ watch(() => identity.sessionId, () => void refresh());
         <span>生成报告</span>
         <strong>AI 研究报告</strong>
         <p>从报告库发起生成，产物回流到这里复查、收藏和对比。</p>
-        <button type="button" @click="startReportTool('generate')">进入生成</button>
+        <ActionButton size="sm" @click="startReportTool('generate')">进入生成</ActionButton>
       </article>
       <article>
         <span>财报分析</span>
         <strong>财务复查入口</strong>
         <p>财报拆解不再单独占页面，作为报告库的生成工具使用。</p>
-        <button type="button" @click="startReportTool('financials')">分析财报</button>
+        <ActionButton size="sm" @click="startReportTool('financials')">分析财报</ActionButton>
       </article>
     </section>
 
@@ -351,9 +356,9 @@ watch(() => identity.sessionId, () => void refresh());
         <strong v-if="compareB" class="sel-name">{{ compareB.ticker || compareB.report_id.slice(0, 8) }} — {{ compareB.title?.slice(0,30) }}</strong>
         <span v-else class="sel-empty">点击报告选择 B</span>
       </div>
-      <button class="btn-primary" :disabled="!compareA || !compareB || compareLoading" @click="runCompare">
-        {{ compareLoading ? '对比中…' : '开始对比' }}
-      </button>
+      <ActionButton :disabled="!compareA || !compareB" :loading="compareLoading" loading-text="对比中..." @click="runCompare">
+        开始对比
+      </ActionButton>
     </div>
 
     <!-- ── 对比结果 ── -->
@@ -488,23 +493,38 @@ watch(() => identity.sessionId, () => void refresh());
       <button v-if="activeTag" class="tag-clear" @click="activeTag = null">✕ 清除</button>
     </div>
 
-    <div v-if="errorMsg" class="error-banner">{{ errorMsg }}</div>
-    <div v-if="compareError" class="error-banner">{{ compareError }}</div>
+    <StatusBanner
+      v-if="errorMsg"
+      variant="error"
+      :message="errorMsg"
+      dismissible
+      @dismiss="errorMsg = null"
+    />
+    <StatusBanner
+      v-if="compareError"
+      variant="error"
+      :message="compareError"
+      dismissible
+      @dismiss="compareError = null"
+    />
 
     <!-- ── 加载 ── -->
-    <div v-if="loading" class="loading-state"><span class="loader" /><span>加载中…</span></div>
+    <LoadingState v-if="loading" label="正在加载报告库..." />
 
     <!-- ── 空态 ── -->
-    <div v-else-if="items.length === 0" class="empty-state">
-      <div class="empty-icon">📑</div>
-      <div class="empty-title">还没有研究报告</div>
-      <div class="empty-hint">在「智能对话」发起深度研究，AI 生成的报告自动保存在这里</div>
-      <button class="btn-primary" @click="router.push('/chat')">前往对话</button>
-    </div>
-    <div v-else-if="displayed.length === 0" class="empty-state compact">
-      <div class="empty-icon">🔍</div>
-      <div class="empty-title">没有匹配的报告</div>
-    </div>
+    <EmptyState
+      v-else-if="items.length === 0"
+      title="还没有研究报告"
+      hint="在「AI 助手」发起现有研究流程后，生成的报告会保存在这里。"
+      action-label="前往 AI 助手"
+      @action="router.push('/chat')"
+    />
+    <EmptyState
+      v-else-if="displayed.length === 0"
+      title="没有匹配的报告"
+      hint="可以清空筛选条件，或换一个 ticker / 关键词。"
+      compact
+    />
 
     <!-- ── 报告列表 ── -->
     <div v-else class="report-list">
@@ -642,7 +662,7 @@ watch(() => identity.sessionId, () => void refresh());
             :model-generated="true"
           />
 
-          <div v-if="sidebarLoading" class="sidebar-loading"><span class="loader" /> 加载报告内容…</div>
+          <LoadingState v-if="sidebarLoading" label="正在加载报告内容..." compact />
 
           <!-- 报告全文 / 摘要 -->
           <div v-else class="sidebar-sections">
@@ -865,8 +885,8 @@ watch(() => identity.sessionId, () => void refresh());
 .btn-action:hover { border-color: var(--fin-primary); color: var(--fin-primary); }
 
 /* ── 标签编辑 Modal ── */
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-sm { background: var(--fin-bg); border-radius: 14px; padding: 24px; width: min(400px, 94vw); box-shadow: 0 8px 40px rgba(0,0,0,0.14); }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.modal-sm { background: var(--fin-bg); border-radius: 8px; padding: 22px; width: min(400px, 100%); max-height: min(88vh, 680px); overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.14); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .modal-title { font-size: 15px; font-weight: 700; }
 .modal-hint { font-size: 12px; color: var(--fin-muted); margin: 0 0 12px; }
@@ -876,13 +896,13 @@ watch(() => identity.sessionId, () => void refresh());
 
 /* ── 侧边栏 ── */
 .sidebar-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 1000; display: flex; justify-content: flex-end; }
-.sidebar { width: min(500px, 96vw); height: 100%; background: var(--fin-bg); box-shadow: -4px 0 32px rgba(0,0,0,0.1); padding: 22px 22px 32px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.sidebar { width: min(500px, 96vw); height: 100dvh; max-height: 100dvh; background: var(--fin-bg); box-shadow: -4px 0 32px rgba(0,0,0,0.1); padding: 22px 22px 32px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
 
 .sidebar-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .sidebar-meta-top { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sidebar-ticker { font-size: 13px; font-weight: 700; color: var(--fin-primary); background: var(--fin-primary-soft); padding: 2px 8px; border-radius: 6px; }
 .sidebar-head-actions { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
-.sidebar-close { border: none; background: transparent; font-size: 20px; cursor: pointer; color: var(--fin-muted); }
+.sidebar-close { width: 34px; height: 34px; border: 1px solid var(--fin-border); border-radius: 8px; background: var(--fin-card); font-size: 18px; cursor: pointer; color: var(--fin-muted); }
 .sidebar-title { font-size: 17px; font-weight: 700; color: var(--fin-text); margin: 0; line-height: 1.4; }
 
 .sidebar-loading { display: flex; gap: 8px; align-items: center; color: var(--fin-muted); font-size: 13px; }

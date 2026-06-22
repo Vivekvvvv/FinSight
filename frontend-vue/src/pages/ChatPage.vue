@@ -3,9 +3,12 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useIdentityStore } from '@/stores/identity';
+import ActionButton from '@/components/ActionButton.vue';
 import EvidencePanel from '@/components/EvidencePanel.vue';
 import ExecutionTracePanel from '@/components/ExecutionTracePanel.vue';
+import StatusBanner from '@/components/StatusBanner.vue';
 import type { ChatStreamMessage, ExecutionTraceEvent } from '@/api/types';
+import { reportFriendlyError } from '@/utils/error';
 
 const identity = useIdentityStore();
 const route = useRoute();
@@ -35,7 +38,6 @@ const welcomeMessage: ChatStreamMessage = {
 
 const messages = ref<ChatStreamMessage[]>([welcomeMessage]);
 
-const canSend = computed(() => input.value.trim().length > 0 && !sending.value);
 const lastAssistant = computed(() => [...messages.value].reverse().find((message) => message.role === 'assistant' && message.id !== 'welcome'));
 const modeLabel = computed(() => {
   const mode = String(route.query.mode || '');
@@ -175,7 +177,7 @@ async function send(text?: string): Promise<void> {
       },
       onError: (message) => {
         assistantMessage.status = 'error';
-        errorMsg.value = message;
+        errorMsg.value = message || 'AI 助手暂时无法完成请求，请稍后重试。';
         appendTrace({
           id: `error-${Date.now()}`,
           type: 'error',
@@ -190,7 +192,7 @@ async function send(text?: string): Promise<void> {
     });
   } catch (error) {
     assistantMessage.status = 'error';
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, 'AI 助手暂时无法完成请求，请稍后重试。');
     messages.value = [...messages.value];
   } finally {
     sending.value = false;
@@ -296,10 +298,16 @@ onMounted(async () => {
         </div>
 
         <div v-if="messages.length <= 1" class="suggestions">
-          <button v-for="item in suggestions" :key="item" @click="send(item)">{{ item }}</button>
+          <button v-for="item in suggestions" :key="item" :disabled="sending" @click="send(item)">{{ item }}</button>
         </div>
 
-        <p v-if="errorMsg" class="error-banner">{{ errorMsg }}</p>
+        <StatusBanner
+          v-if="errorMsg"
+          variant="error"
+          :message="errorMsg"
+          dismissible
+          @dismiss="errorMsg = null"
+        />
 
         <footer class="composer">
           <textarea
@@ -308,7 +316,9 @@ onMounted(async () => {
             @keydown.ctrl.enter.prevent="send()"
             @keydown.meta.enter.prevent="send()"
           />
-          <button :disabled="!canSend" @click="send()">{{ sending ? '执行中...' : '发送研究任务' }}</button>
+          <ActionButton :disabled="!input.trim()" :loading="sending" loading-text="执行中..." @click="send()">
+            发送研究任务
+          </ActionButton>
         </footer>
       </main>
 
@@ -568,8 +578,49 @@ textarea {
 }
 
 @media (max-width: 640px) {
+  .chat-page {
+    gap: 10px;
+  }
+
+  .chat-hero,
+  .chat-thread,
+  .report-card {
+    padding: 12px;
+  }
+
+  .chat-hero {
+    gap: 10px;
+  }
+
+  .chat-hero .kicker + h2 + p {
+    display: none;
+  }
+
+  .chat-thread {
+    min-height: 0;
+    gap: 8px;
+  }
+
+  .thread-scroll {
+    max-height: 120px;
+  }
+
+  .composer {
+    order: 2;
+  }
+
   .composer {
     grid-template-columns: 1fr;
+  }
+
+  .suggestions {
+    order: 3;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  textarea {
+    min-height: 64px;
   }
 }
 </style>

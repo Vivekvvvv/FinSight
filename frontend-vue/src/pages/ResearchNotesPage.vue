@@ -5,8 +5,12 @@ import { API_BASE_URL } from '@/config/runtime';
 import { apiClient } from '@/api/client';
 import type { ResearchNote } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
+import ActionButton from '@/components/ActionButton.vue';
+import EmptyState from '@/components/EmptyState.vue';
+import LoadingState from '@/components/LoadingState.vue';
 import MarkdownEditor from '@/components/MarkdownEditor.vue';
-import SkeletonLoader from '@/components/SkeletonLoader.vue';
+import StatusBanner from '@/components/StatusBanner.vue';
+import { reportFriendlyError } from '@/utils/error';
 
 const identity = useIdentityStore();
 const route = useRoute();
@@ -75,7 +79,7 @@ async function refresh(): Promise<void> {
       if (latest) selected.value = latest;
     }
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '笔记列表加载失败，请刷新重试。');
   } finally {
     loading.value = false;
   }
@@ -134,7 +138,7 @@ async function saveNote(): Promise<ResearchNote | null> {
     successMsg.value = '笔记已创建';
     return created;
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '笔记保存失败，请稍后重试。');
     return null;
   } finally {
     saving.value = false;
@@ -153,7 +157,7 @@ async function deleteSelected(): Promise<void> {
     await refresh();
     successMsg.value = '笔记已删除';
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '笔记删除失败，请稍后重试。');
   } finally {
     saving.value = false;
   }
@@ -177,7 +181,7 @@ async function handleImageUpload(file: File): Promise<void> {
     await saveNote();
     successMsg.value = '图片已上传并插入笔记';
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '图片上传失败，请稍后重试。');
   } finally {
     uploading.value = false;
   }
@@ -201,28 +205,41 @@ watch(() => identity.sessionId, () => { void refresh(); });
         <p class="subtitle">把报告假设、事件观察和人工判断沉淀下来，避免研究过程只停留在一次性输出。</p>
       </div>
       <div class="hero-actions">
-        <button class="secondary-btn" :disabled="loading" @click="refresh">刷新</button>
-        <button class="primary-btn" @click="createNew">新建笔记</button>
+        <ActionButton variant="ghost" :loading="loading" loading-text="刷新中..." @click="refresh">刷新</ActionButton>
+        <ActionButton @click="createNew">新建笔记</ActionButton>
       </div>
     </header>
 
-    <div v-if="errorMsg" class="message error">{{ errorMsg }}</div>
-    <div v-if="successMsg" class="message success">{{ successMsg }}</div>
+    <StatusBanner
+      v-if="errorMsg"
+      variant="error"
+      :message="errorMsg"
+      dismissible
+      @dismiss="errorMsg = null"
+    />
+    <StatusBanner
+      v-if="successMsg"
+      variant="success"
+      :message="successMsg"
+      dismissible
+      @dismiss="successMsg = null"
+    />
 
     <div class="workspace">
       <aside class="notes-list">
         <div class="filters">
           <input v-model="query" class="input" placeholder="搜索标题或正文…" @keyup.enter="refresh">
           <input v-model="tickerFilter" class="input" placeholder="按 ticker 筛选，如 AAPL" @keyup.enter="refresh">
-          <button class="filter-btn" :disabled="loading" @click="refresh">应用筛选</button>
+          <ActionButton variant="secondary" :loading="loading" loading-text="筛选中..." @click="refresh">应用筛选</ActionButton>
         </div>
 
-        <div v-if="loading && notes.length === 0" class="skeleton-wrap">
-          <SkeletonLoader type="card" :rows="5" />
-        </div>
-        <div v-else-if="!loading && filteredNotes.length === 0" class="empty">
-          暂无研究笔记。先写下一个投资假设，笨蛋。
-        </div>
+        <LoadingState v-if="loading && notes.length === 0" label="正在加载研究笔记..." />
+        <EmptyState
+          v-else-if="!loading && filteredNotes.length === 0"
+          title="暂无研究笔记"
+          hint="先写下一个研究假设，后续报告和标的证据可以沉淀到这里。"
+          compact
+        />
         <button
           v-for="note in filteredNotes"
           v-else
@@ -252,10 +269,10 @@ watch(() => identity.sessionId, () => { void refresh(); });
           <div class="editor-actions">
             <button class="secondary-btn" :disabled="!ticker.trim()" @click="goDashboard">查看标的</button>
             <button class="secondary-btn" :disabled="!ticker.trim()" @click="router.push(`/dossier/${ticker.trim().toUpperCase()}`)">查看时间线</button>
-            <button v-if="selected" class="danger-btn" :disabled="saving" @click="deleteSelected">删除</button>
-            <button class="primary-btn" :disabled="saving || uploading" @click="saveNote">
-              {{ saving ? '保存中…' : uploading ? '上传中…' : '保存' }}
-            </button>
+            <ActionButton v-if="selected" variant="danger" :loading="saving" loading-text="删除中..." @click="deleteSelected">删除</ActionButton>
+            <ActionButton :loading="saving || uploading" :loading-text="uploading ? '上传中...' : '保存中...'" @click="saveNote">
+              保存
+            </ActionButton>
           </div>
         </div>
 

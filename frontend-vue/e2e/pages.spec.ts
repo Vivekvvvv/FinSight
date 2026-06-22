@@ -143,6 +143,19 @@ const NOTES = {
   ],
 };
 
+const SCREENER_ITEMS = Array.from({ length: 7 }, (_, index) => ({
+  symbol: index === 0 ? 'AAPL' : `MOCK${index}`,
+  name: index === 0 ? 'Apple Inc.' : `Mock Company ${index}`,
+  sector: 'Technology',
+  industry: 'Research Tools',
+  exchange: 'NASDAQ',
+  price: 100 + index,
+  market_cap: 3_000_000_000_000 - index * 1_000_000_000,
+  volume: 52_000_000 + index * 1000,
+  beta: 1.1,
+  change_percent: index % 2 === 0 ? 1.2 : -0.8,
+}));
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(([sid, uid, email, token]) => {
     localStorage.setItem('finsight-session-id', sid);
@@ -168,16 +181,33 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/reports/index**', (route) => json(route, REPORTS));
   await page.route('**/api/reports/replay/**', (route) => json(route, { citations: [] }));
   await page.route('**/api/research-notes**', (route) => json(route, NOTES));
+  await page.route('**/api/chat/history**', (route) => json(route, { success: true, session_id: SESSION_ID, messages: [] }));
+  await page.route('**/chat/supervisor/stream', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream; charset=utf-8',
+      body: [
+        'data: {"type":"token","content":"已收到研究任务。"}',
+        'data: {"type":"done","source":"mock","quality":{"confidence_score":0.8},"metrics":{"request_started_at":"2026-06-17T10:00:00Z"}}',
+        '',
+      ].join('\n'),
+    }));
   await page.route('**/api/screener/filters/meta', (route) =>
     json(route, { success: true, markets: ['US', 'CN', 'HK'], sort_by: ['marketCap', 'price'], sort_order: ['asc', 'desc'], filter_keys: [], source: 'mock' }));
   await page.route('**/api/screener/run', (route) =>
     json(route, {
       success: true,
       market: 'US',
-      count: 1,
+      count: SCREENER_ITEMS.length,
       source: 'mock',
-      items: [{ symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology', industry: 'Consumer Electronics', exchange: 'NASDAQ', price: 195.5, market_cap: 3_000_000_000_000, volume: 52_000_000, beta: 1.2, change_percent: 1.19 }],
+      items: SCREENER_ITEMS,
     }));
+  await page.route('**/api/stock/top-list/**', (route) =>
+    json(route, { success: true, ticker: '600519.SS', trade_date: '2026-06-17', reason: '机构净买入', net_buy: 12345678 }));
+  await page.route('**/api/market/north-flow', (route) =>
+    json(route, { success: true, trade_date: '2026-06-17', north_net_inflow: 2345000000, sh_connect: 1200000000, sz_connect: 1145000000 }));
+  await page.route('**/api/stock/margin/**', (route) =>
+    json(route, { success: true, ticker: '600519.SS', trade_date: '2026-06-17', margin_balance: 456700000, margin_buy: 32000000, margin_repay: 28000000 }));
 });
 
 function dataSourceStatus() {
@@ -288,4 +318,92 @@ test('股票发现保留 A股市场工具折叠区', async ({ page }) => {
   await expect(page.getByText('龙虎榜异动')).toBeVisible();
   await expect(page.getByRole('button', { name: /北向资金作为市场情绪背景/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /融资融券用于观察杠杆变化/ })).toBeVisible();
+});
+
+test('7 个核心入口都可访问并保留主导航', async ({ page }) => {
+  const entries = [
+    { label: '今日工作台', url: '**/welcome' },
+    { label: '标的研究', url: '**/dossier/AAPL' },
+    { label: '股票发现', url: '**/stocks' },
+    { label: '组合管理', url: '**/portfolio' },
+    { label: '报告库', url: '**/reports' },
+    { label: '研究笔记', url: '**/notes' },
+    { label: 'AI 助手', url: '**/chat' },
+  ];
+
+  await page.goto('/welcome');
+  for (const entry of entries) {
+    await page.locator('.nav-stack').getByRole('link', { name: new RegExp(entry.label) }).click();
+    await page.waitForURL(entry.url);
+    await expectShellNav(page);
+  }
+});
+
+test('股票发现分页和 A股工具点击都有可见反馈', async ({ page }) => {
+  await page.goto('/stocks');
+  await expect(page.getByText('第 1 / 2 页')).toBeVisible();
+  await page.getByRole('button', { name: '下一页' }).click();
+  await expect(page.getByText('第 2 / 2 页')).toBeVisible();
+
+  await page.getByRole('button', { name: /A股市场工具/ }).click();
+  await page.getByRole('button', { name: /北向资金作为市场情绪背景/ }).click();
+  await expect(page.getByRole('heading', { name: '北向资金' })).toBeVisible();
+  await expect(page.getByText('北向净流入')).toBeVisible();
+});
+
+test('报告库空状态给出明确入口', async ({ page }) => {
+  await page.route('**/api/reports/index**', (route) => json(route, { success: true, count: 0, items: [] }));
+  await page.goto('/reports');
+
+  await expect(page.getByText('还没有研究报告')).toBeVisible();
+  await expect(page.getByRole('button', { name: '前往 AI 助手' })).toBeVisible();
+});
+
+test('组合管理空持仓状态可直接添加或导入', async ({ page }) => {
+  await page.route('**/api/portfolio/summary**', (route) =>
+    json(route, { success: true, session_id: SESSION_ID, count: 0, positions: [], total_value: 0, total_cost: 0, total_pnl: 0 }));
+  await page.goto('/portfolio');
+
+  await expect(page.getByText('还没有持仓记录')).toBeVisible();
+  await expect(page.getByRole('button', { name: '手动添加' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '导入 CSV' }).nth(1)).toBeVisible();
+});
+
+test('AI 助手发送时按钮进入 loading disabled 状态', async ({ page }) => {
+  await page.route('**/chat/supervisor/stream', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream; charset=utf-8',
+      body: [
+        'data: {"type":"token","content":"测试回复"}',
+        'data: {"type":"done","source":"mock","quality":{"confidence_score":0.8},"metrics":{"request_started_at":"2026-06-17T10:00:00Z"}}',
+        '',
+      ].join('\n'),
+    });
+  });
+
+  await page.goto('/chat');
+  await page.getByPlaceholder('问点什么', { exact: false }).fill('AAPL 今天有什么变化');
+  await page.getByRole('button', { name: '发送研究任务' }).click();
+
+  const sendingButton = page.getByRole('button', { name: /执行中/ });
+  await expect(sendingButton).toBeDisabled();
+  await expect(page.locator('.bubble-body').filter({ hasText: '测试回复' })).toBeVisible();
+});
+
+test('移动端底部导航不遮挡主要操作', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/chat');
+
+  const bottomNav = page.getByLabel('移动端导航');
+  await expect(bottomNav).toBeVisible();
+  const sendButton = page.getByRole('button', { name: '发送研究任务' });
+  await expect(sendButton).toBeVisible();
+
+  const navBox = await bottomNav.boundingBox();
+  const buttonBox = await sendButton.boundingBox();
+  expect(navBox).not.toBeNull();
+  expect(buttonBox).not.toBeNull();
+  expect(buttonBox!.y + buttonBox!.height).toBeLessThan(navBox!.y);
 });

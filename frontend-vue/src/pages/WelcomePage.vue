@@ -7,6 +7,9 @@ import { useIdentityStore } from '@/stores/identity';
 import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
 import ResearchQualityOverview from '@/components/ResearchQualityOverview.vue';
+import LoadingState from '@/components/LoadingState.vue';
+import StatusBanner from '@/components/StatusBanner.vue';
+import { reportFriendlyError } from '@/utils/error';
 
 const identity = useIdentityStore();
 const router = useRouter();
@@ -109,7 +112,7 @@ async function refresh(): Promise<void> {
     qualityIssues.value = qualityData.top_issues;
     dailyTasks.value = taskData.tasks || [];
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '今日工作台暂时加载失败，请刷新重试。');
   } finally {
     loading.value = false;
   }
@@ -137,12 +140,15 @@ watch(() => identity.sessionId, () => { void refresh(); });
       </div>
     </div>
 
-    <div v-if="errorMsg" class="error-banner">{{ errorMsg }}</div>
+    <StatusBanner
+      v-if="errorMsg"
+      variant="error"
+      :message="errorMsg"
+      action-label="重试"
+      @action="refresh"
+    />
 
-    <div v-if="loading && !workspace" class="loading-state">
-      <div class="spinner"></div>
-      <div>正在加载今日工作台...</div>
-    </div>
+    <LoadingState v-if="loading && !workspace" label="正在加载今日工作台..." />
 
     <template v-else-if="workspace">
       <div class="panel task-panel" data-testid="daily-tasks-panel">
@@ -430,39 +436,10 @@ watch(() => identity.sessionId, () => { void refresh(); });
   padding: 8px 12px;
 }
 
-.error-banner,
-.loading-state,
 .panel {
   border: 1px solid var(--fin-border);
   border-radius: var(--fin-radius-lg);
   background: var(--fin-card);
-}
-
-.error-banner {
-  padding: 14px 18px;
-  color: var(--fin-danger);
-  background: var(--fin-danger-soft);
-}
-
-.loading-state {
-  display: grid;
-  place-items: center;
-  gap: 12px;
-  min-height: 260px;
-  color: var(--fin-muted);
-}
-
-.spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid var(--fin-border);
-  border-top-color: var(--fin-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .panel {

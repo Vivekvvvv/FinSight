@@ -610,10 +610,12 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   z-index: 50;
   inset: 0 0 0 auto;
   width: min(380px, calc(100vw - 36px));
+  max-height: 100dvh;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
   border-left: 1px solid var(--fin-border);
   background: var(--fin-card);
   box-shadow: -28px 0 90px rgba(0, 0, 0, 0.28);
@@ -708,7 +710,7 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   }
 
   .workspace-main {
-    padding: 18px;
+    padding: 16px;
   }
 
   .mobile-mask,
@@ -743,7 +745,7 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   }
 
   .workspace-main {
-    padding-bottom: 72px !important;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important;
   }
 
   .mb-nav-item {

@@ -177,6 +177,7 @@ data/research_notes.db
 backend/data/*.sqlite
 backend/data/*.db
 backend/data/*.bak
+backend/data/
 frontend-vue/data/
 frontend-vue/backend/data/
 

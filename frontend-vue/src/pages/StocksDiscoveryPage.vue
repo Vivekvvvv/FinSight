@@ -2,9 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
+import ActionButton from '@/components/ActionButton.vue';
 import DataSourceBadge from '@/components/DataSourceBadge.vue';
+import EmptyState from '@/components/EmptyState.vue';
+import LoadingState from '@/components/LoadingState.vue';
+import StatusBanner from '@/components/StatusBanner.vue';
 import type { EvidenceInfo, ScreenerItem, ScreenerMetaResponse, ScreenerRunResponse } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
+import { reportFriendlyError, toFriendlyError } from '@/utils/error';
 
 type Market = 'US' | 'CN' | 'HK';
 type MarketTool = 'top-list' | 'north-flow' | 'margin';
@@ -157,7 +162,7 @@ function marketToolErrorMessage(error: unknown): string {
     return '北向资金数据暂不可用，请稍后刷新。';
   }
   if (status === 400) return '请输入有效的A股代码，例如 600519.SS 或 000001.SZ。';
-  return error instanceof Error ? error.message : String(error);
+  return toFriendlyError(error, '市场工具数据暂时不可用，请稍后重试。');
 }
 
 function warningLabel(code: string | null | undefined): string {
@@ -210,7 +215,7 @@ async function run() {
     if (!resp.success && resp.error) errorMsg.value = resp.error;
   } catch (error) {
     if (token !== runToken) return;
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '筛选失败，请放宽条件或稍后重试。');
     response.value = null;
     items.value = [];
   } finally {
@@ -264,7 +269,7 @@ async function addWatchlistAndNote(item: ScreenerItem) {
       ? `${item.symbol} 已加入自选，并创建研究笔记`
       : `${item.symbol} 已加入自选，笔记创建结果待确认`;
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '加入自选失败，请稍后重试。');
   }
 }
 
@@ -287,7 +292,7 @@ async function batchAddWatchlist() {
     }
     actionMsg.value = `已将 ${candidates.length} 个候选标的加入发现池`;
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '创建自选和笔记失败，请稍后重试。');
   } finally {
     batchBusy.value = false;
   }
@@ -304,7 +309,7 @@ async function batchCreateNotes() {
     }
     actionMsg.value = `已为 ${candidates.length} 个候选标的创建初始研究笔记`;
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '批量加入发现池失败，请稍后重试。');
   } finally {
     batchBusy.value = false;
   }
@@ -346,7 +351,7 @@ async function confirmImport() {
     actionMsg.value = `${item.symbol} 已导入持仓`;
     importing.value = null;
   } catch (error) {
-    errorMsg.value = error instanceof Error ? error.message : String(error);
+    errorMsg.value = reportFriendlyError(error, '持仓导入失败，请检查数量和成本价。');
   } finally {
     importBusy.value = false;
   }
@@ -483,18 +488,27 @@ watch(displayedItems, () => {
         最小成交量
         <input v-model="minVolume" inputmode="numeric" placeholder="如 1000000" @keyup.enter="run">
       </label>
-      <button class="primary" :disabled="loading" @click="run">{{ loading ? '筛选中...' : '运行筛选' }}</button>
+      <ActionButton :loading="loading" loading-text="筛选中..." @click="run">运行筛选</ActionButton>
     </section>
 
     <p v-if="response?.capability_note" class="notice">{{ response.capability_note }}</p>
     <p v-if="response?.warning" class="notice warn">覆盖提示：{{ warningLabel(response.warning) }}</p>
     <p v-if="actionMsg" class="notice success">{{ actionMsg }}</p>
-    <p v-if="errorMsg" class="notice danger">{{ errorMsg }}</p>
+    <StatusBanner
+      v-if="errorMsg"
+      variant="error"
+      :message="errorMsg"
+      dismissible
+      @dismiss="errorMsg = null"
+    />
 
-    <section v-if="displayedItems.length === 0" class="state-card page-card">
-      <strong>暂无候选股票</strong>
-      <span>可放宽筛选条件，或切换到 US 市场。CN/HK 第一版可能受数据源覆盖影响。</span>
-    </section>
+    <LoadingState v-if="loading && displayedItems.length === 0" label="正在筛选候选股票..." />
+    <EmptyState
+      v-else-if="displayedItems.length === 0"
+      title="暂无候选股票"
+      hint="可以放宽筛选条件，或切换市场后重新运行筛选。"
+      compact
+    />
 
     <section v-else class="results-shell">
       <div class="results-head page-card">
@@ -559,12 +573,12 @@ watch(displayedItems, () => {
         <h3>候选池批量动作</h3>
         <span>把当前筛选结果转成可复查的研究资产，而不是交易建议。</span>
       </div>
-      <button type="button" :disabled="batchBusy" @click="batchAddWatchlist">
-        {{ batchBusy ? '处理中...' : '批量加入发现池' }}
-      </button>
-      <button type="button" :disabled="batchBusy" @click="batchCreateNotes">
+      <ActionButton :loading="batchBusy" loading-text="处理中..." @click="batchAddWatchlist">
+        批量加入发现池
+      </ActionButton>
+      <ActionButton variant="secondary" :disabled="batchBusy" @click="batchCreateNotes">
         批量创建初始笔记
-      </button>
+      </ActionButton>
     </section>
 
     <section v-if="compareBasket.length" class="compare-basket page-card">
@@ -609,19 +623,19 @@ watch(displayedItems, () => {
             A股代码
             <input v-model="marketToolTicker" placeholder="如 600519.SS" @keyup.enter="loadMarketTool">
           </label>
-          <button type="button" class="primary" :disabled="marketToolLoading" @click="loadMarketTool">
-            {{ marketToolLoading ? '加载中...' : '刷新工具数据' }}
-          </button>
+          <ActionButton :loading="marketToolLoading" loading-text="加载中..." @click="loadMarketTool">
+            刷新工具数据
+          </ActionButton>
         </div>
-        <p v-if="marketToolError" class="tool-error">{{ marketToolError }}</p>
-        <div v-else-if="marketToolLoading" class="tool-loading">正在读取 {{ activeToolTitle }} 数据...</div>
+        <StatusBanner v-if="marketToolError" variant="warning" :message="marketToolError" />
+        <LoadingState v-else-if="marketToolLoading" :label="`正在读取 ${activeToolTitle} 数据...`" compact />
         <div v-else-if="marketToolData" class="tool-metrics">
           <div v-for="field in marketToolFields" :key="String(field[0])">
             <span>{{ field[0] }}</span>
             <strong>{{ displayToolValue(field[1]) }}</strong>
           </div>
         </div>
-        <p v-else class="tool-empty">选择工具后会在这里显示结果。</p>
+        <EmptyState v-else title="选择工具后会在这里显示结果" hint="选择上方工具并点击刷新，不会跳转到新页面。" compact />
       </div>
     </section>
 
@@ -1159,12 +1173,14 @@ select {
   z-index: 80;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 16px;
   background: var(--fin-overlay);
 }
 
 .import-modal {
-  width: min(440px, 94vw);
+  width: min(440px, 100%);
+  max-height: min(88vh, 680px);
+  overflow-y: auto;
   display: grid;
   gap: 16px;
   padding: 22px;

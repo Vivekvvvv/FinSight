@@ -5,6 +5,10 @@ import { apiClient } from '@/api/client';
 import type { PortfolioPosition } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import SkeletonLoader from '@/components/SkeletonLoader.vue';
+import ActionButton from '@/components/ActionButton.vue';
+import EmptyState from '@/components/EmptyState.vue';
+import StatusBanner from '@/components/StatusBanner.vue';
+import { reportFriendlyError } from '@/utils/error';
 
 const identity = useIdentityStore();
 const route = useRoute();
@@ -110,7 +114,7 @@ async function confirmImport() {
     await apiClient.bulkImportPositions({ sessionId: identity.sessionId, positions: csvValidRows.value.map((r) => ({ ticker: r.ticker, shares: r.shares, avg_cost: r.avg_cost, name: r.name || undefined, tags: r.tags.length ? r.tags : undefined, note: r.note || undefined })) });
     showImport.value = false; csvText.value = ''; csvRows.value = []; csvParsed.value = false;
     await refresh();
-  } catch (e) { errorMsg.value = e instanceof Error ? e.message : String(e); } finally { loading.value = false; }
+  } catch (e) { errorMsg.value = reportFriendlyError(e, '导入持仓失败，请检查 CSV 内容后重试。'); } finally { loading.value = false; }
 }
 
 function closeImport() { showImport.value = false; csvText.value = ''; csvRows.value = []; csvParsed.value = false; }
@@ -154,7 +158,7 @@ async function saveEdit(ticker: string): Promise<void> {
       openedAt: editForm.value.openedAt.trim() || undefined,
     });
     editingTicker.value = null; await refresh();
-  } catch (e) { errorMsg.value = e instanceof Error ? e.message : String(e); }
+  } catch (e) { errorMsg.value = reportFriendlyError(e, '保存持仓失败，请稍后重试。'); }
 }
 
 function fmt(v: number | null | undefined): string {
@@ -168,7 +172,7 @@ async function refresh(): Promise<void> {
     const resp = await apiClient.getPortfolioSummary(identity.sessionId);
     positions.value = resp.positions || [];
     totals.value = { value: resp.total_value, cost: resp.total_cost, pnl: resp.total_pnl };
-  } catch (e) { errorMsg.value = e instanceof Error ? e.message : String(e); } finally { loading.value = false; }
+  } catch (e) { errorMsg.value = reportFriendlyError(e, '持仓列表加载失败，请刷新重试。'); } finally { loading.value = false; }
 }
 
 async function save(): Promise<void> {
@@ -182,7 +186,7 @@ async function save(): Promise<void> {
     editTicker.value = ''; editShares.value = ''; editAvgCost.value = ''; editName.value = '';
     addExpanded.value = false;
     await refresh();
-  } catch (e) { errorMsg.value = e instanceof Error ? e.message : String(e); }
+  } catch (e) { errorMsg.value = reportFriendlyError(e, '保存持仓失败，请稍后重试。'); }
 }
 
 function openTool(tool: string): void {
@@ -204,7 +208,7 @@ async function remove(ticker: string): Promise<void> {
   try {
     await apiClient.removePosition({ sessionId: identity.sessionId, ticker });
     positions.value = positions.value.filter((p) => p.ticker !== ticker);
-  } catch (e) { errorMsg.value = e instanceof Error ? e.message : String(e); }
+  } catch (e) { errorMsg.value = reportFriendlyError(e, '移除持仓失败，请稍后重试。'); }
 }
 
 onMounted(refresh);
@@ -222,9 +226,9 @@ watch(() => identity.sessionId, () => { void refresh(); });
       <div class="header-right">
         <button class="btn-secondary" @click="showImport = true">导入 CSV</button>
         <button class="btn-add" @click="addExpanded = !addExpanded">{{ addExpanded ? '收起' : '+ 新增持仓' }}</button>
-        <button class="btn-ghost" :disabled="loading" @click="refresh">
-          <span :class="{ spinning: loading }">↻</span>
-        </button>
+        <ActionButton variant="ghost" :loading="loading" loading-text="刷新中..." aria-label="刷新持仓" @click="refresh">
+          刷新
+        </ActionButton>
       </div>
     </div>
 
@@ -264,7 +268,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
         >
           <strong>{{ tool.title }}</strong>
           <p>{{ tool.summary }}</p>
-          <button type="button" @click="openTool(tool.key)">{{ tool.action }}</button>
+          <ActionButton size="sm" @click="openTool(tool.key)">{{ tool.action }}</ActionButton>
         </article>
       </div>
     </section>
@@ -291,7 +295,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
           </div>
         </div>
         <div class="add-actions">
-          <button class="btn-primary" @click="save">确认保存</button>
+          <ActionButton :loading="loading" loading-text="保存中..." @click="save">确认保存</ActionButton>
           <button class="btn-cancel" @click="addExpanded = false">取消</button>
         </div>
       </div>
@@ -304,21 +308,27 @@ watch(() => identity.sessionId, () => { void refresh(); });
       <button v-if="activeTag" class="tag-clear" @click="activeTag = null">✕ 清除</button>
     </div>
 
-    <div v-if="errorMsg" class="error-banner">{{ errorMsg }}</div>
+    <StatusBanner
+      v-if="errorMsg"
+      variant="error"
+      :message="errorMsg"
+      dismissible
+      @dismiss="errorMsg = null"
+    />
 
     <!-- 加载骨架屏 -->
     <SkeletonLoader v-if="loading && positions.length === 0" type="table" :rows="5" />
 
     <!-- 空态 -->
-    <div v-else-if="!loading && positions.length === 0" class="empty-state">
-      <div class="empty-icon">💼</div>
-      <div class="empty-title">还没有持仓记录</div>
-      <div class="empty-hint">在上方添加第一笔持仓，或通过「导入 CSV」批量导入</div>
-      <div class="empty-actions">
-        <button class="btn-primary" @click="addExpanded = true">手动添加</button>
-        <button class="btn-secondary" @click="showImport = true">导入 CSV</button>
-      </div>
-    </div>
+    <EmptyState
+      v-else-if="!loading && positions.length === 0"
+      title="还没有持仓记录"
+      hint="在上方添加第一笔持仓，或通过「导入 CSV」批量导入。"
+      action-label="手动添加"
+      secondary-action-label="导入 CSV"
+      @action="addExpanded = true"
+      @secondary-action="showImport = true"
+    />
 
     <!-- 持仓列表 -->
     <ul v-else class="positions">
@@ -340,7 +350,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
           </div>
           <label class="edit-label full">备注<textarea v-model="editForm.note" class="input edit-note" rows="2" placeholder="可选" /></label>
           <div class="edit-actions">
-            <button class="btn-primary small" @click="saveEdit(p.ticker)">保存</button>
+          <ActionButton size="sm" :loading="loading" loading-text="保存中..." @click="saveEdit(p.ticker)">保存</ActionButton>
             <button class="btn-cancel" @click="cancelEdit">取消</button>
           </div>
         </template>
@@ -385,7 +395,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
             <span class="file-hint">或直接粘贴到下方</span>
           </div>
           <textarea v-model="csvText" class="csv-area" placeholder="AAPL,10,182.5,苹果,科技;美股&#10;TSLA,5,220" rows="6" />
-          <button class="btn-primary" :disabled="!csvText.trim()" @click="parseCsv">解析预览</button>
+          <ActionButton :disabled="!csvText.trim()" @click="parseCsv">解析预览</ActionButton>
           <div v-if="csvParsed" class="preview">
             <p class="preview-stat">共 {{ csvRows.length }} 行 — <span class="ok">{{ csvValidRows.length }} 可导入</span><span v-if="csvErrorRows.length" class="fail"> · {{ csvErrorRows.length }} 错误</span></p>
             <ul class="preview-list">
@@ -395,7 +405,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
               </li>
             </ul>
             <div class="modal-actions">
-              <button class="btn-primary" :disabled="!csvValidRows.length || loading" @click="confirmImport">确认导入 {{ csvValidRows.length }} 条</button>
+              <ActionButton :disabled="!csvValidRows.length" :loading="loading" loading-text="导入中..." @click="confirmImport">确认导入 {{ csvValidRows.length }} 条</ActionButton>
               <button class="btn-cancel" @click="closeImport">取消</button>
             </div>
           </div>
@@ -515,11 +525,11 @@ watch(() => identity.sessionId, () => { void refresh(); });
 .slide-down-enter-to, .slide-down-leave-from { opacity: 1; max-height: 400px; transform: translateY(0); }
 
 /* Modal */
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal { background: var(--fin-bg, #f7f6f4); border-radius: 16px; padding: 28px; width: min(560px, 94vw); max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.15); }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.modal { background: var(--fin-bg, #f7f6f4); border-radius: 8px; padding: 22px; width: min(560px, 100%); max-height: min(88vh, 720px); overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.15); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .modal-title { font-size: 18px; font-weight: 700; margin: 0; }
-.modal-close { border: none; background: transparent; font-size: 20px; cursor: pointer; color: var(--fin-muted); }
+.modal-close { width: 34px; height: 34px; border: 1px solid var(--fin-border); border-radius: 8px; background: var(--fin-card); font-size: 18px; cursor: pointer; color: var(--fin-muted); }
 .modal-hint { font-size: 12px; color: var(--fin-muted); margin: 0 0 14px; }
 .file-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
 .file-label { padding: 8px 14px; border: 1.5px solid var(--fin-border); border-radius: 8px; font-size: 13px; cursor: pointer; background: var(--fin-card); }

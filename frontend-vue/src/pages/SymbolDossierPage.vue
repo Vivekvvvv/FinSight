@@ -6,6 +6,8 @@ import { useIdentityStore } from '@/stores/identity';
 import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
 import EvidenceTimeline from '@/components/EvidenceTimeline.vue';
+import LoadingState from '@/components/LoadingState.vue';
+import StatusBanner from '@/components/StatusBanner.vue';
 import type {
   EvidenceInfo,
   ReportIndexItem,
@@ -274,7 +276,7 @@ watch(() => route.params.symbol, () => {
       </form>
     </header>
 
-    <div v-if="errorMsg" class="status-banner">{{ errorMsg }}</div>
+    <StatusBanner v-if="errorMsg" variant="warning" :message="errorMsg" />
 
     <section class="metric-grid">
       <article class="metric-card market-metric">
@@ -348,7 +350,7 @@ watch(() => route.params.symbol, () => {
       </div>
     </section>
 
-    <div v-if="loadState === 'loading'" class="loading-card">正在汇总 {{ symbol }} 的研究档案...</div>
+    <LoadingState v-if="loadState === 'loading'" :label="`正在汇总 ${symbol} 的研究档案...`" />
 
     <div v-else class="dossier-grid">
       <section class="panel panel-wide">
