@@ -821,14 +821,7 @@ watch(() => identity.sessionId, () => void refresh());
 .tag-chip.active { background: var(--fin-primary); border-color: var(--fin-primary); color: #fff; font-weight: 600; }
 .tag-clear { padding: 3px 10px; border: none; background: transparent; font-size: 12px; cursor: pointer; color: var(--fin-danger); }
 
-.error-banner { padding: 12px 16px; background: #fff1f0; border: 1.5px solid #ffccc7; border-radius: 10px; color: #cf1322; font-size: 14px; }
-.loading-state { display: flex; gap: 8px; align-items: center; justify-content: center; padding: 48px; color: var(--fin-muted); }
 .loader { width: 18px; height: 18px; border: 2px solid var(--fin-border); border-top-color: var(--fin-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
-.empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px 20px; background: var(--fin-card); border: 2px dashed var(--fin-border); border-radius: 16px; text-align: center; }
-.empty-state.compact { padding: 28px; }
-.empty-icon { font-size: 40px; }
-.empty-title { font-size: 16px; font-weight: 600; color: var(--fin-text); }
-.empty-hint { font-size: 13px; color: var(--fin-muted); max-width: 360px; line-height: 1.6; }
 
 /* ── 报告列表 ── */
 .report-list { display: flex; flex-direction: column; gap: 8px; }
@@ -904,8 +897,6 @@ watch(() => identity.sessionId, () => void refresh());
 .sidebar-head-actions { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
 .sidebar-close { width: 34px; height: 34px; border: 1px solid var(--fin-border); border-radius: 8px; background: var(--fin-card); font-size: 18px; cursor: pointer; color: var(--fin-muted); }
 .sidebar-title { font-size: 17px; font-weight: 700; color: var(--fin-text); margin: 0; line-height: 1.4; }
-
-.sidebar-loading { display: flex; gap: 8px; align-items: center; color: var(--fin-muted); font-size: 13px; }
 
 .sidebar-sections { display: flex; flex-direction: column; gap: 14px; }
 .sidebar-section { background: var(--fin-card); border: 1.5px solid var(--fin-border); border-radius: 10px; padding: 14px 16px; }

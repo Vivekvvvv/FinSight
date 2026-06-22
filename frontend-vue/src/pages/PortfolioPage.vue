@@ -481,15 +481,6 @@ watch(() => identity.sessionId, () => { void refresh(); });
 .wl-tag { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--fin-primary-soft); color: var(--fin-primary); font-weight: 600; cursor: pointer; }
 .wl-tag.active { background: var(--fin-primary); color: #fff; }
 
-.error-banner { padding: 12px 16px; background: #fff1f0; border: 1.5px solid #ffccc7; border-radius: 10px; color: #cf1322; font-size: 14px; }
-.loading-state { display: flex; gap: 10px; align-items: center; justify-content: center; padding: 48px; color: var(--fin-muted); font-size: 14px; }
-.loader { width: 20px; height: 20px; border: 2px solid var(--fin-border); border-top-color: var(--fin-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
-.empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px 20px; background: var(--fin-card); border: 2px dashed var(--fin-border); border-radius: 16px; text-align: center; }
-.empty-icon { font-size: 40px; }
-.empty-title { font-size: 16px; font-weight: 600; color: var(--fin-text); }
-.empty-hint { font-size: 13px; color: var(--fin-muted); max-width: 320px; line-height: 1.6; }
-.empty-actions { display: flex; gap: 10px; }
-
 /* 持仓列表 */
 .positions { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .pos-card { padding: 20px; background: var(--fin-card); border: 1.5px solid var(--fin-border); border-radius: 14px; transition: border-color 0.15s; }

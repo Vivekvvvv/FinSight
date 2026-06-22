@@ -521,8 +521,7 @@ pre {
   50% { opacity: 0; }
 }
 
-.failed,
-.error-banner {
+.failed {
   color: var(--fin-danger);
 }
 
@@ -557,12 +556,6 @@ textarea {
 
 .report-card {
   padding: 18px;
-}
-
-.error-banner {
-  border-radius: 14px;
-  padding: 10px 12px;
-  background: var(--fin-danger-soft);
 }
 
 @media (max-width: 1080px) {

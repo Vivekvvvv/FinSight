@@ -702,10 +702,6 @@ watch(displayedItems, () => {
 
 .hero p:not(.kicker),
 .modal-copy,
-.state-card span {
-  color: var(--fin-text-2);
-}
-
 .hero-source {
   align-self: flex-start;
   margin-left: auto;
@@ -981,31 +977,8 @@ select {
   white-space: nowrap;
 }
 
-.tool-loading,
-.tool-empty,
-.tool-error {
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: var(--fin-card-inset);
-  color: var(--fin-text-2);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.tool-error {
-  background: var(--fin-danger-soft);
-  color: var(--fin-danger);
-}
-
 .compare-basket h3 {
   margin: 0;
-}
-
-.state-card {
-  display: grid;
-  gap: 8px;
-  padding: 32px;
-  text-align: center;
 }
 
 .results-shell {
