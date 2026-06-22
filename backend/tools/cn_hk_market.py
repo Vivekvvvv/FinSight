@@ -147,7 +147,7 @@ def _has_any_metric(result: dict[str, Any], metric_fields: tuple[str, ...]) -> b
     return False
 
 
-def fetch_cn_hk_quote_metrics(ticker: str) -> dict[str, Any] | None:
+def fetch_cn_hk_quote_metrics(ticker: str, *, timeout: int | None = None) -> dict[str, Any] | None:
     ticker_norm = normalize_ticker(ticker)
     market = detect_market(ticker_norm)
     if market not in {"CN", "HK"}:
@@ -163,6 +163,7 @@ def fetch_cn_hk_quote_metrics(ticker: str) -> dict[str, Any] | None:
             "secid": secid,
             "fields": "f43,f57,f58,f59,f116,f162,f167,f170,f168,f169,f174,f175",
         },
+        timeout=timeout,
     )
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):

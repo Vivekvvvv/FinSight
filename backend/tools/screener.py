@@ -7,6 +7,7 @@ import yfinance as yf
 
 from backend.tools.env import ALPHA_VANTAGE_API_KEY, FMP_API_KEY
 from backend.tools.http import _http_get
+from backend.tools.cn_hk_market import fetch_cn_hk_quote_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +265,25 @@ _STATIC_FALLBACK_ITEMS: dict[str, list[dict[str, Any]]] = {
 
 _STATIC_US_FALLBACK_ITEMS = _STATIC_FALLBACK_ITEMS["US"]
 
+_POPULAR_TICKERS: dict[str, list[str]] = {
+    "US": [
+        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B",
+        "UNH", "JNJ", "V", "XOM", "JPM", "WMT", "PG", "MA", "HD", "CVX",
+        "MRK", "ABBV", "LLY", "PFE", "KO", "PEP", "COST", "AVGO", "TMO",
+        "MCD", "CSCO", "ACN", "ABT", "DHR", "NKE", "ORCL", "VZ", "ADBE",
+    ],
+    "CN": [
+        "600519.SS", "300750.SZ", "601318.SS", "000333.SZ", "000858.SZ",
+        "600036.SS", "601899.SS", "002594.SZ", "600276.SS", "601398.SS",
+        "601288.SS", "000651.SZ", "600030.SS", "600900.SS", "601988.SS",
+    ],
+    "HK": [
+        "0700.HK", "9988.HK", "3690.HK", "1299.HK", "1810.HK",
+        "0939.HK", "1398.HK", "0005.HK", "0388.HK", "0883.HK",
+        "2318.HK", "0941.HK", "1211.HK", "9618.HK", "1024.HK",
+    ],
+}
+
 
 def _yfinance_screen_stocks(
     market: str,
@@ -390,47 +410,14 @@ def _yfinance_popular_stocks(
     if alpha_result:
         return alpha_result
 
-    # 无外部 screener 覆盖时，先使用内置候选池，保证 Demo Mode 和无密钥本地环境可用。
-    static_items = _sort_screener_items(_static_fallback_items(market_norm, filters), sort_by, sort_order)
-    if static_items:
-        sliced = static_items[:limit]
-        return {
-            "success": True,
-            "market": market_norm,
-            "filters": filters if isinstance(filters, dict) else {},
-            "sort": {"by": sort_by, "order": sort_order},
-            "items": sliced,
-            "count": len(sliced),
-            "results": sliced,
-            "source": "static_market_demo",
-            "warning": "demo_market_fallback",
-            "capability_note": "Using built-in market demo candidates because FMP screener coverage is not configured.",
-        }
-
-    if market_norm != "US":
-        return {
-            "success": True,
-            "market": market_norm,
-            "filters": filters if isinstance(filters, dict) else {},
-            "sort": {"by": sort_by, "order": sort_order},
-            "items": [],
-            "count": 0,
-            "results": [],
-            "source": "static_market_demo",
-            "warning": "coverage_limited_or_empty_result",
-            "capability_note": "Built-in market demo candidates were filtered out. Loosen filters or configure FMP coverage for live CN/HK screening.",
-        }
-
-    # Popular US large-cap tickers
-    popular_tickers = [
-        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B",
-        "UNH", "JNJ", "V", "XOM", "JPM", "WMT", "PG", "MA", "HD", "CVX",
-        "MRK", "ABBV", "LLY", "PFE", "KO", "PEP", "COST", "AVGO", "TMO",
-        "MCD", "CSCO", "ACN", "ABT", "DHR", "NKE", "ORCL", "VZ", "ADBE",
-    ]
+    if market_norm in {"CN", "HK"}:
+        cnhk_result = _cn_hk_popular_stocks(market_norm, filters, limit, sort_by, sort_order)
+        if cnhk_result:
+            return cnhk_result
 
     try:
         items: list[dict[str, Any]] = []
+        popular_tickers = _POPULAR_TICKERS.get(market_norm, _POPULAR_TICKERS["US"])
 
         # Fetch in smaller batches to avoid timeout
         batch_size = min(limit + 5, 15)
@@ -439,8 +426,10 @@ def _yfinance_popular_stocks(
                 ticker = yf.Ticker(symbol)
                 info = ticker.fast_info
 
-                price = _clean_float(getattr(info, "last_price", None))
-                market_cap = _clean_float(getattr(info, "market_cap", None))
+                item = _build_yfinance_item(symbol=symbol, market=market_norm, fast_info=info)
+                price = _clean_float(item.get("price"))
+                market_cap = _clean_float(item.get("market_cap"))
+                volume = _clean_float(item.get("volume"))
 
                 # Apply filters
                 if filters:
@@ -452,21 +441,10 @@ def _yfinance_popular_stocks(
                         continue
                     if filters.get("marketCapLowerThan") and market_cap and market_cap > float(filters["marketCapLowerThan"]):
                         continue
+                    if filters.get("volumeMoreThan") and volume and volume < float(filters["volumeMoreThan"]):
+                        continue
 
-                items.append({
-                    "symbol": symbol,
-                    "name": symbol,
-                    "sector": None,
-                    "industry": None,
-                    "country": "US",
-                    "exchange": None,
-                    "price": price,
-                    "market_cap": market_cap,
-                    "volume": _clean_float(getattr(info, "last_volume", None)),
-                    "beta": None,
-                    "dividend": None,
-                    "change_percent": None,
-                })
+                items.append(item)
 
                 if len(items) >= limit:
                     break
@@ -474,37 +452,46 @@ def _yfinance_popular_stocks(
                 continue
 
         if not items:
-            items = _static_us_fallback_items(filters)
+            items = _static_fallback_items(market_norm, filters)
 
         items = _sort_screener_items(items, sort_by, sort_order)
+        sliced = items[:limit]
+        is_live = bool(sliced) and any(item.get("_live") for item in sliced)
+        for item in sliced:
+            item.pop("_live", None)
 
         return {
             "success": True,
             "market": market_norm,
             "filters": filters if isinstance(filters, dict) else {},
             "sort": {"by": sort_by, "order": sort_order},
-            "items": items[:limit],
-            "count": len(items[:limit]),
-            "results": items[:limit],
-            "source": "yfinance_popular",
-            "capability_note": "Using popular US stocks (FMP unavailable)",
+            "items": sliced,
+            "count": len(sliced),
+            "results": sliced,
+            "source": "yfinance_popular" if is_live else "static_market_demo",
+            "warning": None if is_live else "demo_market_fallback",
+            "capability_note": (
+                f"Using yfinance popular {market_norm} tickers because FMP screener is not configured."
+                if is_live
+                else "Using built-in market demo candidates because FMP/yfinance coverage is unavailable."
+            ),
         }
     except Exception as exc:
         logger.warning("yfinance popular stocks failed: %s", exc)
-        items = _sort_screener_items(_static_us_fallback_items(filters), sort_by, sort_order)
+        items = _sort_screener_items(_static_fallback_items(market_norm, filters), sort_by, sort_order)
         if items:
             sliced = items[:limit]
             return {
                 "success": True,
-                "market": "US",
+                "market": market_norm,
                 "filters": filters if isinstance(filters, dict) else {},
                 "sort": {"by": sort_by, "order": sort_order},
                 "items": sliced,
                 "count": len(sliced),
                 "results": sliced,
-                "source": "static_popular",
+                "source": "static_market_demo",
                 "warning": "live_fallback_unavailable",
-                "capability_note": "Using built-in popular US stocks because FMP/yfinance data is unavailable.",
+                "capability_note": "Using built-in market demo candidates because FMP/yfinance data is unavailable.",
             }
         return {
             "success": False,
@@ -514,6 +501,176 @@ def _yfinance_popular_stocks(
             "error": f"yfinance_fallback_failed: {exc}",
             "source": "yfinance_popular",
         }
+
+
+def _cn_hk_popular_stocks(
+    market: str,
+    filters: dict[str, Any] | None,
+    limit: int,
+    sort_by: str,
+    sort_order: str,
+) -> dict[str, Any] | None:
+    market_norm = str(market or "").strip().upper()
+    if market_norm not in {"CN", "HK"}:
+        return None
+
+    items: list[dict[str, Any]] = []
+    candidates = _POPULAR_TICKERS.get(market_norm, [])
+    target_limit = max(1, min(limit, len(candidates) or limit))
+    max_live_probes = min(len(candidates), target_limit, 1)
+    for symbol in candidates[:max_live_probes]:
+        try:
+            metrics = fetch_cn_hk_quote_metrics(symbol, timeout=1)
+        except Exception:
+            metrics = None
+        if not isinstance(metrics, dict):
+            continue
+        item = _build_cn_hk_item(symbol=symbol, market=market_norm, metrics=metrics)
+        if not _passes_screener_filters(item, filters):
+            continue
+        items.append(item)
+        if len(items) >= target_limit:
+            break
+
+    seen = {str(item.get("symbol") or "").upper() for item in items}
+    used_static_fallback = False
+    if len(items) < target_limit:
+        for item in _static_fallback_items(market_norm, filters):
+            symbol = str(item.get("symbol") or "").upper()
+            if not symbol or symbol in seen:
+                continue
+            items.append(dict(item))
+            seen.add(symbol)
+            used_static_fallback = True
+            if len(items) >= target_limit:
+                break
+
+    if not items:
+        return {
+            "success": True,
+            "market": market_norm,
+            "filters": filters if isinstance(filters, dict) else {},
+            "sort": {"by": sort_by, "order": sort_order},
+            "items": [],
+            "count": 0,
+            "results": [],
+            "source": "eastmoney_quote",
+            "warning": "coverage_limited_or_empty_result",
+            "capability_note": "CN/HK free quote data is temporarily slow or unavailable; try loosening filters.",
+        }
+
+    items = _sort_screener_items(items, sort_by, sort_order)
+    sliced = items[:target_limit]
+    live_count = sum(1 for item in sliced if item.get("_live"))
+    for item in sliced:
+        item.pop("_live", None)
+    return {
+        "success": True,
+        "market": market_norm,
+        "filters": filters if isinstance(filters, dict) else {},
+        "sort": {"by": sort_by, "order": sort_order},
+        "items": sliced,
+        "count": len(sliced),
+        "results": sliced,
+        "source": "eastmoney_quote" if live_count else "static_market_demo",
+        "warning": "live_fallback_unavailable" if used_static_fallback and not live_count else None,
+        "capability_note": (
+            "Using Eastmoney free quote data for popular CN/HK tickers; built-in candidates fill any slow symbols."
+            if live_count
+            else "Using built-in market demo candidates because CN/HK free quote data is temporarily slow."
+        ),
+    }
+
+
+def _passes_screener_filters(item: dict[str, Any], filters: dict[str, Any] | None) -> bool:
+    active = filters if isinstance(filters, dict) else {}
+    price = _clean_float(item.get("price"))
+    market_cap = _clean_float(item.get("market_cap"))
+    volume = _clean_float(item.get("volume"))
+    if active.get("priceMoreThan") and price and price < float(active["priceMoreThan"]):
+        return False
+    if active.get("priceLowerThan") and price and price > float(active["priceLowerThan"]):
+        return False
+    if active.get("marketCapMoreThan") and market_cap and market_cap < float(active["marketCapMoreThan"]):
+        return False
+    if active.get("marketCapLowerThan") and market_cap and market_cap > float(active["marketCapLowerThan"]):
+        return False
+    if active.get("volumeMoreThan") and volume and volume < float(active["volumeMoreThan"]):
+        return False
+    return True
+
+
+def _build_cn_hk_item(*, symbol: str, market: str, metrics: dict[str, Any]) -> dict[str, Any]:
+    static_by_symbol = {
+        str(item.get("symbol") or "").upper(): item
+        for item in _STATIC_FALLBACK_ITEMS.get(market, [])
+        if isinstance(item, dict)
+    }
+    static = static_by_symbol.get(symbol.upper(), {})
+    last_price = _clean_float(metrics.get("last_price"))
+    market_cap = _clean_float(metrics.get("market_cap"))
+    return {
+        "symbol": str(metrics.get("symbol") or symbol).upper(),
+        "name": str(metrics.get("name") or static.get("name") or symbol).strip(),
+        "sector": static.get("sector"),
+        "industry": static.get("industry"),
+        "country": market,
+        "exchange": static.get("exchange") or ("HKEX" if market == "HK" else "Shanghai/Shenzhen"),
+        "price": last_price,
+        "market_cap": market_cap,
+        "volume": None,
+        "beta": None,
+        "dividend": None,
+        "change_percent": None,
+        "_live": True,
+    }
+
+
+def _get_fast_info_value(info: Any, *names: str) -> Any:
+    for name in names:
+        if isinstance(info, dict) and name in info:
+            return info.get(name)
+        value = getattr(info, name, None)
+        if value is not None:
+            return value
+    return None
+
+
+def _build_yfinance_item(*, symbol: str, market: str, fast_info: Any) -> dict[str, Any]:
+    static_by_symbol = {
+        str(item.get("symbol") or "").upper(): item
+        for item in _STATIC_FALLBACK_ITEMS.get(market, [])
+        if isinstance(item, dict)
+    }
+    static = static_by_symbol.get(symbol.upper(), {})
+
+    price = _clean_float(_get_fast_info_value(fast_info, "last_price", "lastPrice"))
+    market_cap = _clean_float(_get_fast_info_value(fast_info, "market_cap", "marketCap"))
+    volume = _clean_float(_get_fast_info_value(fast_info, "last_volume", "lastVolume", "regular_market_volume"))
+    previous_close = _clean_float(_get_fast_info_value(fast_info, "previous_close", "previousClose"))
+    change_percent = None
+    if price is not None and previous_close not in (None, 0):
+        change_percent = round((price - previous_close) / previous_close * 100, 4)
+
+    exchange = static.get("exchange")
+    if not exchange:
+        exchange = "HKEX" if market == "HK" else ("Shanghai/Shenzhen" if market == "CN" else None)
+
+    return {
+        "symbol": symbol,
+        "name": static.get("name") or symbol,
+        "sector": static.get("sector"),
+        "industry": static.get("industry"),
+        "country": market,
+        "exchange": exchange,
+        "price": price,
+        "market_cap": market_cap,
+        "volume": volume,
+        "beta": None,
+        "dividend": None,
+        "change_percent": change_percent,
+        "_live": price is not None or market_cap is not None or volume is not None,
+    }
 
 
 def _sort_screener_items(items: list[dict[str, Any]], sort_by: str, sort_order: str) -> list[dict[str, Any]]:

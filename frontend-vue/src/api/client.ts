@@ -243,12 +243,17 @@ export const apiClient = {
   },
 
   async getScreenerMeta(): Promise<ScreenerMetaResponse> {
-    const { data } = await http.get<ScreenerMetaResponse>('/api/screener/filters/meta');
+    const { data } = await http.get<ScreenerMetaResponse>('/api/screener/filters/meta', {
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
+    });
     return data;
   },
 
   async runScreener(payload: ScreenerRunRequest): Promise<ScreenerRunResponse> {
-    const { data } = await http.post<ScreenerRunResponse>('/api/screener/run', payload);
+    const { data } = await http.post<ScreenerRunResponse>('/api/screener/run', payload, {
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
+      timeout: 45_000,
+    });
     return data;
   },
 
@@ -689,6 +694,21 @@ export const apiClient = {
 
   async getHealthStats(): Promise<unknown> {
     const { data } = await http.get('/api/system/health/stats');
+    return data;
+  },
+
+  async getTopList(ticker: string): Promise<Record<string, unknown>> {
+    const { data } = await http.get<Record<string, unknown>>(`/api/stock/top-list/${encodeURIComponent(ticker)}`);
+    return data;
+  },
+
+  async getNorthFlow(): Promise<Record<string, unknown>> {
+    const { data } = await http.get<Record<string, unknown>>('/api/market/north-flow');
+    return data;
+  },
+
+  async getMarginTrading(ticker: string): Promise<Record<string, unknown>> {
+    const { data } = await http.get<Record<string, unknown>>(`/api/stock/margin/${encodeURIComponent(ticker)}`);
     return data;
   },
 };

@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import type { EvidenceInfo, ScreenerItem, ScreenerMetaResponse, ScreenerRunResponse } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 
 type Market = 'US' | 'CN' | 'HK';
+type MarketTool = 'top-list' | 'north-flow' | 'margin';
 
+const route = useRoute();
 const router = useRouter();
 const identity = useIdentityStore();
 
@@ -20,12 +22,15 @@ const minMarketCap = ref('');
 const minPrice = ref('');
 const maxPrice = ref('');
 const minVolume = ref('');
+const pageSize = ref(6);
+const currentPage = ref(1);
 
 const meta = ref<ScreenerMetaResponse | null>(null);
 const response = ref<ScreenerRunResponse | null>(null);
 const items = ref<ScreenerItem[]>([]);
 const lastRunAt = ref<string | null>(null);
 const loading = ref(false);
+let runToken = 0;
 const errorMsg = ref<string | null>(null);
 const actionMsg = ref<string | null>(null);
 const addedWatchlist = ref<Set<string>>(new Set());
@@ -36,9 +41,52 @@ const importAvgCost = ref('');
 const importBusy = ref(false);
 const batchBusy = ref(false);
 const showChinaTools = ref(false);
+const activeMarketTool = ref<MarketTool | null>(null);
+const marketToolTicker = ref('600519.SS');
+const marketToolLoading = ref(false);
+const marketToolError = ref<string | null>(null);
+const marketToolData = ref<Record<string, unknown> | null>(null);
 
 const markets = computed<Market[]>(() => meta.value?.markets?.length ? meta.value.markets : ['US', 'CN', 'HK']);
 const sortOptions = computed(() => meta.value?.sort_by?.length ? meta.value.sort_by : ['marketCap', 'price', 'volume', 'changesPercentage']);
+const activeToolTitle = computed(() => {
+  if (activeMarketTool.value === 'top-list') return '龙虎榜异动';
+  if (activeMarketTool.value === 'north-flow') return '北向资金';
+  if (activeMarketTool.value === 'margin') return '融资融券';
+  return 'A股市场工具';
+});
+const marketToolFields = computed(() => {
+  const data = marketToolData.value || {};
+  if (activeMarketTool.value === 'north-flow') {
+    return [
+      ['北向净流入', data.north_flow],
+      ['沪股通', data.sh_flow],
+      ['深股通', data.sz_flow],
+      ['时间', data.time || data.date],
+    ];
+  }
+  if (activeMarketTool.value === 'top-list') {
+    return [
+      ['上榜原因', data.reason],
+      ['收盘价', data.close_price],
+      ['涨跌幅', data.change_percent == null ? null : `${data.change_percent}%`],
+      ['净买入', data.net_buy],
+      ['买入额', data.buy_amount],
+      ['卖出额', data.sell_amount],
+    ];
+  }
+  if (activeMarketTool.value === 'margin') {
+    return [
+      ['日期', data.date],
+      ['融资余额', data.margin_balance],
+      ['融资买入', data.margin_buy],
+      ['融资偿还', data.margin_repay],
+      ['融券余额', data.short_balance],
+      ['总余额', data.total_balance],
+    ];
+  }
+  return [];
+});
 const screenerEvidence = computed<EvidenceInfo>(() => {
   const source = response.value?.source || (response.value?.warning ? 'static_market_demo' : 'screener');
   const isDemo = source === 'static_market_demo' || response.value?.warning === 'demo_market_fallback';
@@ -57,6 +105,26 @@ const displayedItems = computed(() => {
   return items.value.filter((item) => `${item.symbol} ${item.name || ''} ${item.sector || ''} ${item.industry || ''}`.toLowerCase().includes(q));
 });
 
+const totalPages = computed(() => Math.max(1, Math.ceil(displayedItems.value.length / pageSize.value)));
+const pageStart = computed(() => displayedItems.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize.value + 1);
+const pageEnd = computed(() => Math.min(displayedItems.value.length, currentPage.value * pageSize.value));
+const pagedItems = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return displayedItems.value.slice(start, start + pageSize.value);
+});
+
+function setPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value);
+}
+
+function nextPage() {
+  setPage(currentPage.value + 1);
+}
+
+function prevPage() {
+  setPage(currentPage.value - 1);
+}
+
 function num(value: string): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) && value.trim() !== '' ? parsed : undefined;
@@ -73,6 +141,23 @@ function compact(value: number | null | undefined): string {
 function money(value: number | null | undefined): string {
   if (value == null) return '--';
   return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+}
+
+function displayToolValue(value: unknown): string {
+  if (value == null || value === '') return '--';
+  if (typeof value === 'number') return compact(value);
+  return String(value);
+}
+
+function marketToolErrorMessage(error: unknown): string {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  if (status === 404) {
+    if (activeMarketTool.value === 'top-list') return `${marketToolTicker.value} 近期没有龙虎榜记录，可换一个A股代码查询。`;
+    if (activeMarketTool.value === 'margin') return `${marketToolTicker.value} 暂无融资融券数据，可换一个A股代码查询。`;
+    return '北向资金数据暂不可用，请稍后刷新。';
+  }
+  if (status === 400) return '请输入有效的A股代码，例如 600519.SS 或 000001.SZ。';
+  return error instanceof Error ? error.message : String(error);
 }
 
 function warningLabel(code: string | null | undefined): string {
@@ -104,9 +189,11 @@ async function loadMeta() {
 }
 
 async function run() {
+  const token = ++runToken;
   loading.value = true;
   errorMsg.value = null;
   actionMsg.value = null;
+  currentPage.value = 1;
   try {
     const resp = await apiClient.runScreener({
       market: market.value,
@@ -116,16 +203,20 @@ async function run() {
       sort_by: sortBy.value,
       sort_order: sortOrder.value,
     });
+    if (token !== runToken) return;
     response.value = resp;
     lastRunAt.value = new Date().toISOString();
     items.value = resp.items || resp.results || [];
     if (!resp.success && resp.error) errorMsg.value = resp.error;
   } catch (error) {
+    if (token !== runToken) return;
     errorMsg.value = error instanceof Error ? error.message : String(error);
     response.value = null;
     items.value = [];
   } finally {
-    loading.value = false;
+    if (token === runToken) {
+      loading.value = false;
+    }
   }
 }
 
@@ -265,15 +356,69 @@ function goDossier(symbol: string) {
   void router.push(`/dossier/${encodeURIComponent(symbol)}`);
 }
 
-function activateMarketTool(tool: 'top-list' | 'north-flow' | 'margin') {
+function selectMarket(nextMarket: Market) {
+  market.value = nextMarket;
+  void run();
+}
+
+function pickDefaultChinaTicker() {
+  const candidate = displayedItems.value.find((item) => String(item.symbol || '').endsWith('.SS') || String(item.symbol || '').endsWith('.SZ'));
+  if (candidate?.symbol) {
+    marketToolTicker.value = candidate.symbol;
+  }
+}
+
+async function activateMarketTool(tool: MarketTool) {
   market.value = 'CN';
   showChinaTools.value = true;
+  activeMarketTool.value = tool;
+  marketToolData.value = null;
+  marketToolError.value = null;
+  pickDefaultChinaTicker();
   void router.replace({ path: '/stocks', query: { tool } });
+  if (tool !== 'north-flow' && !marketToolTicker.value.trim()) {
+    marketToolTicker.value = '600519.SS';
+  }
+  await loadMarketTool();
+}
+
+async function loadMarketTool() {
+  if (!activeMarketTool.value || marketToolLoading.value) return;
+  marketToolLoading.value = true;
+  marketToolError.value = null;
+  marketToolData.value = null;
+  try {
+    if (activeMarketTool.value === 'north-flow') {
+      marketToolData.value = await apiClient.getNorthFlow();
+    } else if (activeMarketTool.value === 'top-list') {
+      marketToolData.value = await apiClient.getTopList(marketToolTicker.value.trim() || '600519.SS');
+    } else {
+      marketToolData.value = await apiClient.getMarginTrading(marketToolTicker.value.trim() || '600519.SS');
+    }
+  } catch (error) {
+    marketToolError.value = marketToolErrorMessage(error);
+  } finally {
+    marketToolLoading.value = false;
+  }
 }
 
 onMounted(async () => {
   await loadMeta();
   await run();
+  const tool = String(route.query.tool || '') as MarketTool;
+  if (['top-list', 'north-flow', 'margin'].includes(tool)) {
+    await activateMarketTool(tool);
+  }
+});
+
+watch([query, pageSize], () => {
+  currentPage.value = 1;
+});
+
+watch(displayedItems, () => {
+  if (currentPage.value > totalPages.value) {
+    currentPage.value = totalPages.value;
+  }
 });
 </script>
 
@@ -294,7 +439,7 @@ onMounted(async () => {
 
     <section class="filters page-card">
       <div class="market-tabs" aria-label="市场切换">
-        <button v-for="m in markets" :key="m" :class="{ active: market === m }" @click="market = m; run()">
+        <button v-for="m in markets" :key="m" :class="{ active: market === m }" @click="selectMarket(m)">
           {{ m }}
         </button>
       </div>
@@ -346,6 +491,68 @@ onMounted(async () => {
     <p v-if="actionMsg" class="notice success">{{ actionMsg }}</p>
     <p v-if="errorMsg" class="notice danger">{{ errorMsg }}</p>
 
+    <section v-if="displayedItems.length === 0" class="state-card page-card">
+      <strong>暂无候选股票</strong>
+      <span>可放宽筛选条件，或切换到 US 市场。CN/HK 第一版可能受数据源覆盖影响。</span>
+    </section>
+
+    <section v-else class="results-shell">
+      <div class="results-head page-card">
+        <div>
+          <p class="kicker">RESULTS</p>
+          <h3>候选列表</h3>
+          <span>显示 {{ pageStart }}-{{ pageEnd }} / {{ displayedItems.length }}，减少长页面滚动。</span>
+        </div>
+        <div class="pager" aria-label="候选股票分页">
+          <label class="page-size">
+            每页
+            <select v-model.number="pageSize">
+              <option :value="6">6</option>
+              <option :value="9">9</option>
+              <option :value="12">12</option>
+            </select>
+          </label>
+          <button type="button" :disabled="currentPage <= 1" @click="prevPage">上一页</button>
+          <strong>第 {{ currentPage }} / {{ totalPages }} 页</strong>
+          <button type="button" :disabled="currentPage >= totalPages" @click="nextPage">下一页</button>
+        </div>
+      </div>
+
+      <div class="stock-grid">
+        <article v-for="item in pagedItems" :key="item.symbol" class="stock-card page-card">
+          <div class="stock-head">
+            <div>
+              <span class="symbol">{{ item.symbol }}</span>
+              <h3>{{ item.name || item.symbol }}</h3>
+            </div>
+            <strong :class="Number(item.change_percent || 0) >= 0 ? 'gain' : 'loss'">
+              {{ item.change_percent == null ? '--' : `${item.change_percent > 0 ? '+' : ''}${item.change_percent.toFixed(2)}%` }}
+            </strong>
+          </div>
+          <div class="meta-line">
+            <span>{{ item.exchange || market }}</span>
+            <span>{{ item.sector || '未分类' }}</span>
+            <span>{{ item.industry || '行业待补充' }}</span>
+          </div>
+          <div class="metrics">
+            <div><span>价格</span><strong>{{ money(item.price) }}</strong></div>
+            <div><span>市值</span><strong>{{ compact(item.market_cap) }}</strong></div>
+            <div><span>成交量</span><strong>{{ compact(item.volume) }}</strong></div>
+            <div><span>Beta</span><strong>{{ money(item.beta) }}</strong></div>
+          </div>
+          <div class="actions">
+            <button :disabled="addedWatchlist.has(item.symbol)" @click="addToWatchlist(item)">
+              {{ addedWatchlist.has(item.symbol) ? '已加入' : '加入自选' }}
+            </button>
+            <button class="ghost" @click="goDossier(item.symbol)">查看分析</button>
+            <button class="ghost" @click="addWatchlistAndNote(item)">自选+笔记</button>
+            <button class="ghost" @click="openImport(item)">持仓</button>
+            <button class="ghost" @click="addToCompare(item)">对比</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <section v-if="displayedItems.length" class="workflow-bar page-card">
       <div>
         <p class="kicker">RESEARCH WORKFLOW</p>
@@ -379,60 +586,43 @@ onMounted(async () => {
         <b>{{ showChinaTools ? '收起' : '展开' }}</b>
       </button>
       <div v-if="showChinaTools" class="tools-grid">
-        <button type="button" @click="activateMarketTool('top-list')">
+        <button type="button" :class="{ active: activeMarketTool === 'top-list' }" @click="activateMarketTool('top-list')">
           <strong>龙虎榜异动</strong>
           <span>用于发现短期异动候选，后续进入标的研究复查。</span>
         </button>
-        <button type="button" @click="activateMarketTool('north-flow')">
+        <button type="button" :class="{ active: activeMarketTool === 'north-flow' }" @click="activateMarketTool('north-flow')">
           <strong>北向资金</strong>
           <span>作为市场情绪背景，不单独占据主导航。</span>
         </button>
-        <button type="button" @click="activateMarketTool('margin')">
+        <button type="button" :class="{ active: activeMarketTool === 'margin' }" @click="activateMarketTool('margin')">
           <strong>融资融券</strong>
           <span>用于观察杠杆变化，结论沉淀到报告或笔记。</span>
         </button>
       </div>
-    </section>
-
-    <section v-if="displayedItems.length === 0" class="state-card page-card">
-      <strong>暂无候选股票</strong>
-      <span>可放宽筛选条件，或切换到 US 市场。CN/HK 第一版可能受数据源覆盖影响。</span>
-    </section>
-
-    <section v-else class="stock-grid">
-      <article v-for="item in displayedItems" :key="item.symbol" class="stock-card page-card">
-        <div class="stock-head">
+      <div v-if="activeMarketTool" class="tool-detail">
+        <div class="tool-detail-head">
           <div>
-            <span class="symbol">{{ item.symbol }}</span>
-            <h3>{{ item.name || item.symbol }}</h3>
+            <p class="kicker">A-SHARE TOOL</p>
+            <h3>{{ activeToolTitle }}</h3>
           </div>
-          <strong :class="Number(item.change_percent || 0) >= 0 ? 'gain' : 'loss'">
-            {{ item.change_percent == null ? '--' : `${item.change_percent > 0 ? '+' : ''}${item.change_percent.toFixed(2)}%` }}
-          </strong>
-        </div>
-        <div class="meta-line">
-          <span>{{ item.exchange || market }}</span>
-          <span>{{ item.sector || '未分类' }}</span>
-          <span>{{ item.industry || '行业待补充' }}</span>
-        </div>
-        <div class="metrics">
-          <div><span>价格</span><strong>{{ money(item.price) }}</strong></div>
-          <div><span>市值</span><strong>{{ compact(item.market_cap) }}</strong></div>
-          <div><span>成交量</span><strong>{{ compact(item.volume) }}</strong></div>
-          <div><span>Beta</span><strong>{{ money(item.beta) }}</strong></div>
-        </div>
-        <div class="actions">
-          <button :disabled="addedWatchlist.has(item.symbol)" @click="addToWatchlist(item)">
-            {{ addedWatchlist.has(item.symbol) ? '已加入' : '加入自选' }}
+          <label v-if="activeMarketTool !== 'north-flow'" class="tool-symbol">
+            A股代码
+            <input v-model="marketToolTicker" placeholder="如 600519.SS" @keyup.enter="loadMarketTool">
+          </label>
+          <button type="button" class="primary" :disabled="marketToolLoading" @click="loadMarketTool">
+            {{ marketToolLoading ? '加载中...' : '刷新工具数据' }}
           </button>
-          <button class="ghost" @click="addWatchlistAndNote(item)">自选+笔记</button>
-          <button class="ghost" @click="openImport(item)">导入持仓</button>
-          <button class="ghost" @click="goDossier(item.symbol)">查看分析</button>
-          <button class="ghost" @click="goDossier(item.symbol)">生成档案</button>
-          <button class="ghost" @click="addToCompare(item)">加入对比</button>
-          <button class="ghost" @click="goDossier(item.symbol)">时间线</button>
         </div>
-      </article>
+        <p v-if="marketToolError" class="tool-error">{{ marketToolError }}</p>
+        <div v-else-if="marketToolLoading" class="tool-loading">正在读取 {{ activeToolTitle }} 数据...</div>
+        <div v-else-if="marketToolData" class="tool-metrics">
+          <div v-for="field in marketToolFields" :key="String(field[0])">
+            <span>{{ field[0] }}</span>
+            <strong>{{ displayToolValue(field[1]) }}</strong>
+          </div>
+        </div>
+        <p v-else class="tool-empty">选择工具后会在这里显示结果。</p>
+      </div>
     </section>
 
     <div v-if="importing" class="modal-backdrop" @click.self="importing = null">
@@ -474,7 +664,7 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  padding: clamp(24px, 2.6vw, 38px);
+  padding: clamp(16px, 1.8vw, 24px);
   background:
     linear-gradient(135deg, var(--fin-primary-soft), transparent 40%),
     radial-gradient(circle at 86% 14%, var(--fin-accent-soft), transparent 32%),
@@ -492,7 +682,7 @@ onMounted(async () => {
 
 .hero h2 {
   margin: 0;
-  font-size: clamp(34px, 4vw, 58px);
+  font-size: clamp(28px, 3vw, 42px);
   letter-spacing: -0.06em;
 }
 
@@ -508,7 +698,8 @@ onMounted(async () => {
 }
 
 .hero-stat {
-  min-width: 160px;
+  min-width: 128px;
+  min-height: 112px;
   display: grid;
   place-items: center;
   align-content: center;
@@ -518,7 +709,7 @@ onMounted(async () => {
 }
 
 .hero-stat strong {
-  font-size: 48px;
+  font-size: 38px;
   line-height: 1;
 }
 
@@ -529,25 +720,32 @@ onMounted(async () => {
 
 .filters {
   display: grid;
-  grid-template-columns: auto minmax(180px, 1fr) repeat(5, minmax(130px, 0.75fr)) auto;
-  gap: 12px;
+  grid-template-columns: minmax(156px, auto) minmax(160px, 1.1fr) repeat(5, minmax(96px, 0.7fr)) minmax(88px, auto);
+  gap: 10px;
   align-items: end;
-  padding: 18px;
+  padding: 14px;
 }
 
 .market-tabs,
 .meta-line,
 .actions,
+.pager,
 .compare-basket {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
+.market-tabs {
+  min-width: 156px;
+  flex-wrap: nowrap;
+}
+
 .market-tabs button,
 .primary,
 .secondary,
 .actions button,
+.pager button,
 .icon-btn,
 .compare-basket button {
   border: 1px solid var(--fin-border);
@@ -557,6 +755,7 @@ onMounted(async () => {
   color: var(--fin-text);
   cursor: pointer;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .market-tabs button.active,
@@ -579,7 +778,7 @@ input,
 select {
   width: 100%;
   border-radius: 14px;
-  padding: 11px 12px;
+  padding: 9px 11px;
 }
 
 .range-fields {
@@ -620,7 +819,7 @@ select {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px;
+  padding: 12px 14px;
 }
 
 .workflow-bar > div {
@@ -638,7 +837,7 @@ select {
 .workflow-bar button {
   border: 1px solid var(--fin-primary);
   border-radius: 14px;
-  padding: 10px 13px;
+  padding: 9px 12px;
   background: var(--fin-primary);
   color: var(--fin-bg);
   cursor: pointer;
@@ -647,8 +846,8 @@ select {
 
 .market-tools {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: 8px;
+  padding: 12px 14px;
 }
 
 .tools-head {
@@ -710,6 +909,80 @@ select {
   background: var(--fin-card-soft);
 }
 
+.tools-grid button.active {
+  border-color: var(--fin-primary);
+  background: var(--fin-primary-soft);
+}
+
+.tool-detail {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--fin-border);
+  padding-top: 12px;
+}
+
+.tool-detail-head {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(180px, 260px) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.tool-detail-head h3 {
+  margin: 0;
+}
+
+.tool-symbol {
+  min-width: 0;
+}
+
+.tool-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tool-metrics div {
+  min-width: 0;
+  border: 1px solid var(--fin-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--fin-card-inset);
+}
+
+.tool-metrics span {
+  display: block;
+  color: var(--fin-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tool-metrics strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--fin-text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-loading,
+.tool-empty,
+.tool-error {
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--fin-card-inset);
+  color: var(--fin-text-2);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.tool-error {
+  background: var(--fin-danger-soft);
+  color: var(--fin-danger);
+}
+
 .compare-basket h3 {
   margin: 0;
 }
@@ -721,16 +994,74 @@ select {
   text-align: center;
 }
 
+.results-shell {
+  display: grid;
+  gap: 12px;
+}
+
+.results-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.results-head h3 {
+  margin: 0;
+}
+
+.results-head span {
+  color: var(--fin-text-2);
+  font-size: 13px;
+}
+
+.pager {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.pager strong {
+  min-width: 92px;
+  color: var(--fin-text);
+  font-size: 13px;
+  text-align: center;
+}
+
+.pager button {
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+.pager button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.page-size {
+  display: flex;
+  min-width: 116px;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.page-size select {
+  width: 70px;
+  padding: 8px 10px;
+}
+
 .stock-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
 }
 
 .stock-card {
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  gap: 10px;
+  padding: 14px;
 }
 
 .stock-head {
@@ -748,28 +1079,41 @@ select {
 
 .stock-head h3 {
   margin: 4px 0 0;
-  font-size: 18px;
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta-line {
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .meta-line span {
+  min-width: 0;
+  overflow: hidden;
   border-radius: 999px;
   padding: 4px 9px;
   background: var(--fin-card-soft);
   color: var(--fin-text-2);
   font-size: 12px;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .metrics div {
   border: 1px solid var(--fin-border);
-  border-radius: 14px;
-  padding: 10px;
+  border-radius: 10px;
+  padding: 8px;
   background: var(--fin-card-inset);
 }
 
@@ -784,12 +1128,12 @@ select {
   display: block;
   margin-top: 2px;
   color: var(--fin-text);
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .actions button {
-  padding: 9px 11px;
-  font-size: 13px;
+  padding: 7px 9px;
+  font-size: 12px;
 }
 
 .actions button:disabled {
@@ -856,9 +1200,27 @@ select {
   .filters,
   .stock-grid,
   .metrics,
+  .tool-detail-head,
+  .tool-metrics,
   .tools-grid {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .results-head,
+  .pager {
+    justify-content: stretch;
+  }
+
+  .results-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pager button,
+  .pager strong,
+  .page-size {
+    flex: 1;
   }
 }
 </style>

@@ -22,8 +22,32 @@ _ORIGINAL_MODULES = {
 }
 
 sys.modules.setdefault("yfinance", types.SimpleNamespace(Ticker=lambda _symbol: _FakeTicker()))
-sys.modules.setdefault("backend.tools.env", types.SimpleNamespace(FMP_API_KEY=""))
-sys.modules.setdefault("backend.tools.http", types.SimpleNamespace(_http_get=lambda *args, **kwargs: None))
+sys.modules.setdefault(
+    "backend.tools.env",
+    types.SimpleNamespace(
+        ALPHA_VANTAGE_API_KEY="",
+        FMP_API_KEY="",
+        FINNHUB_API_KEY="",
+        MASSIVE_API_KEY="",
+        IEX_CLOUD_API_KEY="",
+        TIINGO_API_KEY="",
+        TWELVE_DATA_API_KEY="",
+        MARKETSTACK_API_KEY="",
+        TAVILY_API_KEY="",
+        EXA_API_KEY="",
+        OPENFIGI_API_KEY="",
+        EODHD_API_KEY="",
+        FRED_API_KEY="",
+        finnhub_client=None,
+    ),
+)
+sys.modules.setdefault(
+    "backend.tools.http",
+    types.SimpleNamespace(
+        _http_get=lambda *args, **kwargs: None,
+        _http_post=lambda *args, **kwargs: None,
+    ),
+)
 
 _SCREENER_PATH = Path(__file__).resolve().parents[1] / "tools" / "screener.py"
 _SPEC = importlib.util.spec_from_file_location("screener_under_test", _SCREENER_PATH)
@@ -77,8 +101,18 @@ def test_screener_invalid_sort_falls_back(monkeypatch):
     assert result["sort"] == {"by": "marketCap", "order": "desc"}
 
 
-def test_screener_cn_without_key_returns_static_demo_items(monkeypatch):
+def test_screener_cn_without_key_uses_yfinance_popular(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    monkeypatch.setattr(
+        screener,
+        "fetch_cn_hk_quote_metrics",
+        lambda symbol, **_kwargs: {
+            "symbol": symbol,
+            "name": symbol,
+            "last_price": 10,
+            "market_cap": 1000,
+        },
+    )
 
     result = screener.screen_stocks(market="CN", limit=10)
 
@@ -86,13 +120,23 @@ def test_screener_cn_without_key_returns_static_demo_items(monkeypatch):
     assert result["market"] == "CN"
     assert result["items"]
     assert result["items"][0]["country"] == "CN"
-    assert result["warning"] == "demo_market_fallback"
-    assert result["source"] == "static_market_demo"
-    assert "built-in" in result["capability_note"]
+    assert result["warning"] is None
+    assert result["source"] == "eastmoney_quote"
+    assert "Eastmoney" in result["capability_note"]
 
 
-def test_screener_hk_without_key_returns_static_demo_items(monkeypatch):
+def test_screener_hk_without_key_uses_yfinance_popular(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    monkeypatch.setattr(
+        screener,
+        "fetch_cn_hk_quote_metrics",
+        lambda symbol, **_kwargs: {
+            "symbol": symbol,
+            "name": symbol,
+            "last_price": 20,
+            "market_cap": 2000,
+        },
+    )
 
     result = screener.screen_stocks(market="HK", limit=10)
 
@@ -100,8 +144,8 @@ def test_screener_hk_without_key_returns_static_demo_items(monkeypatch):
     assert result["market"] == "HK"
     assert result["items"]
     assert result["items"][0]["country"] == "HK"
-    assert result["warning"] == "demo_market_fallback"
-    assert result["source"] == "static_market_demo"
+    assert result["warning"] is None
+    assert result["source"] == "eastmoney_quote"
 
 
 def test_screener_fallback_result_keeps_items_and_results_alias(monkeypatch):
