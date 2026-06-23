@@ -2,11 +2,15 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
+import EmptyState from '@/components/EmptyState.vue';
 import IdentityPanel from '@/components/IdentityPanel.vue';
+import LoadingState from '@/components/LoadingState.vue';
+import StatusBanner from '@/components/StatusBanner.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 import { useIdentityStore } from '@/stores/identity';
 import type { DemoStatusResponse, PortfolioSummary, WatchlistItem } from '@/api/types';
 import { usePullToRefresh } from '@/composables/usePullToRefresh';
+import { reportFriendlyError } from '@/utils/error';
 
 const route = useRoute();
 const router = useRouter();
@@ -16,6 +20,8 @@ const contextOpen = ref(false);
 const portfolio = ref<PortfolioSummary | null>(null);
 const watchlist = ref<WatchlistItem[]>([]);
 const demoStatus = ref<DemoStatusResponse | null>(null);
+const contextLoading = ref(false);
+const contextError = ref<string | null>(null);
 
 const navItems = [
   { to: '/welcome', label: '今日工作台', group: '每日流程', icon: '今' },
@@ -56,11 +62,15 @@ const routeTitle = computed(() => {
 
 const totalValue = computed(() => portfolio.value?.total_value ?? 0);
 const totalPnl = computed(() => portfolio.value?.total_pnl ?? 0);
+const sourceComponents = computed(() => demoStatus.value?.components || []);
+const missingServices = computed(() => demoStatus.value?.missing_services || []);
 const sourceStatus = computed(() => {
+  if (contextLoading.value && !demoStatus.value) return { label: '检测中', tone: 'unknown', detail: '状态同步' };
+  if (contextError.value && !demoStatus.value) return { label: '状态异常', tone: 'warn', detail: '点击查看' };
   const status = demoStatus.value?.overall_status || (demoStatus.value?.demo_mode ? 'demo' : 'unknown');
   if (status === 'demo') return { label: 'DEMO 数据', tone: 'demo', detail: '演示数据' };
   if (status === 'live_ready') return { label: 'LIVE 数据', tone: 'live', detail: '真实源可用' };
-  if (status === 'fallback_ready') return { label: 'FALLBACK 数据', tone: 'live', detail: '备用源可用' };
+  if (status === 'fallback_ready') return { label: 'FALLBACK 数据', tone: 'warn', detail: '备用源可用' };
   if (status === 'needs_config') return { label: '待配置', tone: 'warn', detail: '缺少 key 或服务' };
   return { label: '未知', tone: 'unknown', detail: '等待检测' };
 });
@@ -80,6 +90,8 @@ function closeSidebar() {
 }
 
 async function loadContext() {
+  contextLoading.value = true;
+  contextError.value = null;
   const results = await Promise.allSettled([
     apiClient.getPortfolioSummary(identity.sessionId),
     apiClient.listWatchlist(identity.userId),
@@ -88,6 +100,12 @@ async function loadContext() {
   if (results[0].status === 'fulfilled') portfolio.value = results[0].value;
   if (results[1].status === 'fulfilled') watchlist.value = results[1].value.items || [];
   if (results[2].status === 'fulfilled') demoStatus.value = results[2].value;
+  else contextError.value = reportFriendlyError(results[2].reason, '数据源状态暂时不可用，请稍后刷新。');
+
+  if (results.every((item) => item.status === 'rejected')) {
+    contextError.value = '研究上下文暂时不可用，请检查本地后端是否已启动后重试。';
+  }
+  contextLoading.value = false;
 }
 
 onMounted(() => {
@@ -101,6 +119,10 @@ watch(
   },
   { immediate: true },
 );
+
+watch(contextOpen, (open) => {
+  if (open && !demoStatus.value && !contextLoading.value) void loadContext();
+});
 
 const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 </script>
@@ -223,8 +245,16 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
         <p class="rail-kicker">DATA SOURCE</p>
         <strong>数据源状态</strong>
         <p class="muted">这里说明当前看到的是演示数据、真实数据，还是缺少配置。</p>
-        <div class="source-list">
-          <article v-for="item in demoStatus?.components || []" :key="item.key" class="source-row">
+        <StatusBanner
+          v-if="contextError"
+          variant="warning"
+          :message="contextError"
+          action-label="重试"
+          @action="loadContext"
+        />
+        <LoadingState v-if="contextLoading && !demoStatus" label="正在检测数据源状态..." compact />
+        <div v-else-if="sourceComponents.length" class="source-list">
+          <article v-for="item in sourceComponents" :key="item.key" class="source-row">
             <div>
               <strong>{{ item.label }}</strong>
               <span>{{ item.detail }}</span>
@@ -233,8 +263,14 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
             <b :class="item.status">{{ componentStatusLabel(item.status) }}</b>
           </article>
         </div>
-        <p v-if="demoStatus?.missing_services?.length" class="missing-list">
-          缺失配置：{{ demoStatus.missing_services.join(' / ') }}
+        <EmptyState
+          v-else
+          title="暂无数据源状态"
+          hint="状态接口返回后会在这里显示行情、AI、检索等来源。"
+          compact
+        />
+        <p v-if="missingServices.length" class="missing-list">
+          缺失配置：{{ missingServices.join(' / ') }}
         </p>
       </section>
     </aside>

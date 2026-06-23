@@ -12,8 +12,8 @@ const PORTFOLIO_SUMMARY = {
   session_id: SESSION_ID,
   count: 2,
   positions: [
-    { ticker: 'AAPL', shares: 10, avg_cost: 180, live_price: 195, market_value: 1950, name: 'Apple', tags: ['tech'], note: null },
-    { ticker: 'NVDA', shares: 5, avg_cost: 800, live_price: 750, market_value: 3750, name: 'Nvidia', tags: ['ai'], note: null },
+    { ticker: 'AAPL', shares: 10, avg_cost: 180, live_price: 195, market_value: 1950, name: 'Apple', tags: ['tech'], note: null, price_source: 'mock', updated_at: '2026-06-17T10:00:00Z' },
+    { ticker: 'NVDA', shares: 5, avg_cost: 800, live_price: 750, market_value: 3750, name: 'Nvidia', tags: ['ai'], note: null, price_source: 'avg_cost_fallback', updated_at: '2026-06-17T10:00:00Z' },
   ],
   total_value: 5700,
   total_cost: 5800,
@@ -406,4 +406,35 @@ test('移动端底部导航不遮挡主要操作', async ({ page }) => {
   expect(navBox).not.toBeNull();
   expect(buttonBox).not.toBeNull();
   expect(buttonBox!.y + buttonBox!.height).toBeLessThan(navBox!.y);
+});
+
+test('数据源状态失败时抽屉给出可操作提示', async ({ page }) => {
+  await page.unroute('**/api/data-sources/status');
+  await page.route('**/api/data-sources/status', (route) =>
+    json(route, { success: false, detail: 'mock service unavailable' }, 503));
+
+  await page.goto('/data-sources');
+  await page.waitForURL('**/welcome?drawer=data');
+
+  const drawer = page.getByLabel('研究上下文');
+  await expect(drawer).toBeVisible();
+  await expect(page.getByRole('button', { name: /状态异常|检测中|DEMO 数据/ })).toBeVisible();
+  await expect(drawer.getByText('服务暂时不可用，请稍后刷新重试。')).toBeVisible();
+  await expect(drawer.getByRole('button', { name: '重试' })).toBeVisible();
+});
+
+test('组合页移除持仓时按钮有 loading disabled 反馈', async ({ page }) => {
+  await page.route('**/api/portfolio/positions/**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await json(route, { success: true, ticker: 'AAPL' });
+  });
+
+  await page.goto('/portfolio');
+  const firstPosition = page.locator('.pos-card').filter({ hasText: 'AAPL' });
+  await expect(firstPosition).toBeVisible();
+  await expect(firstPosition.getByText('测试数据')).toBeVisible();
+  await firstPosition.getByRole('button', { name: '移除' }).click();
+
+  const removingButton = firstPosition.getByRole('button', { name: /移除中/ });
+  await expect(removingButton).toBeDisabled();
 });

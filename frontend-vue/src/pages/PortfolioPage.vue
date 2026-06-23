@@ -2,12 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
-import type { PortfolioPosition } from '@/api/types';
+import type { EvidenceInfo, PortfolioPosition } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
 import SkeletonLoader from '@/components/SkeletonLoader.vue';
 import ActionButton from '@/components/ActionButton.vue';
 import EmptyState from '@/components/EmptyState.vue';
 import StatusBanner from '@/components/StatusBanner.vue';
+import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import { reportFriendlyError } from '@/utils/error';
 
 const identity = useIdentityStore();
@@ -19,6 +20,10 @@ const totals = ref<{ value: number | null; cost: number | null; pnl: number | nu
 const loading = ref(false);
 const errorMsg = ref<string | null>(null);
 const addExpanded = ref(false);
+const savingNew = ref(false);
+const savingEditTicker = ref<string | null>(null);
+const removingTicker = ref<string | null>(null);
+const importingCsv = ref(false);
 
 const editTicker = ref('');
 const editShares = ref('');
@@ -107,14 +112,14 @@ const csvValidRows = computed(() => csvRows.value.filter((r) => !r.error));
 const csvErrorRows = computed(() => csvRows.value.filter((r) => r.error));
 
 async function confirmImport() {
-  if (!csvValidRows.value.length) return;
-  loading.value = true;
+  if (!csvValidRows.value.length || importingCsv.value) return;
+  importingCsv.value = true;
   errorMsg.value = null;
   try {
     await apiClient.bulkImportPositions({ sessionId: identity.sessionId, positions: csvValidRows.value.map((r) => ({ ticker: r.ticker, shares: r.shares, avg_cost: r.avg_cost, name: r.name || undefined, tags: r.tags.length ? r.tags : undefined, note: r.note || undefined })) });
     showImport.value = false; csvText.value = ''; csvRows.value = []; csvParsed.value = false;
     await refresh();
-  } catch (e) { errorMsg.value = reportFriendlyError(e, '导入持仓失败，请检查 CSV 内容后重试。'); } finally { loading.value = false; }
+  } catch (e) { errorMsg.value = reportFriendlyError(e, '导入持仓失败，请检查 CSV 内容后重试。'); } finally { importingCsv.value = false; }
 }
 
 function closeImport() { showImport.value = false; csvText.value = ''; csvRows.value = []; csvParsed.value = false; }
@@ -139,11 +144,14 @@ function startEdit(p: PortfolioPosition) {
 function cancelEdit() { editingTicker.value = null; }
 
 async function saveEdit(ticker: string): Promise<void> {
+  if (savingEditTicker.value) return;
   const shares = Number(editForm.value.shares);
   if (!Number.isFinite(shares) || shares < 0) { errorMsg.value = '股数须为非负数'; return; }
   const avgCost = editForm.value.avgCost.trim() === '' ? null : Number(editForm.value.avgCost);
   if (avgCost !== null && (!Number.isFinite(avgCost) || avgCost < 0)) { errorMsg.value = '成本价须为非负数'; return; }
   const tags = editForm.value.tags.split(';').map((t) => t.trim()).filter(Boolean);
+  savingEditTicker.value = ticker;
+  errorMsg.value = null;
   try {
     await apiClient.upsertPosition({
       sessionId: identity.sessionId,
@@ -159,11 +167,30 @@ async function saveEdit(ticker: string): Promise<void> {
     });
     editingTicker.value = null; await refresh();
   } catch (e) { errorMsg.value = reportFriendlyError(e, '保存持仓失败，请稍后重试。'); }
+  finally { savingEditTicker.value = null; }
 }
 
 function fmt(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return '—';
   return v.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+}
+
+function priceFreshness(source?: string | null): EvidenceInfo['freshnessStatus'] {
+  const value = String(source || '').toLowerCase();
+  if (!value) return null;
+  if (value === 'demo' || value === 'static_market_demo') return 'demo';
+  if (value === 'unavailable') return 'unknown';
+  if (value === 'cache' || value === 'cached') return 'cached';
+  if (['avg_cost_fallback', 'baostock', 'yfinance', 'eastmoney', 'eastmoney_quote', 'alpha_vantage_top_movers', 'yfinance_popular'].includes(value)) return 'fallback';
+  return 'live';
+}
+
+function priceFallbackLevel(source?: string | null): number | null {
+  const freshness = priceFreshness(source);
+  if (freshness === 'demo' || freshness === 'cached') return 2;
+  if (freshness === 'fallback') return 1;
+  if (freshness === 'live') return 0;
+  return null;
 }
 
 async function refresh(): Promise<void> {
@@ -176,17 +203,21 @@ async function refresh(): Promise<void> {
 }
 
 async function save(): Promise<void> {
+  if (savingNew.value) return;
   const ticker = editTicker.value.trim().toUpperCase();
   const shares = Number(editShares.value);
   if (!ticker || !Number.isFinite(shares) || shares < 0) { errorMsg.value = '请输入合法 ticker 与非负 shares'; return; }
   const avgCost = editAvgCost.value.trim() === '' ? null : Number(editAvgCost.value);
   if (avgCost !== null && (!Number.isFinite(avgCost) || avgCost < 0)) { errorMsg.value = '成本价须为非负数'; return; }
+  savingNew.value = true;
+  errorMsg.value = null;
   try {
     await apiClient.upsertPosition({ sessionId: identity.sessionId, ticker, shares, avgCost, name: editName.value.trim() || undefined });
     editTicker.value = ''; editShares.value = ''; editAvgCost.value = ''; editName.value = '';
     addExpanded.value = false;
     await refresh();
   } catch (e) { errorMsg.value = reportFriendlyError(e, '保存持仓失败，请稍后重试。'); }
+  finally { savingNew.value = false; }
 }
 
 function openTool(tool: string): void {
@@ -205,10 +236,14 @@ function openTool(tool: string): void {
 }
 
 async function remove(ticker: string): Promise<void> {
+  if (removingTicker.value) return;
+  removingTicker.value = ticker;
+  errorMsg.value = null;
   try {
     await apiClient.removePosition({ sessionId: identity.sessionId, ticker });
     positions.value = positions.value.filter((p) => p.ticker !== ticker);
   } catch (e) { errorMsg.value = reportFriendlyError(e, '移除持仓失败，请稍后重试。'); }
+  finally { removingTicker.value = null; }
 }
 
 onMounted(refresh);
@@ -295,7 +330,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
           </div>
         </div>
         <div class="add-actions">
-          <ActionButton :loading="loading" loading-text="保存中..." @click="save">确认保存</ActionButton>
+          <ActionButton :loading="savingNew" :disabled="loading" loading-text="保存中..." @click="() => save()">确认保存</ActionButton>
           <button class="btn-cancel" @click="addExpanded = false">取消</button>
         </div>
       </div>
@@ -350,8 +385,8 @@ watch(() => identity.sessionId, () => { void refresh(); });
           </div>
           <label class="edit-label full">备注<textarea v-model="editForm.note" class="input edit-note" rows="2" placeholder="可选" /></label>
           <div class="edit-actions">
-          <ActionButton size="sm" :loading="loading" loading-text="保存中..." @click="saveEdit(p.ticker)">保存</ActionButton>
-            <button class="btn-cancel" @click="cancelEdit">取消</button>
+          <ActionButton size="sm" :loading="savingEditTicker === p.ticker" :disabled="loading" loading-text="保存中..." @click="() => saveEdit(p.ticker)">保存</ActionButton>
+            <button class="btn-cancel" :disabled="savingEditTicker === p.ticker" @click="cancelEdit">取消</button>
           </div>
         </template>
 
@@ -362,6 +397,15 @@ watch(() => identity.sessionId, () => { void refresh(); });
               <span class="pos-ticker">{{ p.ticker }}</span>
               <span v-if="p.name" class="pos-name">{{ p.name }}</span>
               <span v-for="tag in (p.tags || [])" :key="tag" class="wl-tag" :class="{ active: activeTag === tag }" @click="toggleTag(tag)">{{ tag }}</span>
+              <DataSourceBadge
+                v-if="p.price_source"
+                label="价格源"
+                :source="p.price_source"
+                :as-of="p.updated_at"
+                :freshness-status="priceFreshness(p.price_source)"
+                :fallback-level="priceFallbackLevel(p.price_source)"
+                compact
+              />
             </div>
             <div class="pos-metrics">
               <div class="metric"><div class="metric-label">持仓股数</div><div class="metric-val">{{ p.shares }}</div></div>
@@ -375,7 +419,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
           <div v-if="p.note" class="pos-note">{{ p.note }}</div>
           <div class="pos-actions">
             <button class="btn-edit" @click="startEdit(p)">编辑</button>
-            <button class="btn-remove" @click="remove(p.ticker)">移除</button>
+            <ActionButton size="sm" variant="danger" :loading="removingTicker === p.ticker" loading-text="移除中..." @click="() => remove(p.ticker)">移除</ActionButton>
           </div>
         </template>
       </li>
@@ -395,7 +439,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
             <span class="file-hint">或直接粘贴到下方</span>
           </div>
           <textarea v-model="csvText" class="csv-area" placeholder="AAPL,10,182.5,苹果,科技;美股&#10;TSLA,5,220" rows="6" />
-          <ActionButton :disabled="!csvText.trim()" @click="parseCsv">解析预览</ActionButton>
+          <ActionButton :disabled="!csvText.trim() || importingCsv" @click="parseCsv">解析预览</ActionButton>
           <div v-if="csvParsed" class="preview">
             <p class="preview-stat">共 {{ csvRows.length }} 行 — <span class="ok">{{ csvValidRows.length }} 可导入</span><span v-if="csvErrorRows.length" class="fail"> · {{ csvErrorRows.length }} 错误</span></p>
             <ul class="preview-list">
@@ -405,7 +449,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
               </li>
             </ul>
             <div class="modal-actions">
-              <ActionButton :disabled="!csvValidRows.length" :loading="loading" loading-text="导入中..." @click="confirmImport">确认导入 {{ csvValidRows.length }} 条</ActionButton>
+              <ActionButton :disabled="!csvValidRows.length" :loading="importingCsv" loading-text="导入中..." @click="() => confirmImport()">确认导入 {{ csvValidRows.length }} 条</ActionButton>
               <button class="btn-cancel" @click="closeImport">取消</button>
             </div>
           </div>

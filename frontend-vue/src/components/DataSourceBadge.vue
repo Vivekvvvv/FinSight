@@ -28,7 +28,7 @@ const fallbackLevel = computed(() => props.fallbackLevel ?? props.evidence?.fall
 const tone = computed(() => {
   if (freshness.value === 'live') return 'live';
   if (freshness.value === 'demo') return 'demo';
-  if (freshness.value === 'cached' || freshness.value === 'fallback') return 'fallback';
+  if (freshness.value === 'cached' || freshness.value === 'fallback' || freshness.value === 'delayed_15min') return 'fallback';
   if (freshness.value === 'stale') return 'stale';
   return 'unknown';
 });
@@ -38,14 +38,28 @@ const sourceLabel = computed(() => {
   const labels: Record<string, string> = {
     demo: 'Demo 演示',
     static_market_demo: 'Demo 候选池',
+    today_workspace: '今日工作台',
+    'today-workspace': '今日工作台',
+    dossier_aggregate: '研究档案聚合',
+    'dossier-aggregate': '研究档案聚合',
+    fmp_stock_screener: 'FMP 筛选器',
+    alpha_vantage_top_movers: 'Alpha Vantage',
+    yfinance_popular: 'yfinance 热门池',
     baostock: 'BaoStock',
     yfinance: 'yfinance',
     cache: '本地缓存',
     cached: '本地缓存',
     eastmoney: '东方财富',
+    eastmoney_quote: '东方财富行情',
+    tencent: '腾讯行情',
+    tools_bridge: '行情工具链',
     financials: '财务源',
     quote: '报价源',
     kline: 'K 线源',
+    live: '实时源',
+    avg_cost_fallback: '成本价兜底',
+    unavailable: '价格不可用',
+    mock: '测试数据',
     unknown: '未知来源',
   };
   return labels[value] || source.value || '未知来源';

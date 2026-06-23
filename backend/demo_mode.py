@@ -77,6 +77,7 @@ def demo_status() -> dict[str, Any]:
         "demo_mode": demo_mode,
         "data_source": "demo" if demo_mode else "live_or_local",
         "overall_status": "demo" if demo_mode else ("live_ready" if not missing else "needs_config"),
+        "as_of": _iso(),
         "missing_services": missing,
         "components": components,
         "notes": [
