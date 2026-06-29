@@ -1,7 +1,7 @@
 # FinSight 当前架构（代码对齐版）
 
-> 更新时间：2026-02-26
-> 适用分支：`feat/p0-p2-quality-orchestration-productization`
+> 更新时间：2026-06-29
+> 当前主线：`frontend-vue -> FastAPI`
 > 主链实现：`backend/graph/runner.py`
 
 ## 1. 系统总览
@@ -9,17 +9,25 @@
 ```mermaid
 flowchart LR
   subgraph FE[Frontend]
-    CHAT_UI[Chat]
-    DASH_UI[Dashboard]
-    WB_UI[Workbench]
+    SHELL[AppShell]
+    WELCOME[今日工作台 /welcome]
+    DOSSIER[标的研究 /dossier/:symbol]
+    STOCKS[股票发现 /stocks]
+    PORTFOLIO[组合管理 /portfolio]
+    REPORTS[报告库 /reports]
+    NOTES[研究笔记 /notes]
+    CHAT_UI[AI 助手 /chat]
   end
 
   subgraph API[FastAPI]
     CHAT_EP[/chat/supervisor*]
     EXEC_EP[/api/execute*]
     DASH_EP[/api/dashboard*]
+    TODAY_EP[/api/today + what-changed + research-quality]
+    PORT_EP[/api/portfolio/*]
     REPORT_EP[/api/reports/*]
-    AGENT_PREF_EP[/api/agents/preferences]
+    NOTES_EP[/api/research-notes*]
+    DATA_EP[/api/data-sources/status]
   end
 
   subgraph GRAPH[LangGraph Pipeline]
@@ -37,13 +45,25 @@ flowchart LR
   end
 
   FE --> API
+  SHELL --> WELCOME
+  SHELL --> DOSSIER
+  SHELL --> STOCKS
+  SHELL --> PORTFOLIO
+  SHELL --> REPORTS
+  SHELL --> NOTES
+  SHELL --> CHAT_UI
   CHAT_EP --> RUNNER
   EXEC_EP --> RUNNER
   RUNNER --> NODES --> EXECUTOR --> ANALYSIS --> SYNTH
-  DASH_EP --> FE
-  REPORT_EP --> FE
-  AGENT_PREF_EP --> FE
+  DASH_EP --> DOSSIER
+  TODAY_EP --> WELCOME
+  PORT_EP --> PORTFOLIO
+  REPORT_EP --> REPORTS
+  NOTES_EP --> NOTES
+  DATA_EP --> SHELL
 ```
+
+旧 React 前端和 Spring 迁移实验已退出默认运行链路。当前前端只以 `frontend-vue` 为准，主导航由 `frontend-vue/src/components/AppShell.vue` 收敛为 7 个核心入口。旧 URL 保留 redirect，避免历史深链直接 404。
 
 ## 2. LangGraph 主流程
 
@@ -154,23 +174,45 @@ sequenceDiagram
 
 前端事件解析位置：`frontend-vue/src/api/client.ts`
 
-## 5. Dashboard / Workbench 数据链路
+## 5. 七入口页面与旧 URL 收口
 
 ```mermaid
 flowchart LR
-  DSH[Dashboard Page] --> DS[useDashboardData]
-  DS --> DAPI[/api/dashboard]
-  DSH --> INS[useDashboardInsights]
-  INS --> IAPI[/api/dashboard/insights]
-  DAPI --> DATA_SERVICE[dashboard.data_service]
-  IAPI --> INS_ENGINE[dashboard.insights_engine]
-  INS_ENGINE --> DIGEST[Overview/Financial/Technical/News/Peers Digests]
+  APP[AppShell.vue] --> WELCOME[WelcomePage.vue]
+  APP --> DOSSIER[SymbolDossierPage.vue]
+  APP --> STOCKS[StocksDiscoveryPage.vue]
+  APP --> PORT[PortfolioPage.vue]
+  APP --> REPORTS[ReportsLibraryPage.vue]
+  APP --> NOTES[ResearchNotesPage.vue]
+  APP --> CHAT[ChatPage.vue]
 
-  WB[Workbench Page] --> TASK[TaskSection]
-  WB --> REPORT[ReportSection]
-  TASK --> EXEC[/api/execute]
-  REPORT --> RINDEX[/api/reports/index]
+  WELCOME --> TODAY[/api/today]
+  WELCOME --> CHANGED[/api/what-changed]
+  WELCOME --> QUALITY[/api/research-quality]
+
+  DOSSIER --> DASH[/api/dashboard + /api/dashboard/insights]
+  DOSSIER --> TIMELINE[/api/timeline/:symbol]
+  DOSSIER --> QUOTE[/api/quote + /api/kline + /api/financials]
+
+  STOCKS --> SCREEN[/api/screener/*]
+  STOCKS --> CN[/api/top-list + /api/north-flow + /api/margin-trading]
+
+  PORT --> PSUM[/api/portfolio/summary]
+  PORT --> RISK[/api/portfolio/risk-lens]
+  PORT --> BACKTEST[/api/backtest]
+  PORT --> REBALANCE[/api/rebalance]
+
+  REPORTS --> RINDEX[/api/reports/index]
+  REPORTS --> RREPLAY[/api/reports/replay/:id]
+  NOTES --> NAPI[/api/research-notes*]
+  CHAT --> CHATAPI[/chat/supervisor/stream]
 ```
+
+当前路由策略：
+
+- 核心真实 route：`/welcome`、`/dossier/:symbol`、`/stocks`、`/portfolio`、`/reports`、`/notes`、`/chat`。
+- 兼容 redirect：`/workbench -> /welcome`、`/dashboard/:symbol -> /dossier/:symbol`、`/research/qa -> /chat?mode=qa`、`/portfolio/optimize` 和 `/backtest -> /portfolio`。
+- 下沉入口：`/data-sources`、`/system/health` 进入 `/welcome` 的上下文抽屉；`/top-list`、`/north-flow`、`/margin-trading` 进入 `/stocks` 的 A 股市场工具区。
 
 ## 6. Agent/Tool 边界
 

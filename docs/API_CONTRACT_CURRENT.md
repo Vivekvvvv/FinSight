@@ -95,6 +95,6 @@ new / watching / reviewing / resolved / archived
 
 ## AI 输出边界
 
-- Chat、Dashboard 深度研究、Dossier 生成内容必须保持“研究复查建议”语义。
+- Chat、Dossier 标的研究和报告生成内容必须保持“研究复查建议”语义。`/api/dashboard*` 作为兼容数据层存在，不再代表独立主页面。
 - 不得输出买入、卖出、持有、目标价、止盈止损、仓位比例、收益承诺或个性化交易决策。
 - 兼容字段 `recommendation` 可保留，但内容必须是“优先复查 / 继续观察 / 证据不足 / 风险升高”等研究立场。

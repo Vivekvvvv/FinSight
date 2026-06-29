@@ -1,5 +1,54 @@
 ﻿# FinSight — codex 中断会话进度摘要
 
+## 2026-06-29 7 入口文档与死空壳收口
+
+- **本轮目标**: 接上本地记录，修复项目事实不一致和无效前端空壳，不新增业务功能。
+- **当前 Git 基线**: 最新提交 `dc26381 chore: strengthen data source feedback and smoke coverage`；本轮改动尚未提交。
+- **主要完成**:
+  - `docs/01_ARCHITECTURE.md`: 架构图和数据链路改为当前 `frontend-vue -> FastAPI` 主线，明确 7 个核心入口和旧 URL redirect 策略。
+  - `docs/PRODUCT_FLOWS.md`: 重写为当前 7 入口任务流，删除旧 Sidebar / Workbench / Dashboard 页面叙事。
+  - `docs/PRODUCT_BASELINE.md`: 修正 Reports、Portfolio、Watchlist、RAG Inspector、Billing 等模块的当前完成度与风险描述。
+  - `docs/DOCS_INDEX.md` / `docs/deploy.md`: 同步当前文档入口和商业化 UX 暂不接入前端主线的事实。
+  - `frontend-vue/src/pages/PlanPage.vue`、`frontend-vue/src/components/PlanBadge.vue`、`frontend-vue/src/components/UpgradeModal.vue`: 删除未被路由和组件树引用的空壳文件。
+  - `frontend-vue/AGENTS.md`: 记录前端当前只保留 7 个核心研究入口，未接入主线的商业化空壳不应保留。
+- **验证结果**:
+  - `npm run typecheck` -> 通过。
+  - `npm run build` -> 通过；Vite 仍提示 `vendor-echarts` empty chunk，不阻塞。
+  - `npm run lint` -> 0 errors，仍有项目既有 Vue 格式 warnings。
+  - `npm run test:e2e` -> 16/16 passed。
+  - `git diff --check` -> 通过。
+- **后续建议**:
+  - 若继续做“不新增功能”的稳定化，优先处理 `backend/api/main.py` 过重、文档中少量历史 Dashboard/Workbench 非当前入口引用，以及 Vue lint 格式 warnings。
+  - 生产发布仍以 `docs/RELEASE_READINESS.md` 为准：需要真实 `JWT_SECRET`、`API_AUTH_KEYS` 和有效 LLM key 的最小 smoke。
+
+### 追加收口：当前维护文档旧入口引用清理
+
+- **目标**: 继续清理非归档、非 feature log 文档中会误导当前入口的信息，不改历史证据。
+- **主要完成**:
+  - `docs/DELIVERY_OVERVIEW.md`: 核心功能描述改为 7 个当前入口。
+  - `docs/11_PRODUCTION_RUNBOOK.md`: 发布冒烟入口从 `workbench/dashboard` 改为 `welcome/dossier/stocks/portfolio/reports/notes/chat`。
+  - `docs/API_CONTRACT_CURRENT.md`: AI 输出边界改为 Chat / Dossier / Reports，说明 `/api/dashboard*` 是兼容数据层。
+  - `docs/DASHBOARD_DEVELOPMENT_GUIDE.md`: 改为“标的研究数据层开发指南”，入口改为 `SymbolDossierPage.vue`。
+  - `docs/DASHBOARD_P0_DATA_TRACE.md`: 改为标的研究页数据来源规范，说明 dashboard API 由 Dossier 消费。
+  - `docs/FINAL_SUMMARY.md` / `docs/PROJECT_COMPLETION_SUMMARY.md`: 增加历史快照提示，并把当前入口描述改为标的研究页。
+- **验证结果**:
+  - `npm run test:e2e` -> 16/16 passed。
+  - `git diff --check` -> 通过；仅提示 `docs/DELIVERY_OVERVIEW.md` 下次 Git 触碰会从 CRLF 规范化为 LF。
+
+### 追加收口：后端 API 安全配置瘦身
+
+- **目标**: 降低 `backend/api/main.py` 体积，把可独立测试的安全配置与限流逻辑从应用装配文件中拆出。
+- **主要完成**:
+  - `backend/api/security_config.py`: 新增 CORS、API Key 提取、公开路径匹配、生产环境必需变量检查和 `SimpleRateLimiter`。
+  - `backend/api/main.py`: 改为导入安全配置实现，并保留 `_parse_api_keys`、`_is_allowlisted_path`、`SimpleRateLimiter` 等历史兼容名，避免既有测试和内部调用断裂。
+  - `backend/api/AGENTS.md`: 记录 API 层文件职责和依赖方向。
+  - `.gitignore`: 为 `backend/api/AGENTS.md` 增加精确例外，保持架构说明可提交。
+- **验证结果**:
+  - `python -m pytest -q backend/tests/test_security_gate_auth_rate_limit.py backend/tests/test_rag_observability_auth.py backend/tests/test_auth_principal.py backend/tests/test_subscription_security.py` -> 16 passed。
+  - `python -m pytest -q backend/tests/test_health_and_validation.py` -> 7 passed。
+  - `python -m pytest -q backend/tests/test_portfolio_router_validation.py` -> 2 passed。
+  - `npm run test:e2e`（`frontend-vue`）-> 16 passed。
+
 ## 2026-06-09 Phase 9 发布确认 完成
 
 - **本轮目标**: 接入生产/准生产密钥，执行最小发布确认，把状态从 `READY_WITH_BLOCKERS` 升级到 `READY`。

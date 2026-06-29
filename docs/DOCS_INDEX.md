@@ -1,6 +1,6 @@
 # FinSight 文档索引
 
-**最后更新**：2026-06-13
+**最后更新**：2026-06-29
 **当前主线**：`frontend-vue -> FastAPI`
 **产品边界**：只做投资研究分析与证据复查，不提供交易建议。
 
@@ -17,13 +17,14 @@
 
 ## 当前维护入口
 
-- `docs/01_ARCHITECTURE.md`：当前 Vue + FastAPI 架构。
+- `docs/01_ARCHITECTURE.md`：当前 Vue + FastAPI 架构，含 7 个核心入口与旧 URL redirect 策略。
 - `docs/API_CONTRACT_CURRENT.md`：当前核心 API、字段和数据源 evidence。
 - `docs/DELIVERY_OVERVIEW.md`：Phase 4-9 交付总览。
 - `docs/PRODUCT_BASELINE.md`：产品完成度与范围边界。
-- `docs/PRODUCT_FLOWS.md`：股票发现、研究档案、笔记、报告、复查动作的闭环。
+- `docs/PRODUCT_FLOWS.md`：当前 7 个核心页面的研究闭环与旧入口收口规则。
 - `docs/RELEASE_READINESS.md`：发布就绪状态与阻塞项。
 - `docs/AGENTS_GUIDE.md`：Agent 使用和协作说明。
+- `docs/DASHBOARD_DEVELOPMENT_GUIDE.md` / `docs/DASHBOARD_P0_DATA_TRACE.md`：历史文件名保留，当前内容描述 `/dossier/:symbol` 使用的 dashboard 兼容数据层。
 
 ## 运行与发布
 

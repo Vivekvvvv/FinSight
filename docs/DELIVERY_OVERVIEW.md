@@ -12,7 +12,7 @@ FinSight 已完成从金融 AI 演示系统到证据驱动研究工作台的核�
 
 | 维度 | 状态 | 说明 |
 |---|---|---|
-| 核心功能 | ✅ 完成 | Dashboard、Chat、Reports、Portfolio、Watchlist、Alerts、Today Workspace 均可用 |
+| 核心功能 | ✅ 完成 | 7 个核心入口均可用：今日工作台、标的研究、股票发现、组合管理、报告库、研究笔记、AI 助手 |
 | 研究闭环 | ✅ 完成 | Risk Lens、Notebook、Timeline、What Changed、Research Quality 已形成闭环 |
 | E2E 稳定性 | ✅ 完成 | Phase 6 完成 48/48 E2E 全绿 |
 | 发布硬化 | ✅ 完成 | Release gate、性能、文档、工作区审计已收口 |

@@ -140,7 +140,7 @@ FinSight 有三种典型部署形态，对应不同的 env 文件。**所有变�
 |---|---|---|
 | `docker compose up` 后端立即退出 | 缺生产必填变量 | 检查 `.env.server` 是否所有 `REPLACE_ME` 都替换；查看后端日志 `docker compose logs backend` |
 | `/chat/supervisor` 返回 500 | LLM key 失效或 endpoint 不可达 | 查看 `LANGGRAPH_*` 配置；在 `/internal/health` 端点查看组件状态（需 admin 身份） |
-| Dashboard 显示 `数据暂不可用` | 财经 API key 未配 | 配 `FMP_API_KEY` / `FINNHUB_API_KEY` 中任一 |
+| 标的研究页显示 `数据暂不可用` | 财经 API key 未配，`/api/dashboard*` 兼容数据层降级 | 配 `FMP_API_KEY` / `FINNHUB_API_KEY` 中任一 |
 | Alerts 创建成功但收不到邮件 | SMTP 未配 | 设 `SMTP_*` 系列；不配只能保存订阅不发邮件 |
 | RAG Inspector 跳回 `/welcome` | 匿名用户被 `AuthenticatedGuard` 拦截 | 配 Supabase 或本地启用 dev auth（仅开发） |
 
@@ -207,8 +207,6 @@ pwsh scripts/release_gate.ps1 -SkipBackend
 
 **Plan 配置:** `data/user_plans.json` 按 user_id 存档。admin role 自动映射 admin plan (无视配置文件)。新功能要做 Plan 门控时,在 `entitlements.py::PLAN_FEATURES` dict 中增加键 + 在路由端点添加一行 `enforce_feature(getattr(http_request.state, "principal", None), "<feature_name>")` 即可。
 
-**前端识别:** axios response interceptor 把 403/429 plan_* 错误转成 `Error.planGate`,使用 `isPlanGateError(err)` type guard 识别后显示 toast / 升级提示。
+**前端现状:** 当前 7 入口前端不再接入套餐页、PlanBadge 或全局 UpgradeModal；商业化 UX 暂不属于当前主线。若未来恢复计费体验，需要重新设计入口、文案和升级弹窗，而不是假设旧空壳仍存在。
 
-**全局 UpgradeModal:** interceptor 还会自动 `window.dispatchEvent('finsight:plan-gate', {detail})`,挂在 `<App/>` 的 `<UpgradeModal/>` 监听器收到后弹出统一升级 modal,任意业务调用方都不用自己 handle UX。
-
-**Usage 查询端点:** `GET /api/me/entitlements` 返回 plan + features + limits + **usage** 一站式;`GET /api/me/usage` 轻量端点 (仅 usage);`GET /api/plans` 公开列出所有 plan 的功能与配额,前端 `/settings/plan` 套餐对比页消费。
+**Usage 查询端点:** `GET /api/me/entitlements` 返回 plan + features + limits + **usage** 一站式；`GET /api/me/usage` 轻量端点（仅 usage）；`GET /api/plans` 公开列出所有 plan 的功能与配额。当前这些接口保留为后端能力，不作为当前前端主导航体验。

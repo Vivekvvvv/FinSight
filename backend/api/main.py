@@ -9,7 +9,6 @@ import re
 import asyncio
 import sys
 import time
-from collections import deque
 from threading import Lock
 from typing import Any, Dict, List, Optional
 from urllib import error as urllib_error
@@ -22,6 +21,21 @@ from backend.api.schemas import (
     ChatRequest,
 )
 from backend.api.chat_router import ChatRouterDeps, create_chat_router
+from backend.api.security_config import (
+    PRODUCTION_REQUIRED_ENV as _PRODUCTION_REQUIRED_ENV,
+    SimpleRateLimiter,
+    cors_allow_credentials as _cors_allow_credentials,
+    cors_allow_origin_regex as _cors_allow_origin_regex,
+    cors_allow_origins as _cors_allow_origins,
+    env_int as _env_int,
+    extract_api_key as _extract_api_key,
+    extract_bearer_token as _extract_bearer_token,
+    is_allowlisted_path as _is_allowlisted_path,
+    missing_production_env as _missing_production_env,
+    parse_api_keys as _parse_api_keys,
+    parse_csv_env as _parse_csv_env,
+    validate_production_runtime_config as _validate_production_runtime_config,
+)
 from backend.api.agent_router import AgentRouterDeps, create_agent_router
 from backend.api.config_router import ConfigRouterDeps, create_config_router
 from backend.api.dashboard_router import dashboard_router
@@ -399,70 +413,6 @@ def _env_bool(key: str, default: str = "false") -> bool:
     return _auth_env_bool(key, default)
 
 
-def _env_int(key: str, default: int) -> int:
-    try:
-        return int(os.getenv(key, default))
-    except Exception:
-        return default
-
-
-def _parse_csv_env(key: str, default: str) -> list[str]:
-    raw = os.getenv(key, default)
-    values = [item.strip() for item in str(raw or "").split(",") if item.strip()]
-    return values
-
-
-def _cors_allow_origins() -> list[str]:
-    origins = _parse_csv_env(
-        "CORS_ALLOW_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
-    )
-    return origins or [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-    ]
-
-
-def _cors_allow_origin_regex() -> str | None:
-    configured = str(os.getenv("CORS_ALLOW_ORIGIN_REGEX") or "").strip()
-    if configured:
-        return configured
-    return r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
-
-
-def _cors_allow_credentials() -> bool:
-    allow_credentials = _env_bool("CORS_ALLOW_CREDENTIALS", "false")
-    origins = _cors_allow_origins()
-    if allow_credentials and "*" in origins:
-        logger.warning("CORS_ALLOW_CREDENTIALS=true with wildcard origin is invalid. Force disabling credentials.")
-        return False
-    return allow_credentials
-
-
-def _parse_api_keys() -> set[str]:
-    raw = os.getenv("API_AUTH_KEYS") or os.getenv("API_AUTH_KEY") or ""
-    return {item.strip() for item in raw.split(",") if item.strip()}
-
-
-def _extract_api_key(request: Request) -> Optional[str]:
-    header_key = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
-    if header_key:
-        return header_key.strip()
-    auth = request.headers.get("Authorization") or ""
-    if auth.lower().startswith("bearer "):
-        return auth.split(" ", 1)[1].strip()
-    return None
-
-
-def _extract_bearer_token(request: Request) -> Optional[str]:
-    auth = request.headers.get("Authorization") or ""
-    if auth.lower().startswith("bearer "):
-        return auth.split(" ", 1)[1].strip() or None
-    return None
-
-
 def _resolve_supabase_auth_config() -> tuple[str, str]:
     supabase_url = str(os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL") or "").strip().rstrip("/")
     publishable_key = str(os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv("VITE_SUPABASE_PUBLISHABLE_KEY") or "").strip()
@@ -613,94 +563,7 @@ def _require_rag_mutation_access(request: Request) -> Dict[str, Any]:
     raise HTTPException(status_code=403, detail="RAG diagnostics is read-only for logged-in users; mutation requires internal API key")
 
 
-def _is_allowlisted_path(path: str) -> bool:
-    defaults = "/health,/docs,/openapi.json,/redoc"
-    configured = _parse_csv_env("API_PUBLIC_PATHS", defaults)
-    exact_paths: set[str] = set()
-    prefix_paths: list[str] = []
-
-    for entry in configured:
-        normalized = entry if entry.startswith("/") else f"/{entry}"
-        if normalized.endswith("/*"):
-            base = normalized[:-2]
-            if base:
-                prefix_paths.append(base)
-        elif normalized in ("/docs", "/redoc"):
-            exact_paths.add(normalized)
-            prefix_paths.append(normalized)
-        else:
-            exact_paths.add(normalized)
-
-    if path in exact_paths:
-        return True
-    return any(path.startswith(prefix + "/") or path == prefix for prefix in prefix_paths)
-
-
-class SimpleRateLimiter:
-    def __init__(self, limit_per_window: int, window_seconds: int, enabled: bool = True):
-        self.enabled = enabled
-        self.limit = max(1, int(limit_per_window))
-        self.window_seconds = max(1, int(window_seconds))
-        self._buckets: Dict[str, deque[float]] = {}
-        self._last_cleanup = time.time()
-
-    def _cleanup(self, now: float) -> None:
-        if now - self._last_cleanup < self.window_seconds:
-            return
-        self._last_cleanup = now
-        stale_keys = [
-            key for key, bucket in self._buckets.items()
-            if not bucket or (now - bucket[-1] >= self.window_seconds)
-        ]
-        for key in stale_keys:
-            self._buckets.pop(key, None)
-
-    @classmethod
-    def from_env(cls) -> "SimpleRateLimiter":
-        enabled = (not is_dev_mode()) and _env_bool("RATE_LIMIT_ENABLED", "true")
-        limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
-        window_seconds = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
-        return cls(limit_per_window=limit, window_seconds=window_seconds, enabled=enabled)
-
-    def allow(self, key: str) -> tuple[bool, Optional[int]]:
-        now = time.time()
-        self._cleanup(now)
-        bucket = self._buckets.setdefault(key, deque())
-        while bucket and now - bucket[0] >= self.window_seconds:
-            bucket.popleft()
-        if len(bucket) >= self.limit:
-            retry_after = int(self.window_seconds - (now - bucket[0])) if bucket else self.window_seconds
-            return False, max(1, retry_after)
-        bucket.append(now)
-        return True, None
-
-
 _rate_limiter = SimpleRateLimiter.from_env()
-
-_PRODUCTION_REQUIRED_ENV = (
-    "OPENAI_COMPATIBLE_API_KEY",
-    "OPENAI_COMPATIBLE_API_BASE",
-    "POSTGRES_DB",
-    "POSTGRES_USER",
-    "POSTGRES_PASSWORD",
-    "JWT_SECRET",
-    "API_AUTH_KEYS",
-)
-
-
-def _missing_production_env() -> list[str]:
-    if is_dev_mode():
-        return []
-    return [key for key in _PRODUCTION_REQUIRED_ENV if not str(os.getenv(key) or "").strip()]
-
-
-def _validate_production_runtime_config() -> None:
-    if is_dev_mode():
-        logger.warning("DEV_MODE ON ?? auth bypassed and rate limits disabled. Do not use in production.")
-        return
-    missing = _missing_production_env()
-    if missing:
-        raise SystemExit("Missing required production environment variables: " + ", ".join(missing))
 
 def _init_default_user_config() -> None:
     """Write LLM config from explicit env on first boot if user_config.json does not exist."""

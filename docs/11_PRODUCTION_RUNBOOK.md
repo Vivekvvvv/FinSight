@@ -54,7 +54,7 @@ npm run test:e2e --prefix frontend-vue
 
 必须完成：
 
-1) 全链路冒烟（`chat/report/workbench/dashboard`）
+1) 全链路冒烟（`chat/reports/welcome/dossier/stocks/portfolio/notes`）
 2) 数据库快照（checkpointer + report index）
 
 快照建议动作：
@@ -164,7 +164,7 @@ API_AUTH_KEYS=key1,key2
 CORS_ALLOW_ORIGINS=https://app.finsight.example.com
 CORS_ALLOW_CREDENTIALS=false
 
-# 鉴权开启时的公共路径白名单（默认不放行 /api/dashboard）
+# 鉴权开启时的公共路径白名单（默认不放行 /api/dashboard 等业务 API）
 API_PUBLIC_PATHS=/health,/docs,/openapi.json,/redoc
 
 RATE_LIMIT_ENABLED=true

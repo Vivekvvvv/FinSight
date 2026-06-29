@@ -1,142 +1,115 @@
-# FinSight 用户任务流（Product Flows）
+# FinSight 用户任务流（当前 7 入口版）
 
-> 本文件描述 FinSight 当前**真实**的核心用户任务流（基于现有代码与 API），不是产品规划。每条流程标注入口、用户动作、系统响应、成功状态、失败状态。后续 IA 重构若改变入口/路径，需同步更新本文件。
+> 本文件描述 FinSight 当前真实用户任务流，入口以 `frontend-vue/src/router/index.ts` 和 `frontend-vue/src/components/AppShell.vue` 为准。FinSight 只提供研究复查建议，不提供买入、卖出、持有、目标价、仓位或收益承诺。
 
-最后核对日期：2026-05-13。后端 entry：`POST /chat/supervisor` SSE，前端 entry：`/welcome` → `EntryGuard` → 主工作区。
+最后核对日期：2026-06-29。当前主线：`frontend-vue -> FastAPI`。
 
----
+## 1. 当前核心入口
 
-## 流程清单
+| # | 页面 | 路由 | 主要用途 | 主要后端依赖 |
+|---|---|---|---|---|
+| 1 | 今日工作台 | `/welcome` | 每日研究入口、待复查事项、数据源/系统状态抽屉 | `/api/today`、`/api/what-changed`、`/api/research-quality`、`/api/data-sources/status` |
+| 2 | 标的研究 | `/dossier/:symbol` | 单个标的的行情、K 线、AI 洞察、时间线、报告、笔记聚合 | `/api/dashboard*`、`/api/quote/*`、`/api/kline/*`、`/api/timeline/*` |
+| 3 | 股票发现 | `/stocks` | 筛选候选股、自选、A 股市场工具 | `/api/screener/*`、`/api/user/watchlist/*`、A 股工具接口 |
+| 4 | 组合管理 | `/portfolio` | 持仓摘要、持仓维护、风险镜头、组合工具 | `/api/portfolio/*`、`/api/portfolio/risk-lens`、`/api/backtest`、`/api/rebalance` |
+| 5 | 报告库 | `/reports` | 报告列表、报告详情、生成报告、财报分析入口 | `/api/reports/index`、`/api/reports/replay/*`、研究报告接口 |
+| 6 | 研究笔记 | `/notes` | Markdown 笔记、图片、ticker 筛选和证据沉淀 | `/api/research-notes*` |
+| 7 | AI 助手 | `/chat` | 智能问答、深度研究、流式执行轨迹、会话记忆 | `/chat/supervisor/stream`、`/api/chat/history` |
 
-| # | 名称 | 主入口 | 主要后端依赖 |
-|---|---|---|---|
-| 1 | 添加自选股 | Sidebar"我的关注" + Dashboard 顶部 Watchlist | `POST /api/user/watchlist/add` / `remove`、`POST /chat/supervisor` 触发实时报价 |
-| 2 | 查看 Dashboard | Sidebar"仪表盘" + Watchlist 点击 | `GET /api/dashboard?symbol=...`、`/insights` |
-| 3 | 发起深度研究（对话） | Sidebar"智能对话" + ChatInput | `POST /chat/supervisor` SSE（output_mode=brief / investment_report） |
-| 4 | 生成投资报告 | ChatInput 模式切换"深度报告" + Workbench 触发 | `POST /chat/supervisor` SSE + `GET /api/reports/index/replay` |
-| 5 | 设置提醒 | Sidebar"订阅管理" + 对话内"alert me when..." | `POST /api/subscriptions`、Chat 中 alert_extractor 节点 |
-| 6 | 查看组合晨报（Morning Brief） | Workbench → Morning Brief 卡片 | `POST /api/morning-brief` + Portfolio API |
-| 7 | 管理持仓组合 | `/portfolio` 独立页 + CSV 导入 | `GET /api/portfolio/summary`、`POST /api/portfolio/positions`、`PUT /api/portfolio/positions/{ticker}` |
+## 2. 旧 URL 收口规则
 
----
-
-## 流程 1：添加自选股
-
-| 阶段 | 内容 |
-|---|---|
-| **入口** | 1) `Sidebar` 底部"我的关注"列表的 ➕ 按钮；2) `Dashboard` 顶部 `<Watchlist>` 组件（暂未在所有 Dashboard 视图露出） |
-| **用户动作** | 在输入框输入股票代码（如 `AAPL`、`600519.SS`、`0700.HK`），回车或点确认 |
-| **系统响应** | 前端 `useDashboardStore.addWatchItemApi(ticker)` → 调 `POST /api/user/watchlist/add` → 后端 `services/memory.py` 更新 `data/memory/{user_id}.json` → 前端拉新报价 `GET /api/stock-price/:symbol`（60s 轮询） |
-| **成功状态** | Sidebar 列表新增一行，显示 ticker + 实时价格 + 涨跌色（绿涨红跌）；点击行可跳到 `/dashboard/:symbol` |
-| **失败状态** | 报错路径：(a) Ticker 无效 → toast "添加失败：未识别的代码"；(b) 服务端 5xx → toast "添加失败：服务暂时不可用"；(c) 报价拉取失败 → 行显示但价格为 `--`，60s 后重试 |
-
-**当前已知缺口**：无分组 / 标签 / 备注；无批量导入；移动端仅展开后可见。
-
----
-
-## 流程 2：查看 Dashboard
-
-| 阶段 | 内容 |
-|---|---|
-| **入口** | 1) Sidebar"仪表盘"导航（需有 fallback symbol，否则弹 toast）；2) 关注列表点击；3) Chat 中点 ticker 内联跳转 |
-| **用户动作** | 选定 symbol 后浏览 6 个 Tab：Overview / Financial / Technical / News / Peers / Research |
-| **系统响应** | `useDashboardData(symbol)` 拉 `GET /api/dashboard?symbol=...`（含 16 个 TTL 分类的缓存），`useDashboardInsights(symbol)` 拉 `GET /api/dashboard/insights`（5 个 Scorer 卡片，1-3s 出结果，无 LLM 时降级到确定性评分） |
-| **成功状态** | 6 个 Tab 各自渲染：K 线 + 技术指标 / 8 季财报 / Peers 对比 / 新闻列表 / Research 多 Agent 段落 / 顶部 ScoreRing + FearGreed + RiskMetrics |
-| **失败状态** | (a) 无 symbol → 顶部空状态 "请先选择标的"；(b) 单 Tab 数据缺失 → Skeleton 后显示 "数据暂不可用 (源: yfinance/FMP/...)" + Retry；(c) 整页 5xx → 顶部红条 + Retry 按钮 |
-
-**当前已知缺口**：Tab 切换时无 URL 锚点（刷新回 Overview）；Watchlist 在 Dashboard 顶部与 Sidebar 同时存在但状态同步隐式。
-
----
-
-## 流程 3：发起深度研究（对话）
-
-| 阶段 | 内容 |
-|---|---|
-| **入口** | Sidebar"智能对话" → `/chat`；或 Dashboard NewsCard 的"问这条"跳转 |
-| **用户动作** | 在 ChatInput 输入问题（如 "AAPL 估值如何"），选择 `brief` 模式 + 可选 Persona（中立 / 价值 / 宏观 / 短线） |
-| **系统响应** | `POST /chat/supervisor` SSE → LangGraph 18-node pipeline：`build_initial_state` → `parse_operation`（14-level 意图分类）→ `policy_gate` → `planner`（或 `planner_stub`）→ `execute_plan`（最多 3 组并行 agent）→ `synthesize`（冲突检测 + 幻觉清洗）→ `render` |
-| **成功状态** | 对话流出现 user message + assistant message（含 markdown + `<chart>` / `<chart_ref>` 内联图表 + 引用链接）；右侧 ExecutionPanel 显示阶段进度（user/expert/dev 三视图）；执行完成后 ChatHistorySidebar 更新会话标题与时间 |
-| **失败状态** | (a) LLM 超时 → 切到 stub planner，输出"基于规则推断"水印；(b) 多 Agent 失败 → 仍输出已成功 agent 的合成；(c) Quality Gate block → 返回结构化"质量未达发布门槛"原因 |
-
-**当前已知缺口**：会话历史持久化 50 条上限；无对话搜索；无导出为 markdown（PDF 已有但是按对话整段）。
-
----
-
-## 流程 4：生成投资报告
-
-| 阶段 | 内容 |
-|---|---|
-| **入口** | 1) ChatInput 模式切换为"深度报告" → 自动触发 deep_research 路径；2) Workbench 任务下发；3) Dashboard Research Tab 内 "生成深度报告" 按钮 |
-| **用户动作** | 输入 ticker 与可选指引（如 "重点关注催化剂与风险"），可选 Persona |
-| **系统响应** | 与流程 3 同链路，但 `output_mode=investment_report` 走全套 7 Research Agent 并行 + Synthesize Node + Conflict Detection + Hallucination Scrub + `report_builder`；report 写入 `report_index` SQLite |
-| **成功状态** | `<ReportView>` 渲染含：执行摘要 / 核心发现 / 多 Agent 段落 / 冲突矩阵 / 引用列表 / 数据时间标识 / Persona Badge；右上"导出 PDF"按钮可直接下载；Quality Score 显示 pass / warn / block |
-| **失败状态** | (a) Quality block → 报告标记"已拦截"，不进入 Library；(b) 部分 agent 失败 → 报告标注 "1 个 Agent 数据不可用"；(c) Plan 拒绝 → 返回理由（如 "建议先添加 ticker"） |
-
-**当前已知缺口**：报告版本对比、收藏、批注、基于新事件刷新旧报告 — 均未实现（阶段 3 任务）。
-
----
-
-## 流程 5：设置提醒
-
-| 阶段 | 内容 |
-|---|---|
-| **入口** | 1) Sidebar"订阅管理" → SubscribeModal；2) Chat 内自然语言（"alert me when AAPL drops below 180" → alert_extractor 节点）；3) WorkspaceShell 右侧面板 SubscribeButton |
-| **用户动作** | 填写邮箱 + 选 ticker + 选择 alert_type（price_change / price_target / news / risk）+ 阈值 |
-| **系统响应** | `POST /api/subscriptions` → `services/subscription_service.py` 原子写 `data/subscriptions.json` → `services/alert_scheduler.py` 在下一个调度周期（15/30/60 min）开始扫描；命中条件后发 SMTP 邮件 |
-| **成功状态** | toast "已创建提醒"；Sidebar"订阅管理"右侧角标显示当前订阅数；后续命中条件时邮箱收到 HTML 模板邮件 |
-| **失败状态** | (a) SMTP 未配置 → 后端返回 503 "Email service unavailable"，订阅仍保存但不会发邮件；(b) 邮件连续 3 次永久失败 → 后端自动 disable 该订阅并 toast 提示 |
-
-**当前已知缺口**：无独立 Alerts 历史页面；订阅列表与历史告警混杂在 modal 内；无 in-app 通知（仅邮件）。
-
----
-
-## 流程 6：查看组合晨报（Morning Brief）
-
-| 阶段 | 内容 |
-|---|---|
-| **入口** | Workbench → Morning Brief 卡片 → "生成今日晨报"按钮 |
-| **用户动作** | 点击按钮（不需要参数；自动读取当前 user 的 portfolio + watchlist） |
-| **系统响应** | `POST /api/morning-brief` → 复用 LangGraph Pipeline 进入 morning_brief 模式 → 确定性合成（零 LLM 成本）→ 输出包含：持仓变化 / 相关新闻 / 风险提示 / 今日关注事项 |
-| **成功状态** | 卡片渲染分段：📊 持仓概览（总市值 + 主要仓位） / 📰 相关新闻（合并 watchlist + portfolio）/ ⚠️ 风险提示（来自 RiskAgent）/ 📅 今日关注（earning / event 日历） |
-| **失败状态** | (a) Portfolio 为空 → 卡片显示"请先添加持仓"+ 跳转链接；(b) 行情失败 → 持仓部分降级为 "数据部分不可用"；(c) Pipeline 异常 → 整卡显示 retry 按钮 |
-
-**当前已知缺口**：无历史 Brief 列表（阶段 1 任务 18）；无定时推送（用户必须主动触发）；移动端布局未优化。
-
----
-
-## 流程 7：管理持仓组合
-
-| 阶段 | 内容 |
-|---|---|
-| **入口** | `/portfolio` 独立页；Command Palette 的"打开持仓组合"；未来可从 Dashboard Portfolio 面板跳转 |
-| **用户动作** | 查看现有持仓；编辑 `shares / avg_cost / name / tags / note`；或上传 CSV，格式为 `ticker,shares,avg_cost,name,tags,note` |
-| **系统响应** | `GET /api/portfolio/summary` 拉取持仓与估值；单条编辑走 `PUT /api/portfolio/positions/{ticker}`；CSV 导入解析后与当前持仓合并，调用 `POST /api/portfolio/positions` bulk sync。后端校验 `shares >= 0` 与 `avg_cost >= 0` |
-| **成功状态** | 页面展示总市值/成本/盈亏摘要，持仓卡片显示 ticker、名称、标签、备注、成本与市值；CSV 导入后 toast 显示导入条数并刷新列表 |
-| **失败状态** | (a) CSV 缺少 ticker/shares → toast "CSV 导入失败"；(b) shares 或 avg_cost 为负数 → 前端拦截，后端也返回 422；(c) 行情失败 → 仍以成本价或 unavailable 降级展示 |
-
-**当前已知缺口**：无交易流水、无多币种汇总、无 CSV 导出，成本价仍是持仓级平均成本而非逐笔 lot。
-
----
-
-## 跨流程通用契约
-
-- **数据时效性**：所有展示数据如带 `last_updated` / `retrieved_at`，需在 UI 上明确显示；缺失时显示 "更新时间未知"，**禁止伪造时间**。
-- **AI 输出分层**（阶段 2 强制）：报告与 AI Insight 卡片必须区分：事实（来自工具/Filing/News）/ AI 推断（合成结论）/ 风险（与置信度共显）/ 待验证（无证据支撑的猜测必须标红）。
-- **免责声明**：Chat、Report、Rebalance 建议出口处必须显示统一"非投资建议"声明，由 `<Disclaimer>` 组件统一渲染（阶段 2 任务 26）。
-- **可观测性**：每个 AI 输出在 Trace 三视图（user / expert / dev）下均可还原其 plan / step / evidence 路径。
-
----
-
-## 后续规划交叉引用
-
-| 流程 | 待补能力 | 阶段任务编号 |
+| 旧入口 | 当前去向 | 说明 |
 |---|---|---|
-| 1 | 自选股分组 / 标签 / 备注 | Phase 1, T10-T12 |
-| 2 | URL 锚点持久化、Tab deep-link | Phase 0 IA 重构后补 |
-| 3 | 对话搜索、导出 markdown | Phase 3 |
-| 4 | 报告版本对比 / 收藏 / 旧报告刷新 | Phase 3, T30-T32 |
-| 5 | Alerts 独立页面 + 历史 | Phase 0 IA 重构 + Phase 4 gate |
-| 6 | 晨报历史 + 定时推送 | Phase 1, T18 |
-| 7 | 多币种 / 交易流水 / CSV 导出 | Phase 1 后续 |
+| `/workbench` | `/welcome` | 今日任务、持仓风险、近期报告已并入今日工作台 |
+| `/dashboard/:symbol` | `/dossier/:symbol` | Dashboard 后端 API 仍作为标的页数据层使用，页面体验并入 Dossier |
+| `/research/qa` | `/chat?mode=qa` | 智能问答并入 AI 助手 |
+| `/research/report/:ticker?` | `/reports?tool=generate&ticker=...` | 生成报告并入报告库 |
+| `/research/financials` | `/reports?tool=financials` | 财报分析并入报告库 |
+| `/portfolio/optimize` | `/portfolio?tool=optimize` | 组合优化并入组合工具 |
+| `/backtest` | `/portfolio?tool=backtest` | 回测并入组合工具 |
+| `/watchlist` | `/stocks?tab=watchlist` | 自选管理下沉到股票发现 |
+| `/alerts` | `/welcome` | 提醒高频内容下沉到今日工作台 |
+| `/data-sources` | `/welcome?drawer=data` | 数据源状态进入右上角上下文抽屉 |
+| `/system/health` | `/welcome?drawer=system` | 系统状态进入右上角上下文抽屉 |
+| `/top-list`、`/north-flow`、`/margin-trading` | `/stocks?tool=...` | A 股市场工具并入股票发现 |
 
-变更时请同步 `docs/PRODUCT_BASELINE.md`。
+## 3. 关键用户流程
+
+### 流程 A：每日复查
+
+| 阶段 | 内容 |
+|---|---|
+| 入口 | 打开 `/welcome` |
+| 用户动作 | 查看今日摘要、What Changed、研究质量、待复查报告和下一步动作 |
+| 系统响应 | 聚合 Today Workspace、What Changed、Research Quality、Portfolio/Watchlist 上下文 |
+| 成功状态 | 用户能从卡片直接进入标的、报告、组合或笔记继续复查 |
+| 失败状态 | 后端未启动或数据源不可用时显示统一 loading/error/empty 状态，并提示检查本地后端或数据源配置 |
+
+### 流程 B：研究一个标的
+
+| 阶段 | 内容 |
+|---|---|
+| 入口 | `/dossier/AAPL`，或从今日工作台、股票发现、报告、笔记跳入 |
+| 用户动作 | 查看行情、K 线、财务、新闻、AI 洞察、时间线和关联研究资产 |
+| 系统响应 | 调用 Dashboard 兼容 API、行情 API、Timeline、Report Index、Research Notes |
+| 成功状态 | 页面明确显示数据来源、更新时间和可复查证据 |
+| 失败状态 | 单块数据失败时降级展示，不阻断整个标的页；全页失败时显示可重试提示 |
+
+### 流程 C：发现候选股并沉淀为研究对象
+
+| 阶段 | 内容 |
+|---|---|
+| 入口 | `/stocks` |
+| 用户动作 | 设置筛选条件、翻页查看候选、打开 A 股市场工具、加入自选或进入标的页 |
+| 系统响应 | `POST /api/screener/run` 返回候选；A 股工具展示龙虎榜、北向资金、融资融券等下沉能力 |
+| 成功状态 | 用户可把候选加入 watchlist、创建初始笔记或进入 `/dossier/:symbol` |
+| 失败状态 | 筛选接口失败时展示中文可行动错误；工具按钮有 loading/disabled 状态，避免“点了没反应” |
+
+### 流程 D：管理组合与风险
+
+| 阶段 | 内容 |
+|---|---|
+| 入口 | `/portfolio` |
+| 用户动作 | 查看持仓摘要、编辑持仓、查看风险镜头、打开组合工具 |
+| 系统响应 | 读取 Portfolio Summary、Risk Lens、Backtest、Rebalance 相关接口 |
+| 成功状态 | 持仓和风险信息能形成下一步复查动作，并可跳回标的页或报告库 |
+| 失败状态 | 组合为空时显示空状态；行情失败时保留成本视角并标出数据不可用 |
+
+### 流程 E：生成和复查报告
+
+| 阶段 | 内容 |
+|---|---|
+| 入口 | `/reports` |
+| 用户动作 | 浏览报告库、打开报告详情、生成报告、进入财报分析 |
+| 系统响应 | 读取 Report Index 和 Replay；生成报告时复用 LangGraph 深度研究链路 |
+| 成功状态 | 报告展示引用、质量状态、更新时间和相关标的，可回跳 Dossier |
+| 失败状态 | 无报告时显示空状态；生成失败时展示失败原因，不伪造成完整报告 |
+
+### 流程 F：沉淀研究笔记
+
+| 阶段 | 内容 |
+|---|---|
+| 入口 | `/notes` |
+| 用户动作 | 创建 Markdown 笔记、上传图片、按 ticker 或关键词筛选 |
+| 系统响应 | 调用 Research Notes CRUD、图片接口，并把笔记纳入时间线/标的研究资产 |
+| 成功状态 | 笔记可作为后续 Dossier、Timeline 和 AI 问答的证据上下文 |
+| 失败状态 | 上传或保存失败时保留用户输入，并显示可重试错误 |
+
+### 流程 G：向 AI 助手提问
+
+| 阶段 | 内容 |
+|---|---|
+| 入口 | `/chat` 或 `/research/qa` redirect |
+| 用户动作 | 输入研究问题，可在智能问答/报告模式之间切换 |
+| 系统响应 | SSE 流式执行 LangGraph，展示 token、执行轨迹、证据和最终回答 |
+| 成功状态 | 回答保持“研究复查建议”语义，并更新会话上下文记忆 |
+| 失败状态 | LLM 或工具失败时返回可理解错误；部分 agent 失败时尽量保留已成功证据并标记降级 |
+
+## 4. 跨流程契约
+
+- 数据来源必须明确标注 `live`、`fallback`、`cached`、`demo` 或 `stale`，禁止把 demo 数据伪装为实时行情。
+- AI 输出必须区分事实、推断、风险和待验证内容。
+- 旧 URL 不直接 404，统一 redirect 到当前所属页面。
+- 所有异步按钮必须有 loading/disabled 反馈。
+- 空状态要告诉用户下一步可以做什么，而不是只显示“暂无数据”。
+- 本地运行数据、日志、截图、缓存和 `backend/data/` 不进入提交。

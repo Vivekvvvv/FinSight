@@ -4,7 +4,7 @@
 
 **当前总体完成度估算**：**~90%**（可演示 / 小规模内测标准）/ **~80%**（生产候选标准）。
 
-**最近一次验证基线**：2026-06-01 轻量门禁 `backend.import-smoke` + `vue.build` + `python scripts/check_cutover_map.py` 通过；最近一次完整门禁记录见 `docs/maintenance/PROGRESS.md`，后端约 `1040 passed`，Vue `lint/typecheck/build` 通过。
+**最近一次代码核对**：2026-06-29。当前主线已收敛为 `frontend-vue -> FastAPI`，主导航为 7 个入口：`/welcome`、`/dossier/:symbol`、`/stocks`、`/portfolio`、`/reports`、`/notes`、`/chat`。最近一次完整门禁记录见 `docs/maintenance/PROGRESS.md`；发布状态仍以 `docs/RELEASE_READINESS.md` 的生产密钥和外部服务验证为准。
 
 ---
 
@@ -19,17 +19,17 @@
 
 ## 模块基线
 
-### 1. Dashboard
+### 1. 标的研究 / Dossier
 
 | 维度 | 状态 | 说明 |
 |---|---|---|
-| 完成度 | ✅ 90% | 6 个 Tab 全部上线（Overview / Financial / Technical / News / Peers / Research） |
+| 完成度 | ✅ 90% | 旧 Dashboard 能力已并入 `/dossier/:symbol`，覆盖报价、K 线、财务、新闻、AI 洞察、时间线、报告与笔记 |
 | 数据 | ✅ | 16 个 TTL 缓存分类；11 源价格瀑布；US/CN/HK 三套路由 |
 | AI Insight | ✅ | 5 个 Scorer，含 LLM 单次调用 + 确定性规则降级 |
 | Smart Charts | ✅ | `<chart>` + `<chart_ref>` 双模；ECharts 6 |
-| 缺口 | 🟡 | Tab 切换无 URL 锚点；移动端响应式但未原生优化 |
-| 风险 | P3 | 无独立"添加 symbol"流（必须从 Watchlist / Chat 进） |
-| 建议优先级 | P2 | IA 重构时补 Dashboard 空状态首页 |
+| 缺口 | 🟡 | 标的页仍承载信息较多，后续可继续压缩首屏密度与增强锚点 |
+| 风险 | P3 | Dashboard API 仍作为后端兼容层存在，文档和命名需持续避免把它误认为主页面 |
+| 建议优先级 | P2 | 继续补 Dossier 内部区域锚点和移动端体验 |
 
 ### 2. Chat / Research
 
@@ -41,7 +41,7 @@
 | 导出 | ✅ | 顶部"导出 PDF"按钮（本会话接通后端） |
 | RAG | ✅ | Hybrid bge-m3 + bge-reranker-v2-m3 |
 | Conflict Detection | ✅ | 8 对 Agent 对比维度 |
-| 缺口 | 🟡 | 对话搜索 / 导出 markdown 缺失 |
+| 缺口 | 🟡 | 对话搜索 / 导出 markdown 缺失；本地 memory 已有，但跨设备/多用户长期记忆仍依赖后续配置 |
 | 风险 | P3 | 会话内若 SSE 连接中断，恢复后无 resume 提示 |
 | 建议优先级 | P3 | 阶段 3 报告资产化时一并处理对话历史 |
 
@@ -49,11 +49,11 @@
 
 | 维度 | 状态 | 说明 |
 |---|---|---|
-| 完成度 | 🟡 60% | 后端 `services/portfolio_store.py` SQLite + WAL；前端 `usePortfolioSummary` / `useRebalanceSuggestion` hook 已有 |
-| CRUD | 🟡 | 只支持 add / remove position；无 currency / tags / note / 成本价批量校验 |
-| Summary | 🟡 | 总市值、主要仓位、收益估算已有；数据更新时间显示不全 |
-| Rebalance | ✅ | LLM 增强 + Agent 支撑 + SSE 流式 |
-| 缺口 | 🟠 | 持仓录入 UI 简陋；无导入 CSV；无独立 `/portfolio` 路由 |
+| 完成度 | 🟡 75% | `/portfolio` 已是核心入口，包含持仓摘要、持仓维护、风险镜头、组合工具和旧 backtest/optimize 入口收口 |
+| CRUD | 🟡 | 支持持仓增改和基础校验；仍缺交易流水、lot 级成本与多币种 |
+| Summary | 🟡 | 总市值、成本、盈亏、主要仓位已有；跨市场估值仍依赖数据源质量 |
+| Rebalance | ✅ | LLM 增强 + Agent 支撑 + SSE 流式，旧 `/portfolio/optimize` redirect 到组合工具区 |
+| 缺口 | 🟡 | 多币种、交易流水、CSV 导出和更严格的数据一致性仍未完成 |
 | 风险 | P1 | 数据正确性与显示一致性，特别是多币种与跨市场标的 |
 | 建议优先级 | **P1** | **阶段 1 留存闭环的核心** |
 
@@ -61,11 +61,11 @@
 
 | 维度 | 状态 | 说明 |
 |---|---|---|
-| 完成度 | 🟡 65% | 后端 `services/memory.py` JSON 存储 + add/remove API |
-| 数据模型 | 🟡 | 仅 `symbol`；无 `name` / `tags` / `group` / `note` / `last_viewed_at` |
-| UI | 🟡 | Sidebar 列表 + Dashboard 顶部，双入口同步隐式 |
-| 缺口 | 🟠 | 分组 / 标签 / 批量导入 / 排序未实现 |
-| 风险 | P2 | Sidebar / Dashboard 双源真相一致性 |
+| 完成度 | 🟡 70% | 独立主入口已下沉，自选高频能力并入 `/stocks` 与 `/welcome` 上下文 |
+| 数据模型 | 🟡 | 已支持基础关注理由、优先级、研究状态；分组/标签能力仍有限 |
+| UI | 🟡 | 股票发现页和今日工作台消费自选数据，不再作为主导航入口 |
+| 缺口 | 🟠 | 批量导入、排序、分组管理仍需增强 |
+| 风险 | P2 | 需要继续保证 `/watchlist -> /stocks?tab=watchlist` 的跳转和目标区可见性 |
 | 建议优先级 | **P1** | **阶段 1 任务 T10-T12** |
 
 ### 5. Alerts
@@ -76,7 +76,7 @@
 | 创建路径 | ✅ | SubscribeModal + 对话内自然语言抽取（alert_extractor 节点） |
 | 类型 | ✅ | `price_change` / `price_target` / `news` / `risk` |
 | 邮件可达性 | ✅ | 3 次永久失败自动 disable |
-| 缺口 | 🟠 | 无独立 `/alerts` 页面；无历史告警列表；无 in-app 通知；无 webhook 选项 |
+| 缺口 | 🟠 | 独立入口已下沉到 `/welcome`，仍缺完整历史告警列表、in-app 通知和 webhook |
 | 风险 | P2 | 用户不易看到当前已设的所有提醒 |
 | 建议优先级 | **P1** | **阶段 0 IA 重构 + 阶段 4 gate** |
 
@@ -84,13 +84,13 @@
 
 | 维度 | 状态 | 说明 |
 |---|---|---|
-| 完成度 | 🟡 65% | `report_index` SQLite + `services/report_index.py` + replay endpoint |
+| 完成度 | 🟡 80% | `/reports` 已是核心入口，`report_index` SQLite + replay endpoint + 生成报告/财报分析入口已接入 |
 | 生成 | ✅ | 完整 LangGraph 流程 |
 | 持久化 | ✅ | 报告元数据 + citations 落地 |
 | PDF 导出 | ✅ | `services/pdf_export.py` reportlab + 字体管理 |
-| Library 列表 | 🔴 | 无独立 `/reports` 页面，只能从 Workbench 内访问 |
-| 版本对比 / 收藏 / 备注 / 旧报告刷新 | 🔴 | 全部未实现 |
-| 缺口 | 🟠 | "一次性消费"而非"沉淀资产" |
+| Library 列表 | ✅ | 报告库已独立为核心页面 |
+| 版本对比 / 收藏 / 备注 / 旧报告刷新 | 🟡 | 已有部分资产化体验，深度版本治理仍需加强 |
+| 缺口 | 🟡 | 报告刷新策略、版本对比和引用质量解释仍可继续深化 |
 | 风险 | P2 | 用户不会回来查历史 |
 | 建议优先级 | **P1** | **阶段 3 报告资产化 (T27-T32)** |
 
@@ -101,7 +101,7 @@
 | 完成度 | ✅ 90% | Hybrid Search (RRF + scope boost) + Cross-Encoder Rerank |
 | 模型 | ✅ | bge-m3 (1024 dim) + bge-reranker-v2-m3 |
 | 存储 | ✅ | InMemory + PostgreSQL/pgvector + tsvector 中文全文 |
-| 可观测 | ✅ | `rag_query_runs/events/source_docs/chunks/retrieval_hits/rerank_hits/fallback_events` 6 张表 + RagInspectorPage 完整可视化 |
+| 可观测 | ✅ | `rag_query_runs/events/source_docs/chunks/retrieval_hits/rerank_hits/fallback_events` 6 张表；独立 RagInspector 入口已下沉到数据源/系统状态抽屉 |
 | Quality Eval | ✅ | RAG Quality V2 三层 PASS（KC/KCR/CSR/UCR/CR/NCR 六指标） |
 | 缺口 | 🟡 | 自动化 reranker 选模型 / chunk size A-B 测试缺工具 |
 | 风险 | P3 | 检索质量优化是后续迭代领域 |
@@ -122,10 +122,10 @@
 
 | 维度 | 状态 | 说明 |
 |---|---|---|
-| 完成度 | 🔴 0% | 未实现 |
-| 计划 | 阶段 4 | Free / Pro / Team / Admin + Usage limit + Feature Gate + Pricing 页 + Stripe 文档（不接真实支付） |
-| 风险 | P0 | 没有计费就没有商业模型；现状无法转化付费用户 |
-| 建议优先级 | **P0** | **阶段 4 全部 (T33-T38)** |
+| 完成度 | 🟠 占位 | 后端保留 entitlements/API 轮廓；前端套餐页、PlanBadge、UpgradeModal 空壳已移除，当前 7 入口不提供商业化体验 |
+| 计划 | 暂缓 | 当前项目定位是个人研究工作台，不以商业化计费作为近期主线 |
+| 风险 | P2 | 若未来重新商业化，需要先恢复产品策略、权限文案和真实支付设计 |
+| 建议优先级 | P3 | 暂不作为当前体验修复重点 |
 
 ### 10. Deploy
 
@@ -147,7 +147,7 @@
 | 完成度 | ✅ 88% | 后端核心测试量级已超过 1000，Vue lint/typecheck/build 与 mock E2E 已接入门禁 |
 | 单元 | ✅ | 后端覆盖 agents / orchestration / graph / rag / services / api |
 | 集成 | ✅ | `tests/regression/` mock_tools 注入；`tests/rag_qualityV2/` 三层评估 |
-| E2E | 🟡 | frontend-vue mock E2E 已覆盖低风险页；chat/dashboard/workbench/rag-inspector 的真实链路 smoke 仍需加强 |
+| E2E | 🟡 | frontend-vue mock E2E 已覆盖 7 个核心入口、旧 URL redirect、状态抽屉和关键空状态；真实后端链路 smoke 仍需加强 |
 | 性能 / 压测 | 🔴 | 无 |
 | 缺口 | 🟡 | e2e 自动化覆盖率；缺 frontend dead-code 系统扫描（需 `knip`） |
 | 风险 | P2 | UI 功能变更后只能靠手动 smoke |
@@ -201,11 +201,12 @@
 
 ## 历史复评记录
 
+- **2026-06-29 复评 — 7 入口信息架构核对**：当前按可演示 / 小规模内测标准约 **90%**，按生产候选标准约 **80%**。真实前端入口已收敛为 7 个核心页面：今日工作台、标的研究、股票发现、组合管理、报告库、研究笔记、AI 助手；旧 Dashboard/Workbench/Watchlist/Alerts/Data Sources/System Health 等入口通过 redirect 或上下文抽屉下沉。当前主要风险从“功能缺失”转为“文档滞后、生产密钥/外部服务未验证、后端 main.py 装配偏重”。本次同步移除了未接入主线的前端商业化空壳。
 - **2026-06-01 复评 — Python + Vue 生产候选收口**：当前按可演示 / 小规模内测标准约 **90%**,按生产候选标准约 **80%**。旧 React `frontend/` 与 Spring Boot `backend-spring/` 已归档删除，默认链路为 `frontend-vue -> backend/FastAPI`；`scripts/check_cutover_map.py` 已改为默认链路静态校验；`docker-compose.yml` 默认只暴露 `frontend:80`，后端与 Postgres 仅 Compose 内网访问。当前轻量验证：`backend.import-smoke` 通过，Vue `build` 通过，`python scripts/check_cutover_map.py` 通过。剩余主要缺口：工作区仍有大量未固化变更，真实 Supabase/JWT、生产数据库/API、Docker compose 本地 smoke、生产域名级 smoke、Vue Playwright 真实链路 E2E 仍需上线前闭环。
 - **2026-05-19 复评 #2 — Plan 门控真实生效 + 商业化 UX 闭环**：当前按可演示/小规模内测标准约 **94%**,按完整商业交付标准约 **89%**。本日完成的关键升级:
   - **Plan 门控真实生效**: `entitlements.enforce_feature` / `enforce_quota` 已注入 `/chat/supervisor` (`investment_report` → `deep_research`)、`/chat/supervisor/stream`、`/api/export/pdf` (`export_pdf`),前端 axios interceptor 统一识别 403/429 `plan_*` 错误并 dispatch `finsight:plan-gate` 事件。
   - **Usage 计数后端**: `build_usage_view(user_id, email)` 综合 report_index/订阅/portfolio 计算 5 个配额的 used/limit/remaining/percent;`GET /api/me/entitlements` 现含 `usage` 字段,新增 `GET /api/me/usage` 与 `GET /api/plans`。
-  - **商业化 UX 三件套**: `PlanBadge` 可点击弹 quota popover;`/settings/plan` 完整套餐对比页(Free/Pro/Team 三档,价格 + 功能 ✓/× + 配额表);全局 `<UpgradeModal/>` 监听 plan-gate 事件,任意业务调用方无需自己处理升级 UX。
+  - **商业化 UX 三件套（历史状态）**: 当时曾有 `PlanBadge`、`/settings/plan` 和全局 `<UpgradeModal/>`；2026-06-29 已按当前 7 入口主线移除未接入的前端空壳。
   - **后端基线**: backend/tests `1007 passed / 18 skipped` (新增 16 测试)。前端 4 件套全绿。Playwright `standalone-pages.spec.ts` **7/7 passed in 22s**,release_gate `-WithE2E` 模式稳定可用。
   - 剩余主要缺口: Stripe 真实支付(占位用 mailto:);报告版本对比 / 旧报告刷新入口;evidence/citation 在前端的统一展示组件(本轮即将做);Portfolio 多币种与数据时效徽章。
 - **2026-05-19 复评 — Release/留存闭环**:当前按可演示/小规模内测标准约 **91%**,按完整商业交付标准约 **84%**。Feature Gate 已具备 usage/limit、套餐页与升级引导;Reports Library 已具备列表、收藏、备注、引用数量;Watchlist/Portfolio 已有独立管理页,其中 Portfolio 新增 CSV 导入与成本价非负校验;Release Gate `-WithE2E` 已能稳定串起后端核心测试、前端四件套与 standalone pages smoke(8/8 passed)。剩余主要缺口转为 Stripe 真实支付、报告版本对比/旧报告刷新、Portfolio 多币种与更严谨交易流水、Alerts in-app 通知与触发历史深化。
