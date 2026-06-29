@@ -1,13 +1,35 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from backend.tools.http import _http_get
 from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_eastmoney_date(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        pass
+    try:
+        return datetime.fromisoformat(text[:10])
+    except Exception:
+        return None
+
+
+def _is_recent_eastmoney_date(value: Any, *, max_age_days: int, now: datetime | None = None) -> bool:
+    parsed = _parse_eastmoney_date(value)
+    if parsed is None:
+        return False
+    today = (now or datetime.now(timezone.utc)).date()
+    return parsed.date() >= today - timedelta(days=max(1, int(max_age_days)))
 
 
 def is_cn_symbol(symbol: str) -> bool:
@@ -363,7 +385,7 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
         return None
 
 
-def fetch_cn_top_list(symbol: str, include_seats: bool = True) -> dict[str, Any] | None:
+def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int = 90) -> dict[str, Any] | None:
     """
     从东方财富获取A股龙虎榜数据（大额交易、机构席位）。
 
@@ -406,6 +428,58 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True) -> dict[str, Any]
     code = to_tencent_code(symbol)
     if code is None:
         return None
+    stock_code = code[2:] if len(code) > 2 else code
+
+    try:
+        resp = _http_get(
+            "https://datacenter-web.eastmoney.com/api/data/v1/get",
+            params={
+                "reportName": "RPT_DAILYBILLBOARD_DETAILSNEW",
+                "columns": "ALL",
+                "filter": f'(SECURITY_CODE="{stock_code}")',
+                "pageNumber": "1",
+                "pageSize": "5",
+                "sortTypes": "-1",
+                "sortColumns": "TRADE_DATE",
+                "source": "WEB",
+                "client": "WEB",
+            },
+            timeout=(5, 10),
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        if resp.status_code == 200:
+            payload = resp.json()
+            rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
+            if rows:
+                record = rows[0]
+                trade_date = record.get("TRADE_DATE")
+                if not _is_recent_eastmoney_date(trade_date, max_age_days=max_age_days):
+                    logger.info("[Eastmoney] top list record is stale for %s: %s", symbol, trade_date)
+                    return None
+                result = {
+                    "symbol": symbol.upper(),
+                    "stock_code": stock_code,
+                    "stock_name": record.get("SECURITY_NAME_ABBR", ""),
+                    "date": trade_date or datetime.now(timezone.utc).date().isoformat(),
+                    "reason": record.get("EXPLANATION") or record.get("EXPLAIN") or "龙虎榜",
+                    "close_price": safe_float(record.get("CLOSE_PRICE")),
+                    "change_percent": safe_float(record.get("CHANGE_RATE")),
+                    "buy_amount": safe_float(record.get("BILLBOARD_BUY_AMT") or record.get("SUM_BUY_AMT")) or 0.0,
+                    "sell_amount": safe_float(record.get("BILLBOARD_SELL_AMT") or record.get("SUM_SELL_AMT")) or 0.0,
+                    "net_buy": safe_float(record.get("BILLBOARD_NET_AMT") or record.get("NET_BS_AMT")) or 0.0,
+                    "turnover_rate": safe_float(record.get("TURNOVERRATE")),
+                    "buy_seats": [],
+                    "sell_seats": [],
+                    "source": "eastmoney_datacenter",
+                }
+                if include_seats:
+                    seats = _fetch_top_list_seats(stock_code, record.get("TRADE_DATE"))
+                    if seats:
+                        result["buy_seats"] = seats.get("buy_seats", [])
+                        result["sell_seats"] = seats.get("sell_seats", [])
+                return result
+    except Exception as exc:
+        logger.info("[Eastmoney] new top list lookup failed %s: %s", symbol, exc)
 
     # 提取纯数字代码（如sh600519 → 600519）
     stock_code = code[2:] if len(code) > 2 else code
@@ -638,6 +712,53 @@ def fetch_cn_top_list_history(
         end_dt = datetime.fromisoformat(end_date).date()
         start_dt = end_dt - timedelta(days=days)
         start_date = start_dt.isoformat()
+
+    try:
+        resp = _http_get(
+            "https://datacenter-web.eastmoney.com/api/data/v1/get",
+            params={
+                "reportName": "RPT_DAILYBILLBOARD_DETAILSNEW",
+                "columns": "ALL",
+                "filter": f'(SECURITY_CODE="{stock_code}")',
+                "pageNumber": "1",
+                "pageSize": str(max(1, min(int(days), 100))),
+                "sortTypes": "-1",
+                "sortColumns": "TRADE_DATE",
+                "source": "WEB",
+                "client": "WEB",
+            },
+            timeout=(5, 10),
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        if resp.status_code == 200:
+            payload = resp.json()
+            rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
+            results = []
+            for record in rows:
+                item = {
+                    "symbol": symbol.upper(),
+                    "stock_code": stock_code,
+                    "stock_name": record.get("SECURITY_NAME_ABBR", ""),
+                    "date": record.get("TRADE_DATE", ""),
+                    "reason": record.get("EXPLANATION") or record.get("EXPLAIN") or "龙虎榜",
+                    "close_price": safe_float(record.get("CLOSE_PRICE")),
+                    "change_percent": safe_float(record.get("CHANGE_RATE")),
+                    "buy_amount": safe_float(record.get("BILLBOARD_BUY_AMT") or record.get("SUM_BUY_AMT")) or 0.0,
+                    "sell_amount": safe_float(record.get("BILLBOARD_SELL_AMT") or record.get("SUM_SELL_AMT")) or 0.0,
+                    "net_buy": safe_float(record.get("BILLBOARD_NET_AMT") or record.get("NET_BS_AMT")) or 0.0,
+                    "turnover_rate": safe_float(record.get("TURNOVERRATE")),
+                    "source": "eastmoney_datacenter",
+                }
+                date_key = str(item.get("date") or "")[:10]
+                if start_date and date_key < start_date:
+                    continue
+                if end_date and date_key > end_date:
+                    continue
+                results.append(item)
+            if results:
+                return sorted(results, key=lambda x: x["date"], reverse=True)
+    except Exception as exc:
+        logger.info("[Eastmoney] new top list history lookup failed %s: %s", symbol, exc)
 
     # 东方财富历史龙虎榜API
     url = f"http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=200,page=1,sortRule=-1,sortType=,startDate={start_date},endDate={end_date},gpfw=0,code={stock_code},js=var%20data_tab_1.html"
@@ -915,6 +1036,60 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
     code = to_tencent_code(symbol)
     if code is None:
         return None
+    stock_code = code[2:] if len(code) > 2 else code
+
+    try:
+        resp = _http_get(
+            "https://datacenter-web.eastmoney.com/api/data/v1/get",
+            params={
+                "reportName": "RPTA_WEB_RZRQ_GGMX",
+                "columns": "ALL",
+                "filter": f'(SCODE="{stock_code}")',
+                "pageNumber": "1",
+                "pageSize": "10",
+                "sortTypes": "-1",
+                "sortColumns": "DATE",
+                "source": "WEB",
+                "client": "WEB",
+            },
+            timeout=(5, 10),
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        if resp.status_code == 200:
+            payload = resp.json()
+            rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
+            if rows:
+                latest = rows[0]
+                margin_balance = safe_float(latest.get("RZYE"))
+                margin_buy = safe_float(latest.get("RZMRE"))
+                margin_repay = safe_float(latest.get("RZCHE"))
+                short_balance = safe_float(latest.get("RQYL"))
+                short_sell = safe_float(latest.get("RQMCL"))
+                short_repay = safe_float(latest.get("RQCHL"))
+                total_balance = safe_float(latest.get("RZRQYE"))
+                market_value = safe_float(latest.get("SZ"))
+                margin_buy_ratio = (
+                    round((margin_buy / market_value) * 100, 4)
+                    if margin_buy is not None and market_value
+                    else 0.0
+                )
+                return {
+                    "symbol": symbol.upper(),
+                    "stock_code": stock_code,
+                    "date": latest.get("DATE", datetime.now(timezone.utc).date().isoformat()),
+                    "margin_balance": margin_balance or 0.0,
+                    "margin_buy": margin_buy or 0.0,
+                    "margin_repay": margin_repay or 0.0,
+                    "short_balance": short_balance or 0.0,
+                    "short_sell": short_sell or 0.0,
+                    "short_repay": short_repay or 0.0,
+                    "margin_buy_ratio": margin_buy_ratio,
+                    "total_balance": total_balance or 0.0,
+                    "source": "eastmoney",
+                    "unit": "融资单位=元，融券单位=股",
+                }
+    except Exception as exc:
+        logger.info("[Eastmoney] new margin trading lookup failed %s: %s", symbol, exc)
 
     # 提取纯数字代码
     stock_code = code[2:] if len(code) > 2 else code
@@ -1026,6 +1201,47 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
         return []
 
     stock_code = code[2:] if len(code) > 2 else code
+
+    try:
+        resp = _http_get(
+            "https://datacenter-web.eastmoney.com/api/data/v1/get",
+            params={
+                "reportName": "RPTA_WEB_RZRQ_GGMX",
+                "columns": "ALL",
+                "filter": f'(SCODE="{stock_code}")',
+                "pageNumber": "1",
+                "pageSize": str(max(1, min(int(days), 200))),
+                "sortTypes": "-1",
+                "sortColumns": "DATE",
+                "source": "WEB",
+                "client": "WEB",
+            },
+            timeout=(5, 10),
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        if resp.status_code == 200:
+            payload = resp.json()
+            rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
+            results = [
+                {
+                    "symbol": symbol.upper(),
+                    "stock_code": stock_code,
+                    "date": record.get("DATE", ""),
+                    "margin_balance": safe_float(record.get("RZYE")) or 0.0,
+                    "margin_buy": safe_float(record.get("RZMRE")) or 0.0,
+                    "margin_repay": safe_float(record.get("RZCHE")) or 0.0,
+                    "short_balance": safe_float(record.get("RQYL")) or 0.0,
+                    "short_sell": safe_float(record.get("RQMCL")) or 0.0,
+                    "short_repay": safe_float(record.get("RQCHL")) or 0.0,
+                    "total_balance": safe_float(record.get("RZRQYE")) or 0.0,
+                    "source": "eastmoney",
+                }
+                for record in rows
+            ]
+            if results:
+                return sorted(results, key=lambda x: x["date"], reverse=True)
+    except Exception as exc:
+        logger.info("[Eastmoney] new margin trading history lookup failed %s: %s", symbol, exc)
 
     # 东方财富融资融券历史API
     url = "http://datacenter-web.eastmoney.com/api/data/v1/get"
