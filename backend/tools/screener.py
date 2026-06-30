@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import yfinance as yf
@@ -11,7 +12,7 @@ from backend.tools.cn_hk_market import fetch_cn_hk_quote_metrics
 
 logger = logging.getLogger(__name__)
 
-_FMP_SCREENER_URL = "https://financialmodelingprep.com/api/v3/stock-screener"
+_FMP_SCREENER_URL = "https://financialmodelingprep.com/stable/company-screener"
 _ALPHA_TOP_MOVERS_URL = "https://www.alphavantage.co/query"
 _ALLOWED_SORT_BY = {
     "marketCap",
@@ -22,6 +23,13 @@ _ALLOWED_SORT_BY = {
     "changesPercentage",
 }
 _ALLOWED_SORT_ORDER = {"asc", "desc"}
+_FMP_SCREENER_UNAVAILABLE_UNTIL = 0.0
+_FMP_SCREENER_UNAVAILABLE_STATUS: int | None = None
+_FMP_SCREENER_COOLDOWN_SECONDS = 300
+_ALPHA_TOP_MOVERS_CACHE: dict[str, Any] = {"expires_at": 0.0, "items": None}
+_ALPHA_TOP_MOVERS_TTL_SECONDS = 120
+_CN_HK_LIVE_UNAVAILABLE_UNTIL: dict[str, float] = {"CN": 0.0, "HK": 0.0}
+_CN_HK_LIVE_COOLDOWN_SECONDS = 180
 
 # Yahoo Finance predefined screener keys by market
 _YF_SCREENER_MAP = {
@@ -115,6 +123,286 @@ _STATIC_FALLBACK_ITEMS: dict[str, list[dict[str, Any]]] = {
             "beta": 1.3,
             "dividend": None,
             "change_percent": 0.74,
+        },
+        {
+            "symbol": "TSLA",
+            "name": "Tesla Inc.",
+            "sector": "Consumer Discretionary",
+            "industry": "Auto Manufacturers",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 182.1,
+            "market_cap": 580_000_000_000,
+            "volume": 101_000_000,
+            "beta": 2.1,
+            "dividend": None,
+            "change_percent": -1.12,
+        },
+        {
+            "symbol": "BRK-B",
+            "name": "Berkshire Hathaway Inc.",
+            "sector": "Financials",
+            "industry": "Insurance Diversified",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 410.6,
+            "market_cap": 890_000_000_000,
+            "volume": 3_900_000,
+            "beta": 0.9,
+            "dividend": None,
+            "change_percent": 0.16,
+        },
+        {
+            "symbol": "LLY",
+            "name": "Eli Lilly and Company",
+            "sector": "Healthcare",
+            "industry": "Drug Manufacturers",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 872.4,
+            "market_cap": 828_000_000_000,
+            "volume": 3_100_000,
+            "beta": 0.4,
+            "dividend": 5.2,
+            "change_percent": 0.38,
+        },
+        {
+            "symbol": "AVGO",
+            "name": "Broadcom Inc.",
+            "sector": "Technology",
+            "industry": "Semiconductors",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 1410.2,
+            "market_cap": 656_000_000_000,
+            "volume": 2_700_000,
+            "beta": 1.2,
+            "dividend": 21.0,
+            "change_percent": 0.91,
+        },
+        {
+            "symbol": "JPM",
+            "name": "JPMorgan Chase & Co.",
+            "sector": "Financials",
+            "industry": "Banks Diversified",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 198.7,
+            "market_cap": 571_000_000_000,
+            "volume": 8_800_000,
+            "beta": 1.1,
+            "dividend": 4.6,
+            "change_percent": 0.22,
+        },
+        {
+            "symbol": "V",
+            "name": "Visa Inc.",
+            "sector": "Financials",
+            "industry": "Credit Services",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 278.9,
+            "market_cap": 560_000_000_000,
+            "volume": 6_100_000,
+            "beta": 0.9,
+            "dividend": 2.1,
+            "change_percent": 0.44,
+        },
+        {
+            "symbol": "UNH",
+            "name": "UnitedHealth Group Inc.",
+            "sector": "Healthcare",
+            "industry": "Healthcare Plans",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 512.8,
+            "market_cap": 472_000_000_000,
+            "volume": 3_800_000,
+            "beta": 0.6,
+            "dividend": 7.5,
+            "change_percent": -0.18,
+        },
+        {
+            "symbol": "XOM",
+            "name": "Exxon Mobil Corporation",
+            "sector": "Energy",
+            "industry": "Oil & Gas Integrated",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 113.4,
+            "market_cap": 452_000_000_000,
+            "volume": 17_500_000,
+            "beta": 1.0,
+            "dividend": 3.8,
+            "change_percent": 0.27,
+        },
+        {
+            "symbol": "WMT",
+            "name": "Walmart Inc.",
+            "sector": "Consumer Staples",
+            "industry": "Discount Stores",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 67.3,
+            "market_cap": 541_000_000_000,
+            "volume": 14_400_000,
+            "beta": 0.5,
+            "dividend": 0.8,
+            "change_percent": 0.19,
+        },
+        {
+            "symbol": "MA",
+            "name": "Mastercard Incorporated",
+            "sector": "Financials",
+            "industry": "Credit Services",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 452.6,
+            "market_cap": 421_000_000_000,
+            "volume": 2_500_000,
+            "beta": 1.0,
+            "dividend": 2.6,
+            "change_percent": 0.51,
+        },
+        {
+            "symbol": "PG",
+            "name": "Procter & Gamble Company",
+            "sector": "Consumer Staples",
+            "industry": "Household & Personal Products",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 166.2,
+            "market_cap": 392_000_000_000,
+            "volume": 6_900_000,
+            "beta": 0.4,
+            "dividend": 4.0,
+            "change_percent": -0.08,
+        },
+        {
+            "symbol": "JNJ",
+            "name": "Johnson & Johnson",
+            "sector": "Healthcare",
+            "industry": "Drug Manufacturers",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 148.9,
+            "market_cap": 358_000_000_000,
+            "volume": 7_600_000,
+            "beta": 0.5,
+            "dividend": 4.8,
+            "change_percent": 0.12,
+        },
+        {
+            "symbol": "HD",
+            "name": "The Home Depot Inc.",
+            "sector": "Consumer Discretionary",
+            "industry": "Home Improvement Retail",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 348.5,
+            "market_cap": 346_000_000_000,
+            "volume": 3_400_000,
+            "beta": 1.0,
+            "dividend": 8.4,
+            "change_percent": -0.25,
+        },
+        {
+            "symbol": "COST",
+            "name": "Costco Wholesale Corporation",
+            "sector": "Consumer Staples",
+            "industry": "Discount Stores",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 812.3,
+            "market_cap": 360_000_000_000,
+            "volume": 2_100_000,
+            "beta": 0.8,
+            "dividend": 4.6,
+            "change_percent": 0.33,
+        },
+        {
+            "symbol": "ORCL",
+            "name": "Oracle Corporation",
+            "sector": "Technology",
+            "industry": "Software Infrastructure",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 125.7,
+            "market_cap": 346_000_000_000,
+            "volume": 8_200_000,
+            "beta": 1.0,
+            "dividend": 1.6,
+            "change_percent": 0.68,
+        },
+        {
+            "symbol": "MRK",
+            "name": "Merck & Co., Inc.",
+            "sector": "Healthcare",
+            "industry": "Drug Manufacturers",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 127.2,
+            "market_cap": 322_000_000_000,
+            "volume": 8_700_000,
+            "beta": 0.4,
+            "dividend": 3.1,
+            "change_percent": 0.06,
+        },
+        {
+            "symbol": "ABBV",
+            "name": "AbbVie Inc.",
+            "sector": "Healthcare",
+            "industry": "Drug Manufacturers",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 164.8,
+            "market_cap": 291_000_000_000,
+            "volume": 5_500_000,
+            "beta": 0.6,
+            "dividend": 6.2,
+            "change_percent": -0.14,
+        },
+        {
+            "symbol": "CVX",
+            "name": "Chevron Corporation",
+            "sector": "Energy",
+            "industry": "Oil & Gas Integrated",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 156.9,
+            "market_cap": 289_000_000_000,
+            "volume": 7_900_000,
+            "beta": 1.1,
+            "dividend": 6.5,
+            "change_percent": 0.21,
+        },
+        {
+            "symbol": "KO",
+            "name": "The Coca-Cola Company",
+            "sector": "Consumer Staples",
+            "industry": "Beverages",
+            "country": "US",
+            "exchange": "NYSE",
+            "price": 62.4,
+            "market_cap": 269_000_000_000,
+            "volume": 13_100_000,
+            "beta": 0.6,
+            "dividend": 1.9,
+            "change_percent": 0.09,
+        },
+        {
+            "symbol": "PEP",
+            "name": "PepsiCo Inc.",
+            "sector": "Consumer Staples",
+            "industry": "Beverages",
+            "country": "US",
+            "exchange": "NASDAQ",
+            "price": 172.5,
+            "market_cap": 237_000_000_000,
+            "volume": 5_200_000,
+            "beta": 0.5,
+            "dividend": 5.1,
+            "change_percent": -0.05,
         },
     ],
     "CN": [
@@ -284,6 +572,76 @@ _POPULAR_TICKERS: dict[str, list[str]] = {
     ],
 }
 
+_FALLBACK_COMPANY_NAMES: dict[str, str] = {
+    "600036.SS": "China Merchants Bank Co., Ltd.",
+    "601899.SS": "Zijin Mining Group Co., Ltd.",
+    "002594.SZ": "BYD Company Limited",
+    "600276.SS": "Jiangsu Hengrui Pharmaceuticals Co., Ltd.",
+    "601398.SS": "Industrial and Commercial Bank of China Limited",
+    "601288.SS": "Agricultural Bank of China Limited",
+    "000651.SZ": "Gree Electric Appliances, Inc.",
+    "600030.SS": "CITIC Securities Company Limited",
+    "600900.SS": "China Yangtze Power Co., Ltd.",
+    "601988.SS": "Bank of China Limited",
+    "0939.HK": "China Construction Bank Corporation",
+    "1398.HK": "Industrial and Commercial Bank of China Limited",
+    "0005.HK": "HSBC Holdings plc",
+    "0388.HK": "Hong Kong Exchanges and Clearing Limited",
+    "0883.HK": "CNOOC Limited",
+    "2318.HK": "Ping An Insurance Group Co. of China, Ltd.",
+    "0941.HK": "China Mobile Limited",
+    "1211.HK": "BYD Company Limited",
+    "9618.HK": "JD.com, Inc.",
+    "1024.HK": "Kuaishou Technology",
+}
+
+_FALLBACK_SECTOR_BY_MARKET: dict[str, list[tuple[str, str]]] = {
+    "CN": [
+        ("Financials", "Banks"),
+        ("Materials", "Metals & Mining"),
+        ("Consumer Discretionary", "Auto Manufacturers"),
+        ("Healthcare", "Pharmaceuticals"),
+        ("Utilities", "Electric Utilities"),
+    ],
+    "HK": [
+        ("Financials", "Banks"),
+        ("Energy", "Oil & Gas"),
+        ("Communication Services", "Telecom Services"),
+        ("Consumer Discretionary", "Internet Retail"),
+        ("Technology", "Internet Services"),
+    ],
+}
+
+
+def _ensure_static_fallback_coverage() -> None:
+    for market in ("CN", "HK"):
+        items = _STATIC_FALLBACK_ITEMS.setdefault(market, [])
+        seen = {str(item.get("symbol") or "").upper() for item in items}
+        sector_cycle = _FALLBACK_SECTOR_BY_MARKET[market]
+        for index, symbol in enumerate(_POPULAR_TICKERS.get(market, [])):
+            if symbol in seen:
+                continue
+            sector, industry = sector_cycle[index % len(sector_cycle)]
+            market_cap = max(80_000_000_000, 450_000_000_000 - index * 18_000_000_000)
+            items.append({
+                "symbol": symbol,
+                "name": _FALLBACK_COMPANY_NAMES.get(symbol, symbol),
+                "sector": sector,
+                "industry": industry,
+                "country": market,
+                "exchange": "HKEX" if market == "HK" else ("Shanghai" if symbol.endswith(".SS") else "Shenzhen"),
+                "price": round(20 + index * 3.7, 2),
+                "market_cap": market_cap,
+                "volume": 5_000_000 + index * 1_250_000,
+                "beta": round(0.7 + (index % 5) * 0.1, 1),
+                "dividend": None,
+                "change_percent": round((index % 7 - 3) * 0.18, 2),
+            })
+            seen.add(symbol)
+
+
+_ensure_static_fallback_coverage()
+
 
 def _yfinance_screen_stocks(
     market: str,
@@ -297,6 +655,61 @@ def _yfinance_screen_stocks(
 
     # Directly use popular stocks approach - more reliable than Screener API
     return _yfinance_popular_stocks(market_norm, filters, limit, sort_by, sort_order)
+
+
+def _static_screen_stocks(
+    market: str,
+    filters: dict[str, Any] | None,
+    limit: int,
+    sort_by: str,
+    sort_order: str,
+    *,
+    warning: str = "demo_market_fallback",
+) -> dict[str, Any]:
+    market_norm = str(market or "US").strip().upper()
+    active_filters = filters if isinstance(filters, dict) else {}
+    items = _sort_screener_items(_static_fallback_items(market_norm, active_filters), sort_by, sort_order)
+    sliced = items[:limit]
+    return {
+        "success": True,
+        "market": market_norm,
+        "filters": active_filters,
+        "sort": {"by": sort_by, "order": sort_order},
+        "items": sliced,
+        "count": len(sliced),
+        "results": sliced,
+        "source": "static_market_demo",
+        "warning": warning if sliced else "empty_result",
+        "capability_note": "实时筛选数据暂不可用，当前使用内置候选池。",
+    }
+
+
+def _with_fmp_fallback_note(result: dict[str, Any], *, status_code: int | None = None) -> dict[str, Any]:
+    """Attach a user-facing reason when FMP's paid screener cannot be used."""
+    note = (
+        "当前 FMP key 不支持批量筛选接口"
+        + (f"（HTTP {status_code}）" if status_code else "")
+        + "，已切换到免费数据源或内置候选池。"
+    )
+    merged = dict(result)
+    existing = str(merged.get("capability_note") or "").strip()
+    merged["capability_note"] = f"{note} {existing}".strip()
+    merged["warning"] = merged.get("warning") or "fmp_screener_unavailable"
+    return merged
+
+
+def _remember_fmp_screener_unavailable(status_code: int | None) -> None:
+    global _FMP_SCREENER_UNAVAILABLE_STATUS, _FMP_SCREENER_UNAVAILABLE_UNTIL
+    if status_code not in {402, 403}:
+        return
+    _FMP_SCREENER_UNAVAILABLE_STATUS = status_code
+    _FMP_SCREENER_UNAVAILABLE_UNTIL = time.monotonic() + _FMP_SCREENER_COOLDOWN_SECONDS
+
+
+def _fmp_screener_unavailable_status() -> int | None:
+    if time.monotonic() >= _FMP_SCREENER_UNAVAILABLE_UNTIL:
+        return None
+    return _FMP_SCREENER_UNAVAILABLE_STATUS
 
 
 def _parse_percent(value: Any) -> float | None:
@@ -318,25 +731,32 @@ def _alpha_vantage_screen_stocks(
         return None
 
     try:
-        response = _http_get(
-            _ALPHA_TOP_MOVERS_URL,
-            params={"function": "TOP_GAINERS_LOSERS", "apikey": ALPHA_VANTAGE_API_KEY},
-            timeout=15,
-        )
-        if getattr(response, "status_code", 0) != 200:
-            logger.info("Alpha Vantage top movers returned %s", getattr(response, "status_code", "unknown"))
-            return None
+        now = time.monotonic()
+        cached_items = _ALPHA_TOP_MOVERS_CACHE.get("items")
+        if isinstance(cached_items, list) and now < float(_ALPHA_TOP_MOVERS_CACHE.get("expires_at") or 0):
+            rows = cached_items
+        else:
+            response = _http_get(
+                _ALPHA_TOP_MOVERS_URL,
+                params={"function": "TOP_GAINERS_LOSERS", "apikey": ALPHA_VANTAGE_API_KEY},
+                timeout=(2, 5),
+            )
+            if getattr(response, "status_code", 0) != 200:
+                logger.info("Alpha Vantage top movers returned %s", getattr(response, "status_code", "unknown"))
+                return None
 
-        raw = response.json()
-        if not isinstance(raw, dict) or raw.get("Information") or raw.get("Note"):
-            logger.info("Alpha Vantage top movers unavailable: %s", raw.get("Information") or raw.get("Note"))
-            return None
+            raw = response.json()
+            if not isinstance(raw, dict) or raw.get("Information") or raw.get("Note"):
+                logger.info("Alpha Vantage top movers unavailable: %s", raw.get("Information") or raw.get("Note") if isinstance(raw, dict) else raw)
+                return None
 
-        rows = [
-            *(raw.get("most_actively_traded") or []),
-            *(raw.get("top_gainers") or []),
-            *(raw.get("top_losers") or []),
-        ]
+            rows = [
+                *(raw.get("most_actively_traded") or []),
+                *(raw.get("top_gainers") or []),
+                *(raw.get("top_losers") or []),
+            ]
+            _ALPHA_TOP_MOVERS_CACHE["items"] = rows
+            _ALPHA_TOP_MOVERS_CACHE["expires_at"] = now + _ALPHA_TOP_MOVERS_TTL_SECONDS
         seen: set[str] = set()
         items: list[dict[str, Any]] = []
         active_filters = filters if isinstance(filters, dict) else {}
@@ -389,7 +809,7 @@ def _alpha_vantage_screen_stocks(
             "count": len(sliced),
             "results": sliced,
             "source": "alpha_vantage_top_movers",
-            "capability_note": "Using Alpha Vantage free top movers because FMP screener is not configured.",
+            "capability_note": "当前使用 Alpha Vantage 免费热门榜，因为配置的 FMP key 不支持批量筛选接口。",
         }
     except Exception as exc:
         logger.info("Alpha Vantage top movers fallback failed: %s", exc)
@@ -471,9 +891,9 @@ def _yfinance_popular_stocks(
             "source": "yfinance_popular" if is_live else "static_market_demo",
             "warning": None if is_live else "demo_market_fallback",
             "capability_note": (
-                f"Using yfinance popular {market_norm} tickers because FMP screener is not configured."
+                f"当前使用 yfinance 热门 {market_norm} 标的，因为 FMP 批量筛选不可用。"
                 if is_live
-                else "Using built-in market demo candidates because FMP/yfinance coverage is unavailable."
+                else "实时筛选数据暂不可用，当前使用内置候选池。"
             ),
         }
     except Exception as exc:
@@ -491,7 +911,7 @@ def _yfinance_popular_stocks(
                 "results": sliced,
                 "source": "static_market_demo",
                 "warning": "live_fallback_unavailable",
-                "capability_note": "Using built-in market demo candidates because FMP/yfinance data is unavailable.",
+                "capability_note": "实时筛选数据暂不可用，当前使用内置候选池。",
             }
         return {
             "success": False,
@@ -517,20 +937,25 @@ def _cn_hk_popular_stocks(
     items: list[dict[str, Any]] = []
     candidates = _POPULAR_TICKERS.get(market_norm, [])
     target_limit = max(1, min(limit, len(candidates) or limit))
-    max_live_probes = min(len(candidates), target_limit, 1)
-    for symbol in candidates[:max_live_probes]:
-        try:
-            metrics = fetch_cn_hk_quote_metrics(symbol, timeout=1)
-        except Exception:
-            metrics = None
-        if not isinstance(metrics, dict):
-            continue
-        item = _build_cn_hk_item(symbol=symbol, market=market_norm, metrics=metrics)
-        if not _passes_screener_filters(item, filters):
-            continue
-        items.append(item)
-        if len(items) >= target_limit:
-            break
+    live_allowed = time.monotonic() >= _CN_HK_LIVE_UNAVAILABLE_UNTIL.get(market_norm, 0.0)
+    if live_allowed:
+        max_live_probes = min(len(candidates), target_limit, 2)
+        for symbol in candidates[:max_live_probes]:
+            try:
+                metrics = fetch_cn_hk_quote_metrics(symbol, timeout=1)
+            except Exception:
+                metrics = None
+            if not isinstance(metrics, dict):
+                continue
+            item = _build_cn_hk_item(symbol=symbol, market=market_norm, metrics=metrics)
+            if not _passes_screener_filters(item, filters):
+                continue
+            items.append(item)
+            if len(items) >= target_limit:
+                break
+
+        if not items and max_live_probes:
+            _CN_HK_LIVE_UNAVAILABLE_UNTIL[market_norm] = time.monotonic() + _CN_HK_LIVE_COOLDOWN_SECONDS
 
     seen = {str(item.get("symbol") or "").upper() for item in items}
     used_static_fallback = False
@@ -556,14 +981,21 @@ def _cn_hk_popular_stocks(
             "results": [],
             "source": "eastmoney_quote",
             "warning": "coverage_limited_or_empty_result",
-            "capability_note": "CN/HK free quote data is temporarily slow or unavailable; try loosening filters.",
+            "capability_note": "CN/HK 免费行情源暂时较慢或不可用，可放宽筛选条件后重试。",
         }
 
     items = _sort_screener_items(items, sort_by, sort_order)
     sliced = items[:target_limit]
     live_count = sum(1 for item in sliced if item.get("_live"))
+    live_sources = [
+        str(item.get("_source") or "eastmoney_quote")
+        for item in sliced
+        if item.get("_live")
+    ]
+    result_source = live_sources[0] if live_sources else "static_market_demo"
     for item in sliced:
         item.pop("_live", None)
+        item.pop("_source", None)
     return {
         "success": True,
         "market": market_norm,
@@ -572,12 +1004,12 @@ def _cn_hk_popular_stocks(
         "items": sliced,
         "count": len(sliced),
         "results": sliced,
-        "source": "eastmoney_quote" if live_count else "static_market_demo",
+        "source": result_source,
         "warning": "live_fallback_unavailable" if used_static_fallback and not live_count else None,
         "capability_note": (
-            "Using Eastmoney free quote data for popular CN/HK tickers; built-in candidates fill any slow symbols."
+            "当前使用免费行情源；请求较慢的标的会由内置候选池补齐。"
             if live_count
-            else "Using built-in market demo candidates because CN/HK free quote data is temporarily slow."
+            else "CN/HK 免费行情源暂时较慢，当前使用内置候选池。"
         ),
     }
 
@@ -623,6 +1055,7 @@ def _build_cn_hk_item(*, symbol: str, market: str, metrics: dict[str, Any]) -> d
         "dividend": None,
         "change_percent": None,
         "_live": True,
+        "_source": metrics.get("source") or "eastmoney_quote",
     }
 
 
@@ -759,16 +1192,26 @@ def screen_stocks(
 
     payload_filters = filters if isinstance(filters, dict) else {}
 
+    if market_norm in {"CN", "HK"}:
+        return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
+
     if not FMP_API_KEY:
         logger.warning("FMP_API_KEY is not configured; using yfinance popular fallback")
+        if market_norm == "US":
+            return _static_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
         return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
+
+    unavailable_status = _fmp_screener_unavailable_status()
+    if unavailable_status:
+        logger.info("FMP screener is in cooldown after HTTP %s; using free sources", unavailable_status)
+        return _with_fmp_fallback_note(
+            _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir),
+            status_code=unavailable_status,
+        )
 
     params: dict[str, Any] = {
         "apikey": FMP_API_KEY,
         "limit": limit_norm,
-        "offset": (page_norm - 1) * limit_norm,
-        "order": sort_dir,
-        "sort": sort_key,
     }
     params.update(_build_market_filters(market))
 
@@ -798,18 +1241,21 @@ def screen_stocks(
     try:
         response = _http_get(_FMP_SCREENER_URL, params=params, timeout=15)
         if getattr(response, "status_code", 0) != 200:
-            # FMP failed, try yfinance fallback
-            logger.info("FMP screener returned %s, falling back to yfinance", getattr(response, "status_code", "unknown"))
-            return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
+            status_code = getattr(response, "status_code", None)
+            logger.info("FMP screener returned %s, falling back to free sources", status_code or "unknown")
+            _remember_fmp_screener_unavailable(status_code)
+            return _with_fmp_fallback_note(
+                _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir),
+                status_code=status_code,
+            )
         raw = response.json()
         # Check for FMP legacy endpoint error
         if isinstance(raw, dict) and "Error Message" in raw:
-            logger.info("FMP legacy endpoint deprecated, falling back to yfinance")
-            return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
+            logger.info("FMP screener returned an error payload, falling back to free sources")
+            return _with_fmp_fallback_note(_yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir))
         if not isinstance(raw, list):
-            # Could be error response, fallback to yfinance
-            logger.info("FMP returned non-list response, falling back to yfinance")
-            return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
+            logger.info("FMP returned non-list response, falling back to free sources")
+            return _with_fmp_fallback_note(_yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir))
 
         items: list[dict[str, Any]] = []
         for row in raw:
@@ -821,7 +1267,7 @@ def screen_stocks(
             items.append(
                 {
                     "symbol": symbol,
-                    "name": str(row.get("companyName") or row.get("company") or "").strip() or symbol,
+                    "name": str(row.get("companyName") or row.get("company") or row.get("companyName") or row.get("name") or "").strip() or symbol,
                     "sector": row.get("sector"),
                     "industry": row.get("industry"),
                     "country": row.get("country"),
@@ -835,6 +1281,9 @@ def screen_stocks(
                 }
             )
 
+        items = _sort_screener_items(items, sort_key, sort_dir)
+        offset = (page_norm - 1) * limit_norm
+        sliced = items[offset:offset + limit_norm]
         return {
             "success": True,
             "market": market_norm,
@@ -842,15 +1291,16 @@ def screen_stocks(
             "sort": {"by": sort_key, "order": sort_dir},
             "page": page_norm,
             "limit": limit_norm,
-            "items": items,
-            "count": len(items),
-            "source": "fmp_stock_screener",
-            "warning": None if items else ("coverage_limited_or_empty_result" if capability_note else "empty_result"),
+            "items": sliced,
+            "results": sliced,
+            "count": len(sliced),
+            "source": "fmp_company_screener",
+            "warning": None if sliced else ("coverage_limited_or_empty_result" if capability_note else "empty_result"),
             "capability_note": capability_note,
         }
     except Exception as exc:
-        logger.warning("screen_stocks FMP failed: %s, trying yfinance fallback", exc)
-        return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
+        logger.warning("screen_stocks FMP failed: %s, trying free-source fallback", exc)
+        return _with_fmp_fallback_note(_yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir))
 
 
 __all__ = ["screen_stocks"]

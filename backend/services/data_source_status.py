@@ -7,7 +7,7 @@ from typing import Any
 from backend.demo_mode import is_demo_mode
 
 
-MARKET_KEYS = ("FMP_API_KEY", "ALPHA_VANTAGE_API_KEY", "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY", "EODHD_API_KEY")
+US_QUOTE_KEYS = ("ALPHA_VANTAGE_API_KEY", "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY", "EODHD_API_KEY")
 
 
 def _has_env(name: str) -> bool:
@@ -26,7 +26,8 @@ def _component(key: str, label: str, status: str, detail: str, required_action: 
 
 def get_data_source_status() -> dict[str, Any]:
     demo_mode = is_demo_mode()
-    has_paid_market_key = any(_has_env(name) for name in MARKET_KEYS)
+    has_us_quote_key = any(_has_env(name) for name in US_QUOTE_KEYS)
+    has_fmp_key = _has_env("FMP_API_KEY")
     has_llm_key = _has_env("OPENAI_COMPATIBLE_API_KEY")
     has_auth_keys = _has_env("JWT_SECRET") and _has_env("API_AUTH_KEYS")
 
@@ -34,26 +35,37 @@ def get_data_source_status() -> dict[str, Any]:
         _component(
             "market_us",
             "美股行情",
-            "demo" if demo_mode else ("live_ready" if has_paid_market_key else "fallback_ready"),
-            "Demo Mode 使用内置差异化行情。" if demo_mode else (
-                "检测到付费行情 key，优先使用真实外部源。"
-                if has_paid_market_key
-                else "未配置付费行情 key，使用 yfinance 免费兜底；失败时回落到 Demo。"
+            "demo" if demo_mode else ("live_ready" if has_us_quote_key else "fallback_ready"),
+            "Demo Mode 使用内置行情。" if demo_mode else (
+                "已检测到美股行情 key，单标的报价可优先使用真实外部源。"
+                if has_us_quote_key
+                else "未配置美股行情 key，单标的报价会尝试免费源；失败时回落到明确标注的候选数据。"
             ),
-            None if demo_mode or has_paid_market_key else "可选配置 FMP_API_KEY 提升覆盖率。",
+            None if demo_mode or has_us_quote_key else "可选配置 ALPHA_VANTAGE_API_KEY、FINNHUB_API_KEY、TWELVE_DATA_API_KEY 或 EODHD_API_KEY。",
+        ),
+        _component(
+            "stock_screener",
+            "股票筛选",
+            "demo" if demo_mode else ("live_ready" if has_fmp_key else "fallback_ready"),
+            "Demo Mode 使用内置候选池。" if demo_mode else (
+                "已配置 FMP_API_KEY，股票发现可优先使用 FMP Stock Screener。"
+                if has_fmp_key
+                else "未配置 FMP_API_KEY，股票发现会使用明确标注的本地候选池，避免免费外部源超时导致空白。"
+            ),
+            None if demo_mode or has_fmp_key else "如需真实批量股票筛选，请配置 FMP_API_KEY。",
         ),
         _component(
             "market_cn",
             "A 股行情",
             "demo" if demo_mode else "fallback_ready",
-            "Demo Mode 使用内置 A 股示例。" if demo_mode else "使用 BaoStock 免费兜底；失败时回落到 Demo。",
+            "Demo Mode 使用内置 A 股示例。" if demo_mode else "使用腾讯/东方财富/BaoStock 等免费源；失败时回落到明确标注的候选数据。",
             None,
         ),
         _component(
             "market_hk",
             "港股行情",
             "demo" if demo_mode else "fallback_ready",
-            "Demo Mode 使用内置港股示例。" if demo_mode else "使用 yfinance 单标的免费兜底；覆盖不足时回落到 Demo。",
+            "Demo Mode 使用内置港股示例。" if demo_mode else "使用东方财富/yfinance 等免费源；覆盖不足时回落到明确标注的候选数据。",
             None,
         ),
         _component(
@@ -61,7 +73,7 @@ def get_data_source_status() -> dict[str, Any]:
             "AI 研究生成",
             "demo" if demo_mode else ("live_ready" if has_llm_key else "missing_key"),
             "Demo Mode 可展示模板化研究输出。" if demo_mode else (
-                "检测到 LLM key，可发起真实研究生成。"
+                "已检测到 LLM key，可发起真实研究生成。"
                 if has_llm_key
                 else "未检测到 LLM key，Chat/深度研究会降级或不可用。"
             ),
@@ -93,7 +105,7 @@ def get_data_source_status() -> dict[str, Any]:
     ]
     overall_status = "demo" if demo_mode else (
         "live_ready" if not missing_services else (
-            "fallback_ready" if all(c["status"] in {"live_ready", "fallback_ready"} for c in components[:3]) else "needs_config"
+            "fallback_ready" if all(c["status"] in {"live_ready", "fallback_ready"} for c in components[:4]) else "needs_config"
         )
     )
 
@@ -106,7 +118,8 @@ def get_data_source_status() -> dict[str, Any]:
         "missing_services": missing_services,
         "components": components,
         "notes": [
-            "所有行情、K 线和财务数据都应携带 evidence，说明 source/as_of/freshness/fallback。",
-            "未配置真实 key 时，系统优先使用免费源；免费源失败才回落到明确标注的 Demo 数据。",
+            "行情、K 线、财务和筛选结果都应携带 evidence，说明 source/as_of/freshness/fallback。",
+            "单标的行情 key 不等于批量筛选 key；FMP_API_KEY 专门用于股票发现里的真实批量筛选。",
+            "未配置真实 key 时，系统优先使用免费源；免费源失败才回落到明确标注的 Demo/候选池数据。",
         ],
     }

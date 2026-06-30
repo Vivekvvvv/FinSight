@@ -36,6 +36,7 @@ const items = ref<ScreenerItem[]>([]);
 const lastRunAt = ref<string | null>(null);
 const loading = ref(false);
 let runToken = 0;
+let runController: AbortController | null = null;
 const errorMsg = ref<string | null>(null);
 const actionMsg = ref<string | null>(null);
 const addedWatchlist = ref<Set<string>>(new Set());
@@ -169,6 +170,7 @@ function warningLabel(code: string | null | undefined): string {
   const labels: Record<string, string> = {
     coverage_limited_or_empty_result: '当前筛选条件下暂无覆盖结果，可放宽条件或切换市场。',
     demo_market_fallback: '当前使用内置示例股票池，适合本地演示与研究流程体验。',
+    fmp_screener_unavailable: '当前 FMP key 不支持批量筛选接口，已自动切换到免费数据源。',
     live_fallback_unavailable: '实时数据源暂不可用，已切换到本地候选池。',
     empty_result: '暂无候选股票。',
   };
@@ -195,6 +197,9 @@ async function loadMeta() {
 
 async function run() {
   const token = ++runToken;
+  runController?.abort();
+  const controller = new AbortController();
+  runController = controller;
   loading.value = true;
   errorMsg.value = null;
   actionMsg.value = null;
@@ -207,7 +212,7 @@ async function run() {
       page: 1,
       sort_by: sortBy.value,
       sort_order: sortOrder.value,
-    });
+    }, controller.signal);
     if (token !== runToken) return;
     response.value = resp;
     lastRunAt.value = new Date().toISOString();
@@ -215,12 +220,14 @@ async function run() {
     if (!resp.success && resp.error) errorMsg.value = resp.error;
   } catch (error) {
     if (token !== runToken) return;
+    if ((error as { code?: string; name?: string })?.code === 'ERR_CANCELED' || (error as { name?: string })?.name === 'CanceledError') return;
     errorMsg.value = reportFriendlyError(error, '筛选失败，请放宽条件或稍后重试。');
     response.value = null;
     items.value = [];
   } finally {
     if (token === runToken) {
       loading.value = false;
+      runController = null;
     }
   }
 }

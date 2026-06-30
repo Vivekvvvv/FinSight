@@ -83,13 +83,17 @@ def _fake_us_fallback(market, filters, limit, sort_by, sort_order):
 
 def test_screener_uses_fallback_without_fmp_key(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
-    monkeypatch.setattr(screener, "_yfinance_screen_stocks", _fake_us_fallback)
+
+    def _fail_yfinance(*_args, **_kwargs):
+        raise AssertionError("US no-key screener should not wait on yfinance")
+
+    monkeypatch.setattr(screener, "_yfinance_screen_stocks", _fail_yfinance)
 
     result = screener.screen_stocks(market="US", limit=10)
 
     assert result["success"] is True
-    assert result["items"][0]["symbol"] == "AAPL"
-    assert result["source"] == "test_fallback"
+    assert {item["symbol"] for item in result["items"]} >= {"AAPL", "MSFT"}
+    assert result["source"] == "static_market_demo"
 
 
 def test_screener_invalid_sort_falls_back(monkeypatch):
@@ -122,7 +126,7 @@ def test_screener_cn_without_key_uses_yfinance_popular(monkeypatch):
     assert result["items"][0]["country"] == "CN"
     assert result["warning"] is None
     assert result["source"] == "eastmoney_quote"
-    assert "Eastmoney" in result["capability_note"]
+    assert "免费行情源" in result["capability_note"]
 
 
 def test_screener_hk_without_key_uses_yfinance_popular(monkeypatch):
@@ -146,6 +150,72 @@ def test_screener_hk_without_key_uses_yfinance_popular(monkeypatch):
     assert result["items"][0]["country"] == "HK"
     assert result["warning"] is None
     assert result["source"] == "eastmoney_quote"
+
+
+def test_screener_cn_uses_tencent_quote_when_available(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    monkeypatch.setattr(
+        screener,
+        "fetch_cn_hk_quote_metrics",
+        lambda symbol, **_kwargs: {
+            "symbol": symbol,
+            "name": symbol,
+            "last_price": 10,
+            "market_cap": 1000,
+            "source": "tencent_quote",
+        },
+    )
+
+    result = screener.screen_stocks(market="CN", limit=10)
+
+    assert result["success"] is True
+    assert result["source"] == "tencent_quote"
+    assert result["warning"] is None
+
+
+def test_screener_cn_static_pool_fills_first_page_when_live_source_is_slow(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    monkeypatch.setattr(screener, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", {"CN": 0.0, "HK": 0.0})
+    monkeypatch.setattr(screener, "fetch_cn_hk_quote_metrics", lambda *_args, **_kwargs: None)
+
+    result = screener.screen_stocks(market="CN", limit=10)
+
+    assert result["success"] is True
+    assert result["market"] == "CN"
+    assert result["source"] == "static_market_demo"
+    assert result["count"] == 10
+    assert len({item["symbol"] for item in result["items"]}) == 10
+    assert screener._CN_HK_LIVE_UNAVAILABLE_UNTIL["CN"] > 0
+
+
+def test_screener_hk_static_pool_fills_first_page_when_live_source_is_slow(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    monkeypatch.setattr(screener, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", {"CN": 0.0, "HK": 0.0})
+    monkeypatch.setattr(screener, "fetch_cn_hk_quote_metrics", lambda *_args, **_kwargs: None)
+
+    result = screener.screen_stocks(market="HK", limit=10)
+
+    assert result["success"] is True
+    assert result["market"] == "HK"
+    assert result["source"] == "static_market_demo"
+    assert result["count"] == 10
+    assert len({item["symbol"] for item in result["items"]}) == 10
+
+
+def test_screener_cn_skips_live_source_during_cooldown(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    monkeypatch.setattr(screener, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", {"CN": 999999999.0, "HK": 0.0})
+
+    def _fail_quote(*_args, **_kwargs):
+        raise AssertionError("CN live source should be skipped while cooldown is active")
+
+    monkeypatch.setattr(screener, "fetch_cn_hk_quote_metrics", _fail_quote)
+
+    result = screener.screen_stocks(market="CN", limit=10)
+
+    assert result["success"] is True
+    assert result["source"] == "static_market_demo"
+    assert result["count"] == 10
 
 
 def test_screener_fallback_result_keeps_items_and_results_alias(monkeypatch):

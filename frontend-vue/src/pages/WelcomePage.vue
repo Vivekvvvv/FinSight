@@ -31,6 +31,7 @@ const qualitySummary = ref<ResearchQualitySummary>({
 const qualityIssues = ref<ResearchQualityIssue[]>([]);
 const loading = ref(false);
 const errorMsg = ref<string | null>(null);
+const openingTaskId = ref<string | null>(null);
 
 const todayStr = computed(() => new Date().toLocaleDateString('zh-CN', {
   year: 'numeric',
@@ -94,6 +95,15 @@ function integratedRoute(path?: string | null): string {
   if (path.startsWith('/research/report')) return '/reports?tool=generate';
   if (path.startsWith('/research/financials')) return '/reports?tool=financials';
   return path;
+}
+
+async function openTask(task: DailyTask): Promise<void> {
+  openingTaskId.value = task.id;
+  try {
+    await router.push(integratedRoute(task.action_url));
+  } finally {
+    openingTaskId.value = null;
+  }
 }
 
 async function refresh(): Promise<void> {
@@ -164,9 +174,10 @@ watch(() => identity.sessionId, () => { void refresh(); });
           <button
             v-for="task in dailyTasks.slice(0, 6)"
             :key="task.id"
-            class="task-card"
+            :class="['task-card', { 'is-opening': openingTaskId === task.id }]"
             type="button"
-            @click="router.push(integratedRoute(task.action_url))"
+            :disabled="openingTaskId === task.id"
+            @click="openTask(task)"
           >
             <span>{{ task.category || '研究' }}</span>
             <strong>{{ task.title }}</strong>
@@ -498,6 +509,12 @@ watch(() => identity.sessionId, () => { void refresh(); });
 .task-card:hover {
   border-color: var(--fin-border-strong);
   background: var(--fin-card-soft);
+}
+
+.task-card.is-opening,
+.task-card:disabled {
+  cursor: wait;
+  opacity: 0.78;
 }
 
 .task-card span,

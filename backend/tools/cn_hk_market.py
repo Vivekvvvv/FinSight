@@ -17,6 +17,8 @@ _EASTMONEY_TIMEOUT = int(os.getenv("EASTMONEY_TIMEOUT", "12"))
 _EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
 _EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 _EASTMONEY_FINANCIAL_URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
+_TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q={code}"
+_SINA_QUOTE_URL = "https://hq.sinajs.cn/list={code}"
 
 
 def detect_market(ticker: str) -> str:
@@ -48,6 +50,18 @@ def ticker_to_eastmoney_secid(ticker: str) -> str | None:
         if not core:
             return None
         return f"116.{core.zfill(5)}"
+    return None
+
+
+def ticker_to_cn_quote_code(ticker: str) -> str | None:
+    symbol = normalize_ticker(ticker)
+    if symbol.endswith(".SS"):
+        return f"sh{symbol[:-3]}"
+    if symbol.endswith(".SZ") or symbol.endswith(".BJ"):
+        return f"sz{symbol[:-3]}"
+    if symbol.endswith(".HK"):
+        core = re.sub(r"\D", "", symbol[:-3])
+        return f"hk{core.zfill(5)}" if core else None
     return None
 
 
@@ -85,6 +99,95 @@ def _eastmoney_get_json(url: str, params: dict[str, Any], timeout: int | None = 
     except Exception as exc:
         logger.info("[CNHK] eastmoney request failed for %s: %s", url, exc)
         return None
+
+
+def _http_get_text(url: str, *, timeout: int | None = None, referer: str | None = None) -> str | None:
+    try:
+        headers = {"User-Agent": _EASTMONEY_USER_AGENT}
+        if referer:
+            headers["Referer"] = referer
+        resp = _http_get(url, timeout=int(timeout or 3), headers=headers)
+        if getattr(resp, "status_code", 0) != 200:
+            return None
+        return str(getattr(resp, "text", "") or "")
+    except Exception as exc:
+        logger.info("[CNHK] quote text request failed for %s: %s", url, exc)
+        return None
+
+
+def _parse_tencent_quote(ticker: str, text: str) -> dict[str, Any] | None:
+    match = re.search(r'="([^"]*)"', text or "")
+    if not match:
+        return None
+    parts = match.group(1).split("~")
+    if len(parts) < 45:
+        return None
+    market = detect_market(ticker)
+    price = safe_float(parts[3])
+    if price is None:
+        return None
+    return {
+        "symbol": normalize_ticker(ticker),
+        "market": market,
+        "name": parts[1] or normalize_ticker(ticker),
+        "last_price": price,
+        "market_cap": safe_float(parts[45]) * 100_000_000 if len(parts) > 45 and safe_float(parts[45]) is not None else None,
+        "trailing_pe": safe_float(parts[39]) if len(parts) > 39 else None,
+        "forward_pe": None,
+        "price_to_book": None,
+        "price_to_sales": None,
+        "ev_to_ebitda": None,
+        "dividend_yield": None,
+        "beta": None,
+        "week52_high": safe_float(parts[47]) if len(parts) > 47 else None,
+        "week52_low": safe_float(parts[48]) if len(parts) > 48 else None,
+        "source": "tencent_quote",
+    }
+
+
+def _parse_sina_cn_quote(ticker: str, text: str) -> dict[str, Any] | None:
+    match = re.search(r'="([^"]*)"', text or "")
+    if not match:
+        return None
+    parts = match.group(1).split(",")
+    if len(parts) < 31:
+        return None
+    price = safe_float(parts[3])
+    if price is None:
+        return None
+    return {
+        "symbol": normalize_ticker(ticker),
+        "market": "CN",
+        "name": parts[0] or normalize_ticker(ticker),
+        "last_price": price,
+        "market_cap": None,
+        "trailing_pe": None,
+        "forward_pe": None,
+        "price_to_book": None,
+        "price_to_sales": None,
+        "ev_to_ebitda": None,
+        "dividend_yield": None,
+        "beta": None,
+        "week52_high": safe_float(parts[4]),
+        "week52_low": safe_float(parts[5]),
+        "source": "sina_quote",
+    }
+
+
+def _fetch_tencent_quote_metrics(ticker: str, *, timeout: int | None = None) -> dict[str, Any] | None:
+    code = ticker_to_cn_quote_code(ticker)
+    if not code:
+        return None
+    text = _http_get_text(_TENCENT_QUOTE_URL.format(code=code), timeout=timeout, referer="https://gu.qq.com/")
+    return _parse_tencent_quote(ticker, text or "")
+
+
+def _fetch_sina_cn_quote_metrics(ticker: str, *, timeout: int | None = None) -> dict[str, Any] | None:
+    code = ticker_to_cn_quote_code(ticker)
+    if not code:
+        return None
+    text = _http_get_text(_SINA_QUOTE_URL.format(code=code), timeout=timeout, referer="https://finance.sina.com.cn/")
+    return _parse_sina_cn_quote(ticker, text or "")
 
 
 def _period_label(report_date: Any, report_type: Any) -> str | None:
@@ -167,6 +270,10 @@ def fetch_cn_hk_quote_metrics(ticker: str, *, timeout: int | None = None) -> dic
     )
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):
+        if market in {"CN", "HK"}:
+            return _fetch_tencent_quote_metrics(ticker_norm, timeout=timeout) or (
+                _fetch_sina_cn_quote_metrics(ticker_norm, timeout=timeout) if market == "CN" else None
+            )
         return None
 
     decimals = int(safe_float(data.get("f59")) or 2)
@@ -198,6 +305,10 @@ def fetch_cn_hk_quote_metrics(ticker: str, *, timeout: int | None = None) -> dic
             "week52_low",
         )
     ):
+        if market in {"CN", "HK"}:
+            return _fetch_tencent_quote_metrics(ticker_norm, timeout=timeout) or (
+                _fetch_sina_cn_quote_metrics(ticker_norm, timeout=timeout) if market == "CN" else None
+            )
         return None
     return result
 

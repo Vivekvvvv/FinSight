@@ -44,6 +44,9 @@ const identity = useIdentityStore();
 const symbolInput = ref(String(route.params.symbol || 'AAPL').toUpperCase());
 const loadState = ref<LoadState>('idle');
 const errorMsg = ref<string | null>(null);
+const quoteLoading = ref(false);
+const quoteError = ref<string | null>(null);
+let loadSeq = 0;
 
 const whatChanged = ref<WhatChangedItem[]>([]);
 const quote = ref<unknown>(null);
@@ -209,20 +212,34 @@ function submitSymbol(): void {
 
 async function loadDossier(): Promise<void> {
   if (!symbol.value) return;
+  const currentSeq = ++loadSeq;
+  const currentSymbol = symbol.value;
   loadState.value = 'loading';
   errorMsg.value = null;
+  quote.value = null;
+  quoteError.value = null;
+  quoteLoading.value = true;
 
-  const [quoteResp, changes, timeline, reportList, noteList, quality] = await Promise.allSettled([
-    apiClient.getQuote(symbol.value),
-    apiClient.getWhatChanged({ sessionId: sessionId.value, userId: userId.value, symbol: symbol.value, limit: 5 }),
-    apiClient.getTimeline({ symbol: symbol.value, sessionId: sessionId.value, userId: userId.value, limit: 8 }),
-    apiClient.listReports({ sessionId: sessionId.value, ticker: symbol.value, sortBy: 'generated_at_desc', limit: 5 }),
-    apiClient.listNotes(sessionId.value, userId.value, symbol.value, undefined, 5),
-    apiClient.getResearchQuality({ sessionId: sessionId.value, userId: userId.value, symbol: symbol.value }),
+  void apiClient.getQuote(currentSymbol)
+    .then((value) => {
+      if (currentSeq === loadSeq) quote.value = value;
+    })
+    .catch(() => {
+      if (currentSeq === loadSeq) quoteError.value = 'Quote source is slow. Other dossier data is shown first.';
+    })
+    .finally(() => {
+      if (currentSeq === loadSeq) quoteLoading.value = false;
+    });
+
+  const [changes, timeline, reportList, noteList, quality] = await Promise.allSettled([
+    apiClient.getWhatChanged({ sessionId: sessionId.value, userId: userId.value, symbol: currentSymbol, limit: 5 }),
+    apiClient.getTimeline({ symbol: currentSymbol, sessionId: sessionId.value, userId: userId.value, limit: 8 }),
+    apiClient.listReports({ sessionId: sessionId.value, ticker: currentSymbol, sortBy: 'generated_at_desc', limit: 5 }),
+    apiClient.listNotes(sessionId.value, userId.value, currentSymbol, undefined, 5),
+    apiClient.getResearchQuality({ sessionId: sessionId.value, userId: userId.value, symbol: currentSymbol }),
   ]);
 
-  if (quoteResp.status === 'fulfilled') quote.value = quoteResp.value;
-  else quote.value = null;
+  if (currentSeq !== loadSeq) return;
 
   if (changes.status === 'fulfilled') whatChanged.value = changes.value.items || [];
   else whatChanged.value = [];
@@ -244,7 +261,7 @@ async function loadDossier(): Promise<void> {
     qualityIssues.value = [];
   }
 
-  const failed = [quoteResp, changes, timeline, reportList, noteList, quality].filter((item) => item.status === 'rejected').length;
+  const failed = [changes, timeline, reportList, noteList, quality].filter((item) => item.status === 'rejected').length;
   errorMsg.value = failed ? `${failed} 个数据模块暂时不可用，已展示其余研究材料。` : null;
   loadState.value = 'ready';
 }
@@ -326,8 +343,11 @@ watch(() => route.params.symbol, () => {
           <p class="eyebrow">Market</p>
           <h2>行情概览</h2>
         </div>
-        <span class="freshness-pill">{{ quoteView.freshnessStatus }}</span>
+        <span class="freshness-pill">{{ quoteLoading ? 'loading' : quoteView.freshnessStatus }}</span>
       </div>
+      <p v-if="quoteLoading || quoteError" class="market-hint">
+        {{ quoteLoading ? 'Quote loading in background. Research data is available first.' : quoteError }}
+      </p>
       <div class="market-grid">
         <article>
           <span>最新价</span>
@@ -620,6 +640,13 @@ h2 {
   font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.market-hint {
+  margin: 0;
+  color: var(--fin-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .market-grid {

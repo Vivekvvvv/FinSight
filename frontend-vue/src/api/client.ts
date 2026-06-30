@@ -223,7 +223,10 @@ export const apiClient = {
   },
 
   async getQuote(symbol: string): Promise<unknown> {
-    const { data } = await http.get(`/api/quote/${symbol}`);
+    const { data } = await http.get(`/api/quote/${symbol}`, {
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
+      timeout: 8_000,
+    });
     return data;
   },
 
@@ -249,10 +252,11 @@ export const apiClient = {
     return data;
   },
 
-  async runScreener(payload: ScreenerRunRequest): Promise<ScreenerRunResponse> {
+  async runScreener(payload: ScreenerRunRequest, signal?: AbortSignal): Promise<ScreenerRunResponse> {
     const { data } = await http.post<ScreenerRunResponse>('/api/screener/run', payload, {
       headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
-      timeout: 45_000,
+      timeout: 20_000,
+      signal,
     });
     return data;
   },

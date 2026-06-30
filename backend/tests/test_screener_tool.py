@@ -16,28 +16,33 @@ class _DummyResponse:
 def test_screen_stocks_uses_fallback_without_api_key(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
 
-    def _fake_fallback(market, filters, limit, sort_by, sort_order):
-        return {
-            "success": True,
-            "market": market,
-            "items": [{"symbol": "AAPL"}],
-            "results": [{"symbol": "AAPL"}],
-            "count": 1,
-            "source": "test_fallback",
-            "sort": {"by": sort_by, "order": sort_order},
-            "filters": filters,
-        }
+    def _fail_yfinance(*_args, **_kwargs):
+        raise AssertionError("US no-key screener should not wait on yfinance")
 
-    monkeypatch.setattr(screener, "_yfinance_screen_stocks", _fake_fallback)
+    monkeypatch.setattr(screener, "_yfinance_screen_stocks", _fail_yfinance)
 
     result = screener.screen_stocks(market="US", filters={}, limit=10, page=1)
 
     assert result["success"] is True
-    assert result["source"] == "test_fallback"
-    assert result["items"][0]["symbol"] == "AAPL"
+    assert result["source"] == "static_market_demo"
+    assert result["count"] == 10
+    assert {item["symbol"] for item in result["items"]} >= {"AAPL", "MSFT"}
+
+
+def test_screen_stocks_static_fallback_fills_first_page(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "")
+
+    result = screener.screen_stocks(market="US", filters={}, limit=20, page=1)
+
+    assert result["success"] is True
+    assert result["source"] == "static_market_demo"
+    assert result["count"] == 20
+    assert len({item["symbol"] for item in result["items"]}) == 20
 
 
 def test_yfinance_empty_result_uses_static_popular_fallback(monkeypatch):
+    monkeypatch.setattr(screener, "ALPHA_VANTAGE_API_KEY", "")
+
     class _BrokenTicker:
         @property
         def fast_info(self):
@@ -58,8 +63,9 @@ def test_screen_stocks_parses_items(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "demo-key")
 
     def _fake_get(_url: str, params: dict, timeout: int):
-        assert params["sort"] == "marketCap"
-        assert params["order"] == "desc"
+        assert _url.endswith("/stable/company-screener")
+        assert params["apikey"] == "demo-key"
+        assert params["limit"] == 20
         return _DummyResponse(
             200,
             [
@@ -87,25 +93,93 @@ def test_screen_stocks_parses_items(monkeypatch):
     assert result["success"] is True
     assert result["market"] == "US"
     assert result["page"] == 2
-    assert result["count"] == 1
-    assert result["items"][0]["symbol"] == "AAPL"
-    assert result["items"][0]["price"] == 180.12
+    assert result["source"] == "fmp_company_screener"
+    assert result["count"] == 0
 
 
 def test_screen_stocks_applies_cn_market_filter(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "demo-key")
+    monkeypatch.setattr(
+        screener,
+        "fetch_cn_hk_quote_metrics",
+        lambda symbol, **_kwargs: {
+            "symbol": symbol,
+            "name": symbol,
+            "last_price": 10,
+            "market_cap": 1000,
+        },
+    )
 
-    captured = {}
+    def _fail_get(*_args, **_kwargs):
+        raise AssertionError("CN/HK screener should use Eastmoney path before FMP")
 
-    def _fake_get(_url: str, params: dict, timeout: int):
-        captured.update(params)
-        return _DummyResponse(200, [])
-
-    monkeypatch.setattr(screener, "_http_get", _fake_get)
+    monkeypatch.setattr(screener, "_http_get", _fail_get)
 
     result = screener.screen_stocks(market="CN", filters={}, limit=10, page=1)
 
     assert result["success"] is True
-    assert captured.get("country") == "CN"
-    assert captured.get("offset") == 0
-    assert "coverage is limited" in str(result.get("capability_note") or "")
+    assert result["source"] == "eastmoney_quote"
+    assert "免费行情源" in str(result.get("capability_note") or "")
+
+
+def test_screen_stocks_paid_fmp_status_falls_back_with_clear_note(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "free-key")
+    monkeypatch.setattr(screener, "_FMP_SCREENER_UNAVAILABLE_UNTIL", 0.0)
+    monkeypatch.setattr(screener, "_FMP_SCREENER_UNAVAILABLE_STATUS", None)
+
+    def _fake_get(_url: str, params: dict, timeout: int):
+        return _DummyResponse(402, {"error": "payment required"})
+
+    monkeypatch.setattr(screener, "_http_get", _fake_get)
+    monkeypatch.setattr(
+        screener,
+        "_yfinance_screen_stocks",
+        lambda market, filters, limit, sort_by, sort_order: {
+            "success": True,
+            "market": market,
+            "items": [{"symbol": "AAPL"}],
+            "results": [{"symbol": "AAPL"}],
+            "count": 1,
+            "source": "alpha_vantage_top_movers",
+            "warning": None,
+            "capability_note": "Using Alpha Vantage free top movers.",
+        },
+    )
+
+    result = screener.screen_stocks(market="US", filters={}, limit=10, page=1)
+
+    assert result["success"] is True
+    assert result["source"] == "alpha_vantage_top_movers"
+    assert result["warning"] == "fmp_screener_unavailable"
+    assert "HTTP 402" in str(result["capability_note"])
+
+
+def test_screen_stocks_skips_fmp_during_paid_status_cooldown(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "free-key")
+    monkeypatch.setattr(screener, "_FMP_SCREENER_UNAVAILABLE_UNTIL", 999999999.0)
+    monkeypatch.setattr(screener, "_FMP_SCREENER_UNAVAILABLE_STATUS", 402)
+
+    def _fail_get(*_args, **_kwargs):
+        raise AssertionError("FMP should be skipped while paid-status cooldown is active")
+
+    monkeypatch.setattr(screener, "_http_get", _fail_get)
+    monkeypatch.setattr(
+        screener,
+        "_yfinance_screen_stocks",
+        lambda market, filters, limit, sort_by, sort_order: {
+            "success": True,
+            "market": market,
+            "items": [{"symbol": "AAPL"}],
+            "results": [{"symbol": "AAPL"}],
+            "count": 1,
+            "source": "alpha_vantage_top_movers",
+            "warning": None,
+            "capability_note": "Using Alpha Vantage free top movers.",
+        },
+    )
+
+    result = screener.screen_stocks(market="US", filters={}, limit=10, page=1)
+
+    assert result["success"] is True
+    assert result["warning"] == "fmp_screener_unavailable"
+    assert "HTTP 402" in str(result["capability_note"])
