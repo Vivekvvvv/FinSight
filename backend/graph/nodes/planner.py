@@ -394,6 +394,7 @@ def _enforce_policy(plan_payload: dict[str, Any], state: GraphState) -> tuple[di
     op_name = operation.get("name") if isinstance(operation, dict) else None
     op_name = str(op_name) if isinstance(op_name, str) and op_name else "qa"
     has_deep_hint = _is_deep_hint(query, state)
+    query_lower = query.lower()
 
     tickers = subject.get("tickers") if isinstance(subject, dict) else None
     tickers = tickers if isinstance(tickers, list) else []
@@ -402,6 +403,31 @@ def _enforce_policy(plan_payload: dict[str, Any], state: GraphState) -> tuple[di
     selection_ids = subject.get("selection_ids") if isinstance(subject, dict) else None
     selection_ids = selection_ids if isinstance(selection_ids, list) else []
     selection_ids = [str(s).strip() for s in selection_ids if isinstance(s, str) and s.strip()]
+    fundamental_tokens = (
+        "fundamental",
+        "fundamentals",
+        "financial",
+        "financials",
+        "valuation",
+        "revenue",
+        "profit",
+        "margin",
+        "cash flow",
+        "balance sheet",
+        "基本面",
+        "财务",
+        "财报",
+        "估值",
+        "营收",
+        "利润",
+        "现金流",
+    )
+    is_fundamental_query = (
+        isinstance(subject, dict)
+        and subject.get("subject_type") == "company"
+        and bool(primary_ticker)
+        and any(token in query_lower for token in fundamental_tokens)
+    )
 
     goal = plan_payload.get("goal")
     if not isinstance(goal, str) or not goal.strip():
@@ -602,6 +628,31 @@ def _enforce_policy(plan_payload: dict[str, Any], state: GraphState) -> tuple[di
             {"ticker": primary_ticker},
             "Technical request: compute MA/RSI/MACD snapshot before synthesis.",
         )
+    if is_fundamental_query and primary_ticker:
+        _insert_required_tool(
+            "get_stock_price",
+            {"ticker": primary_ticker},
+            "Fundamental request: fetch latest price as valuation anchor.",
+        )
+        _insert_required_tool(
+            "get_sec_company_facts_quarterly",
+            {"ticker": primary_ticker, "limit": 8},
+            "Fundamental request: fetch quarterly financial facts.",
+        )
+        if output_mode == "investment_report":
+            _insert_optional_tool(
+                "get_earnings_estimates",
+                {"ticker": primary_ticker},
+                "Report mode: add earnings estimates when available.",
+            )
+        for step in sanitized_steps:
+            if step.get("kind") == "tool" and step.get("name") in {
+                "get_company_info",
+                "get_stock_price",
+                "get_sec_company_facts_quarterly",
+                "get_earnings_estimates",
+            }:
+                step["parallel_group"] = "fundamental_snapshot"
     if op_name == "compare" and len(tickers) >= 2:
         mapping = {str(t).strip().upper(): str(t).strip().upper() for t in tickers[:6] if str(t).strip()}
         _insert_required_tool(

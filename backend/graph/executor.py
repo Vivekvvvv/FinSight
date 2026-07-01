@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import time
 from typing import Any, Awaitable, Callable, Mapping, MutableMapping
 
@@ -15,6 +16,17 @@ logger = logging.getLogger(__name__)
 
 
 AsyncInvoker = Callable[[dict[str, Any]], Awaitable[Any]]
+
+
+def _env_float(name: str, default: float, *, min_value: float = 0.1, max_value: float = 600.0) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = float(str(raw).strip())
+    except Exception:
+        return default
+    return max(min_value, min(max_value, parsed))
 
 
 def _stable_json(obj: Any) -> str:
@@ -141,6 +153,8 @@ async def execute_plan(
         for name, fn in agent_invokers.items()
     }
     cache = cache if cache is not None else {}
+    tool_timeout_seconds = _env_float("LANGGRAPH_TOOL_TIMEOUT_SECONDS", 18.0, min_value=1.0, max_value=300.0)
+    agent_timeout_seconds = _env_float("LANGGRAPH_AGENT_STEP_TIMEOUT_SECONDS", 120.0, min_value=5.0, max_value=600.0)
 
     artifacts: dict[str, Any] = {
         "step_results": {},
@@ -297,7 +311,7 @@ async def execute_plan(
                     invoker = async_tools.get(str(name))
                     if not invoker:
                         raise ValueError(f"tool not allowed/registered: {name}")
-                    output = await _maybe_await(invoker(inputs))
+                    output = await asyncio.wait_for(_maybe_await(invoker(inputs)), timeout=tool_timeout_seconds)
                     await emit_event({"type": "tool_end", "step_id": step_id})
                 elif kind == "agent":
                     await emit_event(
@@ -313,7 +327,7 @@ async def execute_plan(
                     invoker = async_agents.get(str(name))
                     if not invoker:
                         raise ValueError(f"agent not allowed/registered: {name}")
-                    output = await _maybe_await(invoker(inputs))
+                    output = await asyncio.wait_for(_maybe_await(invoker(inputs)), timeout=agent_timeout_seconds)
                     await emit_event(
                         {
                             "type": "agent_done",

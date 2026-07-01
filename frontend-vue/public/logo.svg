@@ -1,17 +1,29 @@
 <svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FinSight">
-  <rect x="8" y="8" width="112" height="112" rx="30" fill="#07110E"/>
-  <rect x="8.75" y="8.75" width="110.5" height="110.5" rx="29.25" stroke="#D7FF72" stroke-opacity=".28" stroke-width="1.5"/>
-  <path d="M28 88C38.2 69.5 48.3 78.1 57.6 58.7C68.8 35.2 81.9 42.5 100 30" stroke="#2DD4BF" stroke-width="4.5" stroke-linecap="round"/>
-  <path d="M29 94H99" stroke="#D7FF72" stroke-width="4" stroke-linecap="round"/>
-  <path d="M38 40V75" stroke="#EAF8BE" stroke-width="4" stroke-linecap="round"/>
-  <path d="M35 48H41" stroke="#EAF8BE" stroke-width="8" stroke-linecap="round"/>
-  <path d="M62 31V77" stroke="#D7FF72" stroke-width="4" stroke-linecap="round"/>
-  <path d="M58 44H66" stroke="#D7FF72" stroke-width="10" stroke-linecap="round"/>
-  <path d="M87 47V82" stroke="#8CFFB6" stroke-width="4" stroke-linecap="round"/>
-  <path d="M83 61H91" stroke="#8CFFB6" stroke-width="10" stroke-linecap="round"/>
-  <circle cx="38" cy="75" r="6.5" fill="#07110E" stroke="#D7FF72" stroke-width="3"/>
-  <circle cx="62" cy="44" r="6.5" fill="#07110E" stroke="#2DD4BF" stroke-width="3"/>
-  <circle cx="87" cy="61" r="6.5" fill="#07110E" stroke="#8CFFB6" stroke-width="3"/>
-  <path d="M31 103H97" stroke="#D7FF72" stroke-opacity=".22" stroke-width="2" stroke-linecap="round"/>
-  <path d="M44 103H84" stroke="#D7FF72" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bg" x1="16" y1="14" x2="114" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0A1B18"/>
+      <stop offset="1" stop-color="#020807"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="30" y1="86" x2="102" y2="34" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B"/>
+      <stop offset=".55" stop-color="#2DD4BF"/>
+      <stop offset="1" stop-color="#7CFFB2"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="128" height="128" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#00110D" flood-opacity=".35"/>
+    </filter>
+  </defs>
+
+  <rect x="10" y="10" width="108" height="108" rx="28" fill="url(#bg)" filter="url(#shadow)"/>
+  <rect x="11.5" y="11.5" width="105" height="105" rx="26.5" stroke="#CFFAFE" stroke-opacity=".16" stroke-width="3"/>
+
+  <path d="M35 92V35H72" stroke="#F59E0B" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M35 61H63" stroke="#F59E0B" stroke-width="8" stroke-linecap="round"/>
+  <path d="M35 92H95" stroke="#F59E0B" stroke-width="8" stroke-linecap="round"/>
+
+  <path d="M39 83C50 76 55 68 64 69C73 70 75 49 84 48C91 47 94 38 101 34" stroke="url(#signal)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="64" cy="69" r="7" fill="#06110F" stroke="#2DD4BF" stroke-width="4"/>
+  <circle cx="84" cy="48" r="7" fill="#06110F" stroke="#7CFFB2" stroke-width="4"/>
+
+  <path d="M51 95H92" stroke="#CFFAFE" stroke-opacity=".22" stroke-width="3" stroke-linecap="round"/>
 </svg>

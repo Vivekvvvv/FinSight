@@ -43,6 +43,7 @@ const SKIP_GLOBAL_LOADING_HEADER = 'X-Skip-Global-Loading';
 // 全局Loading状态管理
 let activeRequestCount = 0;
 const loadingCallbacks = new Set<(isLoading: boolean) => void>();
+let loadingRequestSeq = 0;
 
 export function onLoadingChange(callback: (isLoading: boolean) => void) {
   loadingCallbacks.add(callback);
@@ -55,6 +56,17 @@ function updateLoadingState(delta: number) {
   loadingCallbacks.forEach(cb => {
     try {
       cb(isLoading);
+    } catch (e) {
+      console.error('Loading callback error:', e);
+    }
+  });
+}
+
+export function resetGlobalLoading() {
+  activeRequestCount = 0;
+  loadingCallbacks.forEach(cb => {
+    try {
+      cb(false);
     } catch (e) {
       console.error('Loading callback error:', e);
     }
@@ -83,12 +95,13 @@ function shouldSkipGlobalLoading(config: { headers?: unknown }): boolean {
 }
 
 http.interceptors.request.use((config) => {
-  const configWithMeta = config as typeof config & { skipGlobalLoading?: boolean };
+  const configWithMeta = config as typeof config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number };
   configWithMeta.skipGlobalLoading = shouldSkipGlobalLoading(config);
   removeHeader(config.headers, SKIP_GLOBAL_LOADING_HEADER);
 
   if (!configWithMeta.skipGlobalLoading) {
     // 增加活跃请求计数
+    configWithMeta.globalLoadingRequestId = ++loadingRequestSeq;
     updateLoadingState(1);
   }
 
@@ -116,16 +129,20 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (resp) => {
-    if (!(resp.config as typeof resp.config & { skipGlobalLoading?: boolean }).skipGlobalLoading) {
+    const configWithMeta = resp.config as typeof resp.config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number };
+    if (!configWithMeta.skipGlobalLoading && configWithMeta.globalLoadingRequestId) {
       // 请求成功，减少计数
       updateLoadingState(-1);
+      configWithMeta.globalLoadingRequestId = undefined;
     }
     return resp;
   },
   (error: AxiosError) => {
-    if (!(error.config as typeof error.config & { skipGlobalLoading?: boolean } | undefined)?.skipGlobalLoading) {
+    const configWithMeta = error.config as typeof error.config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number } | undefined;
+    if (configWithMeta && !configWithMeta.skipGlobalLoading && configWithMeta.globalLoadingRequestId) {
       // 请求失败，减少计数
       updateLoadingState(-1);
+      configWithMeta.globalLoadingRequestId = undefined;
     }
     return Promise.reject(error);
   },
@@ -264,6 +281,7 @@ export const apiClient = {
   async getDailyTasks(sessionId: string): Promise<DailyTaskResponse> {
     const { data } = await http.get<DailyTaskResponse>('/api/tasks/daily', {
       params: { session_id: sessionId },
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
     });
     return data;
   },
@@ -394,7 +412,11 @@ export const apiClient = {
 
   // ── Portfolio ──
   async getPortfolioSummary(sessionId: string): Promise<PortfolioSummary> {
-    const { data } = await http.get<PortfolioSummary>('/api/portfolio/summary', { params: { session_id: sessionId } });
+    const { data } = await http.get<PortfolioSummary>('/api/portfolio/summary', {
+      params: { session_id: sessionId },
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
+      timeout: 12_000,
+    });
     return data;
   },
   async upsertPosition(params: {
@@ -553,6 +575,7 @@ export const apiClient = {
   async getTodayWorkspace(sessionId: string, userId: string): Promise<TodayWorkspaceResponse> {
     const { data } = await http.get<TodayWorkspaceResponse>('/api/today', {
       params: { session_id: sessionId, user_id: userId },
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
     });
     return data;
   },
@@ -663,6 +686,7 @@ export const apiClient = {
         symbol: params.symbol,
         limit: params.limit || 5,
       },
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
     });
     return data;
   },
@@ -679,6 +703,7 @@ export const apiClient = {
         user_id: params.userId,
         symbol: params.symbol,
       },
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
     });
     return data;
   },

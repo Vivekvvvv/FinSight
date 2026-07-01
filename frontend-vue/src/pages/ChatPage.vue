@@ -20,6 +20,7 @@ const errorMsg = ref<string | null>(null);
 const threadEl = ref<HTMLElement | null>(null);
 const traceEvents = ref<ExecutionTraceEvent[]>([]);
 const hydrating = ref(true);
+const openTraceMessageId = ref<string | null>(null);
 
 const suggestions = [
   'AAPL 最近的基本面如何？',
@@ -38,7 +39,6 @@ const welcomeMessage: ChatStreamMessage = {
 
 const messages = ref<ChatStreamMessage[]>([welcomeMessage]);
 
-const lastAssistant = computed(() => [...messages.value].reverse().find((message) => message.role === 'assistant' && message.id !== 'welcome'));
 const modeLabel = computed(() => {
   const mode = String(route.query.mode || '');
   if (mode === 'qa') return '智能问答';
@@ -137,6 +137,17 @@ function appendTrace(event: ExecutionTraceEvent) {
   ].slice(-24);
 }
 
+function traceSummary(events?: ExecutionTraceEvent[] | null, running = false) {
+  const list = events || [];
+  const done = list.filter((event) => event.status === 'done').length;
+  const errors = list.filter((event) => event.status === 'error').length;
+  return {
+    done,
+    total: list.length,
+    label: errors ? `${errors} 个异常` : running ? '运行中' : '已完成',
+  };
+}
+
 async function send(text?: string): Promise<void> {
   const query = (text || input.value).trim();
   if (!query || sending.value) return;
@@ -144,8 +155,9 @@ async function send(text?: string): Promise<void> {
   sending.value = true;
   seedTrace(query);
   const userMessage: ChatStreamMessage = { id: `user-${Date.now()}`, role: 'user', content: query, status: 'done' };
-  const assistantMessage: ChatStreamMessage = { id: `assistant-${Date.now()}`, role: 'assistant', content: '', status: 'streaming' };
+  const assistantMessage: ChatStreamMessage = { id: `assistant-${Date.now()}`, role: 'assistant', content: '', status: 'streaming', traceEvents: traceEvents.value };
   messages.value = [...messages.value, userMessage, assistantMessage];
+  openTraceMessageId.value = assistantMessage.id;
   input.value = '';
   await scrollToBottom();
   try {
@@ -160,7 +172,11 @@ async function send(text?: string): Promise<void> {
         messages.value = [...messages.value];
         await scrollToBottom();
       },
-      onEvent: (event) => appendTrace(event),
+      onEvent: (event) => {
+        appendTrace(event);
+        assistantMessage.traceEvents = traceEvents.value;
+        messages.value = [...messages.value];
+      },
       onDone: (evidence) => {
         assistantMessage.status = 'done';
         assistantMessage.evidence = evidence;
@@ -173,6 +189,7 @@ async function send(text?: string): Promise<void> {
           status: 'done',
           timestamp: new Date().toISOString(),
         });
+        assistantMessage.traceEvents = traceEvents.value;
         messages.value = [...messages.value];
       },
       onError: (message) => {
@@ -187,12 +204,14 @@ async function send(text?: string): Promise<void> {
           status: 'error',
           timestamp: new Date().toISOString(),
         });
+        assistantMessage.traceEvents = traceEvents.value;
         messages.value = [...messages.value];
       },
     });
   } catch (error) {
     assistantMessage.status = 'error';
     errorMsg.value = reportFriendlyError(error, 'AI 助手暂时无法完成请求，请稍后重试。');
+    assistantMessage.traceEvents = traceEvents.value;
     messages.value = [...messages.value];
   } finally {
     sending.value = false;
@@ -293,6 +312,23 @@ onMounted(async () => {
                 v-bind="item.evidence"
                 compact
               />
+              <div v-if="item.role === 'assistant' && item.traceEvents?.length" class="inline-trace">
+                <button
+                  class="trace-toggle"
+                  type="button"
+                  @click="openTraceMessageId = openTraceMessageId === item.id ? null : item.id"
+                >
+                  <span>执行过程</span>
+                  <strong>{{ traceSummary(item.traceEvents, item.status === 'streaming').done }}/{{ traceSummary(item.traceEvents, item.status === 'streaming').total }}</strong>
+                  <em :class="{ live: item.status === 'streaming' }">{{ traceSummary(item.traceEvents, item.status === 'streaming').label }}</em>
+                </button>
+                <ExecutionTracePanel
+                  v-if="openTraceMessageId === item.id"
+                  :events="item.traceEvents"
+                  :running="item.status === 'streaming'"
+                  compact
+                />
+              </div>
             </div>
           </article>
         </div>
@@ -322,14 +358,6 @@ onMounted(async () => {
         </footer>
       </main>
 
-      <aside class="side-stack">
-        <ExecutionTracePanel :events="traceEvents" :running="sending" />
-        <section class="page-card report-card">
-          <p class="kicker">LAST OUTPUT</p>
-          <h3>{{ lastAssistant?.status === 'done' ? '可导出报告片段' : '等待研究输出' }}</h3>
-          <p>{{ lastAssistant?.content?.slice(0, 160) || '生成完成后，这里会显示最新报告摘要。' }}</p>
-        </section>
-      </aside>
     </div>
   </section>
 </template>
@@ -337,8 +365,12 @@ onMounted(async () => {
 <style scoped>
 .chat-page {
   width: 100%;
+  height: calc(100dvh - 112px);
+  min-height: 0;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
+  overflow: hidden;
 }
 
 .chat-hero {
@@ -368,7 +400,6 @@ h3 {
 }
 
 .chat-hero p,
-.report-card p,
 label {
   color: var(--fin-muted);
 }
@@ -409,25 +440,30 @@ textarea {
 
 .chat-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-thread {
   padding: 18px;
-  min-height: 660px;
+  min-height: 0;
   display: grid;
   grid-template-rows: 1fr auto auto auto;
   gap: 14px;
+  overflow: hidden;
 }
 
 .thread-scroll {
   overflow-y: auto;
-  max-height: 62vh;
+  min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   display: grid;
   align-content: start;
   gap: 16px;
-  padding-right: 4px;
+  padding-right: 6px;
 }
 
 .message {
@@ -466,6 +502,8 @@ textarea {
   border-radius: 20px;
   padding: 14px;
   background: var(--fin-card-inset);
+  display: grid;
+  gap: 10px;
 }
 
 .message.user .message-body {
@@ -525,6 +563,41 @@ pre {
   color: var(--fin-danger);
 }
 
+.inline-trace {
+  display: grid;
+  gap: 8px;
+}
+
+.trace-toggle {
+  width: 100%;
+  border: 1px solid var(--fin-border);
+  border-radius: 12px;
+  padding: 7px 10px;
+  background: var(--fin-card-soft);
+  color: var(--fin-text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.trace-toggle strong {
+  color: var(--fin-primary);
+}
+
+.trace-toggle em {
+  margin-left: auto;
+  color: var(--fin-muted);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.trace-toggle em.live {
+  color: var(--fin-success);
+}
+
 .suggestions {
   display: flex;
   flex-wrap: wrap;
@@ -544,25 +617,32 @@ pre {
 }
 
 textarea {
-  min-height: 92px;
+  height: 92px;
+  min-height: 72px;
+  max-height: 150px;
   resize: vertical;
 }
 
-.side-stack {
-  display: grid;
-  align-content: start;
-  gap: 18px;
-}
-
-.report-card {
-  padding: 18px;
-}
-
 @media (max-width: 1080px) {
+  .chat-page {
+    height: auto;
+    min-height: calc(100dvh - 96px);
+    overflow: visible;
+  }
+
   .chat-hero,
   .chat-grid {
     grid-template-columns: 1fr;
     display: grid;
+    overflow: visible;
+  }
+
+  .chat-thread {
+    min-height: 560px;
+  }
+
+  .thread-scroll {
+    max-height: 52dvh;
   }
 
   .controls {
@@ -573,11 +653,11 @@ textarea {
 @media (max-width: 640px) {
   .chat-page {
     gap: 10px;
+    min-height: calc(100dvh - 84px);
   }
 
   .chat-hero,
-  .chat-thread,
-  .report-card {
+  .chat-thread {
     padding: 12px;
   }
 
@@ -590,12 +670,12 @@ textarea {
   }
 
   .chat-thread {
-    min-height: 0;
+    min-height: 480px;
     gap: 8px;
   }
 
   .thread-scroll {
-    max-height: 120px;
+    max-height: 42dvh;
   }
 
   .composer {

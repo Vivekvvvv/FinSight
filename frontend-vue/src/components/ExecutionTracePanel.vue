@@ -11,13 +11,17 @@ const props = withDefaults(defineProps<{
   running: false,
 });
 
-const normalized = computed(() => props.events.map((event, index) => ({
-  ...event,
-  id: event.id || `${event.type}-${index}`,
-  title: event.title || event.agent || event.stage || event.type,
-  message: event.message || describeEvent(event),
-  status: event.status || (props.running && index === props.events.length - 1 ? 'running' : 'done'),
-})));
+const normalized = computed(() => props.events.map((event, index) => {
+  const stage = event.stage || event.type || '';
+  return {
+    ...event,
+    id: event.id || `${event.type}-${index}`,
+    title: humanTitle(event),
+    message: humanMessage(event),
+    status: event.status || (props.running && index === props.events.length - 1 ? 'running' : 'done'),
+    detail: humanDetail(event, stage),
+  };
+}));
 
 const summary = computed(() => {
   const done = normalized.value.filter((event) => event.status === 'done').length;
@@ -38,16 +42,54 @@ const phases = computed(() => {
 
 function phaseOf(value: string): string {
   const text = value.toLowerCase();
-  if (text.includes('plan') || text.includes('policy') || text.includes('route')) return '规划策略';
-  if (text.includes('agent') || text.includes('tool') || text.includes('execute')) return '执行分析';
+  if (text.includes('policy') || text.includes('route') || text.includes('planner') || text.includes('plan')) return '规划策略';
+  if (text.includes('confirmation') || text.includes('prepare') || text.includes('context')) return '准备空间';
+  if (text.includes('agent') || text.includes('tool') || text.includes('execute') || text.includes('step')) return '执行分析';
   if (text.includes('render') || text.includes('synthesize') || text.includes('done')) return '形成结论';
   return '准备空间';
 }
 
-function describeEvent(event: ExecutionTraceEvent): string {
-  if (event.stage) return `阶段 ${event.stage} 已记录`;
-  if (event.agent) return `${event.agent} 返回执行状态`;
-  return '执行事件已记录';
+function normalizeText(value?: string | null): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function humanTitle(event: ExecutionTraceEvent): string {
+  const raw = normalizeText(event.stage || event.title || event.type || event.agent);
+  if (raw.includes('policy')) return '确定可用能力';
+  if (raw.includes('planner') || raw === 'planning' || raw.includes('plan_research')) return '规划研究步骤';
+  if (raw.includes('plan_ready') || raw.includes('selection')) return '整理研究计划';
+  if (raw.includes('confirmation')) return '检查执行条件';
+  if (raw.includes('execute') || raw === 'executing') return '调用数据工具';
+  if (raw.includes('step_start')) return '开始执行工具';
+  if (raw.includes('step_done') || raw.includes('tool')) return '数据工具返回';
+  if (raw.includes('synthesize')) return '整合分析结果';
+  if (raw.includes('render')) return '生成回答';
+  if (raw.includes('done')) return '完成输出';
+  if (event.agent) return '智能体返回结果';
+  return event.title || '记录执行进度';
+}
+
+function humanMessage(event: ExecutionTraceEvent): string {
+  const raw = normalizeText(`${event.stage || ''} ${event.title || ''} ${event.message || ''}`);
+  if (raw.includes('policy')) return '正在判断这个问题需要哪些数据源和工具。';
+  if (raw.includes('planner') || raw.includes('planning')) return '正在把你的问题拆成可执行的研究步骤。';
+  if (raw.includes('plan_ready') || raw.includes('selection summary')) return '研究计划已准备好，准备进入执行阶段。';
+  if (raw.includes('confirmation')) return '正在确认是否可以直接执行，无需你额外确认。';
+  if (raw.includes('execute') || raw.includes('executing')) return '正在拉取行情、财务或新闻等数据。';
+  if (raw.includes('step_start')) return '某个数据工具已经开始运行。';
+  if (raw.includes('step_done') || raw.includes('tool')) return '已有数据返回，正在继续处理。';
+  if (raw.includes('synthesize')) return '正在把工具结果整理成中文分析。';
+  if (raw.includes('render')) return '正在生成最终回答。';
+  if (raw.includes('error')) return event.message || '执行过程中遇到异常。';
+  if (event.message && !event.message.includes('_')) return event.message;
+  return '执行进度已更新。';
+}
+
+function humanDetail(event: ExecutionTraceEvent, stage: string): string {
+  const phase = phaseOf(stage || event.type || '');
+  if (event.status === 'error') return '需要重试或检查数据源';
+  if (event.status === 'running') return `${phase}中`;
+  return phase;
 }
 
 function fmtTime(value?: string | null): string {
@@ -85,7 +127,7 @@ function fmtTime(value?: string | null): string {
             <div>
               <strong>{{ event.title }}</strong>
               <p>{{ event.message }}</p>
-              <small>{{ fmtTime(event.timestamp) }} · {{ event.type }}</small>
+              <small>{{ fmtTime(event.timestamp) }} · {{ event.detail }}</small>
             </div>
           </li>
         </ol>
@@ -101,10 +143,37 @@ function fmtTime(value?: string | null): string {
   background: var(--fin-card-inset);
   color: var(--fin-text);
   padding: 18px;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .trace-panel.compact {
-  padding: 14px;
+  padding: 10px;
+  border-radius: 12px;
+  max-height: 260px;
+}
+
+.trace-panel.compact .trace-head {
+  margin-bottom: 8px;
+}
+
+.trace-panel.compact .trace-head h3 {
+  font-size: 14px;
+}
+
+.trace-panel.compact .trace-head p {
+  display: none;
+}
+
+.trace-panel.compact .phase-stack {
+  gap: 8px;
+}
+
+.trace-panel.compact .phase-card {
+  border-radius: 12px;
+  padding: 9px;
 }
 
 .trace-head {
@@ -158,11 +227,17 @@ function fmtTime(value?: string | null): string {
   color: var(--fin-muted);
   font-size: 14px;
   line-height: 1.7;
+  overflow-y: auto;
 }
 
 .phase-stack {
   display: grid;
   gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .phase-card {

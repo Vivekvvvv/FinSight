@@ -32,6 +32,7 @@ const qualityIssues = ref<ResearchQualityIssue[]>([]);
 const loading = ref(false);
 const errorMsg = ref<string | null>(null);
 const openingTaskId = ref<string | null>(null);
+let refreshSeq = 0;
 
 const todayStr = computed(() => new Date().toLocaleDateString('zh-CN', {
   year: 'numeric',
@@ -107,24 +108,39 @@ async function openTask(task: DailyTask): Promise<void> {
 }
 
 async function refresh(): Promise<void> {
+  const seq = ++refreshSeq;
   loading.value = true;
   errorMsg.value = null;
   try {
-    const [workspaceData, changesData, qualityData, taskData] = await Promise.all([
-      apiClient.getTodayWorkspace(identity.sessionId, identity.userId),
-      apiClient.getWhatChanged({ sessionId: identity.sessionId, userId: identity.userId, limit: 5 }),
-      apiClient.getResearchQuality({ sessionId: identity.sessionId, userId: identity.userId }),
-      apiClient.getDailyTasks(identity.sessionId).catch(() => ({ success: false, session_id: identity.sessionId, tasks: [], count: 0 })),
-    ]);
+    const workspaceData = await apiClient.getTodayWorkspace(identity.sessionId, identity.userId);
+    if (seq !== refreshSeq) return;
     workspace.value = workspaceData;
-    whatChanged.value = changesData.items;
-    qualitySummary.value = qualityData.summary;
-    qualityIssues.value = qualityData.top_issues;
-    dailyTasks.value = taskData.tasks || [];
+    void refreshSecondary(seq);
   } catch (error) {
+    if (seq !== refreshSeq) return;
     errorMsg.value = reportFriendlyError(error, '今日工作台暂时加载失败，请刷新重试。');
   } finally {
-    loading.value = false;
+    if (seq === refreshSeq) loading.value = false;
+  }
+}
+
+async function refreshSecondary(seq: number): Promise<void> {
+  const [changesResult, qualityResult, taskResult] = await Promise.allSettled([
+    apiClient.getWhatChanged({ sessionId: identity.sessionId, userId: identity.userId, limit: 5 }),
+    apiClient.getResearchQuality({ sessionId: identity.sessionId, userId: identity.userId }),
+    apiClient.getDailyTasks(identity.sessionId),
+  ]);
+  if (seq !== refreshSeq) return;
+
+  if (changesResult.status === 'fulfilled') {
+    whatChanged.value = changesResult.value.items;
+  }
+  if (qualityResult.status === 'fulfilled') {
+    qualitySummary.value = qualityResult.value.summary;
+    qualityIssues.value = qualityResult.value.top_issues;
+  }
+  if (taskResult.status === 'fulfilled') {
+    dailyTasks.value = taskResult.value.tasks || [];
   }
 }
 

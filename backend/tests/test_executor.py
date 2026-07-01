@@ -231,3 +231,24 @@ def test_execute_plan_progressive_escalation_force_run_executes_high_cost_step()
     assert calls["deep"] == 1
     step2_output = artifacts["step_results"]["s2"]["output"]
     assert step2_output.get("summary") == "deep search"
+
+
+def test_execute_plan_times_out_optional_tool(monkeypatch):
+    monkeypatch.setenv("LANGGRAPH_TOOL_TIMEOUT_SECONDS", "0.1")
+
+    async def slow_tool(_inputs):
+        await asyncio.sleep(1)
+        return {"ok": True}
+
+    plan = {
+        "steps": [
+            {"id": "s1", "kind": "tool", "name": "slow_tool", "inputs": {}, "optional": True},
+            {"id": "s2", "kind": "llm", "name": "summarize_selection", "inputs": {"selection": [], "query": "q"}},
+        ]
+    }
+
+    artifacts, events = _run(execute_plan(plan, tool_invokers={"slow_tool": slow_tool}, dry_run=False))
+
+    assert artifacts["errors"][0]["error_type"] == "TimeoutError"
+    assert "s2" in artifacts["step_results"]
+    assert any(event.get("event") == "executor.step_failed" for event in events)

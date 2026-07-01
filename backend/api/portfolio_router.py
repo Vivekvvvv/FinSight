@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,6 +28,29 @@ from backend.utils.quote import resolve_live_quote, safe_float
 logger = logging.getLogger(__name__)
 
 portfolio_router = APIRouter(tags=["Portfolio"])
+
+
+def _portfolio_quote_timeout_seconds() -> float:
+    """组合页行情单标的超时，避免一个慢源拖死整个页面。"""
+    try:
+        return max(0.1, float(os.getenv("FINSIGHT_PORTFOLIO_QUOTE_TIMEOUT_SECONDS", "2.5")))
+    except ValueError:
+        return 2.5
+
+
+async def _resolve_quote_for_portfolio(ticker: str) -> tuple[dict[str, Any] | None, Any]:
+    """Resolve quote with a hard per-position timeout."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(resolve_live_quote, ticker, get_stock_price),
+            timeout=_portfolio_quote_timeout_seconds(),
+        )
+    except TimeoutError:
+        logger.warning("[portfolio] quote timeout for %s", ticker)
+        return None, None
+    except Exception as exc:
+        logger.warning("[portfolio] quote failed for %s: %s", ticker, exc)
+        return None, None
 
 
 class PortfolioPositionPayload(BaseModel):
@@ -83,11 +107,7 @@ async def get_portfolio_summary(session_id: str, current_user: Principal = Depen
     enriched: list[dict[str, Any]] = []
 
     quote_tasks = [
-        asyncio.to_thread(
-            resolve_live_quote,
-            str(pos.get("ticker", "")).strip().upper(),
-            get_stock_price,
-        )
+        _resolve_quote_for_portfolio(str(pos.get("ticker", "")).strip().upper())
         for pos in positions
     ]
     live_quotes = await asyncio.gather(*quote_tasks) if quote_tasks else []

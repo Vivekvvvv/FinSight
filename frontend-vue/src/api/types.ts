@@ -127,6 +127,7 @@ export interface ChatStreamMessage {
   status?: 'streaming' | 'done' | 'error';
   created_at?: string | null;
   evidence?: EvidenceInfo | null;       // AI 消息完成后附上
+  traceEvents?: ExecutionTraceEvent[] | null;
   metrics?: {
     llm_total_calls?: number;
     tool_total_calls?: number;

@@ -33,7 +33,7 @@ const qualitySummary = ref<ResearchQualitySummary>({
   health_score: 100,
 });
 const qualityIssues = ref<ResearchQualityIssue[]>([]);
-const showQuality = ref(true);
+const showQuality = ref(false);
 
 // ── 筛选 & 排序状态 ─────────────────────────────────────────
 const searchQ = ref('');
@@ -43,6 +43,8 @@ const activeTag = ref<string | null>(null);
 const sortBy = ref('generated_at_desc');
 const reviewStatusFilter = ref('');
 const qualityFilter = ref('');
+const currentPage = ref(1);
+const pageSize = 3;
 
 const SORT_OPTIONS = [
   { value: 'generated_at_desc', label: '最新优先' },
@@ -85,6 +87,15 @@ const displayed = computed(() => {
   if (activeTag.value) list = list.filter(r => (r.tags || []).includes(activeTag.value!));
   return list;
 });
+
+const totalPages = computed(() => Math.max(1, Math.ceil(displayed.value.length / pageSize)));
+const pageStart = computed(() => (currentPage.value - 1) * pageSize);
+const pageEnd = computed(() => Math.min(displayed.value.length, pageStart.value + pageSize));
+const pagedReports = computed(() => displayed.value.slice(pageStart.value, pageEnd.value));
+
+function goPage(page: number) {
+  currentPage.value = Math.min(totalPages.value, Math.max(1, page));
+}
 
 function fmtDate(v?: string | null): string {
   if (!v) return '—';
@@ -310,6 +321,12 @@ function startReportTool(tool: 'generate' | 'financials'): void {
 
 onMounted(refresh);
 watch(() => identity.sessionId, () => void refresh());
+watch([searchQ, activeTag, tickerFilter, favoriteOnly, sortBy, reviewStatusFilter, qualityFilter], () => {
+  currentPage.value = 1;
+});
+watch(displayed, () => {
+  if (currentPage.value > totalPages.value) currentPage.value = totalPages.value;
+});
 </script>
 
 <template>
@@ -318,7 +335,9 @@ watch(() => identity.sessionId, () => void refresh());
     <div class="page-header">
       <div class="header-left">
         <h1 class="page-title">报告库</h1>
-        <span class="badge-count">{{ displayed.length }} / {{ items.length }} 份</span>
+        <span class="badge-count">
+          {{ displayed.length ? pageStart + 1 : 0 }}-{{ pageEnd }} / {{ displayed.length }} 份
+        </span>
       </div>
       <div class="header-right">
         <button class="btn-compare" :class="{ active: compareMode }" @click="compareMode ? exitCompare() : (compareMode = true)">
@@ -525,11 +544,27 @@ watch(() => identity.sessionId, () => void refresh());
       hint="可以清空筛选条件，或换一个 ticker / 关键词。"
       compact
     />
+    <div v-else-if="displayed.length > pageSize" class="pager top-pager">
+      <span class="pager-summary">第 {{ currentPage }} / {{ totalPages }} 页，显示 {{ pageStart + 1 }}-{{ pageEnd }} 条</span>
+      <button class="pager-btn" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">上一页</button>
+      <div class="pager-pages">
+        <button
+          v-for="page in totalPages"
+          :key="page"
+          class="pager-num"
+          :class="{ active: page === currentPage }"
+          @click="goPage(page)"
+        >
+          {{ page }}
+        </button>
+      </div>
+      <button class="pager-btn" :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">下一页</button>
+    </div>
 
     <!-- ── 报告列表 ── -->
-    <div v-else class="report-list">
+    <div v-if="!loading && items.length > 0 && displayed.length > 0" class="report-list">
       <div
-        v-for="r in displayed"
+        v-for="r in pagedReports"
         :key="r.report_id"
         class="report-card"
         :class="{ 'selected-compare': compareMode && isSelected(r) }"
@@ -606,6 +641,21 @@ watch(() => identity.sessionId, () => void refresh());
             </div>
           </div>
         </div>
+      </div>
+      <div v-if="displayed.length > pageSize" class="pager">
+        <button class="pager-btn" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">上一页</button>
+        <div class="pager-pages">
+          <button
+            v-for="page in totalPages"
+            :key="page"
+            class="pager-num"
+            :class="{ active: page === currentPage }"
+            @click="goPage(page)"
+          >
+            {{ page }}
+          </button>
+        </div>
+        <button class="pager-btn" :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">下一页</button>
       </div>
     </div>
 
@@ -825,6 +875,65 @@ watch(() => identity.sessionId, () => void refresh());
 
 /* ── 报告列表 ── */
 .report-list { display: flex; flex-direction: column; gap: 8px; }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 2px 0;
+  flex-wrap: wrap;
+}
+
+.top-pager {
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1.5px solid var(--fin-border);
+  border-radius: 12px;
+  background: var(--fin-card);
+}
+
+.pager-summary {
+  color: var(--fin-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pager-pages {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.pager-btn,
+.pager-num {
+  border: 1.5px solid var(--fin-border);
+  border-radius: 8px;
+  background: var(--fin-card);
+  color: var(--fin-text-2);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.pager-btn {
+  padding: 7px 12px;
+}
+
+.pager-num {
+  min-width: 32px;
+  height: 32px;
+}
+
+.pager-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.pager-num.active {
+  border-color: var(--fin-primary);
+  background: var(--fin-primary);
+  color: #fff;
+}
 
 .report-card {
   position: relative;

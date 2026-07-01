@@ -307,7 +307,8 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 }
 
 .side-rail {
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   border-right: 1px solid var(--fin-border);
   padding: 22px 18px;
   display: flex;
@@ -315,9 +316,11 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   gap: 18px;
   background: color-mix(in srgb, var(--fin-bg) 90%, transparent);
   backdrop-filter: blur(24px);
+  overflow: hidden;
 }
 
 .brand-lockup {
+  flex-shrink: 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -354,6 +357,12 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-gutter: stable;
 }
 
 .nav-link {
@@ -543,10 +552,6 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   padding-top: 10px;
 }
 
-.rail-card {
-  margin-top: auto;
-}
-
 .rail-card strong {
   display: block;
   font-size: 22px;
@@ -555,6 +560,11 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 .identity-block {
   border-radius: 18px;
   overflow: hidden;
+  flex-shrink: 0;
+}
+
+.rail-card {
+  flex-shrink: 0;
 }
 
 .workspace {

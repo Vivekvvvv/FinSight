@@ -24,6 +24,7 @@ const savingNew = ref(false);
 const savingEditTicker = ref<string | null>(null);
 const removingTicker = ref<string | null>(null);
 const importingCsv = ref(false);
+let refreshSeq = 0;
 
 const editTicker = ref('');
 const editShares = ref('');
@@ -194,12 +195,21 @@ function priceFallbackLevel(source?: string | null): number | null {
 }
 
 async function refresh(): Promise<void> {
+  const seq = ++refreshSeq;
   loading.value = true; errorMsg.value = null;
   try {
     const resp = await apiClient.getPortfolioSummary(identity.sessionId);
+    if (seq !== refreshSeq) return;
     positions.value = resp.positions || [];
     totals.value = { value: resp.total_value, cost: resp.total_cost, pnl: resp.total_pnl };
-  } catch (e) { errorMsg.value = reportFriendlyError(e, '持仓列表加载失败，请刷新重试。'); } finally { loading.value = false; }
+  } catch (e) {
+    if (seq !== refreshSeq) return;
+    errorMsg.value = positions.value.length
+      ? reportFriendlyError(e, '持仓行情暂时更新失败，已保留上一次结果。')
+      : reportFriendlyError(e, '持仓列表加载失败，请刷新重试。');
+  } finally {
+    if (seq === refreshSeq) loading.value = false;
+  }
 }
 
 async function save(): Promise<void> {

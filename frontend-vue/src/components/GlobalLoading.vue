@@ -10,33 +10,49 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
-import { onLoadingChange } from '@/api/client';
+import { onMounted, onUnmounted, ref } from 'vue';
+import { onLoadingChange, resetGlobalLoading } from '@/api/client';
 
 const isLoading = ref(false);
 const message = ref('加载中...');
 
 let unsubscribe: (() => void) | null = null;
+let hintTimer: number | null = null;
+let safetyTimer: number | null = null;
+
+function clearTimers() {
+  if (hintTimer != null) window.clearTimeout(hintTimer);
+  if (safetyTimer != null) window.clearTimeout(safetyTimer);
+  hintTimer = null;
+  safetyTimer = null;
+}
 
 onMounted(() => {
   unsubscribe = onLoadingChange((loading) => {
     isLoading.value = loading;
-    if (loading) {
-      message.value = '加载中...';
-      // 15秒后显示数据源切换提示
-      setTimeout(() => {
-        if (isLoading.value) {
-          message.value = '数据源切换中，请稍候...';
-        }
-      }, 15000);
-    }
+    clearTimers();
+
+    if (!loading) return;
+
+    message.value = '加载中...';
+    hintTimer = window.setTimeout(() => {
+      if (isLoading.value) {
+        message.value = '数据源切换中，请稍候...';
+      }
+    }, 15_000);
+
+    safetyTimer = window.setTimeout(() => {
+      if (isLoading.value) {
+        resetGlobalLoading();
+        isLoading.value = false;
+      }
+    }, 20_000);
   });
 });
 
 onUnmounted(() => {
-  if (unsubscribe) {
-    unsubscribe();
-  }
+  unsubscribe?.();
+  clearTimers();
 });
 </script>
 

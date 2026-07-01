@@ -70,6 +70,26 @@ def planner_stub(state: GraphState) -> dict:
     is_deep_financial_report = output_mode == "investment_report" and (
         _contains_any(deep_financial_tokens) or "deep_search_agent" in allowed_agents
     )
+    fundamental_tokens = (
+        "fundamental",
+        "fundamentals",
+        "financial",
+        "financials",
+        "valuation",
+        "revenue",
+        "profit",
+        "margin",
+        "cash flow",
+        "balance sheet",
+        "基本面",
+        "财务",
+        "财报",
+        "估值",
+        "营收",
+        "利润",
+        "现金流",
+    )
+    is_fundamental_query = subject_type == "company" and bool(primary_ticker) and _contains_any(fundamental_tokens)
 
     def _append_tool_step(
         name: str,
@@ -281,6 +301,37 @@ def planner_stub(state: GraphState) -> dict:
             }
         )
         step_id += 1
+
+    if is_fundamental_query:
+        if "get_stock_price" in allowed_tools:
+            _append_tool_step(
+                "get_stock_price",
+                {"ticker": primary_ticker},
+                why="基本面问题需要最新价格作为估值锚点。",
+                optional=False,
+            )
+        if "get_sec_company_facts_quarterly" in allowed_tools:
+            _append_tool_step(
+                "get_sec_company_facts_quarterly",
+                {"ticker": primary_ticker, "limit": 8},
+                why="基本面问题需要季度财务事实作为核心证据。",
+                optional=False,
+            )
+        if output_mode == "investment_report" and "get_earnings_estimates" in allowed_tools:
+            _append_tool_step(
+                "get_earnings_estimates",
+                {"ticker": primary_ticker},
+                why="深度报告补充盈利预期，普通对话优先快速返回。",
+                optional=True,
+            )
+        for step in steps:
+            if step.get("kind") == "tool" and step.get("name") in {
+                "get_company_info",
+                "get_stock_price",
+                "get_sec_company_facts_quarterly",
+                "get_earnings_estimates",
+            }:
+                step["parallel_group"] = "fundamental_snapshot"
 
     # Keyword routing for new tools (stub mode fallback).
     normalized_tickers = [

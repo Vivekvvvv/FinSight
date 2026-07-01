@@ -65,6 +65,16 @@ def test_new_query_fundamental_tools_are_allowlisted():
     assert "get_eps_revisions" in step_names
 
 
+def test_brief_fundamental_query_skips_slow_earnings_estimates():
+    policy_out, plan_out = _run_policy_and_planner("AAPL 最近的基本面如何？", "qa", ["AAPL"])
+    tools = set(((policy_out.get("policy") or {}).get("allowed_tools") or []))
+    step_names = [s.get("name") for s in ((plan_out.get("plan_ir") or {}).get("steps") or [])]
+    assert "get_earnings_estimates" in tools
+    assert "get_stock_price" in step_names
+    assert "get_sec_company_facts_quarterly" in step_names
+    assert "get_earnings_estimates" not in step_names
+
+
 def test_new_query_options_tool_is_allowlisted():
     policy_out, plan_out = _run_policy_and_planner("AAPL option IV PCR skew", "technical", ["AAPL"])
     tools = set(((policy_out.get("policy") or {}).get("allowed_tools") or []))

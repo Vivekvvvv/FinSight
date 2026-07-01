@@ -1266,6 +1266,87 @@ def _stub_render_vars(state: GraphState) -> dict[str, str]:
             ])
 
         def _build_valuation_from_agents() -> str:
+            facts_out = _get_tool_output("get_sec_company_facts_quarterly")
+            if facts_out is not None:
+                if isinstance(facts_out, str):
+                    try:
+                        facts_out = json.loads(facts_out)
+                    except Exception:
+                        text = facts_out.strip()
+                        if text:
+                            return "\n".join(
+                                f"- {line.strip()}"
+                                for line in text.splitlines()
+                                if line.strip()
+                            )[:1200]
+
+                if isinstance(facts_out, dict):
+                    if facts_out.get("error"):
+                        return f"- 财务事实暂不可用：{facts_out.get('error')}"
+                    periods = facts_out.get("periods")
+                    if isinstance(periods, list) and periods:
+                        metric_labels = {
+                            "revenue": "营收",
+                            "gross_profit": "毛利",
+                            "operating_income": "营业利润",
+                            "net_income": "净利润",
+                            "eps": "EPS",
+                            "operating_cash_flow": "经营现金流",
+                            "total_assets": "总资产",
+                            "total_liabilities": "总负债",
+                        }
+                        lines: list[str] = []
+                        for idx, period in enumerate(periods[:4]):
+                            parts: list[str] = []
+                            for key, label in metric_labels.items():
+                                values = facts_out.get(key)
+                                if not isinstance(values, list) or idx >= len(values):
+                                    continue
+                                value = values[idx]
+                                if value is None:
+                                    continue
+                                if isinstance(value, (int, float)):
+                                    if key == "eps":
+                                        formatted = f"{value:.2f}"
+                                    elif abs(value) >= 1_000_000_000:
+                                        formatted = f"{value / 1_000_000_000:.1f}B"
+                                    elif abs(value) >= 1_000_000:
+                                        formatted = f"{value / 1_000_000:.1f}M"
+                                    else:
+                                        formatted = f"{value:g}"
+                                else:
+                                    formatted = str(value)
+                                parts.append(f"{label} {formatted}")
+                            if parts:
+                                lines.append(f"- {period}：{'；'.join(parts[:5])}")
+                        source = facts_out.get("source")
+                        if source and lines:
+                            lines.append(f"- 数据源：{source}")
+                        if lines:
+                            return "\n".join(lines)
+                    rows = (
+                        facts_out.get("items")
+                        or facts_out.get("facts")
+                        or facts_out.get("metrics")
+                        or facts_out.get("data")
+                    )
+                    if isinstance(rows, list):
+                        lines: list[str] = []
+                        for row in rows[:8]:
+                            if not isinstance(row, dict):
+                                continue
+                            label = row.get("label") or row.get("name") or row.get("metric") or row.get("concept")
+                            value = row.get("value") or row.get("val") or row.get("amount")
+                            period = row.get("period") or row.get("fy") or row.get("fp") or row.get("date") or row.get("end")
+                            unit = row.get("unit") or row.get("unitRef") or ""
+                            parts = [str(x).strip() for x in (label, value, unit) if str(x or "").strip()]
+                            if parts:
+                                suffix = f"（{period}）" if period else ""
+                                lines.append(f"- {' '.join(parts)}{suffix}")
+                        if lines:
+                            return "\n".join(lines)
+                    return f"- {json_dumps_safe(facts_out, ensure_ascii=False)[:1200]}"
+
             fund_out = _get_agent_output("fundamental_agent")
             if isinstance(fund_out, dict):
                 # Prefer structured evidence for clean line items
