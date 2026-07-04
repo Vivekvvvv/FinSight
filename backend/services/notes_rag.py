@@ -16,8 +16,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# 使用绝对路径，避免工作目录依赖
-_DB_PATH = Path(__file__).parent.parent / "data" / "research_notes.db"
+# 必须与 research_notes.py 的 _DB_PATH 指向同一个文件：
+# _vector_search / vectorize_all_notes 会跨 notes_vectors 与 research_notes 两表 JOIN。
+_DB_PATH = Path("./data/research_notes.db")
 _lock = threading.RLock()
 
 
