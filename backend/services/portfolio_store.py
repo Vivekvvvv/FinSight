@@ -122,10 +122,21 @@ def get_positions(session_id: str) -> list[dict[str, Any]]:
 
 
 def sync_positions(session_id: str, positions: list[dict[str, Any]]) -> int:
-    """Replace all positions for *session_id* with the given list."""
+    """Replace all positions for *session_id* with the given list.
+
+    sector/currency/opened_at 不在同步 payload 里（API 层不接收），
+    全量替换时按 ticker 保留已有值，避免每次同步清空这三列。
+    """
     now = datetime.now(timezone.utc).isoformat()
     with _db_lock, _connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        preserved = {
+            row[0]: (row[1], row[2], row[3])
+            for row in db.execute(
+                "SELECT ticker, sector, currency, opened_at FROM portfolio_positions WHERE session_id = ?",
+                (session_id,),
+            )
+        }
         db.execute("DELETE FROM portfolio_positions WHERE session_id = ?", (session_id,))
         count = 0
         for pos in positions:
@@ -136,10 +147,16 @@ def sync_positions(session_id: str, positions: list[dict[str, Any]]) -> int:
             note = str(pos.get("note") or "").strip() or None
             tags = pos.get("tags")
             tags_json = json.dumps(tags, ensure_ascii=False) if isinstance(tags, list) else None
+            prev_sector, prev_currency, prev_opened_at = preserved.get(ticker, (None, None, None))
             db.execute(
-                "INSERT INTO portfolio_positions (session_id, ticker, shares, avg_cost, updated_at, name, tags_json, note) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (session_id, ticker, float(pos.get("shares", 0)), pos.get("avg_cost"), now, name, tags_json, note),
+                "INSERT INTO portfolio_positions (session_id, ticker, shares, avg_cost, updated_at, name, tags_json, note, sector, currency, opened_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    session_id, ticker, float(pos.get("shares", 0)), pos.get("avg_cost"), now, name, tags_json, note,
+                    pos.get("sector") or prev_sector,
+                    pos.get("currency") or prev_currency or "USD",
+                    pos.get("opened_at") or prev_opened_at,
+                ),
             )
             count += 1
         db.commit()

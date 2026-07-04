@@ -85,3 +85,52 @@ def test_update_position_partial_keeps_existing_metadata(tmp_path, monkeypatch):
     assert rows[0]["name"] == "Tesla"
     assert rows[0]["tags"] == ["ev"]
     assert rows[0]["note"] == "quarterly review"
+
+
+def test_sync_positions_preserves_sector_currency_opened_at(tmp_path, monkeypatch):
+    """全量同步 payload 不含 sector/currency/opened_at，已有值必须保留。"""
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+
+    store.update_position(
+        "s3",
+        "NVDA",
+        10,
+        avg_cost=100,
+        sector="Semiconductors",
+        currency="USD",
+        opened_at="2026-01-15",
+    )
+    store.update_position("s3", "0700.HK", 100, avg_cost=350, currency="HKD")
+
+    # 同步 payload 只带基础字段（与 API 层 PortfolioPositionPayload 一致）
+    store.sync_positions(
+        "s3",
+        [
+            {"ticker": "NVDA", "shares": 12, "avg_cost": 105},
+            {"ticker": "0700.HK", "shares": 100, "avg_cost": 350},
+        ],
+    )
+    by_ticker = {r["ticker"]: r for r in store.get_positions("s3")}
+    assert by_ticker["NVDA"]["sector"] == "Semiconductors"
+    assert by_ticker["NVDA"]["currency"] == "USD"
+    assert by_ticker["NVDA"]["opened_at"] == "2026-01-15"
+    assert by_ticker["0700.HK"]["currency"] == "HKD"
+    assert by_ticker["NVDA"]["shares"] == 12  # 基础字段仍按 payload 替换
+
+
+def test_sync_positions_payload_overrides_preserved_columns(tmp_path, monkeypatch):
+    """payload 若显式带 sector/currency/opened_at，则覆盖旧值；新 ticker 默认 USD。"""
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+
+    store.update_position("s4", "AAPL", 5, sector="Hardware")
+    store.sync_positions(
+        "s4",
+        [
+            {"ticker": "AAPL", "shares": 6, "sector": "Consumer Tech"},
+            {"ticker": "MSFT", "shares": 3},
+        ],
+    )
+    by_ticker = {r["ticker"]: r for r in store.get_positions("s4")}
+    assert by_ticker["AAPL"]["sector"] == "Consumer Tech"
+    assert by_ticker["MSFT"]["sector"] is None
+    assert by_ticker["MSFT"]["currency"] == "USD"
