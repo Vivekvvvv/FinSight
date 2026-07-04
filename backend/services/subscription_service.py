@@ -48,7 +48,12 @@ class SubscriptionService:
                 with open(self.subscriptions_file, 'r', encoding='utf-8') as f:
                     self.subscriptions = json.load(f)
             except Exception as e:
-                logger.info(f"⚠️  加载订阅数据失败: {e}")
+                # 损坏文件先备份再回退空，避免下一次 _save 把用户订阅永久覆盖。
+                logger.warning(f"⚠️  订阅数据损坏，已备份为 *.corrupt 后回退空: {e}")
+                try:
+                    os.replace(self.subscriptions_file, f"{self.subscriptions_file}.corrupt")
+                except OSError:
+                    pass
                 self.subscriptions = {}
         else:
             self.subscriptions = {}

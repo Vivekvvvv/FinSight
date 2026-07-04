@@ -154,7 +154,12 @@ class EntitlementsService:
                 data = json.load(f)
             self._plans = data if isinstance(data, dict) else {}
         except Exception as exc:
-            logger.warning("Failed to load user plans, starting empty: %s", exc)
+            # 损坏文件先备份再回退空，避免下一次 _save 把用户 plan 数据永久覆盖。
+            logger.warning("User plans file corrupt, backed up to *.corrupt before starting empty: %s", exc)
+            try:
+                os.replace(self._path, f"{self._path}.corrupt")
+            except OSError:
+                pass
             self._plans = {}
 
     def _save(self) -> None:
