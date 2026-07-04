@@ -5,6 +5,7 @@ Memory Service - 用户记忆与画像管理
 """
 
 import logging
+import threading
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -14,6 +15,10 @@ import re
 
 logger = logging.getLogger(__name__)
 _USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+# 模块级锁：MemoryService 在 main.py / graph/store.py / what_changed.py 等处
+# 各自实例化但共享同一 data/memory 目录，锁必须跨实例生效。
+_PROFILE_LOCK = threading.RLock()
 
 
 @dataclass
@@ -77,27 +82,36 @@ class MemoryService:
     def get_user_profile(self, user_id: str) -> UserProfile:
         """获取用户画像，不存在则创建默认"""
         file_path = self._get_file_path(user_id)
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                return UserProfile.from_dict(data)
-            except Exception as e:
-                logger.info(f"[MemoryService] Error loading profile for {user_id}: {e}")
+        with _PROFILE_LOCK:
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    return UserProfile.from_dict(data)
+                except Exception as e:
+                    # 损坏的画像文件先备份再回退默认，避免后续写操作把用户数据永久覆盖。
+                    logger.warning(f"[MemoryService] Corrupt profile for {user_id}, backing up: {e}")
+                    try:
+                        os.replace(file_path, file_path + ".corrupt")
+                    except OSError:
+                        pass
+                    return UserProfile(user_id=user_id)
+            else:
                 return UserProfile(user_id=user_id)
-        else:
-            return UserProfile(user_id=user_id)
 
     def update_user_profile(self, profile: UserProfile) -> bool:
         """更新用户画像"""
         file_path = self._get_file_path(profile.user_id)
         profile.last_active = datetime.now().isoformat()
+        tmp_path = file_path + ".tmp"
         try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(profile.to_dict(), f, indent=2, ensure_ascii=False)
+            with _PROFILE_LOCK:
+                with open(tmp_path, 'w', encoding='utf-8') as f:
+                    json.dump(profile.to_dict(), f, indent=2, ensure_ascii=False)
+                os.replace(tmp_path, file_path)
             return True
         except Exception as e:
-            logger.info(f"[MemoryService] Error saving profile for {profile.user_id}: {e}")
+            logger.warning(f"[MemoryService] Error saving profile for {profile.user_id}: {e}")
             return False
 
     def add_to_watchlist(
@@ -114,34 +128,35 @@ class MemoryService:
         research_status: Optional[str] = None,
     ) -> bool:
         """添加关注。可选 name/tags/note/group/priority/watch_reason 元信息会写入 watchlist_meta。"""
-        profile = self.get_user_profile(user_id)
         clean_ticker = str(ticker or "").strip().upper()
         if not clean_ticker:
             return False
-        if clean_ticker not in profile.watchlist:
-            profile.watchlist.append(clean_ticker)
-        # merge metadata (None values do not overwrite existing fields)
-        existing = profile.watchlist_meta.get(clean_ticker, {}) if isinstance(profile.watchlist_meta, dict) else {}
-        merged = dict(existing)
-        if name is not None:
-            merged["name"] = str(name).strip()
-        if tags is not None:
-            merged["tags"] = [str(t).strip() for t in tags if str(t).strip()]
-        if note is not None:
-            merged["note"] = str(note)
-        if group is not None:
-            merged["group"] = str(group).strip()
-        if priority is not None:
-            merged["priority"] = int(priority)
-        if watch_reason is not None:
-            merged["watch_reason"] = str(watch_reason).strip()
-        if research_status is not None:
-            merged["research_status"] = str(research_status).strip()
-        if "added_at" not in merged:
-            merged["added_at"] = datetime.now().isoformat()
-        merged["updated_at"] = datetime.now().isoformat()
-        profile.watchlist_meta[clean_ticker] = merged
-        return self.update_user_profile(profile)
+        with _PROFILE_LOCK:
+            profile = self.get_user_profile(user_id)
+            if clean_ticker not in profile.watchlist:
+                profile.watchlist.append(clean_ticker)
+            # merge metadata (None values do not overwrite existing fields)
+            existing = profile.watchlist_meta.get(clean_ticker, {}) if isinstance(profile.watchlist_meta, dict) else {}
+            merged = dict(existing)
+            if name is not None:
+                merged["name"] = str(name).strip()
+            if tags is not None:
+                merged["tags"] = [str(t).strip() for t in tags if str(t).strip()]
+            if note is not None:
+                merged["note"] = str(note)
+            if group is not None:
+                merged["group"] = str(group).strip()
+            if priority is not None:
+                merged["priority"] = int(priority)
+            if watch_reason is not None:
+                merged["watch_reason"] = str(watch_reason).strip()
+            if research_status is not None:
+                merged["research_status"] = str(research_status).strip()
+            if "added_at" not in merged:
+                merged["added_at"] = datetime.now().isoformat()
+            merged["updated_at"] = datetime.now().isoformat()
+            profile.watchlist_meta[clean_ticker] = merged
+            return self.update_user_profile(profile)
 
     def update_watchlist_meta(
         self,
@@ -157,38 +172,40 @@ class MemoryService:
         research_status: Optional[str] = None,
     ) -> bool:
         """更新一个已存在的 watchlist 条目的元信息。ticker 必须已在列表中。"""
-        profile = self.get_user_profile(user_id)
         clean_ticker = str(ticker or "").strip().upper()
-        if clean_ticker not in profile.watchlist:
-            return False
-        return self.add_to_watchlist(
-            user_id,
-            clean_ticker,
-            name=name,
-            tags=tags,
-            note=note,
-            group=group,
-            priority=priority,
-            watch_reason=watch_reason,
-            research_status=research_status,
-        )
+        with _PROFILE_LOCK:
+            profile = self.get_user_profile(user_id)
+            if clean_ticker not in profile.watchlist:
+                return False
+            return self.add_to_watchlist(
+                user_id,
+                clean_ticker,
+                name=name,
+                tags=tags,
+                note=note,
+                group=group,
+                priority=priority,
+                watch_reason=watch_reason,
+                research_status=research_status,
+            )
 
     def remove_from_watchlist(self, user_id: str, ticker: str) -> bool:
         """取消关注"""
-        profile = self.get_user_profile(user_id)
         clean_ticker = str(ticker or "").strip().upper()
-        # 同时清理 ticker(原样) 与 标准化形式,避免遗留旧数据
-        removed = False
-        for variant in {ticker, clean_ticker}:
-            if variant in profile.watchlist:
-                profile.watchlist.remove(variant)
-                removed = True
-        if isinstance(profile.watchlist_meta, dict):
-            profile.watchlist_meta.pop(clean_ticker, None)
-            profile.watchlist_meta.pop(ticker, None)
-        if removed:
-            return self.update_user_profile(profile)
-        return True
+        with _PROFILE_LOCK:
+            profile = self.get_user_profile(user_id)
+            # 同时清理 ticker(原样) 与 标准化形式,避免遗留旧数据
+            removed = False
+            for variant in {ticker, clean_ticker}:
+                if variant in profile.watchlist:
+                    profile.watchlist.remove(variant)
+                    removed = True
+            if isinstance(profile.watchlist_meta, dict):
+                profile.watchlist_meta.pop(clean_ticker, None)
+                profile.watchlist_meta.pop(ticker, None)
+            if removed:
+                return self.update_user_profile(profile)
+            return True
 
     def list_watchlist_items(self, user_id: str) -> List[Dict[str, Any]]:
         """返回 watchlist 数组,每项包含 ticker + meta。前端管理页用。"""
@@ -216,6 +233,7 @@ class MemoryService:
 
     def set_preference(self, user_id: str, key: str, value: Any) -> bool:
         """设置偏好"""
-        profile = self.get_user_profile(user_id)
-        profile.preferences[key] = value
-        return self.update_user_profile(profile)
+        with _PROFILE_LOCK:
+            profile = self.get_user_profile(user_id)
+            profile.preferences[key] = value
+            return self.update_user_profile(profile)

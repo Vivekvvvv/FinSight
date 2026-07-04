@@ -67,3 +67,38 @@ def test_reject_path_traversal_user_id(memory_service):
 
     with pytest.raises(ValueError):
         memory_service.set_preference("../evil", "theme", "dark")
+
+
+def test_corrupt_profile_backed_up_not_overwritten(memory_service, tmp_path):
+    user_id = "corrupt_user"
+    memory_service.add_to_watchlist(user_id, "AAPL")
+    file_path = os.path.join(str(tmp_path), f"{user_id}.json")
+
+    # 模拟磁盘上损坏的画像文件
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write("{ not valid json")
+
+    profile = memory_service.get_user_profile(user_id)
+    assert profile.watchlist == []  # 回退默认画像
+    assert os.path.exists(file_path + ".corrupt")  # 损坏内容保留备份
+    with open(file_path + ".corrupt", encoding="utf-8") as f:
+        assert f.read() == "{ not valid json"
+
+
+def test_concurrent_watchlist_adds_do_not_lose_updates(memory_service):
+    import threading
+
+    user_id = "concurrent_user"
+    tickers = [f"T{i:03d}" for i in range(20)]
+
+    def add(ticker):
+        assert memory_service.add_to_watchlist(user_id, ticker) is True
+
+    threads = [threading.Thread(target=add, args=(t,)) for t in tickers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    profile = memory_service.get_user_profile(user_id)
+    assert sorted(profile.watchlist) == tickers
