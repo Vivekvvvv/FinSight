@@ -5,7 +5,7 @@ import hashlib
 import secrets
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter(tags=["Auth"])
@@ -65,18 +65,5 @@ async def login(req: LoginRequest) -> dict[str, Any]:
 async def logout() -> dict[str, Any]:
     return {"success": True, "message": "已登出"}
 
-
-@router.get("/api/me")
-async def get_me(request: Request) -> dict[str, Any]:
-    """返回当前用户身份信息"""
-    principal = getattr(request.state, "principal", None)
-    if not principal:
-        raise HTTPException(status_code=401, detail="未授权")
-
-    return {
-        "success": True,
-        "user_id": principal.user_id,
-        "email": principal.email,
-        "role": principal.role,
-        "auth_type": principal.auth_type,
-    }
+# 注：GET /api/me 由 entitlements_router 提供（走规范的 get_current_user 依赖）。
+# 此处曾有一份重复注册的同名路由，靠挂载顺序抢先生效，已删除。

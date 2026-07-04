@@ -134,3 +134,19 @@ def test_sync_positions_payload_overrides_preserved_columns(tmp_path, monkeypatc
     assert by_ticker["AAPL"]["sector"] == "Consumer Tech"
     assert by_ticker["MSFT"]["sector"] is None
     assert by_ticker["MSFT"]["currency"] == "USD"
+
+
+def test_get_all_active_sessions_parses_private_session_user_id(tmp_path, monkeypatch):
+    """认证会话 "private:{user_id}:default" 必须解析出真实 user_id，
+    其余格式回退 default_user（旧实现按 "_" 切分会产出 "private:default" 这类垃圾值，
+    导致每日风险快照写入的 user_id 与查询侧永远对不上）。"""
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+
+    store.update_position("private:alice:default", "AAPL", 1)
+    store.update_position("private:default_user:default", "MSFT", 2)
+    store.update_position("adhoc_dev_session", "NVDA", 3)
+
+    mapping = dict(store.get_all_active_sessions())
+    assert mapping["private:alice:default"] == "alice"
+    assert mapping["private:default_user:default"] == "default_user"
+    assert mapping["adhoc_dev_session"] == "default_user"

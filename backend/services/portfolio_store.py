@@ -261,7 +261,9 @@ def get_all_active_sessions() -> list[tuple[str, str]]:
 
     Returns:
         [(session_id, user_id), ...] 列表
-        注意：user_id 从 session_id 提取（假设格式为 "user_xxx" 或使用 "default_user"）
+        user_id 从 session_id 解析：认证会话格式为 "private:{user_id}:default"
+        （见 backend/security/auth.py Principal.session_id 与 graph/store.resolve_user_id），
+        其余格式回退 "default_user"。
     """
     with _db_lock, _connect() as db:
         rows = db.execute(
@@ -271,13 +273,10 @@ def get_all_active_sessions() -> list[tuple[str, str]]:
         result = []
         for row in rows:
             session_id = row[0]
-            # 简化：从 session_id 推断 user_id
-            # 实际生产环境应该有 user_id 列或从其他表关联
-            user_id = "default_user"  # fallback
-            if "_" in session_id:
-                parts = session_id.split("_")
-                if len(parts) >= 2:
-                    user_id = parts[0]
+            user_id = "default_user"
+            parts = str(session_id or "").split(":")
+            if len(parts) >= 2 and parts[1].strip():
+                user_id = parts[1].strip()
             result.append((session_id, user_id))
 
         return result
