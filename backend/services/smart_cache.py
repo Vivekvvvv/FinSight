@@ -89,9 +89,6 @@ class TradingHoursCache:
     @classmethod
     def _is_cn_trading(cls, now_utc: datetime) -> bool:
         """A股交易时段判断（UTC+8转换）"""
-        # UTC → UTC+8
-        cn_time = now_utc.replace(tzinfo=None) + (8 * 3600 * 1000000000 // 1000000000)  # 粗略+8小时
-        # 更精确的方式
         from datetime import timedelta
         cn_time = now_utc + timedelta(hours=8)
         t = cn_time.time()

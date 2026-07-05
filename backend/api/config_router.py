@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
+import threading
 import traceback
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +13,9 @@ from fastapi import APIRouter
 
 from backend.api.schemas import ConfigResponse
 from backend.llm_config import USER_CONFIG_PATH
+
+# 全局配置是单文件，save_config 为读-改-写，多请求并发时须持模块级锁（项目规则1）。
+_CONFIG_WRITE_LOCK = threading.RLock()
 
 _SENSITIVE_FRAGMENTS = ("api_key", "apikey", "token", "secret", "password")
 
@@ -147,33 +153,47 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
         try:
             config_file = USER_CONFIG_PATH
 
-            # Load existing config to merge (preserve keys not in whitelist)
-            existing: dict = {}
-            try:
-                with open(config_file, "r", encoding="utf-8") as file_obj:
-                    existing = json.load(file_obj)
-            except (FileNotFoundError, json.JSONDecodeError):
-                pass
+            with _CONFIG_WRITE_LOCK:
+                # Load existing config to merge (preserve keys not in whitelist)
+                existing: dict = {}
+                try:
+                    with open(config_file, "r", encoding="utf-8") as file_obj:
+                        existing = json.load(file_obj)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    pass
 
-            # Only allow whitelisted keys from user input
-            filtered = _filter_allowed_keys(request)
+                # Only allow whitelisted keys from user input
+                filtered = _filter_allowed_keys(request)
 
-            if "llm_api_key" in filtered:
-                filtered["llm_api_key"] = _preserve_secret_if_masked(
-                    filtered.get("llm_api_key"),
-                    existing.get("llm_api_key"),
-                )
+                if "llm_api_key" in filtered:
+                    filtered["llm_api_key"] = _preserve_secret_if_masked(
+                        filtered.get("llm_api_key"),
+                        existing.get("llm_api_key"),
+                    )
 
-            if "llm_endpoints" in filtered:
-                filtered["llm_endpoints"] = _merge_llm_endpoints(
-                    existing.get("llm_endpoints"),
-                    filtered.get("llm_endpoints"),
-                )
+                if "llm_endpoints" in filtered:
+                    filtered["llm_endpoints"] = _merge_llm_endpoints(
+                        existing.get("llm_endpoints"),
+                        filtered.get("llm_endpoints"),
+                    )
 
-            merged = {**existing, **filtered}
+                merged = {**existing, **filtered}
 
-            with open(config_file, "w", encoding="utf-8") as file_obj:
-                json.dump(merged, file_obj, indent=2, ensure_ascii=False)
+                # 原子写：临时文件 + os.replace，避免写一半崩溃截断配置（项目规则1）。
+                dir_name = os.path.dirname(config_file) or "."
+                fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix=".config_", suffix=".tmp")
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as file_obj:
+                        json.dump(merged, file_obj, indent=2, ensure_ascii=False)
+                        file_obj.flush()
+                        os.fsync(file_obj.fileno())
+                    os.replace(tmp_path, config_file)
+                finally:
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.unlink(tmp_path)
+                        except OSError:
+                            pass
 
             deps.logger.info("[Config] saved to %s (filtered %d keys)", config_file, len(filtered))
             return {"success": True, "message": "配置已保存"}

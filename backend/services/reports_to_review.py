@@ -84,11 +84,14 @@ def get_reports_to_review(
         if as_of_str and ticker in watched_tickers:
             try:
                 as_of_dt = datetime.fromisoformat(as_of_str.replace("Z", "+00:00"))
+                # naive as_of（如纯日期串 "2025-12-31"）与 aware stale_threshold 比较会抛 TypeError，补齐 UTC 时区。
+                if as_of_dt.tzinfo is None:
+                    as_of_dt = as_of_dt.replace(tzinfo=timezone.utc)
                 if as_of_dt < stale_threshold:
                     days_old = (now - as_of_dt).days
                     score += 25
                     reasons.append(f"数据超过 {days_old} 天")
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError, TypeError):
                 pass
 
         # 只返回有评分的报告

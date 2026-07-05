@@ -48,12 +48,13 @@ def take_daily_risk_snapshot() -> None:
                 tickers = [p["ticker"] for p in positions if p.get("ticker")]
                 reports = []
                 for ticker in tickers:
+                    # list_reports 返回 list[dict]，不是 {"items": [...]}
                     ticker_reports = store.list_reports(
                         session_id=session_id,
                         ticker=ticker,
                         limit=1,
                     )
-                    reports.extend(ticker_reports.get("items", []))
+                    reports.extend(ticker_reports)
 
                 # 计算风险透镜
                 risk_lens = calculate_portfolio_risk_lens(positions, reports)
