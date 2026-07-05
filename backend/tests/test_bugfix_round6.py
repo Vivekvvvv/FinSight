@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Bug 审计（docs/BUG_AUDIT_2026-07-04.md）修复回归测试 —— B1 / B2 / C1。"""
+"""Bug 审计（docs/BUG_AUDIT_2026-07-04.md）修复回归测试 —— B1 / B2 / C1 / D1 / D2。"""
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 
 
@@ -87,3 +88,67 @@ def test_c1_reports_to_review_handles_naive_as_of(monkeypatch):
     assert isinstance(result, list)
     # 2020 年数据超期且 AAPL 在 watchlist → 命中规则4
     assert any(r.get("ticker") == "AAPL" for r in result)
+
+
+# ── D2: 数据源健康指标全局单例无锁 → 并发计数丢失 ───────────────────────────────
+
+def test_d2_concurrent_record_success_no_lost_updates():
+    from backend.services.datasource_monitor import DataSourceMonitor
+
+    mon = DataSourceMonitor()
+    per_thread = 500
+    n_threads = 4
+
+    def worker():
+        for _ in range(per_thread):
+            mon.record_success("tencent", 1.0)
+
+    threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # 修复前：无锁 `total_requests += 1` 在多线程下丢更新 → < 期望值
+    assert mon._metrics["tencent"].total_requests == per_thread * n_threads
+    assert mon._metrics["tencent"].success_count == per_thread * n_threads
+
+
+# ── D1: SubscriptionService 读-改-写无锁 → 迭代时增删顶层 key 崩溃 ──────────────
+
+def test_d1_concurrent_subscribe_and_iterate_no_crash(tmp_path, monkeypatch):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subs_concurrency.json")
+    monkeypatch.setattr(subs, "_subscription_service", None, raising=False)
+    svc = subs.SubscriptionService()
+    # 聚焦内存数据结构并发安全，屏蔽磁盘 IO 以高频复现
+    monkeypatch.setattr(svc, "_save_subscriptions", lambda: None)
+
+    errors: list[Exception] = []
+
+    def writer():
+        try:
+            for i in range(300):
+                svc.subscribe(f"u{i}@example.com", "AAPL")
+                svc.unsubscribe(f"u{i}@example.com")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    def reader():
+        try:
+            for _ in range(300):
+                svc.get_subscriptions(allow_all=True)
+                svc.get_subscribers_for_ticker("AAPL")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer), threading.Thread(target=reader)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # 修复前：reader 迭代 self.subscriptions 时 writer 增删顶层 key
+    # → RuntimeError: dictionary changed size during iteration
+    assert errors == []

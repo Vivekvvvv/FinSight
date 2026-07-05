@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -85,49 +86,54 @@ class DataSourceMonitor:
             "unknown": DataSourceMetrics("unknown"),
         }
         self._degraded_sources: set[DataSourceType] = set()
+        # get_monitor() 返回进程级单例，record_* 在 FastAPI 线程池多线程并发调用，
+        # 对计数/列表/降级集合的读改写须持锁（实例锁在真单例下有效）。
+        self._lock = threading.RLock()
 
     def record_success(self, source: DataSourceType, response_time_ms: float = 0.0):
         """记录成功请求"""
         if source not in self._metrics:
             return
 
-        m = self._metrics[source]
-        m.total_requests += 1
-        m.success_count += 1
-        m.consecutive_failures = 0  # 重置连续失败计数
-        m.last_success_at = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            m = self._metrics[source]
+            m.total_requests += 1
+            m.success_count += 1
+            m.consecutive_failures = 0  # 重置连续失败计数
+            m.last_success_at = datetime.now(timezone.utc).isoformat()
 
-        # 记录响应时间
-        if response_time_ms > 0:
-            m.response_times.append(response_time_ms)
-            # 保留最近100次
-            if len(m.response_times) > 100:
-                m.response_times.pop(0)
-            m.avg_response_time_ms = sum(m.response_times) / len(m.response_times)
+            # 记录响应时间
+            if response_time_ms > 0:
+                m.response_times.append(response_time_ms)
+                # 保留最近100次
+                if len(m.response_times) > 100:
+                    m.response_times.pop(0)
+                m.avg_response_time_ms = sum(m.response_times) / len(m.response_times)
 
-        # 成功后可能恢复健康状态
-        if source in self._degraded_sources and m.is_healthy:
-            self._degraded_sources.discard(source)
-            logger.info(f"[Monitor] {source} 已恢复健康状态")
+            # 成功后可能恢复健康状态
+            if source in self._degraded_sources and m.is_healthy:
+                self._degraded_sources.discard(source)
+                logger.info(f"[Monitor] {source} 已恢复健康状态")
 
     def record_failure(self, source: DataSourceType, error_msg: str = ""):
         """记录失败请求"""
         if source not in self._metrics:
             return
 
-        m = self._metrics[source]
-        m.total_requests += 1
-        m.failure_count += 1
-        m.consecutive_failures += 1
-        m.last_failure_at = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            m = self._metrics[source]
+            m.total_requests += 1
+            m.failure_count += 1
+            m.consecutive_failures += 1
+            m.last_failure_at = datetime.now(timezone.utc).isoformat()
 
-        # 连续失败3次触发降级
-        if m.consecutive_failures >= 3 and source not in self._degraded_sources:
-            self._degraded_sources.add(source)
-            logger.warning(
-                f"[Monitor] {source} 连续失败{m.consecutive_failures}次，触发降级。"
-                f"成功率: {m.success_rate:.1f}% | 错误: {error_msg}"
-            )
+            # 连续失败3次触发降级
+            if m.consecutive_failures >= 3 and source not in self._degraded_sources:
+                self._degraded_sources.add(source)
+                logger.warning(
+                    f"[Monitor] {source} 连续失败{m.consecutive_failures}次，触发降级。"
+                    f"成功率: {m.success_rate:.1f}% | 错误: {error_msg}"
+                )
 
     def should_use_source(self, source: DataSourceType) -> bool:
         """判断是否应该使用该数据源"""
@@ -154,26 +160,27 @@ class DataSourceMonitor:
 
     def get_health_report(self) -> dict[str, Any]:
         """生成健康报告并持久化"""
-        report = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "overall_status": self._calculate_overall_status(),
-            "degraded_sources": list(self._degraded_sources),
-            "sources": {
-                name: {
-                    "status": m.status,
-                    "total_requests": m.total_requests,
-                    "success_count": m.success_count,
-                    "failure_count": m.failure_count,
-                    "success_rate": round(m.success_rate, 2),
-                    "consecutive_failures": m.consecutive_failures,
-                    "last_success_at": m.last_success_at,
-                    "last_failure_at": m.last_failure_at,
-                    "avg_response_time_ms": round(m.avg_response_time_ms, 2),
-                    "is_healthy": m.is_healthy,
-                }
-                for name, m in self._metrics.items()
-            },
-        }
+        with self._lock:
+            report = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "overall_status": self._calculate_overall_status(),
+                "degraded_sources": list(self._degraded_sources),
+                "sources": {
+                    name: {
+                        "status": m.status,
+                        "total_requests": m.total_requests,
+                        "success_count": m.success_count,
+                        "failure_count": m.failure_count,
+                        "success_rate": round(m.success_rate, 2),
+                        "consecutive_failures": m.consecutive_failures,
+                        "last_success_at": m.last_success_at,
+                        "last_failure_at": m.last_failure_at,
+                        "avg_response_time_ms": round(m.avg_response_time_ms, 2),
+                        "is_healthy": m.is_healthy,
+                    }
+                    for name, m in self._metrics.items()
+                },
+            }
 
         # 持久化存储（异步，不阻塞主流程）
         try:
@@ -203,16 +210,17 @@ class DataSourceMonitor:
 
     def reset_stats(self):
         """重置统计数据（用于测试）"""
-        for m in self._metrics.values():
-            m.total_requests = 0
-            m.success_count = 0
-            m.failure_count = 0
-            m.consecutive_failures = 0
-            m.last_success_at = None
-            m.last_failure_at = None
-            m.avg_response_time_ms = 0.0
-            m.response_times.clear()
-        self._degraded_sources.clear()
+        with self._lock:
+            for m in self._metrics.values():
+                m.total_requests = 0
+                m.success_count = 0
+                m.failure_count = 0
+                m.consecutive_failures = 0
+                m.last_success_at = None
+                m.last_failure_at = None
+                m.avg_response_time_ms = 0.0
+                m.response_times.clear()
+            self._degraded_sources.clear()
 
 
 # 全局单例

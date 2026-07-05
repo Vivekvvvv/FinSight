@@ -219,60 +219,61 @@ class SubscriptionService:
         if not self.is_valid_email(email):
             logger.info(f"❌ Invalid email address: {email}")
             return False
-        
-        if email not in self.subscriptions:
-            self.subscriptions[email] = []
-        
-        # 检查是否已订阅
-        for sub in self.subscriptions[email]:
-            if sub['ticker'] == ticker:
-                # 更新现有订阅
-                sub['alert_types'] = alert_types
-                sub['price_threshold'] = price_threshold
-                sub['alert_mode'] = normalized_alert_mode
-                sub['price_target'] = price_target
-                sub['direction'] = normalized_direction
-                sub['risk_threshold'] = normalized_risk_threshold
-                sub['price_target_fired'] = False
-                sub['updated_at'] = datetime.now().isoformat()
-                if "recent_events" not in sub or not isinstance(sub.get("recent_events"), list):
-                    sub["recent_events"] = []
-                # 重新启用并清理失败状态
-                sub['disabled'] = False
-                sub['alert_failures'] = 0
-                sub['last_alert_error'] = None
-                sub['last_alert_error_at'] = None
-                self._save_subscriptions()
-                return True
-        
-        # 添加新订阅
-        subscription = {
-            "email": email,
-            "ticker": ticker,
-            "alert_types": alert_types,
-            "price_threshold": price_threshold,
-            "alert_mode": normalized_alert_mode,
-            "price_target": price_target,
-            "direction": normalized_direction,
-            "risk_threshold": normalized_risk_threshold,
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-            "last_alert_at": None,
-            "last_news_at": None,
-            "last_risk_at": None,
-            "last_alert_attempt_at": None,
-            "last_alert_error": None,
-            "last_alert_error_at": None,
-            "alert_failures": 0,
-            "disabled": False,
-            "price_target_fired": False,
-            "recent_events": [],
-        }
-        
-        self.subscriptions[email].append(subscription)
-        self._save_subscriptions()
-        logger.info(f"✅ 用户 {email} 已订阅 {ticker}")
-        return True
+
+        with self._lock:
+            if email not in self.subscriptions:
+                self.subscriptions[email] = []
+
+            # 检查是否已订阅
+            for sub in self.subscriptions[email]:
+                if sub['ticker'] == ticker:
+                    # 更新现有订阅
+                    sub['alert_types'] = alert_types
+                    sub['price_threshold'] = price_threshold
+                    sub['alert_mode'] = normalized_alert_mode
+                    sub['price_target'] = price_target
+                    sub['direction'] = normalized_direction
+                    sub['risk_threshold'] = normalized_risk_threshold
+                    sub['price_target_fired'] = False
+                    sub['updated_at'] = datetime.now().isoformat()
+                    if "recent_events" not in sub or not isinstance(sub.get("recent_events"), list):
+                        sub["recent_events"] = []
+                    # 重新启用并清理失败状态
+                    sub['disabled'] = False
+                    sub['alert_failures'] = 0
+                    sub['last_alert_error'] = None
+                    sub['last_alert_error_at'] = None
+                    self._save_subscriptions()
+                    return True
+
+            # 添加新订阅
+            subscription = {
+                "email": email,
+                "ticker": ticker,
+                "alert_types": alert_types,
+                "price_threshold": price_threshold,
+                "alert_mode": normalized_alert_mode,
+                "price_target": price_target,
+                "direction": normalized_direction,
+                "risk_threshold": normalized_risk_threshold,
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "last_alert_at": None,
+                "last_news_at": None,
+                "last_risk_at": None,
+                "last_alert_attempt_at": None,
+                "last_alert_error": None,
+                "last_alert_error_at": None,
+                "alert_failures": 0,
+                "disabled": False,
+                "price_target_fired": False,
+                "recent_events": [],
+            }
+
+            self.subscriptions[email].append(subscription)
+            self._save_subscriptions()
+            logger.info(f"✅ 用户 {email} 已订阅 {ticker}")
+            return True
 
     def is_valid_email(self, email: str) -> bool:
         """Basic email format validation."""
@@ -293,24 +294,27 @@ class SubscriptionService:
         """
         if email not in self.subscriptions:
             return False
-        
-        if ticker is None:
-            # 取消所有订阅
-            del self.subscriptions[email]
-        else:
-            # 取消特定股票的订阅
-            self.subscriptions[email] = [
-                sub for sub in self.subscriptions[email]
-                if sub['ticker'] != ticker
-            ]
-            
-            # 如果该邮箱没有其他订阅，删除邮箱记录
-            if not self.subscriptions[email]:
+
+        with self._lock:
+            if email not in self.subscriptions:
+                return False
+            if ticker is None:
+                # 取消所有订阅
                 del self.subscriptions[email]
-        
-        self._save_subscriptions()
-        logger.info(f"✅ 用户 {email} 已取消订阅 {ticker or '所有股票'}")
-        return True
+            else:
+                # 取消特定股票的订阅
+                self.subscriptions[email] = [
+                    sub for sub in self.subscriptions[email]
+                    if sub['ticker'] != ticker
+                ]
+
+                # 如果该邮箱没有其他订阅，删除邮箱记录
+                if not self.subscriptions[email]:
+                    del self.subscriptions[email]
+
+            self._save_subscriptions()
+            logger.info(f"✅ 用户 {email} 已取消订阅 {ticker or '所有股票'}")
+            return True
     
     def get_subscriptions(self, email: Optional[str] = None, *, allow_all: bool = False) -> List[Dict]:
         """
@@ -326,97 +330,105 @@ class SubscriptionService:
             if not allow_all:
                 return []
             # 返回所有订阅
-            all_subs = []
-            for email_key, subs in self.subscriptions.items():
-                all_subs.extend(subs)
-            return all_subs
+            with self._lock:
+                all_subs = []
+                for email_key, subs in self.subscriptions.items():
+                    all_subs.extend(subs)
+                return all_subs
         else:
-            return self.subscriptions.get(email, [])
-    
+            with self._lock:
+                return list(self.subscriptions.get(email, []))
+
     def get_subscribers_for_ticker(self, ticker: str) -> List[Dict]:
         """
         获取订阅特定股票的所有用户
-        
+
         Args:
             ticker: 股票代码
-            
+
         Returns:
             订阅列表
         """
         subscribers = []
-        for email, subs in self.subscriptions.items():
-            for sub in subs:
-                if sub['ticker'] == ticker:
-                    subscribers.append(sub)
+        with self._lock:
+            for email, subs in self.subscriptions.items():
+                for sub in subs:
+                    if sub['ticker'] == ticker:
+                        subscribers.append(sub)
         return subscribers
-    
+
     def update_last_alert(self, email: str, ticker: str):
         """更新最后提醒时间"""
-        if email in self.subscriptions:
-            for sub in self.subscriptions[email]:
-                if sub['ticker'] == ticker:
-                    sub['last_alert_at'] = datetime.now().isoformat()
-                    self._save_subscriptions()
-                    break
+        with self._lock:
+            if email in self.subscriptions:
+                for sub in self.subscriptions[email]:
+                    if sub['ticker'] == ticker:
+                        sub['last_alert_at'] = datetime.now().isoformat()
+                        self._save_subscriptions()
+                        break
 
     def record_alert_attempt(self, email: str, ticker: str, success: bool, error: Optional[str] = None, disable: bool = False, is_transient_error: bool = False):
         """Record alert delivery attempt and optionally disable subscription."""
-        if email in self.subscriptions:
-            for sub in self.subscriptions[email]:
-                if sub['ticker'] == ticker:
-                    now = datetime.now().isoformat()
-                    sub['last_alert_attempt_at'] = now
-                    if success:
-                        sub['last_alert_at'] = now
-                        sub['alert_failures'] = 0
-                        sub['last_alert_error'] = None
-                        sub['last_alert_error_at'] = None
-                        sub['disabled'] = False
-                    else:
-                        if not is_transient_error:
-                            sub['alert_failures'] = int(sub.get('alert_failures', 0)) + 1
-                        
-                        sub['last_alert_error'] = error
-                        sub['last_alert_error_at'] = now
-                        
-                        # Only disable if explicitly requested OR failure limit reached (for non-transient errors)
-                        should_disable = disable or (not is_transient_error and sub['alert_failures'] >= ALERT_FAILURE_LIMIT)
-                        if should_disable:
-                            sub['disabled'] = True
-                            
-                    self._save_subscriptions()
-                    break
+        with self._lock:
+            if email in self.subscriptions:
+                for sub in self.subscriptions[email]:
+                    if sub['ticker'] == ticker:
+                        now = datetime.now().isoformat()
+                        sub['last_alert_attempt_at'] = now
+                        if success:
+                            sub['last_alert_at'] = now
+                            sub['alert_failures'] = 0
+                            sub['last_alert_error'] = None
+                            sub['last_alert_error_at'] = None
+                            sub['disabled'] = False
+                        else:
+                            if not is_transient_error:
+                                sub['alert_failures'] = int(sub.get('alert_failures', 0)) + 1
+
+                            sub['last_alert_error'] = error
+                            sub['last_alert_error_at'] = now
+
+                            # Only disable if explicitly requested OR failure limit reached (for non-transient errors)
+                            should_disable = disable or (not is_transient_error and sub['alert_failures'] >= ALERT_FAILURE_LIMIT)
+                            if should_disable:
+                                sub['disabled'] = True
+
+                        self._save_subscriptions()
+                        break
 
     def update_last_news(self, email: str, ticker: str):
         """更新最后新闻提醒时间"""
-        if email in self.subscriptions:
-            for sub in self.subscriptions[email]:
-                if sub['ticker'] == ticker:
-                    sub['last_news_at'] = datetime.now().isoformat()
-                    self._save_subscriptions()
-                    break
+        with self._lock:
+            if email in self.subscriptions:
+                for sub in self.subscriptions[email]:
+                    if sub['ticker'] == ticker:
+                        sub['last_news_at'] = datetime.now().isoformat()
+                        self._save_subscriptions()
+                        break
 
     def update_last_risk(self, email: str, ticker: str):
         """Update last risk alert timestamp."""
-        if email in self.subscriptions:
-            for sub in self.subscriptions[email]:
-                if sub['ticker'] == ticker:
-                    sub['last_risk_at'] = datetime.now().isoformat()
-                    self._save_subscriptions()
-                    break
+        with self._lock:
+            if email in self.subscriptions:
+                for sub in self.subscriptions[email]:
+                    if sub['ticker'] == ticker:
+                        sub['last_risk_at'] = datetime.now().isoformat()
+                        self._save_subscriptions()
+                        break
 
     def set_price_target_fired(self, email: str, ticker: str) -> bool:
         """Mark one-shot target alert as fired."""
-        if email not in self.subscriptions:
-            return False
         ticker_norm = str(ticker or "").strip().upper()
-        for sub in self.subscriptions[email]:
-            if str(sub.get("ticker") or "").strip().upper() == ticker_norm:
-                sub["price_target_fired"] = True
-                sub["updated_at"] = datetime.now().isoformat()
-                self._save_subscriptions()
-                return True
-        return False
+        with self._lock:
+            if email not in self.subscriptions:
+                return False
+            for sub in self.subscriptions[email]:
+                if str(sub.get("ticker") or "").strip().upper() == ticker_norm:
+                    sub["price_target_fired"] = True
+                    sub["updated_at"] = datetime.now().isoformat()
+                    self._save_subscriptions()
+                    return True
+            return False
 
     def toggle_subscription(self, email: str, ticker: str, enabled: bool) -> bool:
         """
@@ -430,23 +442,24 @@ class SubscriptionService:
         Returns:
             是否操作成功
         """
-        if email not in self.subscriptions:
+        with self._lock:
+            if email not in self.subscriptions:
+                return False
+
+            for sub in self.subscriptions[email]:
+                if sub['ticker'] == ticker:
+                    sub['disabled'] = not enabled
+                    if enabled:
+                        # 启用时重置失败计数
+                        sub['alert_failures'] = 0
+                        sub['last_alert_error'] = None
+                        sub['last_alert_error_at'] = None
+                    sub['updated_at'] = datetime.now().isoformat()
+                    self._save_subscriptions()
+                    logger.info(f"{'Enabled' if enabled else 'Disabled'} subscription: {email} -> {ticker}")
+                    return True
+
             return False
-
-        for sub in self.subscriptions[email]:
-            if sub['ticker'] == ticker:
-                sub['disabled'] = not enabled
-                if enabled:
-                    # 启用时重置失败计数
-                    sub['alert_failures'] = 0
-                    sub['last_alert_error'] = None
-                    sub['last_alert_error_at'] = None
-                sub['updated_at'] = datetime.now().isoformat()
-                self._save_subscriptions()
-                logger.info(f"{'Enabled' if enabled else 'Disabled'} subscription: {email} -> {ticker}")
-                return True
-
-        return False
 
     def record_alert_event(
         self,
@@ -461,39 +474,40 @@ class SubscriptionService:
         triggered_at: Optional[str] = None,
     ) -> bool:
         """Append one alert trigger event into subscription.recent_events."""
-        if email not in self.subscriptions:
-            return False
-
         updated = False
         now_iso = triggered_at or datetime.now(timezone.utc).isoformat()
         normalized_ticker = str(ticker or "").strip().upper()
 
-        for sub in self.subscriptions[email]:
-            if str(sub.get("ticker") or "").strip().upper() != normalized_ticker:
-                continue
+        with self._lock:
+            if email not in self.subscriptions:
+                return False
 
-            events = sub.get("recent_events")
-            if not isinstance(events, list):
-                events = []
+            for sub in self.subscriptions[email]:
+                if str(sub.get("ticker") or "").strip().upper() != normalized_ticker:
+                    continue
 
-            payload = {
-                "id": f"ae_{uuid4().hex[:12]}",
-                "email": email,
-                "ticker": normalized_ticker,
-                "event_type": str(event_type or "unknown"),
-                "severity": str(severity or "medium"),
-                "title": str(title or "").strip() or f"{normalized_ticker} {event_type}",
-                "message": str(message or "").strip(),
-                "triggered_at": now_iso,
-                "metadata": metadata if isinstance(metadata, dict) else {},
-            }
-            events.insert(0, payload)
-            sub["recent_events"] = self._prune_recent_events(events)
-            updated = True
-            break
+                events = sub.get("recent_events")
+                if not isinstance(events, list):
+                    events = []
 
-        if updated:
-            self._save_subscriptions()
+                payload = {
+                    "id": f"ae_{uuid4().hex[:12]}",
+                    "email": email,
+                    "ticker": normalized_ticker,
+                    "event_type": str(event_type or "unknown"),
+                    "severity": str(severity or "medium"),
+                    "title": str(title or "").strip() or f"{normalized_ticker} {event_type}",
+                    "message": str(message or "").strip(),
+                    "triggered_at": now_iso,
+                    "metadata": metadata if isinstance(metadata, dict) else {},
+                }
+                events.insert(0, payload)
+                sub["recent_events"] = self._prune_recent_events(events)
+                updated = True
+                break
+
+            if updated:
+                self._save_subscriptions()
         return updated
 
     def list_alert_events(
@@ -504,7 +518,8 @@ class SubscriptionService:
         since: Optional[str] = None,
     ) -> List[Dict]:
         """Aggregate recent alert events for one user across all subscriptions."""
-        subscriptions = self.subscriptions.get(email, [])
+        with self._lock:
+            subscriptions = list(self.subscriptions.get(email, []))
         if not isinstance(subscriptions, list):
             return []
 
