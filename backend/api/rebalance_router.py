@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from backend.api.rebalance_schemas import (
@@ -22,6 +22,7 @@ from backend.api.rebalance_schemas import (
     PatchSuggestionRequest,
     RebalanceSuggestion,
 )
+from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.portfolio_store import (
     get_positions,
     list_suggestions,
@@ -73,13 +74,24 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
         "/api/rebalance/suggestions/generate",
         response_model=RebalanceSuggestion,
     )
-    async def generate_suggestion(request: GenerateRebalanceRequest):
+    async def generate_suggestion(
+        request: GenerateRebalanceRequest,
+        current_user: Principal = Depends(get_current_user),
+    ):
         """Generate a rebalance suggestion for the portfolio.
 
         HC-2: Forces suggestion_only mode and executable=False.
         """
         if not request.session_id:
             raise HTTPException(status_code=422, detail="session_id is required")
+
+        # session_id 决定读取谁的持仓（get_positions），必须绑定认证主体（审计 A10）。
+        require_matching_identity(
+            principal=current_user,
+            provided=request.session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
 
         # Build portfolio from request or fetch from store
         portfolio = request.portfolio
@@ -188,11 +200,21 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
 
     @router.get("/api/rebalance/suggestions")
     async def list_suggestions_endpoint(
-        session_id: str, limit: int = 10
+        session_id: str,
+        limit: int = 10,
+        current_user: Principal = Depends(get_current_user),
     ):
         """List recent rebalance suggestions for a session."""
         if not session_id:
             raise HTTPException(status_code=422, detail="session_id is required")
+
+        # 建议内容含持仓权重，session_id 必须绑定认证主体（审计 A10）。
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
 
         results = list_suggestions(session_id, limit=min(limit, 50))
         return {
@@ -204,13 +226,28 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
 
     @router.patch("/api/rebalance/suggestions/{suggestion_id}")
     async def patch_suggestion_endpoint(
-        suggestion_id: str, request: PatchSuggestionRequest
+        suggestion_id: str,
+        request: PatchSuggestionRequest,
+        current_user: Principal = Depends(get_current_user),
     ):
         """Update the status of a rebalance suggestion."""
         if not suggestion_id:
             raise HTTPException(status_code=422, detail="suggestion_id is required")
 
-        updated = patch_suggestion(suggestion_id, status=request.status)
+        # 属主校验（审计 A5）：显式声明的 session_id 必须与认证主体一致；
+        # 生产模式下 store 层强制按认证主体的 session 过滤，猜到 suggestion_id 也改不了他人建议。
+        require_matching_identity(
+            principal=current_user,
+            provided=request.session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
+        if current_user.auth_type == "dev":
+            owner_session = request.session_id or None  # dev/测试：未声明时保持旧行为
+        else:
+            owner_session = current_user.session_id
+
+        updated = patch_suggestion(suggestion_id, status=request.status, session_id=owner_session)
         if not updated:
             raise HTTPException(status_code=404, detail="Suggestion not found")
 
@@ -221,7 +258,10 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
         }
 
     @router.post("/api/rebalance/suggestions/generate-stream")
-    async def generate_suggestion_stream(request: GenerateRebalanceRequest):
+    async def generate_suggestion_stream(
+        request: GenerateRebalanceRequest,
+        current_user: Principal = Depends(get_current_user),
+    ):
         """SSE streaming rebalance suggestion generation (P2).
 
         Streams progress events during diagnosis/generation/solving steps,
@@ -229,6 +269,14 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
         """
         if not request.session_id:
             raise HTTPException(status_code=422, detail="session_id is required")
+
+        # 与 generate 同源：session_id 决定读取谁的持仓，必须绑定认证主体（审计 A10）。
+        require_matching_identity(
+            principal=current_user,
+            provided=request.session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
 
         async def _event_stream():
             started_at = time.perf_counter()

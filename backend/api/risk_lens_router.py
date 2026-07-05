@@ -56,6 +56,13 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            # session_id 是持仓查询键，必须绑定认证主体防止读取他人持仓。
+            require_matching_identity(
+                principal=current_user,
+                provided=session_id,
+                expected=current_user.session_id,
+                field_name="session_id",
+            )
             normalized_session = deps.resolve_thread_id(session_id)
 
             # 导入必要的服务
@@ -124,13 +131,20 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            # session_id 是持仓查询键，必须绑定认证主体防止读取他人持仓。
+            require_matching_identity(
+                principal=current_user,
+                provided=session_id,
+                expected=current_user.session_id,
+                field_name="session_id",
+            )
             normalized_session = deps.resolve_thread_id(session_id)
 
             # 获取历史快照
             history = get_risk_snapshots_history(
                 session_id=normalized_session,
                 user_id=user_id,
-                days=min(days, 90),  # 最多 90 天
+                days=max(1, min(days, 90)),  # 夹紧到 [1, 90]，负值/0 不透传（审计 E2）
             )
 
             return {

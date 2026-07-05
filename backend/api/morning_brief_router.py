@@ -15,8 +15,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from backend.security.auth import Principal, get_current_user, require_matching_identity
 
 from backend.dashboard.cache import dashboard_cache
 from backend.utils.quote import parse_quote_payload, safe_float
@@ -186,9 +188,18 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
     router = APIRouter(tags=["MorningBrief"])
 
     @router.post("/api/morning-brief/generate")
-    async def generate_morning_brief(request: MorningBriefRequest):
+    async def generate_morning_brief(
+        request: MorningBriefRequest,
+        current_user: Principal = Depends(get_current_user),
+    ):
         """生成一键晨报"""
         # 验证 session_id
+        require_matching_identity(
+            principal=current_user,
+            provided=request.session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(request.session_id)
         except ValueError as exc:

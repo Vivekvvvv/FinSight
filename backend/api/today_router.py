@@ -67,6 +67,14 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            # session_id 是持仓/报告的查询键（get_positions），必须绑定认证主体，
+            # 否则可传他人 session_id（private:<victim>:default）读取其持仓。
+            require_matching_identity(
+                principal=current_user,
+                provided=session_id,
+                expected=current_user.session_id,
+                field_name="session_id",
+            )
             normalized_session = deps.resolve_thread_id(session_id)
             resolved_user_id = user_id if current_user.auth_type == "dev" and user_id else current_user.user_id
             if is_demo_mode():

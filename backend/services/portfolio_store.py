@@ -244,14 +244,22 @@ def list_suggestions(session_id: str, limit: int = 10) -> list[dict[str, Any]]:
     return result
 
 
-def patch_suggestion(suggestion_id: str, status: str) -> bool:
+def patch_suggestion(suggestion_id: str, status: str, session_id: str | None = None) -> bool:
     now = datetime.now(timezone.utc).isoformat()
     with _db_lock, _connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        cursor = db.execute(
-            "UPDATE rebalance_suggestions SET status = ?, updated_at = ? WHERE suggestion_id = ?",
-            (status, now, suggestion_id),
-        )
+        # 传入 session_id 时追加属主过滤，防止仅凭 suggestion_id 改他人建议状态。
+        if session_id:
+            cursor = db.execute(
+                "UPDATE rebalance_suggestions SET status = ?, updated_at = ? "
+                "WHERE suggestion_id = ? AND session_id = ?",
+                (status, now, suggestion_id, session_id),
+            )
+        else:
+            cursor = db.execute(
+                "UPDATE rebalance_suggestions SET status = ?, updated_at = ? WHERE suggestion_id = ?",
+                (status, now, suggestion_id),
+            )
         db.commit()
         return cursor.rowcount > 0
 

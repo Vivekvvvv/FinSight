@@ -89,6 +89,9 @@ class GenerateRebalanceRequest(BaseModel):
 
 class PatchSuggestionRequest(BaseModel):
     status: Literal["viewed", "dismissed", "sent_to_chat"]
+    # 可选属主声明：生产模式下强制用认证主体的 session 过滤；
+    # dev 模式显式传入时也参与属主过滤（见 rebalance_router）。
+    session_id: str = ""
 
 
 __all__ = [

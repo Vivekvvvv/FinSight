@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -93,8 +93,9 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         user_id: str = "default_user",
         ticker: Optional[str] = None,
         q: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0,
+        # 夹紧分页参数，负 offset / 超大 limit 不透传存储层（审计 E4）
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
         current_user: Principal = Depends(get_current_user),
     ):
         """列出研究笔记"""

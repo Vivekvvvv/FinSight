@@ -4,9 +4,10 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from backend.demo_mode import demo_reports, is_demo_mode
+from backend.security.auth import Principal, get_current_user, require_matching_identity
 
 # 防御性校验: report_id 仅允许安全字符
 _SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
@@ -43,7 +44,14 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         favorite_only: bool = False,
         include_blocked: bool = False,
         limit: int = 50,
+        current_user: Principal = Depends(get_current_user),
     ):
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
@@ -87,8 +95,19 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         return {"success": True, "session_id": normalized_session, "items": rows, "count": len(rows)}
 
     @router.get("/api/reports/replay/{report_id}")
-    async def get_report_replay(report_id: str, session_id: str, include_blocked: bool = False):
+    async def get_report_replay(
+        report_id: str,
+        session_id: str,
+        include_blocked: bool = False,
+        current_user: Principal = Depends(get_current_user),
+    ):
         report_id = _validate_report_id(report_id)
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
@@ -113,7 +132,14 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         limit: int = 100,
+        current_user: Principal = Depends(get_current_user),
     ):
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
@@ -137,9 +163,19 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         }
 
     @router.post("/api/reports/{report_id}/favorite")
-    async def set_report_favorite(report_id: str, request: dict):
+    async def set_report_favorite(
+        report_id: str,
+        request: dict,
+        current_user: Principal = Depends(get_current_user),
+    ):
         report_id = _validate_report_id(report_id)
         session_id = request.get("session_id")
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
@@ -163,9 +199,19 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         }
 
     @router.patch("/api/reports/{report_id}/note")
-    async def set_report_note(report_id: str, request: dict):
+    async def set_report_note(
+        report_id: str,
+        request: dict,
+        current_user: Principal = Depends(get_current_user),
+    ):
         report_id = _validate_report_id(report_id)
         session_id = request.get("session_id")
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
@@ -203,10 +249,17 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         id1: str,
         id2: str,
         include_blocked: bool = False,
+        current_user: Principal = Depends(get_current_user),
     ):
         """Compare two reports and return structured differences."""
         id1 = _validate_report_id(id1)
         id2 = _validate_report_id(id2)
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
@@ -288,9 +341,19 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
     # ------------------------------------------------------------------
 
     @router.patch("/api/reports/{report_id}/review_status")
-    async def set_report_review_status(report_id: str, request: dict):
+    async def set_report_review_status(
+        report_id: str,
+        request: dict,
+        current_user: Principal = Depends(get_current_user),
+    ):
         report_id = _validate_report_id(report_id)
         session_id = request.get("session_id")
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
@@ -304,9 +367,19 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         return {"success": True, "session_id": normalized_session, "report_id": report_id, "review_status": status}
 
     @router.patch("/api/reports/{report_id}/tags")
-    async def set_report_tags(report_id: str, request: dict):
+    async def set_report_tags(
+        report_id: str,
+        request: dict,
+        current_user: Principal = Depends(get_current_user),
+    ):
         report_id = _validate_report_id(report_id)
         session_id = request.get("session_id")
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
@@ -322,9 +395,19 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         return {"success": True, "session_id": normalized_session, "report_id": report_id, "tags": tags}
 
     @router.post("/api/reports/{report_id}/viewed")
-    async def mark_report_viewed(report_id: str, request: dict):
+    async def mark_report_viewed(
+        report_id: str,
+        request: dict,
+        current_user: Principal = Depends(get_current_user),
+    ):
         report_id = _validate_report_id(report_id)
         session_id = request.get("session_id")
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:

@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.task_generator import TaskContext, TaskGenerator
 from backend.utils.quote import parse_quote_payload, safe_float
 
@@ -33,7 +34,14 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
         risk_preference: str = "balanced",
         news_count: int = 0,  # reserved for future weighting
         watchlist: str = Query("", description="Comma-separated ticker list"),
+        current_user: Principal = Depends(get_current_user),
     ):
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:

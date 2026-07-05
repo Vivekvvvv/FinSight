@@ -299,7 +299,8 @@ async def get_risk_attribution(session_id: str, current_user: Principal = Depend
 class PortfolioOptimizeRequest(BaseModel):
     tickers: list[str]
     risk_free_rate: float = 0.02
-    n_simulations: int = 2000
+    # 上限防蒙特卡洛 DoS（审计 E1）：模拟次数与 CPU/内存线性相关
+    n_simulations: int = Field(2000, ge=100, le=20000)
 
 
 @portfolio_router.post("/api/portfolio/optimize")

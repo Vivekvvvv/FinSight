@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from typing import Any, Awaitable, Callable, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 
 from backend.api.schemas import ChatRequest, ChartDataResponse
 from backend.graph.confirmation_policy import parse_confirmation_mode
 from backend.report.quality_engine import apply_quality_to_report, record_quality_metrics
+from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.entitlements import enforce_feature
 
 
@@ -226,7 +227,17 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         )
 
     @router.get("/api/chat/history")
-    async def list_chat_history(session_id: str, limit: int = 100):
+    async def list_chat_history(
+        session_id: str,
+        limit: int = 100,
+        current_user: Principal = Depends(get_current_user),
+    ):
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         if deps.chat_history_store is None:
             return {"success": True, "session_id": session_id, "messages": [], "count": 0}
         try:
@@ -242,7 +253,16 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         }
 
     @router.delete("/api/chat/history")
-    async def clear_chat_history(session_id: str):
+    async def clear_chat_history(
+        session_id: str,
+        current_user: Principal = Depends(get_current_user),
+    ):
+        require_matching_identity(
+            principal=current_user,
+            provided=session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
         if deps.chat_history_store is None:
             return {"success": True, "session_id": session_id}
         try:

@@ -11,6 +11,11 @@ from backend.security.auth import Principal, get_current_user, require_matching_
 from backend.services import what_changed
 
 
+def _provided_user_id(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    return None if text in {"", "default_user"} else text
+
+
 def create_what_changed_router() -> APIRouter:
     """创建 What Changed 路由"""
     router = APIRouter()
@@ -35,10 +40,19 @@ def create_what_changed_router() -> APIRouter:
             expected=current_user.session_id,
             field_name="session_id",
         )
+        # user_id 决定读取谁的 watchlist（what_changed.py:list_watchlist_items），必须一并校验，
+        # 否则可用自己的 session_id 通过校验、却传他人 user_id 读取其自选股。
+        require_matching_identity(
+            principal=current_user,
+            provided=_provided_user_id(user_id),
+            expected=current_user.user_id,
+            field_name="user_id",
+        )
+        resolved_user_id = user_id if current_user.auth_type == "dev" and user_id else current_user.user_id
 
         items = what_changed.get_what_changed(
             session_id=session_id,
-            user_id=user_id,
+            user_id=resolved_user_id,
             symbol=symbol,
             limit=limit,
         )

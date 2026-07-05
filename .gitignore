@@ -167,6 +167,7 @@ scripts/test_*_report.json
 
 # --- Runtime Data ---
 data/langgraph/
+data/chat_history/
 data/*.db
 data/*.db-shm
 data/*.db-wal

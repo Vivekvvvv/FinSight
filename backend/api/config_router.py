@@ -9,10 +9,11 @@ import traceback
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from backend.api.schemas import ConfigResponse
 from backend.llm_config import USER_CONFIG_PATH
+from backend.security.auth import Principal, require_admin_principal
 
 # 全局配置是单文件，save_config 为读-改-写，多请求并发时须持模块级锁（项目规则1）。
 _CONFIG_WRITE_LOCK = threading.RLock()
@@ -149,7 +150,11 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
             return {"success": False, "error": str(exc)}
 
     @router.post("/api/config")
-    async def save_config(request: dict):
+    async def save_config(
+        request: dict,
+        # 全局配置含 llm_api_base 等可导致数据外传的键，仅 admin 可写（审计 E3）。
+        current_user: Principal = Depends(require_admin_principal),
+    ):
         try:
             config_file = USER_CONFIG_PATH
 
