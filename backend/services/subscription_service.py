@@ -397,12 +397,17 @@ class SubscriptionService:
                         break
 
     def update_last_news(self, email: str, ticker: str):
-        """更新最后新闻提醒时间"""
+        """更新最后新闻提醒时间
+
+        写 naive-UTC（审计 C3）：该值在 NewsAlertScheduler.run_once 里与文章
+        published_at（naive-UTC）直接比较做去重，两侧必须同基准；
+        裸 datetime.now() 是本地时区，中国区会把新文章误判为已推送过。
+        """
         with self._lock:
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if sub['ticker'] == ticker:
-                        sub['last_news_at'] = datetime.now().isoformat()
+                        sub['last_news_at'] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
                         self._save_subscriptions()
                         break
 

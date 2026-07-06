@@ -251,6 +251,9 @@ class NewsAlertScheduler:
 
             last_news_at = sub.get("last_news_at")
             last_dt = datetime.fromisoformat(last_news_at) if last_news_at else None
+            # 统一 naive-UTC 基准（审计 C3）：与 lookback / 文章 published_at 同基准比较
+            if last_dt is not None and last_dt.tzinfo is not None:
+                last_dt = last_dt.astimezone(timezone.utc).replace(tzinfo=None)
 
             articles = self.news_fetcher(sub["ticker"])
             if not articles:
@@ -265,6 +268,9 @@ class NewsAlertScheduler:
                         pub_dt = datetime.fromisoformat(pub_dt)
                     except Exception:
                         pub_dt = None
+                # 带时区的 aware 值归一到 naive-UTC，避免与 naive 的 lookback 比较抛 TypeError
+                if pub_dt is not None and pub_dt.tzinfo is not None:
+                    pub_dt = pub_dt.astimezone(timezone.utc).replace(tzinfo=None)
                 if not pub_dt or pub_dt < lookback:
                     continue
                 if last_dt and pub_dt <= last_dt:
@@ -282,7 +288,7 @@ class NewsAlertScheduler:
             related = sorted(related, key=lambda x: x["published_at"], reverse=True)[:3]
             lines = []
             for art in related:
-                ts = art["published_at"].strftime("%Y-%m-%d %H:%M")
+                ts = art["published_at"].strftime("%Y-%m-%d %H:%M UTC")
                 lines.append(f"[{ts}] {art.get('title','')} ({art.get('source','')}) {art.get('url','')}")
             message = "\n".join(lines)
 
@@ -555,7 +561,9 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
             pub_dt = None
             try:
                 if pub_ts:
-                    pub_dt = datetime.fromtimestamp(float(pub_ts))
+                    # epoch 须转 naive-UTC 与 cutoff 同基准（审计 C3）；
+                    # 裸 fromtimestamp 返回本地时区，中国区窗口整体偏 8h
+                    pub_dt = datetime.fromtimestamp(float(pub_ts), tz=timezone.utc).replace(tzinfo=None)
             except Exception:
                 pub_dt = None
             if not pub_dt or pub_dt < cutoff:
@@ -588,7 +596,10 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                         link = item.get("url", "")
                         source = item.get("source", "")
                         ts = item.get("datetime")
-                        pub_dt = datetime.fromtimestamp(ts) if ts else None
+                        pub_dt = (
+                            datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
+                            if ts else None
+                        )
                         related = item.get("related", "").split(",") if item.get("related") else [ticker_up]
                         _add_article(title, link, source, pub_dt, related)
             except Exception as e:
