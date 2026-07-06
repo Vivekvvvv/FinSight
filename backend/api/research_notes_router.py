@@ -82,10 +82,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-            }
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/research-notes")
     async def list_notes(
@@ -137,11 +134,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-                "notes": [],
-            }
+            raise HTTPException(status_code=500, detail=str(exc))
 
     # 注意：必须注册在 GET /api/research-notes/{note_id} 之前，
     # 否则 "semantic-search" 会被当作 note_id 匹配而永远 404。
@@ -207,10 +200,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-            }
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.put("/api/research-notes/{note_id}")
     async def update_note(
@@ -244,10 +234,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-            }
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.delete("/api/research-notes/{note_id}")
     async def delete_note(
@@ -278,10 +265,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-            }
+            raise HTTPException(status_code=500, detail=str(exc))
 
     # ── Image Endpoints ──
 
@@ -318,10 +302,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-            }
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/notes/images/{user_id}/{note_id}/{filename}")
     async def get_image(
@@ -380,11 +361,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-                "images": [],
-            }
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.delete("/api/research-notes/{note_id}/images/{filename}")
     async def delete_image(
@@ -412,10 +389,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-            }
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.post("/api/research-notes/vectorize-all")
     async def vectorize_all(

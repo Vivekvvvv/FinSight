@@ -186,16 +186,8 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {
-                "success": False,
-                "error": str(exc),
-                "as_of": datetime.now(timezone.utc).isoformat(),
-                "summary": "数据加载失败",
-                "portfolio_snapshot": {"total_value": None, "total_pnl": None, "risk_positions": []},
-                "watchlist_movers": [],
-                "alert_feed": [],
-                "reports_to_review": [],
-                "next_actions": [],
-            }
+            # 不再压成 200+空骨架（审计 F/项目规则 3）：空骨架会被前端当正常数据渲染，
+            # 后端故障对用户和监控完全不可见；WelcomePage 已有 catch+errorMsg 处理 500。
+            raise HTTPException(status_code=500, detail=str(exc))
 
     return router
