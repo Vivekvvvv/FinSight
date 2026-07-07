@@ -281,3 +281,54 @@ def test_c3_yfinance_epoch_converted_to_utc(monkeypatch):
     assert len(articles) == 1
     delta = abs(articles[0]["published_at"] - (_utcnow_naive() - timedelta(hours=1)))
     assert delta < timedelta(minutes=5)
+
+
+def test_parse_pub_datetime_accepts_epoch_and_iso():
+    from datetime import datetime
+
+    from backend.services.alert_scheduler import _parse_pub_datetime
+
+    # epoch 秒 → naive-UTC
+    assert _parse_pub_datetime(0) == datetime(1970, 1, 1)
+    assert _parse_pub_datetime("86400") == datetime(1970, 1, 2)
+    # ISO 串（新版 yfinance content.pubDate）→ naive-UTC
+    assert _parse_pub_datetime("2026-07-06T12:00:00Z") == datetime(2026, 7, 6, 12, 0)
+    assert _parse_pub_datetime("2026-07-06T20:00:00+08:00") == datetime(2026, 7, 6, 12, 0)
+    # 垃圾输入 → None
+    assert _parse_pub_datetime(None) is None
+    assert _parse_pub_datetime("not-a-date") is None
+
+
+def test_fetch_news_parses_new_yfinance_content_structure(monkeypatch):
+    """yfinance >=0.2.5x 的 news 为 ncp 流结构（字段嵌在 content 下），
+    旧解析拿到全空值逐条丢弃 → 主路径静默失效。"""
+    import sys
+    import types
+    from datetime import timedelta
+
+    from backend.services.alert_scheduler import fetch_news_articles
+
+    pub_iso = (_utcnow_naive() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    class _FakeTicker:
+        def __init__(self, _symbol):
+            self.news = [{
+                "id": "n1",
+                "content": {
+                    "title": "AAPL ncp-style news",
+                    "pubDate": pub_iso,
+                    "canonicalUrl": {"url": "https://finance.example/apple"},
+                    "provider": {"displayName": "Reuters"},
+                },
+            }]
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=_FakeTicker))
+
+    articles = fetch_news_articles("AAPL")
+    assert len(articles) == 1
+    art = articles[0]
+    assert art["title"] == "AAPL ncp-style news"
+    assert art["url"] == "https://finance.example/apple"
+    assert art["source"] == "Reuters"
+    delta = abs(art["published_at"] - (_utcnow_naive() - timedelta(hours=1)))
+    assert delta < timedelta(minutes=5)

@@ -528,6 +528,27 @@ def fetch_price_snapshot(ticker: str) -> Optional[PriceSnapshot]:
     return None
 
 
+def _parse_pub_datetime(raw: Any) -> Optional[datetime]:
+    """epoch 秒（int/float/数字串）或 ISO8601 串 → naive-UTC；解析失败返回 None。
+
+    yfinance 旧版给 epoch（providerPublishTime），新版给 ISO 串（content.pubDate），
+    两种都须与 cutoff/lookback 的 naive-UTC 基准一致（审计 C3）。
+    """
+    if raw is None:
+        return None
+    try:
+        return datetime.fromtimestamp(float(raw), tz=timezone.utc).replace(tzinfo=None)
+    except (TypeError, ValueError, OSError, OverflowError):
+        pass
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=None)
+    except (TypeError, ValueError):
+        return None
+
+
 def fetch_news_articles(ticker: str) -> List[Dict]:
     """
     Fetch recent news for ticker. Uses yfinance news; filters to last 48h and attaches related tickers if provided.
@@ -555,21 +576,33 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
         t = yf.Ticker(ticker)
         news = getattr(t, "news", []) or []
         for item in news:
-            title = item.get("title", "")
-            link = item.get("link") or item.get("url")
-            pub_ts = item.get("providerPublishTime") or item.get("pubDate")
-            pub_dt = None
-            try:
-                if pub_ts:
-                    # epoch 须转 naive-UTC 与 cutoff 同基准（审计 C3）；
-                    # 裸 fromtimestamp 返回本地时区，中国区窗口整体偏 8h
-                    pub_dt = datetime.fromtimestamp(float(pub_ts), tz=timezone.utc).replace(tzinfo=None)
-            except Exception:
-                pub_dt = None
+            # yfinance >=0.2.5x 返回 Yahoo ncp 流结构：title/pubDate/url 嵌在
+            # item["content"] 下，顶层旧字段全部为空 → 旧解析逐条丢弃、主路径
+            # 静默失效。兼容新旧两种结构。
+            content = item.get("content") if isinstance(item.get("content"), dict) else {}
+            title = item.get("title") or content.get("title") or ""
+            link = (
+                item.get("link")
+                or item.get("url")
+                or (content.get("canonicalUrl") or {}).get("url")
+                or (content.get("clickThroughUrl") or {}).get("url")
+            )
+            pub_ts = (
+                item.get("providerPublishTime")
+                or item.get("pubDate")
+                or content.get("pubDate")
+            )
+            pub_dt = _parse_pub_datetime(pub_ts)
             if not pub_dt or pub_dt < cutoff:
                 continue
             related = item.get("relatedTickers") or item.get("tickers") or []
-            _add_article(title, link, item.get("publisher") or item.get("source") or "", pub_dt, related)
+            source = (
+                item.get("publisher")
+                or item.get("source")
+                or (content.get("provider") or {}).get("displayName")
+                or ""
+            )
+            _add_article(title, link, source, pub_dt, related)
     except Exception as e:
         logger.info(f"[NewsFetcher] yfinance news failed for {ticker}: {e}")
 
