@@ -242,6 +242,23 @@ def test_stats_tracking():
     print("[OK] 统计追踪测试通过")
 
 
+def test_negative_cache_hit_returns_failure_not_success():
+    """负缓存命中必须判失败（R2 回归）：不能把 {"error":...} 载荷当成功数据返回，
+    否则下游把错误 dict 渲染成 "N/A" 还标记 success=True。"""
+    orchestrator = ToolOrchestrator()
+    orchestrator.sources['price'] = [
+        DataSource('mock_success', mock_source_success, 1, 60),
+    ]
+    orchestrator.cache.set_negative("price:BADTKR", "not found: invalid symbol")
+
+    result = orchestrator.fetch('price', 'BADTKR')
+
+    assert result.success is False
+    assert result.source == 'negative_cache'
+    assert result.data is None  # 错误载荷不得冒充数据
+    assert "not found" in (result.error or "")
+
+
 def test_validation_integration():
     """测试数据验证集成"""
     orchestrator = ToolOrchestrator()

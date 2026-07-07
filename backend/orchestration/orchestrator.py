@@ -220,6 +220,20 @@ class ToolOrchestrator:
         if not force_refresh:
             cache_key = f"{data_type}:{ticker}"
             cached_data = self.cache.get(cache_key)
+            if isinstance(cached_data, dict) and cached_data.get("_negative_cache"):
+                # 负缓存命中：本意是短期内避免重复打已失败的上游，
+                # 不能把错误载荷当成功数据返回（否则下游渲染出 "N/A" 还标记 success）。
+                duration = (time.time() - start_time) * 1000
+                observe_orch_latency(data_type, duration)
+                return FetchResult(
+                    success=False,
+                    error=str(cached_data.get("error") or "negative cache hit"),
+                    source="negative_cache",
+                    cached=True,
+                    duration_ms=duration,
+                    tried_sources=['cache'],
+                    trace={'tried_sources': ['cache'], 'duration_ms': duration, 'cached': True, 'negative': True},
+                )
             if cached_data is not None:
                 self._stats['cache_hits'] += 1
                 increment_cache_hit(data_type)
