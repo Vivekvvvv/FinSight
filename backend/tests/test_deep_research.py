@@ -401,6 +401,9 @@ def test_fetch_documents_pdf_without_reader_uses_snippet_fallback(monkeypatch):
 
     monkeypatch.setattr(deep_search_module, "PdfReader", None)
     monkeypatch.setattr(agent, "_get_session", lambda: _MockSession(_MockPdfResponse(url)))
+    # is_safe_url 对域名做真实 DNS 解析（ssrf.py getaddrinfo），失败即拒绝；
+    # 单测须隔离网络，否则 DNS 抖动导致 flaky（2026-07-06 全量实录）。
+    monkeypatch.setattr(deep_search_module, "is_safe_url", lambda _u: True)
 
     docs = agent._fetch_documents([result_item])
 
@@ -638,6 +641,9 @@ def test_fetch_document_uses_jina_fallback_for_short_trusted_content(monkeypatch
     url = "https://www.reuters.com/technology/apple-longform-2026-02-18/"
     monkeypatch.setattr(agent, "_get_session", lambda: _MockSession(_MockResponse(url)))
     monkeypatch.setenv("DEEPSEARCH_ENABLE_JINA_FALLBACK", "true")
+    # is_safe_url 对域名做真实 DNS 解析（ssrf.py getaddrinfo），失败即拒绝；
+    # 单测须隔离网络，否则 DNS 抖动导致 flaky（2026-07-06 全量实录）。
+    monkeypatch.setattr(deep_search_module, "is_safe_url", lambda _u: True)
 
     import backend.tools.jina_reader as jina_mod
 
