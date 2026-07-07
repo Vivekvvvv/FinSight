@@ -66,3 +66,19 @@ def test_simulate_llm_endpoint_failover_drill_passes():
     assert result["pass_failover"] is True
     assert result["pass_recovery"] is True
     assert result["selected_after_primary_failure"] == "backup"
+
+
+def test_write_json_atomic_no_tmp_leftover(tmp_path: Path):
+    """审计 D4：证据落盘走临时文件+replace，不留 .tmp 残留，覆盖写同样干净。"""
+    import json
+
+    from backend.services.release_drills import write_json
+
+    out = tmp_path / "evidence" / "drill.json"
+    write_json(out, {"pass": True})
+    assert json.loads(out.read_text(encoding="utf-8"))["pass"] is True
+    assert not list(out.parent.glob("*.tmp"))
+
+    write_json(out, {"pass": False})
+    assert json.loads(out.read_text(encoding="utf-8"))["pass"] is False
+    assert not list(out.parent.glob("*.tmp"))

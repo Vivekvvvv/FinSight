@@ -208,8 +208,11 @@ def run_checkpointer_cutover_drill(
 def write_checkpointer_drill_evidence(result: dict[str, Any], output_path: str | Path) -> Path:
     path = Path(output_path).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
+    # 原子替换（项目规则 1，审计 D4）：进程中断不留半截 JSON
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False, indent=2)
+    tmp.replace(path)
     return path
 
 

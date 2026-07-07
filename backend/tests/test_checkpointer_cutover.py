@@ -78,3 +78,8 @@ def test_write_checkpointer_drill_evidence(tmp_path: Path):
     loaded = json.loads(actual.read_text(encoding='utf-8'))
     assert loaded['ok'] is True
     assert loaded['steps'][0]['step'] == 'sqlite_precheck'
+    # 原子替换（审计 D4）：不留 .tmp 残留，且覆盖已有文件时同样干净
+    assert not list(out.parent.glob('*.tmp'))
+    checkpointer_cutover.write_checkpointer_drill_evidence({'ok': False}, out)
+    assert json.loads(out.read_text(encoding='utf-8'))['ok'] is False
+    assert not list(out.parent.glob('*.tmp'))
