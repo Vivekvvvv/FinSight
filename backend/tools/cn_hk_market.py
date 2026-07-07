@@ -313,6 +313,31 @@ def fetch_cn_hk_quote_metrics(ticker: str, *, timeout: int | None = None) -> dic
     return result
 
 
+# 东财 kline 参数映射：klt 周期码 + 每交易日 bar 数（分钟线按 A 股 4 小时交易日）
+_INTERVAL_KLT = {
+    "1d": ("101", 1.0), "1wk": ("102", 1 / 5), "1mo": ("103", 1 / 22),
+    "60m": ("60", 4.0), "1h": ("60", 4.0), "30m": ("30", 8.0), "15m": ("15", 16.0), "5m": ("5", 48.0),
+}
+_PERIOD_TRADING_DAYS = {
+    "1d": 1, "5d": 5, "1mo": 22, "3mo": 66, "6mo": 132, "1y": 260,
+    "2y": 520, "5y": 1300, "10y": 2600, "ytd": 260, "max": 2600,
+}
+
+
+def kline_params_for(period: str, interval: str) -> tuple[str, int] | None:
+    """把 yfinance 风格的 (period, interval) 映射为东财 (klt, limit)。
+
+    不支持的 interval 返回 None——调用方应跳过东财源而不是用日线冒充。
+    """
+    entry = _INTERVAL_KLT.get(str(interval or "1d").lower())
+    if not entry:
+        return None
+    klt, bars_per_day = entry
+    days = _PERIOD_TRADING_DAYS.get(str(period or "1y").lower(), 260)
+    limit = max(10, min(1200, int(days * bars_per_day) + 1))
+    return klt, limit
+
+
 def fetch_cn_hk_kline(ticker: str, *, limit: int = 260, klt: str = "101", fqt: str = "1") -> list[dict[str, Any]]:
     ticker_norm = normalize_ticker(ticker)
     market = detect_market(ticker_norm)

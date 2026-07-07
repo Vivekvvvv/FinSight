@@ -819,13 +819,18 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
     """Load OHLCV frame with yfinance primary + shared multi-source fallback."""
     market = _infer_equity_market(symbol)
     if market in {"CN", "HK"}:
+        # 忽略 period/interval 会把固定 300 根日线冒充任何请求（5y 被静默截断、
+        # 周线/小时视图拿到日线）。映射传下去；不支持的 interval 跳过东财走 yfinance。
         try:
-            from backend.tools.cn_hk_market import fetch_cn_hk_kline
+            from backend.tools.cn_hk_market import fetch_cn_hk_kline, kline_params_for
 
-            cn_hk_rows = fetch_cn_hk_kline(symbol, limit=300)
-            frame = _build_ohlcv_frame_from_rows(cn_hk_rows)
-            if frame is not None and not frame.empty:
-                return frame
+            kline_params = kline_params_for(period, interval)
+            if kline_params is not None:
+                klt, limit = kline_params
+                cn_hk_rows = fetch_cn_hk_kline(symbol, limit=limit, klt=klt)
+                frame = _build_ohlcv_frame_from_rows(cn_hk_rows)
+                if frame is not None and not frame.empty:
+                    return frame
         except Exception as exc:
             logger.warning("[DataService] CN/HK OHLCV fallback failed for %s: %s", symbol, exc)
 
