@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import type { ReportIndexItem, ResearchQualitySummary, ResearchQualityIssue } from '@/api/types';
@@ -205,6 +205,11 @@ function onNoteInput() {
   if (noteDebounce) clearTimeout(noteDebounce);
   noteDebounce = setTimeout(() => void saveNote(), 600);
 }
+
+// 输入后 600ms 内路由离开时，悬挂的防抖定时器仍会 fire 发起多余 PATCH
+onUnmounted(() => {
+  if (noteDebounce) clearTimeout(noteDebounce);
+});
 
 async function saveNote(): Promise<void> {
   if (!sidebarItem.value) return;
