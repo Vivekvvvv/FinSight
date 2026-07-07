@@ -221,6 +221,31 @@ def test_thread_safety():
     print("✅ 线程安全测试通过")
 
 
+def test_max_entries_eviction():
+    """容量护栏（R3 回归）：超限时先清过期、再淘汰最旧，缓存不得无限增长。"""
+    cache = DataCache()
+    cache.MAX_ENTRIES = 10
+
+    # 塞满：5 条已过期 + 5 条新鲜
+    for i in range(5):
+        cache.set(f"old:{i}", i, ttl=-1)   # 立即过期
+    for i in range(5):
+        cache.set(f"fresh:{i}", i, ttl=300)
+
+    # 再写第 11 条触发淘汰：过期的 5 条被清，新 key 正常写入
+    cache.set("newest", "v", ttl=300)
+    assert cache.get("newest") == "v"
+    assert len(cache._cache) <= cache.MAX_ENTRIES
+    for i in range(5):
+        assert cache.get(f"old:{i}") is None      # 过期条目被清
+        assert cache.get(f"fresh:{i}") == i       # 新鲜条目保留
+
+    # 持续写入始终有界
+    for i in range(30):
+        cache.set(f"flood:{i}", i, ttl=300)
+    assert len(cache._cache) <= cache.MAX_ENTRIES + 1
+
+
 def run_all_tests():
     """运行所有测试"""
     print("=" * 60)

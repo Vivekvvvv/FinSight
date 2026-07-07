@@ -47,6 +47,7 @@ class DataCache:
         'default': 300,        # 默认：5分钟
     }
     NEGATIVE_TTL = 60  # 负缓存默认 60 秒
+    MAX_ENTRIES = 5000  # 容量上限：超限先清过期、再淘汰最旧（防无限增长）
 
     def __init__(self):
         self._cache: Dict[str, CacheEntry] = {}
@@ -117,6 +118,10 @@ class DataCache:
                 ttl = max(1, ttl + random.randint(-jitter, jitter))
         
         with self._lock:
+            # 上限护栏：cleanup_expired 在生产路径无人调用，过期条目只在
+            # 再次 get 同 key 时才删除，ticker 基数大的长运行进程会无限增长。
+            if len(self._cache) >= self.MAX_ENTRIES and key not in self._cache:
+                self._evict_locked()
             self._cache[key] = CacheEntry(
                 data=data,
                 created_at=datetime.now(),
@@ -124,6 +129,17 @@ class DataCache:
                 is_negative=is_negative,
                 reason=reason,
             )
+
+    def _evict_locked(self) -> None:
+        """容量超限时腾位：先清全部过期条目，仍超则按写入时间淘汰最旧的 10%。须持锁调用。"""
+        expired = [k for k, e in self._cache.items() if e.is_expired()]
+        for k in expired:
+            del self._cache[k]
+        if len(self._cache) >= self.MAX_ENTRIES:
+            evict_count = max(1, self.MAX_ENTRIES // 10)
+            oldest = sorted(self._cache.items(), key=lambda kv: kv[1].created_at)[:evict_count]
+            for k, _ in oldest:
+                del self._cache[k]
 
     def set_negative(self, key: str, reason: str, ttl: Optional[int] = None) -> None:
         """设置负缓存，避免缓存穿透。"""
