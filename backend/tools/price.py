@@ -1088,26 +1088,11 @@ def _fetch_with_stooq_history(ticker: str, period: str = "1y", interval: str = "
 
         if data:
             logger.info(f"[get_stock_historical_data] Stooq 成功获取 {len(data)} 条数据")
-            # 如果请求的是小时视图，但只拿到日线，用最近若干日收盘生成伪“小时”序列，保证有变化
             if interval.endswith("h"):
-                # 取最近10个交易日的收盘，标记为当日 16:00
-                recent = data[-10:]
-                hourly_like = []
-                for row in recent:
-                    close_val = row["close"]
-                    if close_val <= 0 or close_val > 1e8:
-                        continue
-                    hourly_like.append({
-                        "time": row["time"].split()[0] + " 16:00",
-                        "open": close_val,
-                        "high": close_val,
-                        "low": close_val,
-                        "close": close_val,
-                        "volume": row.get("volume", 0.0),
-                    })
-                if not hourly_like:
-                    return None
-                return {"kline_data": hourly_like, "period": period, "interval": "1h", "source": "stooq_intraday_stub"}
+                # stooq 只有日线。此前用最近 10 日收盘伪造 OHLC 全等的"小时"平线
+                # 冒充 1h 数据，下游波动率/振幅/量能指标会得到静默错误结果；
+                # 如实返回 None 让降级链走真正的分时源或明确失败（R7）。
+                return None
             return {"kline_data": data, "period": period, "interval": "1d", "source": "stooq"}
         return None
     except Exception as e:

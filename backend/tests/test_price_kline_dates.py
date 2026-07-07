@@ -33,3 +33,30 @@ def test_massive_kline_dates_use_utc(monkeypatch):
     result = price_module._fetch_with_massive_io("AAPL", period="1mo")
     assert result is not None
     assert result["kline_data"][0]["time"] == "2026-07-06"
+
+
+def test_stooq_hourly_request_returns_none_not_fabricated_bars(monkeypatch):
+    """R7 回归：stooq 只有日线，小时请求不得伪造 OHLC 全等平线冒充 1h 数据。"""
+    from backend.tools import price as price_module
+
+    csv_text = (
+        "Date,Open,High,Low,Close,Volume\n"
+        "2026-07-02,10,11,9,10.5,1000\n"
+        "2026-07-03,10.5,12,10,11.5,1200\n"
+    )
+
+    class _Resp:
+        status_code = 200
+        text = csv_text
+
+    monkeypatch.setattr(price_module, "_http_get", lambda *a, **k: _Resp())
+
+    # 日线请求正常返回
+    daily = price_module._fetch_with_stooq_history("AAPL", period="1mo", interval="1d")
+    assert daily is not None
+    assert daily["interval"] == "1d"
+    assert len(daily["kline_data"]) == 2
+
+    # 小时请求如实返回 None，不冒充
+    hourly = price_module._fetch_with_stooq_history("AAPL", period="1mo", interval="1h")
+    assert hourly is None
