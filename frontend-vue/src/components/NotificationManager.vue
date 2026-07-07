@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 
 interface NotificationOptions {
   title: string;
@@ -68,11 +68,13 @@ function showNotification(options: NotificationOptions): void {
 }
 
 // 监听数据源降级事件
+let degradationTimer: ReturnType<typeof setInterval> | null = null;
+
 function watchDataSourceDegradation() {
   // 每30秒检查一次健康状态
   const checkInterval = 30000;
 
-  setInterval(async () => {
+  degradationTimer = setInterval(async () => {
     if (!notificationEnabled.value) return;
 
     try {
@@ -114,6 +116,14 @@ defineExpose({
 onMounted(() => {
   if (notificationEnabled.value) {
     watchDataSourceDegradation();
+  }
+});
+
+// 卸载须停止轮询，否则 30s 健康检查在组件销毁后永久运行
+onUnmounted(() => {
+  if (degradationTimer !== null) {
+    clearInterval(degradationTimer);
+    degradationTimer = null;
   }
 });
 </script>
