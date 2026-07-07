@@ -46,7 +46,8 @@ const filteredPositions = computed(() =>
 function toggleTag(tag: string) { activeTag.value = activeTag.value === tag ? null : tag; }
 
 const pnlPercent = computed(() => {
-  if (!totals.value.cost || !totals.value.pnl) return null;
+  // pnl === 0（盈亏平衡）是合法状态，须显示 0.00% 而非按"无数据"置空
+  if (!totals.value.cost || totals.value.pnl == null) return null;
   return ((totals.value.pnl / totals.value.cost) * 100).toFixed(2);
 });
 const activeTool = computed(() => String(route.query.tool || 'risk'));
