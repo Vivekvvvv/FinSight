@@ -204,7 +204,10 @@ def _ts_seconds(ts: Any) -> Optional[int]:
         if isinstance(ts, (int, float)):
             return int(ts)
         if isinstance(ts, pd.Timestamp):
-            return int(ts.to_pydatetime().timestamp())
+            dt = ts.to_pydatetime()
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)  # naive 统一按 UTC，与 datetime 分支一致
+            return int(dt.timestamp())
         if isinstance(ts, datetime):
             dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
             return int(dt.timestamp())
@@ -214,7 +217,10 @@ def _ts_seconds(ts: Any) -> Optional[int]:
                 return None
             iso = raw.replace("Z", "+00:00")
             try:
-                return int(datetime.fromisoformat(iso).timestamp())
+                parsed = datetime.fromisoformat(iso)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)  # "YYYY-MM-DD" 等 naive 串按 UTC，防本地时区偏移
+                return int(parsed.timestamp())
             except ValueError:
                 for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
                     try:
