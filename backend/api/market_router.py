@@ -354,7 +354,9 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             return {"ticker": normalized_ticker, "data": _market_payload({"error": str(exc)}, "unknown"), "cached": False}
 
     @router.post("/api/export/pdf")
-    async def export_pdf(request: dict, http_request: Request):
+    def export_pdf(request: dict, http_request: Request):
+        # def 而非 async def：PDF 渲染是同步 CPU 密集操作，async 下直接调用会
+        # 阻塞事件循环拖垮全部并发请求；def 由 FastAPI 自动放线程池执行。
         try:
             from datetime import datetime
 
@@ -727,12 +729,14 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
     # ── 历史K线（带缓存+复权+清洗） ──────────────────────────────────────────
 
     @router.get("/api/market/historical/{ticker}")
-    async def get_historical_kline(
+    def get_historical_kline(
         ticker: str,
         start: str = "2020-01-01",
         end: str | None = None,
         adjust: str = "qfq",
     ):
+        # def 而非 async def：缓存未命中时 baostock 同步网络拉取可达数秒，
+        # async 下直接调用会冻结事件循环；def 由 FastAPI 放线程池执行。
         """
         历史K线（A股支持前复权/后复权）
 
@@ -763,8 +767,8 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/api/market/historical-cache/tickers")
-    async def list_cached_tickers():
-        """列出已有历史缓存的股票代码"""
+    def list_cached_tickers():
+        """列出已有历史缓存的股票代码（def：同步 SQLite 读走线程池，不占事件循环）"""
         from backend.services.historical_data_store import get_cached_tickers
         return {"tickers": get_cached_tickers()}
 
