@@ -959,7 +959,7 @@ def _fetch_with_massive_io(ticker: str, period: str = "1y") -> dict:
                     kline_data = []
                     for item in results:
                         timestamp = item['t'] / 1000  # 转换为秒
-                        date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+                        date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
                         kline_data.append({
                             "time": date_str,
                             "open": item['o'],
@@ -1372,7 +1372,7 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                 kline_data = []
                 for i in range(len(res['t'])):
                     timestamp = res['t'][i]
-                    date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+                    date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
                     kline_data.append({
                         "time": date_str,
                         "open": res['o'][i],
