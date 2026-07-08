@@ -321,7 +321,9 @@ def _freshness_hours(published_date: str | None) -> float:
     dt = _parse_iso_datetime(str(published_date))
     if not dt:
         return 24.0
-    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+    # naive 串按 UTC 基准取 now（多数新闻源给无 Z 的 UTC 时间）；裸 datetime.now()
+    # 是本地墙钟，东八区会把 freshness 系统性放大 8 小时
+    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now(timezone.utc).replace(tzinfo=None)
     delta = now - dt
     return max(0.0, delta.total_seconds() / 3600.0)
 

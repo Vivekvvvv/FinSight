@@ -562,3 +562,17 @@ def test_quality_hints_counts_www_wsj_as_authoritative_media():
     assert (quality.get("stats") or {}).get("authoritative_media_count") == 1
     # 旧代码 WSJ 漏计会插入 important 级"缺权威媒体交叉引用"缺口
     assert (quality.get("missing_counts") or {}).get("important") == 0
+
+
+def test_freshness_hours_treats_naive_dates_as_utc():
+    """R21 回归：naive published_date 按 UTC 取 now。旧代码用本地墙钟，
+    东八区机器上 1 小时前的文章会被算成约 9 小时旧。"""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.graph.report_builder import _freshness_hours
+
+    one_hour_ago_utc_naive = (
+        datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+    ).isoformat()
+    hours = _freshness_hours(one_hour_ago_utc_naive)
+    assert 0.9 <= hours <= 1.5  # 旧代码在东八区得约 9.0
