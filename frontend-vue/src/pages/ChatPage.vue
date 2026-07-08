@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { apiClient } from '@/api/client';
 import { useIdentityStore } from '@/stores/identity';
@@ -95,7 +95,18 @@ function persistLocalHistory() {
     .filter((message) => message.id !== 'welcome' && message.status !== 'streaming')
     .slice(-100)
     .map((message) => ({ ...message, status: message.status === 'error' ? 'error' : 'done' }));
-  window.localStorage.setItem(chatStorageKey(), JSON.stringify(history));
+  try {
+    window.localStorage.setItem(chatStorageKey(), JSON.stringify(history));
+  } catch {
+    // 配额写满 / 隐私模式禁用存储：持久化失败不应打断聊天流（读取侧已有对称兜底）
+  }
+}
+
+// deep watch 每个流式 token 都会触发，全量序列化 100 条消息会造成主线程抖动；防抖合并
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+function schedulePersistLocalHistory() {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(persistLocalHistory, 500);
 }
 
 async function loadRemoteHistory() {
@@ -148,11 +159,15 @@ function traceSummary(events?: ExecutionTraceEvent[] | null, running = false) {
   };
 }
 
+let streamAbort: AbortController | null = null;
+
 async function send(text?: string): Promise<void> {
   const query = (text || input.value).trim();
   if (!query || sending.value) return;
   errorMsg.value = null;
   sending.value = true;
+  streamAbort?.abort();
+  streamAbort = new AbortController();
   seedTrace(query);
   const userMessage: ChatStreamMessage = { id: `user-${Date.now()}`, role: 'user', content: query, status: 'done' };
   const assistantMessage: ChatStreamMessage = { id: `assistant-${Date.now()}`, role: 'assistant', content: '', status: 'streaming', traceEvents: traceEvents.value };
@@ -207,7 +222,7 @@ async function send(text?: string): Promise<void> {
         assistantMessage.traceEvents = traceEvents.value;
         messages.value = [...messages.value];
       },
-    });
+    }, { signal: streamAbort.signal });
   } catch (error) {
     assistantMessage.status = 'error';
     errorMsg.value = reportFriendlyError(error, 'AI 助手暂时无法完成请求，请稍后重试。');
@@ -247,7 +262,7 @@ function exportMarkdown() {
   URL.revokeObjectURL(url);
 }
 
-watch(messages, persistLocalHistory, { deep: true });
+watch(messages, schedulePersistLocalHistory, { deep: true });
 
 onMounted(async () => {
   const prefill = String(route.query.prefill || '').trim();
@@ -264,6 +279,14 @@ onMounted(async () => {
     input.value = prefill;
     void send(prefill);
   }
+});
+
+// 路由离开时中止进行中的流：否则连接不关闭、后端继续生成，
+// 回调闭包持续 mutate 已卸载组件的状态
+onUnmounted(() => {
+  streamAbort?.abort();
+  if (persistTimer) clearTimeout(persistTimer);
+  persistLocalHistory(); // 防抖挂起时离开页面，把最后一批消息落盘
 });
 </script>
 
