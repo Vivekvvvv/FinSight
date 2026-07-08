@@ -648,7 +648,7 @@ def _is_suspicious_citation_item(item: dict[str, Any]) -> bool:
     if not url.startswith(("http://", "https://")):
         return True
     parsed = urlparse(url)
-    domain = (parsed.netloc or "").lower().lstrip("www.")
+    domain = (parsed.netloc or "").lower().removeprefix("www.")  # lstrip 按字符集合剥除，会吃掉 wsj.com 的首字母
     path = (parsed.path or "").lower()
 
     if domain == "finnhub.io" and path.startswith("/api/news"):
@@ -1416,7 +1416,7 @@ def _build_report_quality_hints(
         title = _safe_str(item.get("title") or "").strip().lower()
         snippet = _safe_str(item.get("snippet") or "").strip()
         parsed = urlparse(url)
-        domain = (parsed.netloc or "").lower().lstrip("www.")
+        domain = (parsed.netloc or "").lower().removeprefix("www.")  # lstrip 按字符集合剥除，会吃掉 wsj.com 的首字母
         joined = f"{url} {title} {snippet.lower()}"
 
         if domain.endswith("sec.gov") or "sec.gov/" in url:

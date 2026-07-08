@@ -542,3 +542,21 @@ def test_build_report_payload_uses_internal_citations_when_agent_evidence_has_no
     }
     assert "EVIDENCE_COVERAGE_BELOW_MIN" not in codes
     assert "KEY_SECTION_SOURCES_BELOW_MIN" not in codes
+
+
+def test_quality_hints_counts_www_wsj_as_authoritative_media():
+    """R20 回归：lstrip("www.") 按字符集合剥除，"www.wsj.com" 被剥成 "sj.com"，
+    WSJ 是权威域名单里唯一以 w 开头的——被系统性漏计，报告被误罚质量分。"""
+    quality = _build_report_quality_hints(
+        query="AAPL 深度财报研究",
+        citations=[
+            {
+                "title": "Apple annual results coverage",
+                "url": "https://www.wsj.com/tech/apple-earnings-2026",
+                "snippet": "Apple reported quarterly revenue and margin details in its annual report.",
+            }
+        ],
+        tickers=["AAPL"],
+    )
+
+    assert quality.get("authoritative_media_count") == 1
