@@ -1,6 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from backend.graph.state import GraphState
@@ -88,7 +89,8 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
                 "artifacts": {"draft_markdown": "到价提醒缺少目标价格，请补充后重试。"},
             }
         if direction not in {"above", "below"}:
-            snap = fetch_price_snapshot(ticker)
+            # 多源外网抓取，须卸载线程池，协程体内直接调会阻塞事件循环
+            snap = await asyncio.to_thread(fetch_price_snapshot, ticker)
             current_price = snap.price if snap is not None else None
             if isinstance(current_price, (int, float)):
                 direction = "above" if float(price_target) >= float(current_price) else "below"
@@ -96,7 +98,7 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
                 direction = "above"
 
     svc = get_subscription_service()
-    existing_subs = svc.get_subscriptions(user_email)
+    existing_subs = await asyncio.to_thread(svc.get_subscriptions, user_email)
     existing = None
     for item in existing_subs:
         if str(item.get("ticker") or "").strip().upper() == ticker:
@@ -106,7 +108,8 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
     merged_alert_types = _merge_alert_types((existing or {}).get("alert_types") if isinstance(existing, dict) else None)
     risk_threshold = (existing or {}).get("risk_threshold", "high") if isinstance(existing, dict) else "high"
 
-    ok = svc.subscribe(
+    ok = await asyncio.to_thread(
+        svc.subscribe,
         email=user_email,
         ticker=ticker,
         alert_types=merged_alert_types,
