@@ -135,6 +135,10 @@ def calculate_portfolio_risk_lens(
             if as_of:
                 try:
                     as_of_dt = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+                    if as_of_dt.tzinfo is None:
+                        # naive 串（如纯日期 "2025-12-31"）补 UTC，否则与 aware 的 now
+                        # 相减抛 TypeError 被下方 except 吞掉 → 过期风险整条漏报
+                        as_of_dt = as_of_dt.replace(tzinfo=timezone.utc)
                     days_old = (now - as_of_dt).days
 
                     if days_old > RISK_RULES["stale_days_warning"]:

@@ -109,6 +109,20 @@ def test_stale_research():
     assert nvda["severity"] == "medium"  # 7-30 天
 
 
+def test_stale_research_with_naive_as_of():
+    """R19 回归：无时区的 as_of（如纯日期串，财报/备案常见）也必须触发过期风险。
+    旧代码 naive 与 aware now 相减抛 TypeError 被吞 → 风险整条静默漏报。"""
+    positions = [{"ticker": "AAPL", "market_value": 1000, "cost_basis": 1000}]
+    naive_date = (datetime.now(timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%d")
+    reports = [{"ticker": "AAPL", "as_of": naive_date}]
+
+    result = calculate_portfolio_risk_lens(positions, reports)
+
+    stale = result["stale_research"]
+    assert len(stale) == 1
+    assert stale[0]["severity"] == "high"
+
+
 def test_missing_coverage():
     """高仓位无报告覆盖触发风险"""
     positions = [
