@@ -9,6 +9,7 @@ ChatHandler - 快速对话处理器
 3. 优化了 handle 方法中 query_lower 的定义，避免冗余。
 """
 
+import asyncio
 import logging
 import sys
 import os
@@ -1540,8 +1541,8 @@ class ChatHandler:
         result_container: Dict[str, Any]
     ):
         """Stream the LLM-enhanced response token by token."""
-        # 1. 先获取基础数据
-        basic_result = self.handle(query, metadata, context)
+        # 1. 先获取基础数据（handle 内部是同步网络 IO，卸线程池防止阻塞事件循环）
+        basic_result = await asyncio.to_thread(self.handle, query, metadata, context)
 
         # 行情类直接返回，避免 LLM 改写价格细节
         if basic_result.get('intent') in {'market_data', 'market_news', 'company_news', 'market_sentiment', 'economic_events', 'news_sentiment'} or basic_result.get('needs_clarification'):
