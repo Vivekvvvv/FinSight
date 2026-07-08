@@ -1507,7 +1507,7 @@ class ChatHandler:
         basic_result = self.handle(query, metadata, context)
         
         # 行情类直接返回，避免 LLM 改写价格细节
-        if basic_result.get('intent') in {'price', 'market_news', 'company_news', 'market_sentiment', 'economic_events', 'news_sentiment'} or basic_result.get('needs_clarification'):
+        if basic_result.get('intent') in {'market_data', 'market_news', 'company_news', 'market_sentiment', 'economic_events', 'news_sentiment'} or basic_result.get('needs_clarification'):
             return basic_result
         
         if not basic_result.get('success') or not self.llm or not LANGCHAIN_AVAILABLE:
@@ -1544,7 +1544,7 @@ class ChatHandler:
         basic_result = self.handle(query, metadata, context)
 
         # 行情类直接返回，避免 LLM 改写价格细节
-        if basic_result.get('intent') in {'price', 'market_news', 'company_news', 'market_sentiment', 'economic_events', 'news_sentiment'} or basic_result.get('needs_clarification'):
+        if basic_result.get('intent') in {'market_data', 'market_news', 'company_news', 'market_sentiment', 'economic_events', 'news_sentiment'} or basic_result.get('needs_clarification'):
             result_container.update(basic_result)
             response_text = basic_result.get('response', '')
             if response_text:
