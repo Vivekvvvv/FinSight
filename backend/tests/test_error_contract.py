@@ -68,3 +68,12 @@ def test_notes_missing_still_404_not_500(client):
     """既有 404 语义不受影响：不存在的笔记仍返回 404。"""
     resp = client.get("/api/research-notes/note_doesnotexist99")
     assert resp.status_code == 404
+
+
+def test_timeline_invalid_event_type_returns_400_not_500(client):
+    """R13 回归：try 内抛出的 HTTPException(400) 不得被宽 except 重包成 500。"""
+    resp = client.get(
+        "/api/timeline/AAPL",
+        params={"session_id": "pytest_router_session", "event_type": "bogus"},
+    )
+    assert resp.status_code == 400

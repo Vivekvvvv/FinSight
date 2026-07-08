@@ -84,6 +84,8 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
                 "events": events,
             }
 
+        except HTTPException:
+            raise  # 身份 403 / event_type 400 在 try 内抛出，不得被下面的宽 except 重包成 500
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
