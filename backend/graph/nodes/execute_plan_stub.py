@@ -670,21 +670,26 @@ async def execute_plan_stub(state: GraphState) -> dict:
                 }
             )
 
-    if isinstance(step_results, dict) and step_results:
-        for step_id, item in step_results.items():
-            if not isinstance(item, dict):
-                continue
-            step = step_index.get(step_id) or {}
-            if step.get("kind") != "tool":
-                if step.get("kind") == "agent":
-                    agent_name = step.get("name") or ""
-                    if agent_name:
-                        _append_agent_evidence(str(agent_name), str(step_id), item.get("output"))
-                continue
-            tool_name = step.get("name") or ""
-            if not tool_name:
-                continue
-            _append_tool_evidence(str(tool_name), str(step_id), item.get("output"))
+    def _assemble_evidence_from_steps() -> None:
+        # 证据装配含 Jina 同步抓取（每条短 snippet 一次外网请求，超时 30s），
+        # 必须卸载到线程池——协程体内直接跑会阻塞整个事件循环（同文件 RAG 调用同款先例）。
+        if isinstance(step_results, dict) and step_results:
+            for step_id, item in step_results.items():
+                if not isinstance(item, dict):
+                    continue
+                step = step_index.get(step_id) or {}
+                if step.get("kind") != "tool":
+                    if step.get("kind") == "agent":
+                        agent_name = step.get("name") or ""
+                        if agent_name:
+                            _append_agent_evidence(str(agent_name), str(step_id), item.get("output"))
+                    continue
+                tool_name = step.get("name") or ""
+                if not tool_name:
+                    continue
+                _append_tool_evidence(str(tool_name), str(step_id), item.get("output"))
+
+    await asyncio.to_thread(_assemble_evidence_from_steps)
 
     # Dedupe by url or title+source
     seen: set[str] = set()
