@@ -321,6 +321,7 @@ export const apiClient = {
   async streamChat(
     body: Record<string, unknown>,
     callbacks: ChatStreamCallbacks,
+    options?: { signal?: AbortSignal; idleTimeoutMs?: number },
   ): Promise<void> {
     const token = typeof window === 'undefined'
       ? ''
@@ -332,6 +333,10 @@ export const apiClient = {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(body),
+      // 其余 axios 调用均有 15s 超时，唯独这条流式 fetch 此前无任何
+      // 中止手段：后端/代理挂起时 reader.read() 永不 resolve，调用方的
+      // finally 永不执行（sending 永挂）；组件卸载后流也无法取消。
+      signal: options?.signal,
     });
 
     if (!response.ok) {
@@ -344,10 +349,23 @@ export const apiClient = {
       throw new Error('无法读取流式响应');
     }
 
+    const idleMs = options?.idleTimeoutMs ?? 120_000;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
+    try {
     while (true) {
-      const { done, value } = await reader.read();
+      // 空闲看门狗：连续 idleMs 无任何数据帧视为断流，避免 read() 永久悬挂
+      const idlePromise = new Promise<never>((_, reject) => {
+        idleTimer = setTimeout(() => reject(new Error('流式响应超时：服务器长时间无数据')), idleMs);
+      });
+      let readResult: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        readResult = await Promise.race([reader.read(), idlePromise]);
+      } finally {
+        clearTimeout(idleTimer);
+      }
+      const { done, value } = readResult;
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const chunks = buffer.split('\n');
@@ -386,6 +404,11 @@ export const apiClient = {
           // ignore invalid SSE frame
         }
       }
+    }
+    } finally {
+      clearTimeout(idleTimer);
+      // 无论正常结束、超时还是 abort，都释放流（否则连接与后端生成持续泄漏）
+      try { await reader.cancel(); } catch { /* already closed */ }
     }
   },
 
