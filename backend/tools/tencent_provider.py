@@ -884,35 +884,38 @@ def fetch_north_flow(date: str | None = None) -> dict[str, Any] | None:
 
         result_data = data["data"]
 
-        # 解析实时数据
-        # s2n: 北向资金, hk2sh: 沪股通, hk2sz: 深股通
-        north_total = safe_float(result_data.get("s2n"))  # 单位：万元
-        sh_total = safe_float(result_data.get("hk2sh"))
-        sz_total = safe_float(result_data.get("hk2sz"))
+        # kamt.rtmin 的 s2n 是字符串列表，每行对应 fields2=f51,f52,f53,f54,f56：
+        # "HH:MM,沪股通净流入,沪股通余额,深股通净流入,北向合计"（万元，未开盘时段为 "-"）。
+        # 旧代码把 s2n 当标量 float 又当 dict 解析，两个分支互斥且都不成立，
+        # 返回体恒为 north_flow=0 + data_points=[]。
+        s2n_rows = result_data.get("s2n") or []
+        if not isinstance(s2n_rows, list):
+            s2n_rows = []
 
-        # 转换为元
-        if north_total:
-            north_total = north_total * 10000
-        if sh_total:
-            sh_total = sh_total * 10000
-        if sz_total:
-            sz_total = sz_total * 10000
-
-        # 解析分时数据
         data_points = []
-        north_list = result_data.get("s2n", {}).get("data", []) if isinstance(result_data.get("s2n"), dict) else []
+        last_sh = last_sz = last_north = None
+        for row in s2n_rows:
+            if not isinstance(row, str):
+                continue
+            parts = row.split(",")
+            if len(parts) < 5:
+                continue
+            time_str = parts[0].strip()
+            if len(time_str) == 4 and ":" not in time_str:
+                time_str = f"{time_str[:2]}:{time_str[2:]}"
+            north_v = safe_float(parts[4])
+            if north_v is None:
+                continue  # 未开盘时段
+            last_sh = safe_float(parts[1])
+            last_sz = safe_float(parts[3])
+            last_north = north_v
+            if len(data_points) < 30:
+                data_points.append({"time": time_str, "north": north_v * 10000})
 
-        for point in north_list[:30]:  # 取前30个数据点
-            if isinstance(point, list) and len(point) >= 2:
-                time_str = point[0]  # 时间：如 "0930"
-                flow_value = safe_float(point[1])  # 流入值（万元）
-
-                if time_str and len(time_str) == 4:
-                    formatted_time = f"{time_str[:2]}:{time_str[2:]}"
-                    data_points.append({
-                        "time": formatted_time,
-                        "north": flow_value * 10000 if flow_value else 0.0
-                    })
+        # 头部标量取最新有效分时点的累计值，万元转元
+        north_total = last_north * 10000 if last_north is not None else 0.0
+        sh_total = last_sh * 10000 if last_sh is not None else 0.0
+        sz_total = last_sz * 10000 if last_sz is not None else 0.0
 
         return {
             "date": date,
