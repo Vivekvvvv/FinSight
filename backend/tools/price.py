@@ -396,20 +396,13 @@ def _fetch_with_stooq_price(ticker: str):
             return None
         item = data[0]
         close = item.get("close")
-        open_ = item.get("open")
         if close in (None, "N/D"):
             return None
         price = float(close)
-        change = None
-        change_percent = None
-        if open_ not in (None, "N/D", 0):
-            prev = float(open_)
-            change = price - prev
-            if prev:
-                change_percent = (change / prev) * 100.0
-        return f"{ticker} Current Price: ${price:.2f}" + (
-            f" | Change: {change:+.2f} ({change_percent:+.2f}%)" if change is not None else ""
-        )
+        # stooq 该接口无昨收字段。此前用当日开盘价当基准算 "Change"，与兄弟源
+        # （yfinance/yahoo 等一律相对昨收）量纲不同却共用同一标签，静默输出错值；
+        # 宁缺毋错，只报价格。
+        return f"{ticker} Current Price: ${price:.2f}"
     except Exception as e:
         logger.info(f"  - Stooq price exception: {e}")
         return None
