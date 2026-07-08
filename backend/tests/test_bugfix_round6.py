@@ -28,6 +28,24 @@ def test_b1_get_smart_ttl_cn_returns_positive_int():
     assert isinstance(ttl, int) and ttl > 0
 
 
+# ── R14: 美股交易窗口被写成"北京时间的美股时段"误标 UTC ───────────────────────
+
+def test_r14_us_trading_window_uses_real_utc_session():
+    from backend.services.smart_cache import TradingHoursCache
+
+    # 美股盘中：周二 15:00 UTC（= 11:00 ET 夏令时 / 10:00 ET 冬令时）
+    in_session = datetime(2026, 7, 7, 15, 0, tzinfo=timezone.utc)
+    assert TradingHoursCache._is_us_trading(in_session) is True  # 旧窗口 21:30-04:00 判 False
+
+    # 美股收盘后：周二 22:30 UTC（= 18:30 ET，已收盘）
+    after_hours = datetime(2026, 7, 7, 22, 30, tzinfo=timezone.utc)
+    assert TradingHoursCache._is_us_trading(after_hours) is False  # 旧窗口误判 True
+
+    # 开盘前：周二 12:00 UTC
+    pre_market = datetime(2026, 7, 7, 12, 0, tzinfo=timezone.utc)
+    assert TradingHoursCache._is_us_trading(pre_market) is False
+
+
 # ── B2: 每日风险快照对 list 调 .get("items") → AttributeError 被吞，永不落库 ──
 
 def test_b2_daily_risk_snapshot_saves_when_list_reports_returns_list(monkeypatch):

@@ -28,10 +28,11 @@ class TradingHoursCache:
     CN_AFTERNOON_START = time(13, 0)
     CN_AFTERNOON_END = time(15, 0)
 
-    # 美股交易时间：09:30-16:00 EST (夏令时UTC-4, 冬令时UTC-5)
-    # 简化处理：21:30-04:00 UTC (覆盖夏令时和冬令时)
-    US_START = time(21, 30)  # UTC
-    US_END = time(4, 0)  # UTC次日
+    # 美股交易时间：09:30-16:00 ET（夏令时 13:30-20:00 UTC，冬令时 14:30-21:00 UTC）
+    # 取并集 13:30-21:00 UTC。旧值 21:30-04:00 是"北京时间的美股时段"被误标成 UTC，
+    # 导致真实盘中恒判盘后（quote TTL 30 分钟陈旧）、美股收盘后的夜里反而判交易中。
+    US_START = time(13, 30)  # UTC
+    US_END = time(21, 0)  # UTC
 
     # 港股交易时间：09:30-12:00, 13:00-16:00 (UTC+8)
     HK_MORNING_START = time(9, 30)
@@ -99,12 +100,9 @@ class TradingHoursCache:
 
     @classmethod
     def _is_us_trading(cls, now_utc: datetime) -> bool:
-        """美股交易时段判断（UTC时间）"""
+        """美股交易时段判断（UTC时间，13:30-21:00 不跨日）"""
         t = now_utc.time()
-        # 跨日判断：21:30-23:59 或 00:00-04:00
-        if cls.US_START <= t or t <= cls.US_END:
-            return True
-        return False
+        return cls.US_START <= t <= cls.US_END
 
     @classmethod
     def _is_hk_trading(cls, now_utc: datetime) -> bool:
