@@ -61,6 +61,8 @@ class BacktestEngine:
                 close = float(item.get("close"))
             except Exception:
                 continue
+            if close <= 0:
+                continue  # 停牌/脏数据的 0 价 bar：入回测会在买入路径 cash/(0*...) 除零 500
             ts = str(item.get("time") or "").strip()
             if not ts:
                 continue

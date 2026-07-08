@@ -92,6 +92,26 @@ def test_backtest_engine_t_plus_one_uses_previous_bar_signal(monkeypatch):
     assert t0_buy["time"] == series[0]["time"]
 
 
+def test_backtest_engine_filters_zero_price_bars(monkeypatch):
+    """R24 回归：close=0 的脏 bar 必须在归一化时剔除，否则买入路径
+    cash/(0*(1+fee)) 除零，整个回测 500。"""
+    series = _build_series()
+    series[3]["close"] = 0.0  # 混入停牌/脏数据 0 价 bar
+
+    monkeypatch.setattr(
+        backtest_engine_module,
+        "get_stock_historical_data",
+        lambda ticker, period="5y", interval="1d": {"kline_data": series, "source": "unit_test_hist"},
+    )
+    monkeypatch.setattr(backtest_engine_module, "fetch_cn_hk_kline", lambda ticker, limit=1200: [])
+
+    engine = backtest_engine_module.BacktestEngine()
+    result = engine.run(ticker="AAPL", strategy="ma_cross", t_plus_one=True)
+
+    assert result["success"] is True  # 旧代码在此抛 ZeroDivisionError
+    assert len(result["equity_curve"]) > 0
+
+
 def test_backtest_engine_cost_and_slippage_reduce_final_equity(monkeypatch):
     series = _build_series(days=120)
 
