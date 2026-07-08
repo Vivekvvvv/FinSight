@@ -1293,7 +1293,8 @@ def get_market_news_headlines(limit: int = 5) -> str:
                     if isinstance(published_at, str):
                         date_str = published_at.split("T")[0]
                     else:
-                        date_str = datetime.fromtimestamp(published_at).strftime("%Y-%m-%d") if published_at else "Recent"
+                        # UTC 取日（同文件 568/978 行惯例），裸 fromtimestamp 按本地时区跨零点偏一天
+                        date_str = datetime.fromtimestamp(published_at, tz=UTC).strftime("%Y-%m-%d") if published_at else "Recent"
                     url = a.get("url") or a.get("link") or ""
                     line = _format_headline_line(date_str, title, source, url, snippet)
                     lines.append(f"{len(lines) + 1}. {line}")
