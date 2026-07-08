@@ -559,4 +559,6 @@ def test_quality_hints_counts_www_wsj_as_authoritative_media():
         tickers=["AAPL"],
     )
 
-    assert quality.get("authoritative_media_count") == 1
+    assert (quality.get("stats") or {}).get("authoritative_media_count") == 1
+    # 旧代码 WSJ 漏计会插入 important 级"缺权威媒体交叉引用"缺口
+    assert (quality.get("missing_counts") or {}).get("important") == 0
