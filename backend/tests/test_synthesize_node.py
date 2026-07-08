@@ -463,3 +463,16 @@ def test_compute_unresolved_unsupported_claims_returns_residual_claims():
     )
     assert len(unresolved) == 1
     assert unresolved[0]["claim"] == "Claim B"
+
+
+def test_extract_brief_headline_strips_numbered_prefixes():
+    """R26 回归：lstrip("-•*0-9. ") 是字符集合（只含 0/-/9），"3. xxx" 的
+    编号剥不掉，晨报标题带残留前缀。"""
+    from backend.graph.nodes.synthesize import _extract_brief_headline
+
+    news_text = "3. Apple beats earnings expectations this quarter\n4. other line"
+    headline = _extract_brief_headline(news_text)
+    assert headline == "Apple beats earnings expectations this quarter"
+
+    assert _extract_brief_headline("- Bullet style headline here") == "Bullet style headline here"
+    assert _extract_brief_headline("9. Nine prefixed headline text") == "Nine prefixed headline text"

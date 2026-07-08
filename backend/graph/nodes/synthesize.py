@@ -2054,7 +2054,8 @@ def _extract_brief_headline(news_raw: Any) -> str:
                 return item.strip()[:120]
     elif isinstance(news_raw, str):
         for line in news_raw.split("\n"):
-            clean = line.strip().lstrip("-•*0-9. ")
+            # lstrip 按字符集合剥除（"0-9" 只含 0、-、9），"3. xxx" 的编号剥不掉；改正则剥列表前缀
+            clean = re.sub(r"^(?:[-•*]+|\d+[.、)])\s*", "", line.strip())
             if clean and len(clean) > 10:
                 return clean[:120]
     return "暂无重大事件"
