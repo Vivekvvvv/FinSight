@@ -304,7 +304,9 @@ class PortfolioOptimizeRequest(BaseModel):
 
 
 @portfolio_router.post("/api/portfolio/optimize")
-async def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
+def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
+    # def 而非 async def：体内是最多 10 次串行同步网络拉取 + 蒙特卡洛 CPU 计算，
+    # async 下直接调用会冻结事件循环数十秒；def 由 FastAPI 放线程池执行。
     """
     马科维茨均值方差组合优化
 
