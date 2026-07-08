@@ -1521,42 +1521,10 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
     except Exception as e5:
         logger.info(f"[get_stock_historical_data] yfinance 备用方法失败: {e5}")
     
-    # 所有策略都失败，如果是指数，尝试使用最新价格生成平滑序列
-    if is_index:
-        price_val = _fallback_price_value(ticker)
-        if price_val and 0 < price_val <= 1e8:
-            from datetime import datetime, timedelta
-            data = []
-            if interval.endswith('h'):
-                # 生成过去24小时的逐小时平滑序列
-                now = datetime.now(UTC).replace(tzinfo=None)
-                for i in range(24, 0, -1):
-                    t = now - timedelta(hours=i)
-                    data.append({
-                        "time": t.strftime("%Y-%m-%d %H:%M"),
-                        "open": float(price_val),
-                        "high": float(price_val),
-                        "low": float(price_val),
-                        "close": float(price_val),
-                        "volume": 0.0,
-                    })
-                logger.info(f"[get_stock_historical_data] 使用 price fallback 为 {ticker} 生成逐小时序列")
-                return {"kline_data": data, "period": period, "interval": interval, "source": "price_fallback_hourly"}
-            else:
-                from datetime import date
-                end = date.today()
-                for i in range(5, 0, -1):
-                    d = end - timedelta(days=i)
-                    data.append({
-                        "time": d.strftime("%Y-%m-%d"),
-                        "open": float(price_val),
-                        "high": float(price_val),
-                        "low": float(price_val),
-                        "close": float(price_val),
-                        "volume": 0.0,
-                    })
-                logger.info(f"[get_stock_historical_data] 使用 price fallback 为 {ticker} 生成平滑序列")
-                return {"kline_data": data, "period": period, "interval": "1d", "source": "price_fallback"}
+    # 此前指数全源失败时会用单一最新价伪造 OHLC 全等的平线序列（24 根"小时"/
+    # 5 根日线，volume=0，source=price_fallback*）。伪平线让 RSI 恒 100、
+    # ATR/波动率恒 0，下游技术指标静默失真（同 R7 判例）；全仓无消费方依赖
+    # 该 source 标记。如实返回错误。
 
     # 所有策略都失败，返回错误
     return {"error": f"Failed to fetch historical data for {ticker}: All data sources failed. Please try again later or check your internet connection."}
