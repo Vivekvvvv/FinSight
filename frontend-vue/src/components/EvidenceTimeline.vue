@@ -106,7 +106,7 @@ function getQualityBadge(event: TimelineEvent): string | null {
   if (quality_state === 'block') return 'blocked';
   if (quality_state === 'warn') return 'warning';
   if (freshness_status === 'stale') return 'stale';
-  if (confidence && confidence < 0.6) return 'low-confidence';
+  if (confidence != null && confidence < 0.6) return 'low-confidence'; // 0 是最该警示的置信度，不能被 falsy 吞掉
 
   return null;
 }
@@ -194,7 +194,7 @@ function getQualityBadgeLabel(badge: string): string {
 
           <!-- 证据指标 -->
           <div v-if="event.evidence" class="evidence-info">
-            <span v-if="event.evidence.confidence" class="evidence-item">
+            <span v-if="event.evidence.confidence != null" class="evidence-item">
               置信度：{{ (event.evidence.confidence * 100).toFixed(0) }}%
             </span>
             <span v-if="event.evidence.citation_count" class="evidence-item">
