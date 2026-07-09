@@ -77,12 +77,13 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
             tickers = [p["ticker"] for p in positions if p.get("ticker")]
             reports = []
             for ticker in tickers:
+                # list_reports 返回 list[dict]，不是 {"items": [...]}
                 ticker_reports = store.list_reports(
                     session_id=normalized_session,
                     ticker=ticker,
                     limit=1,  # 每个 ticker 只取最新报告
                 )
-                reports.extend(ticker_reports.get("items", []))
+                reports.extend(ticker_reports)
 
             # 计算风险透镜
             risk_lens = calculate_portfolio_risk_lens(positions, reports)
