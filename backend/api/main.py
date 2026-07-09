@@ -766,6 +766,20 @@ async def security_gate(request: Request, call_next):
             # 503 而非裸 500（R35），不泄露内部栈
             logger.exception("rag access check failed due to upstream auth error")
             return JSONResponse(status_code=503, content={"detail": "Auth upstream unavailable"})
+        # rag 路径此前直接 return，完全绕过限流（且使主路径的"按用户限流"
+        # 分支成为死代码）——在本分支内按登录用户限流（R40）
+        if _rate_limiter.enabled:
+            if isinstance(user_identity, dict) and user_identity.get("user_id"):
+                client_id = f"user:{user_identity['user_id']}"
+            else:
+                client_id = request.client.host if request.client else "anonymous"
+            allowed, retry_after = _rate_limiter.allow(client_id)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded"},
+                    headers={"Retry-After": str(retry_after)},
+                )
         return await call_next(request)
 
     if is_dev_mode():
@@ -782,11 +796,9 @@ async def security_gate(request: Request, call_next):
         request.state.principal = principal_from_api_key(api_key)
 
     if _rate_limiter.enabled:
-        request_identity = getattr(request.state, "rag_authenticated_user", None)
-        if isinstance(request_identity, dict) and request_identity.get("user_id"):
-            client_id = f"user:{request_identity['user_id']}"
-        else:
-            client_id = api_key or (request.client.host if request.client else "anonymous")
+        # rag_authenticated_user 只在上方 rag 分支赋值且该分支已 return，
+        # 此处恒为 api key 维度
+        client_id = api_key or (request.client.host if request.client else "anonymous")
         allowed, retry_after = _rate_limiter.allow(client_id)
         if not allowed:
             headers = {"Retry-After": str(retry_after)}
