@@ -253,6 +253,7 @@ async function remove(ticker: string): Promise<void> {
   try {
     await apiClient.removePosition({ sessionId: identity.sessionId, ticker });
     positions.value = positions.value.filter((p) => p.ticker !== ticker);
+    await refresh();
   } catch (e) { errorMsg.value = reportFriendlyError(e, '移除持仓失败，请稍后重试。'); }
   finally { removingTicker.value = null; }
 }
