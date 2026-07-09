@@ -102,6 +102,18 @@ def test_a10_risk_lens_history_rejects_forged_session_id(monkeypatch):
     assert resp.status_code == 403
 
 
+def test_a11_timeline_rejects_forged_session_id(monkeypatch):
+    # timeline_service 的报告事件仅按 session_id 过滤，此前只校验 user_id，
+    # 传自己的 user_id + 他人 session_id 即可读到他人报告时间线（R47 修复）。
+    with _client(monkeypatch) as client:
+        resp = client.get(
+            "/api/timeline/AAPL",
+            params={"session_id": "private:bob:default"},
+            headers=_KEY,
+        )
+    assert resp.status_code == 403
+
+
 def test_a1_chat_history_get_rejects_forged_session_id(monkeypatch):
     with _client(monkeypatch) as client:
         resp = client.get(

@@ -54,6 +54,14 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            # session_id 是报告事件的查询键（timeline_service 仅按它过滤），
+            # 必须绑定认证主体，防止伪造 session_id 读取他人报告时间线。
+            require_matching_identity(
+                principal=current_user,
+                provided=session_id,
+                expected=current_user.session_id,
+                field_name="session_id",
+            )
             normalized_session = deps.resolve_thread_id(session_id)
 
             # 验证 event_type
