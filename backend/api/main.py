@@ -747,16 +747,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配�??
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_allow_origins(),
-    allow_origin_regex=_cors_allow_origin_regex(),
-    allow_credentials=_cors_allow_credentials(),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 @app.middleware("http")
 async def security_gate(request: Request, call_next):
     if _is_allowlisted_path(request.url.path):
@@ -796,6 +786,19 @@ async def security_gate(request: Request, call_next):
             return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"}, headers=headers)
 
     return await call_next(request)
+
+# CORS 必须在 security_gate 之后注册（Starlette 后注册者在最外层）：
+# 若在内层，生产模式下浏览器预检 OPTIONS（不带鉴权头）会先被 security_gate
+# 401 拦下且响应缺 CORS 头——跨域部署的前端完全无法调用，真实鉴权错误
+# 也全部被浏览器显示成 CORS 错误。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_allow_origins(),
+    allow_origin_regex=_cors_allow_origin_regex(),
+    allow_credentials=_cors_allow_credentials(),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # === API routers ===
 
