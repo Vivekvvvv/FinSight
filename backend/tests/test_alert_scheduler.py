@@ -283,6 +283,68 @@ def test_c3_yfinance_epoch_converted_to_utc(monkeypatch):
     assert delta < timedelta(minutes=5)
 
 
+def test_stooq_snapshot_change_uses_previous_close_not_open(monkeypatch):
+    """R31 回归：告警快照的 change_percent 必须相对真昨收。旧代码用当日开盘
+    近似，隔夜跳空 +6% 盘中平走会被算成 ~0% 而漏报。"""
+    import requests as requests_module
+    from datetime import datetime, timezone
+
+    from backend.services.alert_scheduler import _fetch_with_stooq
+
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    class _SnapResp:
+        status_code = 200
+
+        def json(self):
+            return {"symbols": [{"close": "105.0", "open": "104.9"}]}
+
+    class _HistResp:
+        status_code = 200
+        text = (
+            "Date,Open,High,Low,Close,Volume\n"
+            "2026-07-03,99,101,98,100.0,1000\n"
+            f"{today},104.9,106,104,105.0,900\n"  # 当日行须被排除
+        )
+
+    def _fake_get(url, *args, **kwargs):
+        return _HistResp() if "/q/d/l/" in url else _SnapResp()
+
+    monkeypatch.setattr(requests_module, "get", _fake_get)
+
+    snap = _fetch_with_stooq("AAPL")
+    assert snap is not None
+    assert snap.price == 105.0
+    # 相对昨收 100 → +5%；旧代码相对开盘 104.9 → ~+0.1%
+    assert abs(snap.change_percent - 5.0) < 0.01
+
+
+def test_stooq_snapshot_change_none_when_history_unavailable(monkeypatch):
+    import requests as requests_module
+
+    from backend.services.alert_scheduler import _fetch_with_stooq
+
+    class _SnapResp:
+        status_code = 200
+
+        def json(self):
+            return {"symbols": [{"close": "105.0", "open": "104.9"}]}
+
+    class _FailResp:
+        status_code = 500
+        text = ""
+
+    def _fake_get(url, *args, **kwargs):
+        return _FailResp() if "/q/d/l/" in url else _SnapResp()
+
+    monkeypatch.setattr(requests_module, "get", _fake_get)
+
+    snap = _fetch_with_stooq("AAPL")
+    assert snap is not None
+    assert snap.price == 105.0
+    assert snap.change_percent is None  # 宁缺毋错：调度器会跳过本轮
+
+
 def test_parse_pub_datetime_accepts_epoch_and_iso():
     from datetime import datetime
 

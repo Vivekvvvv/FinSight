@@ -716,9 +716,15 @@ def _fetch_with_yahoo_quote(ticker: str) -> Optional[PriceSnapshot]:
 
 def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
     """
-    Free source: stooq.pl (no key). Uses open vs close to approximate change.
+    Free source: stooq.pl (no key)。快照接口无昨收字段——此前用当日开盘
+    近似日涨跌，隔夜跳空场景喂给告警阈值的 change_percent 严重失真
+    （跳空 +6% 盘中平走会被算成 ~0% 而漏报）。改为另拉日线取真昨收；
+    拉不到时 change_percent=None（调度器跳过本轮，优于错误基准触发）。
     """
     try:
+        import csv
+        import io
+
         import requests  # type: ignore
 
         # stooq ticker needs .us suffix for US stocks
@@ -731,15 +737,36 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
         if not data:
             return None
         item = data[0]
-        # 'close' and 'open' are strings
         close = item.get("close")
-        open_ = item.get("open")
-        if close in (None, "N/D") or open_ in (None, "N/D"):
+        if close in (None, "N/D"):
             return None
         price = float(close)
-        prev = float(open_) if open_ not in (None, "N/D") else None
+
+        prev = None
+        try:
+            end = datetime.now(timezone.utc).date()
+            start = end - timedelta(days=10)
+            hist_url = f"https://stooq.pl/q/d/l/?s={symbol}&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d"
+            hist = requests.get(hist_url, timeout=8)
+            if hist.status_code == 200 and hist.text:
+                today_iso = end.isoformat()
+                closes = []
+                for row in csv.DictReader(io.StringIO(hist.text)):
+                    row_date = str(row.get("Date") or row.get("Data") or "").strip()
+                    raw = row.get("Close") or row.get("Zamkniecie")
+                    try:
+                        value = float(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if value > 0 and row_date and row_date < today_iso:
+                        closes.append(value)
+                if closes:
+                    prev = closes[-1]
+        except Exception:
+            prev = None
+
         change_percent = None
-        if prev and prev != 0:
+        if prev:
             change_percent = (price - prev) / prev * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
     except Exception:
