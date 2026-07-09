@@ -71,14 +71,16 @@ def parse_quote_payload(payload: Any) -> dict[str, Any] | None:
 
     text = str(payload)
     price_match = re.search(r"Current Price:\s*\$([0-9.,]+)", text, re.IGNORECASE)
-    fallback_price_match = re.search(r"\$([0-9]+(?:\.[0-9]+)?)", text)
-    change_match = re.search(r"Change:\s*([+-]?[0-9.]+)", text, re.IGNORECASE)
+    # 兜底/涨跌额正则须允许千分位逗号并在使用时剥除，否则 "$1,234.56" 在逗号处
+    # 截断成 "1" → price=1.0（约 1000× 低估）；change "-1,234.5" → "-1"（R41）。
+    fallback_price_match = re.search(r"\$([0-9][0-9,]*(?:\.[0-9]+)?)", text)
+    change_match = re.search(r"Change:\s*([+-]?[0-9][0-9,]*(?:\.[0-9]+)?)", text, re.IGNORECASE)
     pct_match = re.search(r"\(([-+]?[0-9.]+)%\)", text)
 
     price_text = (
         price_match.group(1).replace(",", "")
         if price_match
-        else (fallback_price_match.group(1) if fallback_price_match else None)
+        else (fallback_price_match.group(1).replace(",", "") if fallback_price_match else None)
     )
     price = safe_float(price_text) if price_text else None
     if price is None:
@@ -86,7 +88,7 @@ def parse_quote_payload(payload: Any) -> dict[str, Any] | None:
 
     return {
         "price": price,
-        "change": safe_float(change_match.group(1)) if change_match else None,
+        "change": safe_float(change_match.group(1).replace(",", "")) if change_match else None,
         "change_percent": safe_float(pct_match.group(1)) if pct_match else None,
     }
 

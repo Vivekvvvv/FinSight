@@ -96,6 +96,20 @@ class TestParseQuotePayload:
         payload = "No market data available"
         assert parse_quote_payload(payload) is None
 
+    def test_fallback_price_keeps_thousands_separator(self):
+        # R41: 兜底路径（无 "Current Price:" 前缀）此前在逗号处截断 → $612,345.67 读成 1.0
+        parsed = parse_quote_payload("BRK.A around $612,345.67 today")
+        assert parsed is not None
+        assert parsed["price"] == pytest.approx(612345.67)
+
+    def test_change_keeps_thousands_separator(self):
+        # R41: Change 正则此前也在逗号处截断 → "-1,234.5" 读成 -1
+        parsed = parse_quote_payload("AAPL Current Price: $1,234.56 | Change: -1,234.5 (-2.5%)")
+        assert parsed is not None
+        assert parsed["price"] == pytest.approx(1234.56)
+        assert parsed["change"] == pytest.approx(-1234.5)
+        assert parsed["change_percent"] == pytest.approx(-2.5)
+
     def test_change_percent_field_name_is_standardized(self):
         parsed = parse_quote_payload({"price": 100, "change": 1, "change_percent": 1})
         assert parsed is not None
