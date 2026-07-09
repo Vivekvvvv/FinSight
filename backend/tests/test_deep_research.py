@@ -667,7 +667,6 @@ def test_fetch_document_uses_jina_fallback_for_short_trusted_content(monkeypatch
     assert bool(doc.get("degraded")) is False
 
 
-@pytest.mark.network
 def test_fetch_document_uses_wayback_fallback_when_jina_misses(monkeypatch):
     mock_cache = MagicMock()
     mock_tools = MagicMock()
@@ -693,6 +692,9 @@ def test_fetch_document_uses_wayback_fallback_when_jina_misses(monkeypatch):
     monkeypatch.setattr(agent, "_get_session", lambda: _MockSession(_MockResponse(url)))
     monkeypatch.setenv("DEEPSEARCH_ENABLE_JINA_FALLBACK", "true")
     monkeypatch.setenv("DEEPSEARCH_ENABLE_WAYBACK_FALLBACK", "true")
+    # is_safe_url 对域名做真实 DNS 解析（ssrf.py getaddrinfo），失败即拒绝；
+    # 单测须隔离网络，否则 DNS 抖动导致 flaky（R42：曾靠 network 标记掩盖）。
+    monkeypatch.setattr(deep_search_module, "is_safe_url", lambda _u: True)
 
     import backend.tools.jina_reader as jina_mod
     import backend.tools.wayback as wayback_mod
