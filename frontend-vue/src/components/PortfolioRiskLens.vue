@@ -32,11 +32,17 @@ async function loadRiskLens() {
   }
 }
 
+let historySeq = 0;
+
 async function loadHistory(days: number = 30) {
   if (!sessionId.value) return;
 
+  // seq 守卫（与 WelcomePage/PortfolioPage 同款）：快速切换 7/30/90 天时，
+  // 慢的旧请求晚到会覆盖新选择的数据，图表与高亮按钮不一致
+  const seq = ++historySeq;
   try {
     const data = await apiClient.getRiskLensHistory(sessionId.value, userId.value, days);
+    if (seq !== historySeq) return;
     if (data.success) {
       history.value = data.snapshots;
     }
