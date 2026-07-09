@@ -80,12 +80,20 @@ async def save_image(
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise ValueError(f"Unsupported file type: {file.content_type}")
 
-    # 读取文件内容
-    content = await file.read()
-
-    # 验证文件大小
-    if len(content) > MAX_FILE_SIZE:
-        raise ValueError(f"File size exceeds {MAX_FILE_SIZE / 1024 / 1024}MB")
+    # 分块读取并即时限流（R36）：此前一次性 file.read() 把任意大的请求体
+    # 整个读进内存后才校验 5MB，限制形同虚设（content_type 可伪造，
+    # Starlette 默认不限请求体大小）——超限时最多驻留 MAX_FILE_SIZE+1MB。
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_FILE_SIZE:
+            raise ValueError(f"File size exceeds {MAX_FILE_SIZE / 1024 / 1024}MB")
+        chunks.append(chunk)
+    content = b"".join(chunks)
 
     # 获取存储目录
     image_dir = _get_image_dir(user_id, note_id)
