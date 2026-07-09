@@ -28,7 +28,7 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
     router = APIRouter(tags=["Timeline"])
 
     @router.get("/api/timeline/{symbol}")
-    async def get_timeline(
+    def get_timeline(
         symbol: str,
         session_id: str = Query(..., description="会话 ID"),
         user_id: str = Query("default_user", description="用户 ID"),
@@ -42,6 +42,9 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
 
         聚合 Reports / Notes / Alerts / Risk 等多个来源的事件，
         提供统一的研究过程复盘视图。
+
+        def 而非 async def：timeline_service.get_timeline 是同步 SQLite 聚合读，
+        async 下直接调用会占用事件循环；def 由 FastAPI 放线程池执行。
         """
         try:
             # 身份校验
