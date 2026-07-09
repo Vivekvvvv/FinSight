@@ -755,10 +755,17 @@ async def security_gate(request: Request, call_next):
     api_key = None
     if request.url.path.startswith("/diagnostics/rag"):
         try:
-            user_identity = _require_rag_read_access(request)
+            # 内部经 _fetch_supabase_user_identity 做同步 urlopen(timeout=5)：
+            # 缓存未命中时会把整个事件循环阻塞最长 5 秒，必须卸载线程池（R34）
+            user_identity = await asyncio.to_thread(_require_rag_read_access, request)
             request.state.rag_authenticated_user = user_identity
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        except Exception:
+            # Supabase 抖动/超时抛 RuntimeError/TimeoutError：认证上游不可用应是
+            # 503 而非裸 500（R35），不泄露内部栈
+            logger.exception("rag access check failed due to upstream auth error")
+            return JSONResponse(status_code=503, content={"detail": "Auth upstream unavailable"})
         return await call_next(request)
 
     if is_dev_mode():
