@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -163,7 +163,9 @@ def list_images(user_id: str, note_id: str) -> list[dict[str, any]]:
                 "filename": img_path.name,
                 "url": f"/api/notes/images/{user_id}/{note_id}/{img_path.name}",
                 "size": stat.st_size,
-                "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                # UTC aware（与 research_notes 的 created_at/updated_at 同基准）；
+                # 裸 fromtimestamp 是 naive 本地时间，东八区比笔记时间戳快 8 小时
+                "uploaded_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
             })
 
     return result
