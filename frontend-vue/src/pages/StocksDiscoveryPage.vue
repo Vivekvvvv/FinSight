@@ -394,23 +394,30 @@ async function activateMarketTool(tool: MarketTool) {
   await loadMarketTool();
 }
 
+let marketToolSeq = 0;
+
 async function loadMarketTool() {
-  if (!activeMarketTool.value || marketToolLoading.value) return;
+  if (!activeMarketTool.value) return;
+  const seq = ++marketToolSeq;
   marketToolLoading.value = true;
   marketToolError.value = null;
   marketToolData.value = null;
   try {
+    let data: Record<string, unknown>;
     if (activeMarketTool.value === 'north-flow') {
-      marketToolData.value = await apiClient.getNorthFlow();
+      data = await apiClient.getNorthFlow();
     } else if (activeMarketTool.value === 'top-list') {
-      marketToolData.value = await apiClient.getTopList(marketToolTicker.value.trim() || '600519.SS');
+      data = await apiClient.getTopList(marketToolTicker.value.trim() || '600519.SS');
     } else {
-      marketToolData.value = await apiClient.getMarginTrading(marketToolTicker.value.trim() || '600519.SS');
+      data = await apiClient.getMarginTrading(marketToolTicker.value.trim() || '600519.SS');
     }
+    if (seq !== marketToolSeq) return;
+    marketToolData.value = data;
   } catch (error) {
+    if (seq !== marketToolSeq) return;
     marketToolError.value = marketToolErrorMessage(error);
   } finally {
-    marketToolLoading.value = false;
+    if (seq === marketToolSeq) marketToolLoading.value = false;
   }
 }
 
