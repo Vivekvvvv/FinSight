@@ -109,7 +109,10 @@ function fmtDate(v?: string | null): string {
 }
 
 // ── 拉取数据 ──────────────────────────────────────────────────
+let refreshSeq = 0;
+
 async function refresh(): Promise<void> {
+  const seq = ++refreshSeq;
   loading.value = true; errorMsg.value = null;
   try {
     const [reportsResp, qualityResp] = await Promise.all([
@@ -126,11 +129,15 @@ async function refresh(): Promise<void> {
         userId: identity.userId,
       }),
     ]);
+    if (seq !== refreshSeq) return;
     items.value = reportsResp.items || [];
     qualitySummary.value = qualityResp.summary;
     qualityIssues.value = qualityResp.top_issues;
-  } catch (e) { errorMsg.value = reportFriendlyError(e, '报告库暂时加载失败，请刷新重试。'); }
-  finally { loading.value = false; }
+  } catch (e) {
+    if (seq !== refreshSeq) return;
+    errorMsg.value = reportFriendlyError(e, '报告库暂时加载失败，请刷新重试。');
+  }
+  finally { if (seq === refreshSeq) loading.value = false; }
 }
 
 // ── 收藏切换 ──────────────────────────────────────────────────

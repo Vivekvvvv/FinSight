@@ -63,7 +63,10 @@ function setForm(note: ResearchNote | null): void {
   content.value = note?.content || '';
 }
 
+let refreshSeq = 0;
+
 async function refresh(): Promise<void> {
+  const seq = ++refreshSeq;
   loading.value = true;
   errorMsg.value = null;
   try {
@@ -73,15 +76,17 @@ async function refresh(): Promise<void> {
       tickerFilter.value.trim() || undefined,
       query.value.trim() || undefined,
     );
+    if (seq !== refreshSeq) return;
     notes.value = resp.notes || [];
     if (selected.value) {
       const latest = notes.value.find((item) => item.note_id === selected.value?.note_id);
       if (latest) selected.value = latest;
     }
   } catch (error) {
+    if (seq !== refreshSeq) return;
     errorMsg.value = reportFriendlyError(error, '笔记列表加载失败，请刷新重试。');
   } finally {
-    loading.value = false;
+    if (seq === refreshSeq) loading.value = false;
   }
 }
 
