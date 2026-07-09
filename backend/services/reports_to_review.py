@@ -80,7 +80,9 @@ def get_reports_to_review(
 
         # 规则4: as_of 超过阈值 且 ticker 在关注列表 → +25
         as_of_str = report.get("as_of") or report.get("generated_at")
-        ticker = report.get("ticker", "").upper()
+        # ticker 列可空（宏观/组合级报告 upsert 时显式写 None），get 默认值只对
+        # 缺键生效——None.upper() 会让整个待复查接口 500
+        ticker = str(report.get("ticker") or "").upper()
         if as_of_str and ticker in watched_tickers:
             try:
                 as_of_dt = datetime.fromisoformat(as_of_str.replace("Z", "+00:00"))
