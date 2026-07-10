@@ -95,7 +95,10 @@ def test_ranked_news_has_stable_descending_order(monkeypatch):
     assert [item.get("title") for item in ranked] == sorted([item.get("title") for item in ranked])
 
 
-def test_fetch_news_returns_empty_payload_when_sources_fail(monkeypatch):
+def test_fetch_news_returns_none_when_sources_fail(monkeypatch):
+    """R51 契约：两个来源都抛异常 = 管道故障，返回 None 让 router 走
+    news_unavailable 降级；不得返回空 payload 伪装成"确实没新闻"。
+    （旧断言锁定的正是被修掉的 bug：故障返回空 payload、被缓存 5 分钟。）"""
     def _raise_company_news(symbol: str, limit: int = 20):
         raise RuntimeError("company source down")
 
@@ -105,10 +108,4 @@ def test_fetch_news_returns_empty_payload_when_sources_fail(monkeypatch):
     monkeypatch.setattr("backend.tools.news.get_company_news", _raise_company_news)
     monkeypatch.setattr("backend.tools.news.get_market_news_headlines", _raise_market_news)
 
-    payload = fetch_news("AAPL", limit=20)
-
-    assert payload["market"] == []
-    assert payload["impact"] == []
-    assert payload["market_raw"] == []
-    assert payload["impact_raw"] == []
-    assert payload["ranking_meta"]["version"] == "v2"
+    assert fetch_news("AAPL", limit=20) is None
