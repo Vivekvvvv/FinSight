@@ -52,13 +52,16 @@ def _safe_iso8601(value: str) -> str | None:
 
 def _normalize_domain(url: str) -> str:
     try:
-        return urlparse(str(url or "").strip().lower()).netloc.lstrip("www.")
+        # removeprefix 而非 lstrip：lstrip("www.") 剥的是字符集合 {w,.}，
+        # "www.wsj.com" 会被剥成 "sj.com"（连 wsj 的首字母 w 一起吃掉），
+        # 导致 wsj.com 权威匹配失败、WSJ 全量文章被丢（R20 同类，R48）。
+        return urlparse(str(url or "").strip().lower()).netloc.removeprefix("www.")
     except Exception:
         return ""
 
 
 def _is_authoritative_domain(domain: str) -> bool:
-    host = str(domain or "").strip().lower().lstrip("www.")
+    host = str(domain or "").strip().lower().removeprefix("www.")
     if not host:
         return False
     return any(host == d or host.endswith(f".{d}") for d in _AUTHORITATIVE_DOMAINS)

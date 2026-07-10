@@ -109,7 +109,10 @@ class NewsAgent(BaseFinancialAgent):
             host = urlparse(str(url or "").strip().lower()).netloc
         except Exception:
             host = ""
-        return host.lstrip("www.")
+        # removeprefix 而非 lstrip：lstrip("www.") 按字符集合 {w,.} 剥，
+        # "www.wsj.com" → "sj.com"，权威 hint 子串匹配 "wsj.com" in "sj.com"
+        # 失败 → WSJ 新闻被 _filter_authoritative_news 全丢（R20 同类，R48）。
+        return host.removeprefix("www.")
 
     def _recover_original_article_url(self, url: str) -> str:
         text = str(url or "").strip()
@@ -120,7 +123,7 @@ class NewsAgent(BaseFinancialAgent):
         except Exception:
             return ""
 
-        domain = (parsed.netloc or "").lower().lstrip("www.")
+        domain = (parsed.netloc or "").lower().removeprefix("www.")
         path = (parsed.path or "").lower()
         query = parse_qs(parsed.query)
 
