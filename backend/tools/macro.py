@@ -113,6 +113,16 @@ def get_fred_data(series_id: str = None) -> Dict[str, Any]:
     if series_id:
         series_map = {"custom": series_id}
 
+    # 无 FRED API key：不伪造宏观数据。此前无 key 分支硬编码 cpi=3.0 /
+    # fed_rate=4.5 / unemployment=4.0（2024 估计值），却仍返回 status="success"，
+    # 被 dashboard 快照（fetch_macro_snapshot 只取数值不看 status）与 MacroAgent
+    # 当真实数据消费（R22 同类，R49）。改为明确标记不可用、数值保持 None，
+    # 让调用方走降级路径。
+    if not api_key:
+        result["status"] = "unavailable"
+        result["source"] = "no_api_key"
+        return result
+
     for key, sid in series_map.items():
         try:
             params = {
@@ -123,24 +133,14 @@ def get_fred_data(series_id: str = None) -> Dict[str, Any]:
                 "limit": 1
             }
 
-            if api_key:
-                response = _http_get(base_url, params=params, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    observations = data.get("observations", [])
-                    if observations:
-                        value = observations[0].get("value", ".")
-                        if value != ".":
-                            result[key] = float(value)
-            else:
-                # 无 API key 时使用搜索回退
-                if key == "cpi":
-                    result[key] = 3.0  # 估计值
-                elif key == "fed_rate":
-                    result[key] = 4.5  # 估计值
-                elif key == "unemployment":
-                    result[key] = 4.0  # 估计值
-                result["source"] = "estimate"
+            response = _http_get(base_url, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                observations = data.get("observations", [])
+                if observations:
+                    value = observations[0].get("value", ".")
+                    if value != ".":
+                        result[key] = float(value)
 
         except Exception as e:
             logger.info(f"[FRED] Failed to fetch {sid}: {e}")
