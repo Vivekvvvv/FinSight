@@ -10,6 +10,16 @@ from backend.utils.quote import safe_float
 logger = logging.getLogger(__name__)
 
 
+def _wan_to_yuan(value: Any) -> float | None:
+    """万元转元。safe_float 对空串/"-"/None 返回 None，此前 `safe_float(x) * 10000`
+    会 `None * 10000` 抛 TypeError，在循环里被外层 except 吞掉 → 整个多日/多股
+    数据集丢弃（如北向资金历史一行停牌占位就返回 []）。无法解析时返回 None，
+    只让该字段缺失，不牵连整批数据（R53）。"""
+    parsed = safe_float(value)
+    return parsed * 10000 if parsed is not None else None
+
+
+
 def _parse_eastmoney_date(value: Any) -> datetime | None:
     text = str(value or "").strip()
     if not text:
@@ -521,9 +531,9 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
             return None
 
         # 解析龙虎榜基础数据
-        buy_amount = safe_float(record.get("Bmoney", 0)) * 10000  # 万元转元
-        sell_amount = safe_float(record.get("Smoney", 0)) * 10000
-        net_buy = safe_float(record.get("JmMoney", 0)) * 10000
+        buy_amount = _wan_to_yuan(record.get("Bmoney", 0))  # 万元转元
+        sell_amount = _wan_to_yuan(record.get("Smoney", 0))
+        net_buy = _wan_to_yuan(record.get("JmMoney", 0))
 
         result = {
             "symbol": symbol.upper(),
@@ -603,8 +613,8 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
         if buy_match:
             buy_data = json.loads(buy_match.group(1))
             for idx, seat in enumerate(buy_data[:5], 1):  # 前5席位
-                buy_amt = safe_float(seat.get("Bmoney", 0)) * 10000  # 万元转元
-                sell_amt = safe_float(seat.get("Smoney", 0)) * 10000
+                buy_amt = _wan_to_yuan(seat.get("Bmoney", 0))  # 万元转元
+                sell_amt = _wan_to_yuan(seat.get("Smoney", 0))
                 seat_name = seat.get("SName", "未知席位")
                 is_institution = "机构" in seat_name or "专用" in seat_name
 
@@ -620,8 +630,8 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
         if sell_match:
             sell_data = json.loads(sell_match.group(1))
             for idx, seat in enumerate(sell_data[:5], 1):
-                buy_amt = safe_float(seat.get("Bmoney", 0)) * 10000
-                sell_amt = safe_float(seat.get("Smoney", 0)) * 10000
+                buy_amt = _wan_to_yuan(seat.get("Bmoney", 0))
+                sell_amt = _wan_to_yuan(seat.get("Smoney", 0))
                 seat_name = seat.get("SName", "未知席位")
                 is_institution = "机构" in seat_name or "专用" in seat_name
 
@@ -641,31 +651,6 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
 
     except Exception as exc:
         logger.debug("[东方财富] 席位明细获取失败 %s: %s", stock_code, exc)
-        return None
-
-        buy_amount = safe_float(record.get("Bmoney", 0)) * 10000  # 万元转元
-        sell_amount = safe_float(record.get("Smoney", 0)) * 10000
-        net_buy = safe_float(record.get("JmMoney", 0)) * 10000
-
-        return {
-            "symbol": symbol.upper(),
-            "stock_code": stock_code,
-            "stock_name": record.get("SName", ""),
-            "date": record.get("Tdate", datetime.now(timezone.utc).date().isoformat()),
-            "reason": record.get("Ctypedes", "上榜"),
-            "close_price": safe_float(record.get("ClosePrice")),
-            "change_percent": safe_float(record.get("Chgradio")),
-            "buy_amount": buy_amount,
-            "sell_amount": sell_amount,
-            "net_buy": net_buy,
-            "turnover_rate": safe_float(record.get("TurnoverRate")),
-            "buy_seats": [],  # 详细席位数据需要调用额外API
-            "sell_seats": [],
-            "source": "eastmoney",
-            "api_note": "基础龙虎榜数据已实现，详细席位信息需调用 /DataCenter_V3/stock2016/TradeDetail/pagesize API"
-        }
-    except Exception as exc:
-        logger.info("[东方财富] 龙虎榜获取失败 %s: %s", symbol, exc)
         return None
 
 
@@ -790,9 +775,9 @@ def fetch_cn_top_list_history(
             if record.get("SCode") != stock_code:
                 continue
 
-            buy_amount = safe_float(record.get("Bmoney", 0)) * 10000
-            sell_amount = safe_float(record.get("Smoney", 0)) * 10000
-            net_buy = safe_float(record.get("JmMoney", 0)) * 10000
+            buy_amount = _wan_to_yuan(record.get("Bmoney", 0))
+            sell_amount = _wan_to_yuan(record.get("Smoney", 0))
+            net_buy = _wan_to_yuan(record.get("JmMoney", 0))
 
             results.append({
                 "symbol": symbol.upper(),
@@ -991,9 +976,9 @@ def fetch_north_flow_history(days: int = 30) -> list[dict[str, Any]]:
             parts = kline.split(",")
             if len(parts) >= 4:
                 date_str = parts[0]  # YYYY-MM-DD
-                north = safe_float(parts[1]) * 10000  # 万元转元
-                sh = safe_float(parts[2]) * 10000
-                sz = safe_float(parts[3]) * 10000
+                north = _wan_to_yuan(parts[1])  # 万元转元
+                sh = _wan_to_yuan(parts[2])
+                sz = _wan_to_yuan(parts[3])
 
                 results.append({
                     "date": date_str,
