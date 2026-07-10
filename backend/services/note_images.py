@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import secrets
@@ -95,22 +96,23 @@ async def save_image(
         chunks.append(chunk)
     content = b"".join(chunks)
 
-    # 获取存储目录
+    # 获取存储目录 / 生成文件名
     image_dir = _get_image_dir(user_id, note_id)
-    image_dir.mkdir(parents=True, exist_ok=True)
-
-    # 检查图片数量限制
-    existing_images = list(image_dir.glob("image_*"))
-    if len(existing_images) >= MAX_IMAGES_PER_NOTE:
-        raise ValueError(f"Maximum {MAX_IMAGES_PER_NOTE} images per note")
-
-    # 生成文件名
     filename = _generate_filename(file.filename or "image.png")
-    file_path = image_dir / filename
 
-    # 保存文件
-    with open(file_path, "wb") as f:
-        f.write(content)
+    # mkdir / glob 计数 / 写盘（最多 5MB）都是同步阻塞 FS 调用，在 async
+    # 上传处理器里会阻塞整个事件循环，卸载到线程池执行（R11 同类，R50）。
+    def _persist() -> None:
+        image_dir.mkdir(parents=True, exist_ok=True)
+        # 检查图片数量限制
+        existing_images = list(image_dir.glob("image_*"))
+        if len(existing_images) >= MAX_IMAGES_PER_NOTE:
+            raise ValueError(f"Maximum {MAX_IMAGES_PER_NOTE} images per note")
+        file_path = image_dir / filename
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+    await asyncio.to_thread(_persist)
 
     # 返回 URL 路径
     return f"/api/notes/images/{user_id}/{note_id}/{filename}"
