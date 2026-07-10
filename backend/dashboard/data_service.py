@@ -663,13 +663,15 @@ def _empty_news_payload() -> dict[str, Any]:
     }
 
 
-def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any]:
+def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
     try:
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
         from backend.tools.news import get_company_news, get_market_news_headlines
 
         impact_items: list[Any] = []
         market_items: list[Any] = []
+        impact_ok = False
+        market_ok = False
 
         # Parallel fetch: company news + market headlines
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -678,6 +680,7 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any]:
 
             try:
                 raw_impact = f_impact.result(timeout=30)
+                impact_ok = True
                 if isinstance(raw_impact, list):
                     impact_items = raw_impact
                 elif isinstance(raw_impact, str):
@@ -687,12 +690,19 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any]:
 
             try:
                 raw_market = f_market.result(timeout=30)
+                market_ok = True
                 if isinstance(raw_market, list):
                     market_items = raw_market
                 elif isinstance(raw_market, str):
                     market_items = _parse_news_text(raw_market)
             except (FuturesTimeout, Exception) as exc:
                 logger.warning("[DataService] get_market_news_headlines failed: %s", exc)
+
+        # 两个来源都抛异常（而非都返回空列表）→ 视为 news 管道故障，返回 None。
+        # 此前无论如何都返回空 payload，而 router 只把 None 当失败，导致真实
+        # 故障被当成"高置信度无新闻"、缓存 TTL_NEWS 时长且不标 fallback（R51）。
+        if not impact_ok and not market_ok:
+            return None
 
         market_raw = [_to_news_item(item) for item in market_items[:limit]]
         impact_raw = [_to_news_item(item) for item in impact_items[:limit]]
