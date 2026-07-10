@@ -46,6 +46,7 @@ def get_screener_filter_meta():
             "dividendMoreThan",
         ],
         "source": "fmp_stock_screener",
+        "cn_hk_source": "eastmoney_clist_screener",
     }
 
 

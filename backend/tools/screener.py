@@ -1193,6 +1193,20 @@ def screen_stocks(
     payload_filters = filters if isinstance(filters, dict) else {}
 
     if market_norm in {"CN", "HK"}:
+        # 全市场真实数据（东财免 key，A股 5000+/港股主板）优先；
+        # 上游故障返回 None 时回落既有链（Alpha Vantage/yfinance 15 只热门票/静态演示）
+        from backend.tools.cn_screener import eastmoney_screen_stocks
+
+        em_result = eastmoney_screen_stocks(
+            market=market_norm,
+            filters=payload_filters,
+            limit=limit_norm,
+            page=page_norm,
+            sort_by=sort_key,
+            sort_order=sort_dir,
+        )
+        if em_result is not None:
+            return em_result
         return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
 
     if not FMP_API_KEY:

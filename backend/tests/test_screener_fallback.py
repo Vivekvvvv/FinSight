@@ -62,6 +62,22 @@ for _module_name, _module in _ORIGINAL_MODULES.items():
         sys.modules[_module_name] = _module
 
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _eastmoney_full_market_offline(monkeypatch):
+    """本文件测的是 CN/HK fallback 链（eastmoney_quote / 静态池 / 冷却）。
+
+    screen_stocks 现在优先走 cn_screener 的东财全市场源（调用时 import 真实
+    模块，不受本文件顶部的 sys.modules 假注入控制）；不固定置为 None 的话，
+    境内环境会真连东财返回真数据，直接短路掉 fallback 链的全部断言，且
+    测试结果随网络/文件组合顺序漂移。"""
+    import backend.tools.cn_screener as _cn_screener
+
+    monkeypatch.setattr(_cn_screener, "eastmoney_screen_stocks", lambda **kwargs: None)
+
+
 def _fake_us_fallback(market, filters, limit, sort_by, sort_order):
     return {
         "success": True,

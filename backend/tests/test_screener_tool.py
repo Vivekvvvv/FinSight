@@ -3,6 +3,18 @@ from __future__ import annotations
 
 from backend.tools import screener
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _eastmoney_full_market_offline(monkeypatch):
+    """本文件测 US 静态池与 CN 逐票行情 fallback。screen_stocks 现在优先走
+    东财全市场源（cn_screener），境内会真连网络短路掉次级 fallback 的断言，
+    且结果随文件组合顺序漂移；固定为不可用，让断言确定性覆盖 fallback 链。"""
+    import backend.tools.cn_screener as _cn_screener
+
+    monkeypatch.setattr(_cn_screener, "eastmoney_screen_stocks", lambda **kwargs: None)
+
 
 class _DummyResponse:
     def __init__(self, status_code: int, payload):
