@@ -15,7 +15,8 @@ _EASTMONEY_LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 _EASTMONEY_DATA_CENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 
 
-def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, Any]]:
+def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, Any]] | None:
+    """返回行列表；上游请求失败/非 200/结构异常时返回 None（区别于"真的 0 行"）。"""
     params = {
         "pn": "1",
         "pz": str(max(1, min(int(limit), 200))),
@@ -36,14 +37,27 @@ def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, 
             headers={"User-Agent": _EASTMONEY_USER_AGENT},
         )
         if getattr(resp, "status_code", 0) != 200:
-            return []
+            return None
         payload = resp.json()
         data = payload.get("data") if isinstance(payload, dict) else None
         rows = data.get("diff") if isinstance(data, dict) else None
         return rows if isinstance(rows, list) else []
     except Exception as exc:
         logger.info("cn market board list failed: %s", exc)
-        return []
+        return None
+
+
+def _fetch_failed(source: str) -> dict[str, Any]:
+    # 上游故障不得伪装成 success=True + 0 行（"今日无数据"），否则调用方
+    # （agent/前端）把数据源中断当成真实市况（R52）。保持字段形状兼容。
+    return {
+        "success": False,
+        "error": "eastmoney fetch failed",
+        "items": [],
+        "count": 0,
+        "source": source,
+        "market": "CN",
+    }
 
 
 def fetch_limit_board(*, limit: int = 20) -> dict[str, Any]:
@@ -53,6 +67,8 @@ def fetch_limit_board(*, limit: int = 20) -> dict[str, Any]:
         fields="f12,f14,f2,f3,f8,f10,f62",
         limit=limit,
     )
+    if rows is None:
+        return _fetch_failed("eastmoney_clist")
     items: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -94,6 +110,7 @@ def fetch_lhb(*, limit: int = 20) -> dict[str, Any]:
         "client": "WEB",
     }
     items: list[dict[str, Any]] = []
+    fetch_ok = False
     try:
         resp = _http_get(
             _EASTMONEY_DATA_CENTER_URL,
@@ -103,30 +120,37 @@ def fetch_lhb(*, limit: int = 20) -> dict[str, Any]:
         )
         if getattr(resp, "status_code", 0) == 200:
             payload = resp.json()
-            result = payload.get("result") if isinstance(payload, dict) else None
-            rows = result.get("data") if isinstance(result, dict) else None
-            if isinstance(rows, list):
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    symbol = str(row.get("SECURITY_CODE") or "").strip()
-                    if not symbol:
-                        continue
-                    items.append(
-                        {
-                            "symbol": symbol,
-                            "name": str(row.get("SECURITY_NAME_ABBR") or "").strip() or symbol,
-                            "trade_date": row.get("TRADE_DATE"),
-                            "close_price": safe_float(row.get("CLOSE_PRICE")),
-                            "change_percent": safe_float(row.get("CHANGE_RATE")),
-                            "net_buy": safe_float(row.get("NET_BUY_AMT")),
-                            "buy_amt": safe_float(row.get("BUY_AMT")),
-                            "sell_amt": safe_float(row.get("SELL_AMT")),
-                            "reason": row.get("EXPLAIN"),
-                        }
-                    )
+            if isinstance(payload, dict):
+                # datacenter 接口 200 + dict 载荷视为已应答；result 为空是
+                # 合法的"当日无龙虎榜"（周末/节假日），不算故障。
+                fetch_ok = True
+                result = payload.get("result")
+                rows = result.get("data") if isinstance(result, dict) else None
+                if isinstance(rows, list):
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        symbol = str(row.get("SECURITY_CODE") or "").strip()
+                        if not symbol:
+                            continue
+                        items.append(
+                            {
+                                "symbol": symbol,
+                                "name": str(row.get("SECURITY_NAME_ABBR") or "").strip() or symbol,
+                                "trade_date": row.get("TRADE_DATE"),
+                                "close_price": safe_float(row.get("CLOSE_PRICE")),
+                                "change_percent": safe_float(row.get("CHANGE_RATE")),
+                                "net_buy": safe_float(row.get("NET_BUY_AMT")),
+                                "buy_amt": safe_float(row.get("BUY_AMT")),
+                                "sell_amt": safe_float(row.get("SELL_AMT")),
+                                "reason": row.get("EXPLAIN"),
+                            }
+                        )
     except Exception as exc:
         logger.info("fetch_lhb failed: %s", exc)
+
+    if not fetch_ok:
+        return _fetch_failed("eastmoney_datacenter")
 
     return {
         "success": True,

@@ -14,7 +14,8 @@ _EASTMONEY_TIMEOUT = int(os.getenv("EASTMONEY_TIMEOUT", "12"))
 _EASTMONEY_LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 
 
-def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, Any]]:
+def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, Any]] | None:
+    """返回行列表；上游请求失败/非 200/结构异常时返回 None（区别于"真的 0 行"）。"""
     params = {
         "pn": "1",
         "pz": str(max(1, min(int(limit), 200))),
@@ -35,14 +36,14 @@ def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, 
             headers={"User-Agent": _EASTMONEY_USER_AGENT},
         )
         if getattr(resp, "status_code", 0) != 200:
-            return []
+            return None
         payload = resp.json()
         data = payload.get("data") if isinstance(payload, dict) else None
         rows = data.get("diff") if isinstance(data, dict) else None
         return rows if isinstance(rows, list) else []
     except Exception as exc:
         logger.info("cn market eastmoney list failed: %s", exc)
-        return []
+        return None
 
 
 def _build_symbol(row: dict[str, Any]) -> str:
@@ -57,6 +58,19 @@ def _build_symbol(row: dict[str, Any]) -> str:
     return code
 
 
+def _fetch_failed(source: str) -> dict[str, Any]:
+    # 上游故障不得伪装成 success=True + 0 行（"今日无数据"），否则调用方
+    # （agent/前端）把数据源中断当成真实市况（R52）。保持字段形状兼容。
+    return {
+        "success": False,
+        "error": "eastmoney fetch failed",
+        "items": [],
+        "count": 0,
+        "source": source,
+        "market": "CN",
+    }
+
+
 def fetch_fund_flow(*, limit: int = 20) -> dict[str, Any]:
     """Fetch A-share fund flow list from Eastmoney snapshot endpoint."""
     rows = _eastmoney_list(
@@ -64,6 +78,8 @@ def fetch_fund_flow(*, limit: int = 20) -> dict[str, Any]:
         fields="f12,f13,f14,f2,f3,f62,f184",
         limit=limit,
     )
+    if rows is None:
+        return _fetch_failed("eastmoney_clist")
     items: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -98,6 +114,8 @@ def fetch_northbound(*, limit: int = 20) -> dict[str, Any]:
         fields="f12,f13,f14,f2,f3,f62,f184",
         limit=limit,
     )
+    if rows is None:
+        return _fetch_failed("eastmoney_clist")
     items: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):

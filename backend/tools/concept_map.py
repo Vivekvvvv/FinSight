@@ -29,6 +29,7 @@ def fetch_concept_map(*, keyword: str = "", limit: int = 20) -> dict[str, Any]:
         "fields": "f12,f14,f2,f3,f62,f104,f105",
     }
     rows: list[dict[str, Any]] = []
+    fetch_ok = False
     try:
         resp = _http_get(
             _EASTMONEY_LIST_URL,
@@ -38,12 +39,27 @@ def fetch_concept_map(*, keyword: str = "", limit: int = 20) -> dict[str, Any]:
         )
         if getattr(resp, "status_code", 0) == 200:
             payload = resp.json()
-            data = payload.get("data") if isinstance(payload, dict) else None
-            diff = data.get("diff") if isinstance(data, dict) else None
-            if isinstance(diff, list):
-                rows = [item for item in diff if isinstance(item, dict)]
+            if isinstance(payload, dict):
+                fetch_ok = True
+                data = payload.get("data")
+                diff = data.get("diff") if isinstance(data, dict) else None
+                if isinstance(diff, list):
+                    rows = [item for item in diff if isinstance(item, dict)]
     except Exception as exc:
         logger.info("fetch_concept_map failed: %s", exc)
+
+    # 上游故障不得伪装成 success=True + 0 行（"无相关概念"），否则调用方
+    # 把数据源中断当成真实市况（R52）。保持字段形状兼容。
+    if not fetch_ok:
+        return {
+            "success": False,
+            "error": "eastmoney fetch failed",
+            "keyword": keyword,
+            "items": [],
+            "count": 0,
+            "source": "eastmoney_concept_board",
+            "market": "CN",
+        }
 
     kw = str(keyword or "").strip().lower()
     items: list[dict[str, Any]] = []
