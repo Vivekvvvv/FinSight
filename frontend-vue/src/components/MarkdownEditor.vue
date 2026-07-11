@@ -188,7 +188,7 @@ const previewHtml = computed(() => {
 <template>
   <div class="markdown-editor">
     <!-- 工具栏 -->
-    <div v-if="!readonly" class="toolbar bg-gray-100 border border-gray-300 rounded-t px-2 py-1 flex gap-1">
+    <div v-if="!readonly" class="toolbar">
       <button @click="insertBold" class="toolbar-btn" title="粗体">
         <strong>B</strong>
       </button>
@@ -198,7 +198,7 @@ const previewHtml = computed(() => {
       <button @click="insertHeading" class="toolbar-btn" title="标题">
         H
       </button>
-      <span class="border-l border-gray-400 mx-1"></span>
+      <span class="toolbar-sep"></span>
       <button @click="insertList" class="toolbar-btn" title="列表">
         •
       </button>
@@ -211,12 +211,12 @@ const previewHtml = computed(() => {
       <button @click="insertCodeBlock" class="toolbar-btn" title="代码块">
         { }
       </button>
-      <span class="border-l border-gray-400 mx-1"></span>
+      <span class="toolbar-sep"></span>
       <button @click="triggerImageUpload" class="toolbar-btn" title="上传图片">
         🖼️
       </button>
-      <span class="border-l border-gray-400 mx-1"></span>
-      <button @click="showPreview = !showPreview" class="toolbar-btn" :class="{ 'bg-blue-100': showPreview }" title="预览">
+      <span class="toolbar-sep"></span>
+      <button @click="showPreview = !showPreview" class="toolbar-btn" :class="{ active: showPreview }" title="预览">
         👁️
       </button>
     </div>
@@ -247,10 +247,28 @@ const previewHtml = computed(() => {
   flex-direction: column;
 }
 
+.toolbar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--fin-bg-3);
+  border: 1px solid var(--fin-border);
+  border-radius: 4px 4px 0 0;
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--fin-border);
+}
+
 .toolbar-btn {
   padding: 4px 8px;
-  border: 1px solid #d1d5db;
-  background: white;
+  border: 1px solid var(--fin-border);
+  background: var(--fin-card);
+  color: var(--fin-text);
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
@@ -258,13 +276,18 @@ const previewHtml = computed(() => {
 }
 
 .toolbar-btn:hover {
-  background: #f3f4f6;
+  background: var(--fin-card-soft);
+}
+
+.toolbar-btn.active {
+  background: var(--fin-primary-soft);
+  border-color: var(--fin-primary);
 }
 
 .editor-container {
   display: flex;
   gap: 1px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--fin-border);
   border-top: none;
   border-radius: 0 0 4px 4px;
   min-height: 300px;
@@ -272,7 +295,7 @@ const previewHtml = computed(() => {
 
 .editor-container.split-view .editor-textarea {
   width: 50%;
-  border-right: 1px solid #d1d5db;
+  border-right: 1px solid var(--fin-border);
 }
 
 .editor-textarea {
@@ -280,7 +303,9 @@ const previewHtml = computed(() => {
   padding: 12px;
   border: none;
   outline: none;
-  font-family: 'Consolas', 'Monaco', monospace;
+  background: var(--fin-input);
+  color: var(--fin-text);
+  font-family: var(--fin-mono);
   font-size: 14px;
   line-height: 1.6;
   resize: vertical;
@@ -291,7 +316,8 @@ const previewHtml = computed(() => {
   width: 50%;
   padding: 12px;
   overflow-y: auto;
-  background: #fafafa;
+  background: var(--fin-bg-3);
+  color: var(--fin-text);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -323,10 +349,10 @@ const previewHtml = computed(() => {
 }
 
 .preview-pane :deep(code) {
-  background: #e5e7eb;
+  background: var(--fin-card-inset);
   padding: 2px 4px;
   border-radius: 3px;
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: var(--fin-mono);
 }
 
 .preview-pane :deep(ul) {
@@ -335,7 +361,7 @@ const previewHtml = computed(() => {
 }
 
 .preview-pane :deep(a) {
-  color: #3b82f6;
+  color: var(--fin-primary);
   text-decoration: underline;
 }
 </style>
