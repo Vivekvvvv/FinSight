@@ -295,7 +295,12 @@ async def get_dashboard(
             snapshot = {}
             snapshot_fallback_reason = "snapshot_unavailable"
             fallback_reasons.append(snapshot_fallback_reason)
-        dashboard_cache.set(symbol, "snapshot", snapshot, ttl=dashboard_cache.TTL_SNAPSHOT)
+            # 失败不长缓存空壳（对齐下方 charts 路径）：短 TTL 让下次请求重试，
+            # 否则后续请求把缓存的 {} 当高置信度 cache hit（丢掉 fallback 标记，
+            # confidence 报 0.85）（R57）
+            dashboard_cache.set(symbol, "snapshot", snapshot, ttl=15)
+        else:
+            dashboard_cache.set(symbol, "snapshot", snapshot, ttl=dashboard_cache.TTL_SNAPSHOT)
     else:
         state.debug["cache"]["snapshot"] = True
     _set_meta(
@@ -720,7 +725,10 @@ async def get_dashboard(
             macro_snapshot = {}
             macro_fallback_reason = "macro_snapshot_unavailable"
             fallback_reasons.append(macro_fallback_reason)
-        dashboard_cache.set("__GLOBAL__", "macro_snapshot", macro_snapshot, ttl=dashboard_cache.TTL_MACRO)
+            # 失败短 TTL 重试，不长缓存空壳当高置信度数据（R57）
+            dashboard_cache.set("__GLOBAL__", "macro_snapshot", macro_snapshot, ttl=15)
+        else:
+            dashboard_cache.set("__GLOBAL__", "macro_snapshot", macro_snapshot, ttl=dashboard_cache.TTL_MACRO)
     else:
         state.debug["cache"]["macro_snapshot"] = True
 
