@@ -15,11 +15,22 @@ from typing import Any, Optional
 DEFAULT_DB_PATH = Path("./data/portfolio_risk_snapshots.db")
 
 
+def _connect(db_path: Path | str) -> sqlite3.Connection:
+    # WAL + busy_timeout：读端点由 risk_lens_router 用户触发、写由每日调度器
+    # 触发，裸 sqlite3.connect（rollback journal + 默认 5s 超时）并发时会抛
+    # "database is locked" → 读端点故障（R56）。无读-改-写（save 是 INSERT
+    # OR REPLACE 单语句），故 WAL 让读写并发、busy_timeout 兜底写写等待即可。
+    conn = sqlite3.connect(str(db_path), timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
+
+
 def _ensure_snapshots_table(db_path: Path = DEFAULT_DB_PATH) -> None:
     """确保快照表存在"""
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(str(db_path))
+    conn = _connect(db_path)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -72,7 +83,7 @@ def save_risk_snapshot(
     if snapshot_date is None:
         snapshot_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    conn = sqlite3.connect(str(db_path))
+    conn = _connect(db_path)
     cursor = conn.cursor()
 
     try:
@@ -122,7 +133,7 @@ def get_risk_snapshots_history(
     """
     _ensure_snapshots_table(db_path)
 
-    conn = sqlite3.connect(str(db_path))
+    conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
@@ -168,7 +179,7 @@ def get_latest_snapshot(
     """
     _ensure_snapshots_table(db_path)
 
-    conn = sqlite3.connect(str(db_path))
+    conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
