@@ -5,8 +5,10 @@
 """
 from __future__ import annotations
 
+import functools
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -14,18 +16,30 @@ from typing import Any, Optional
 # 默认数据库路径
 DEFAULT_DB_PATH = Path("./data/portfolio_risk_snapshots.db")
 
+# 进程级串行化：仅 WAL + busy_timeout 不足以在建库并发（多连接同时
+# PRAGMA journal_mode=WAL）+ 多 writer 下消除 "database is locked"（R56 的
+# 加固不完整、全量下 flaky）。用 RLock 串行化全部快照 DB 访问，对齐
+# MonitoringStorage(R55)/portfolio_store；读写量低，串行化无性能影响。
+_lock = threading.RLock()
+
+
+def _synchronized(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with _lock:
+            return func(*args, **kwargs)
+
+    return wrapper
+
 
 def _connect(db_path: Path | str) -> sqlite3.Connection:
-    # WAL + busy_timeout：读端点由 risk_lens_router 用户触发、写由每日调度器
-    # 触发，裸 sqlite3.connect（rollback journal + 默认 5s 超时）并发时会抛
-    # "database is locked" → 读端点故障（R56）。无读-改-写（save 是 INSERT
-    # OR REPLACE 单语句），故 WAL 让读写并发、busy_timeout 兜底写写等待即可。
     conn = sqlite3.connect(str(db_path), timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
+@_synchronized
 def _ensure_snapshots_table(db_path: Path = DEFAULT_DB_PATH) -> None:
     """确保快照表存在"""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +76,7 @@ def _ensure_snapshots_table(db_path: Path = DEFAULT_DB_PATH) -> None:
     conn.close()
 
 
+@_synchronized
 def save_risk_snapshot(
     session_id: str,
     user_id: str,
@@ -114,6 +129,7 @@ def save_risk_snapshot(
         conn.close()
 
 
+@_synchronized
 def get_risk_snapshots_history(
     session_id: str,
     user_id: str,
@@ -162,6 +178,7 @@ def get_risk_snapshots_history(
         conn.close()
 
 
+@_synchronized
 def get_latest_snapshot(
     session_id: str,
     user_id: str,
