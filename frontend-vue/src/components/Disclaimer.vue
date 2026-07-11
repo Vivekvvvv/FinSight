@@ -9,9 +9,9 @@ const props = withDefaults(defineProps<{ variant?: Variant; asOf?: string }>(), 
 });
 
 const STYLE: Record<Variant, { bg: string; border: string; fg: string; label: string }> = {
-  info: { bg: '#fbf8f3', border: '#ece6d8', fg: '#7a6e5d', label: '信息提示' },
-  report: { bg: '#fff8f0', border: '#e9b69f', fg: '#6e4b3a', label: '研究报告免责声明' },
-  action: { bg: '#fff1ea', border: '#f0c4ad', fg: '#7a3f29', label: '执行前提醒' },
+  info: { bg: 'var(--fin-card-soft)', border: 'var(--fin-border)', fg: 'var(--fin-text-2)', label: '信息提示' },
+  report: { bg: 'var(--fin-primary-soft)', border: 'var(--fin-border-strong)', fg: 'var(--fin-primary-deep)', label: '研究报告免责声明' },
+  action: { bg: 'var(--fin-warning-soft)', border: 'var(--fin-warning)', fg: 'var(--fin-warning)', label: '执行前提醒' },
 };
 
 const BODY =

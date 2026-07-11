@@ -86,8 +86,8 @@ onUnmounted(() => {
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid #1890ff;
+  border: 3px solid var(--fin-border);
+  border-top: 3px solid var(--fin-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -99,7 +99,7 @@ onUnmounted(() => {
 
 .loading-text {
   margin: 0;
-  color: #666;
+  color: var(--fin-muted);
   font-size: 14px;
   font-weight: 500;
 }

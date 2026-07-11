@@ -100,7 +100,7 @@ const emit = defineEmits<{
 .primary {
   border: 1px solid var(--fin-primary);
   background: var(--fin-primary);
-  color: #111827;
+  color: #fff;
 }
 
 .secondary {

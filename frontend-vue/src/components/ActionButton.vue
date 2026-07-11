@@ -62,7 +62,7 @@ function handleClick(event: MouseEvent): void {
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -79,7 +79,7 @@ function handleClick(event: MouseEvent): void {
 
 .is-primary {
   background: var(--fin-primary);
-  color: #111827;
+  color: #fff;
 }
 
 .is-secondary {
