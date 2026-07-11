@@ -365,7 +365,8 @@ def fetch_segment_mix(symbol: str) -> list[dict[str, Any]]:
             }
             for row in rows
         ]
-    except Exception:
+    except Exception as exc:
+        logger.warning("[DataService] fetch_segment_mix failed for %s: %s", symbol, exc)
         return []
 
 
@@ -733,7 +734,8 @@ def fetch_sector_weights(symbol: str, asset_type: str) -> list[dict[str, Any]]:
             {"name": row.get("sector", "Unknown"), "weight": row.get("weight", 0) / 100}
             for row in rows
         ]
-    except Exception:
+    except Exception as exc:
+        logger.warning("[DataService] fetch_sector_weights failed for %s: %s", symbol, exc)
         return []
 
 
@@ -754,7 +756,8 @@ def fetch_top_constituents(symbol: str, asset_type: str, limit: int = 10) -> lis
             }
             for row in rows[:limit]
         ]
-    except Exception:
+    except Exception as exc:
+        logger.warning("[DataService] fetch_top_constituents failed for %s: %s", symbol, exc)
         return []
 
 
@@ -777,7 +780,8 @@ def fetch_holdings(symbol: str, asset_type: str, limit: int = 50) -> list[dict[s
             }
             for row in rows[:limit]
         ]
-    except Exception:
+    except Exception as exc:
+        logger.warning("[DataService] fetch_holdings failed for %s: %s", symbol, exc)
         return []
 
 
