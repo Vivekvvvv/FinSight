@@ -511,7 +511,11 @@ def _parse_rss_items(
         if not dt:
             continue
         if dt.tzinfo:
-            dt = dt.astimezone(tz=None).replace(tzinfo=None)
+            # 归一到 UTC（naive），与 now 的 naive-UTC 基准一致。此前用
+            # astimezone(tz=None) 转成服务器本地时区：非 UTC 部署（如中国
+            # UTC+8）下 now-dt 偏移一个时区，48h 窗口漏进约 8h 更老的文章，
+            # 且 date_str 与 Finnhub 路径（UTC）不一致（R54）。
+            dt = dt.astimezone(UTC).replace(tzinfo=None)
 
         if (now - dt) > timedelta(days=max_age_days):
             continue
