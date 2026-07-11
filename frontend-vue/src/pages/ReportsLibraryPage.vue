@@ -62,10 +62,10 @@ const REVIEW_OPTIONS = [
 ];
 
 const REVIEW_LABELS: Record<string, { label: string; color: string }> = {
-  new:      { label: '未读',   color: '#3b82f6' },
-  reviewed: { label: '已复查', color: '#27ae60' },
-  watch:    { label: '关注',   color: '#d97706' },
-  archived: { label: '归档',   color: '#8c887e' },
+  new:      { label: '未读',   color: 'var(--fin-accent)' },
+  reviewed: { label: '已复查', color: 'var(--fin-success)' },
+  watch:    { label: '关注',   color: 'var(--fin-warning)' },
+  archived: { label: '归档',   color: 'var(--fin-muted)' },
 };
 
 // ── 标签聚合 ─────────────────────────────────────────────────
@@ -605,7 +605,7 @@ watch(displayed, () => {
             <span
               v-if="r.review_status"
               class="review-badge"
-              :style="{ background: (REVIEW_LABELS[r.review_status]?.color || '#8c887e') + '20', color: REVIEW_LABELS[r.review_status]?.color || '#8c887e' }"
+              :style="{ background: `color-mix(in srgb, ${REVIEW_LABELS[r.review_status]?.color || 'var(--fin-muted)'} 13%, transparent)`, color: REVIEW_LABELS[r.review_status]?.color || 'var(--fin-muted)' }"
             >{{ REVIEW_LABELS[r.review_status]?.label }}</span>
             <h3 class="report-title">{{ r.title || '(无标题)' }}</h3>
             <span v-if="r.citation_count" class="cite-badge">引用 {{ r.citation_count }}</span>
@@ -698,7 +698,7 @@ watch(displayed, () => {
               <span v-if="sidebarItem.ticker" class="sidebar-ticker">{{ sidebarItem.ticker }}</span>
               <span v-if="sidebarItem.analysis_depth" class="depth-badge">{{ sidebarItem.analysis_depth }}</span>
               <span v-if="sidebarItem.review_status" class="review-badge"
-                :style="{ background: (REVIEW_LABELS[sidebarItem.review_status]?.color || '#8c887e') + '20', color: REVIEW_LABELS[sidebarItem.review_status]?.color || '#8c887e' }">
+                :style="{ background: `color-mix(in srgb, ${REVIEW_LABELS[sidebarItem.review_status]?.color || 'var(--fin-muted)'} 13%, transparent)`, color: REVIEW_LABELS[sidebarItem.review_status]?.color || 'var(--fin-muted)' }">
                 {{ REVIEW_LABELS[sidebarItem.review_status]?.label }}
               </span>
             </div>
@@ -838,8 +838,8 @@ watch(displayed, () => {
 .cr-meta { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .cr-report { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--fin-bg); border-radius: 8px; }
 .cr-ab { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0; }
-.cr-ab.a { background: #3b82f6; }
-.cr-ab.b { background: #cc785c; }
+.cr-ab.a { background: var(--fin-accent); }
+.cr-ab.b { background: var(--fin-primary); }
 .cr-rname { font-size: 13px; font-weight: 600; color: var(--fin-text); }
 .cr-date { font-size: 12px; color: var(--fin-muted); }
 .cr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -848,8 +848,8 @@ watch(displayed, () => {
 .diff-label { font-size: 11px; font-weight: 700; color: var(--fin-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
 .diff-vals { display: flex; gap: 10px; font-size: 13px; align-items: center; flex-wrap: wrap; }
 .diff-vals.small { font-size: 12px; }
-.pos { color: #27ae60; font-weight: 700; }
-.neg { color: #e74c3c; font-weight: 700; }
+.pos { color: var(--fin-success); font-weight: 700; }
+.neg { color: var(--fin-danger); font-weight: 700; }
 .arrow { color: var(--fin-muted); }
 .changed { font-weight: 700; color: var(--fin-primary); }
 .diff-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
@@ -858,8 +858,8 @@ watch(displayed, () => {
 .risk-group { display: flex; flex-direction: column; gap: 4px; }
 .rg-label { font-size: 11px; font-weight: 700; margin-bottom: 2px; }
 .risk-item { font-size: 12px; padding: 3px 8px; border-radius: 4px; line-height: 1.4; }
-.risk-item.neg { background: #fff1f0; color: #cf1322; }
-.risk-item.pos { background: #f0faf4; color: #2d7d46; }
+.risk-item.neg { background: var(--fin-danger-soft); color: var(--fin-danger); }
+.risk-item.pos { background: var(--fin-success-soft); color: var(--fin-success); }
 
 /* ── 工具栏 ── */
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -962,11 +962,11 @@ watch(displayed, () => {
 .report-card.selected-compare { border-color: var(--fin-primary); background: var(--fin-primary-soft); }
 
 .compare-badge { position: absolute; top: -8px; left: 14px; font-size: 11px; font-weight: 800; color: #fff; padding: 1px 8px; border-radius: 10px; }
-.compare-badge.a { background: #3b82f6; }
-.compare-badge.b { background: #cc785c; }
+.compare-badge.a { background: var(--fin-accent); }
+.compare-badge.b { background: var(--fin-primary); }
 
 .card-left { display: flex; flex-direction: column; align-items: center; gap: 8px; flex-shrink: 0; }
-.star { border: none; background: transparent; font-size: 20px; cursor: pointer; color: #bfb6a3; padding: 0; transition: transform 0.15s; }
+.star { border: none; background: transparent; font-size: 20px; cursor: pointer; color: var(--fin-muted); padding: 0; transition: transform 0.15s; }
 .star:hover { transform: scale(1.2); }
 .star.on { color: var(--fin-primary); }
 
@@ -974,18 +974,18 @@ watch(displayed, () => {
 
 .report-row1 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .report-ticker { font-size: 12px; font-weight: 700; color: var(--fin-primary); background: var(--fin-primary-soft); padding: 2px 8px; border-radius: 6px; }
-.depth-badge { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: #f3eee3; color: var(--fin-muted); text-transform: uppercase; }
-.quality-pass { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: #e6f4ec; color: #2d7d46; font-weight: 700; }
-.quality-block { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: #fce4e4; color: #c44545; font-weight: 700; }
+.depth-badge { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: var(--fin-card-soft); color: var(--fin-muted); text-transform: uppercase; }
+.quality-pass { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: var(--fin-success-soft); color: var(--fin-success); font-weight: 700; }
+.quality-block { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: var(--fin-danger-soft); color: var(--fin-danger); font-weight: 700; }
 .review-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px; }
 .report-title { font-size: 14px; font-weight: 600; color: var(--fin-text); margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.cite-badge { font-size: 11px; padding: 2px 7px; border-radius: 20px; background: #f3eee3; color: var(--fin-muted); white-space: nowrap; flex-shrink: 0; }
+.cite-badge { font-size: 11px; padding: 2px 7px; border-radius: 20px; background: var(--fin-card-soft); color: var(--fin-muted); white-space: nowrap; flex-shrink: 0; }
 
 .report-summary { font-size: 13px; color: var(--fin-text-2); margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.6; }
 .report-evidence { margin-top: 2px; }
 
 .report-tags { display: flex; gap: 5px; flex-wrap: wrap; }
-.tag-pill { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: #f0f0f0; color: var(--fin-text-2); cursor: pointer; transition: background 0.15s; }
+.tag-pill { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--fin-card-soft); color: var(--fin-text-2); cursor: pointer; transition: background 0.15s; }
 .tag-pill:hover { background: var(--fin-primary-soft); color: var(--fin-primary); }
 
 .report-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -1071,9 +1071,9 @@ watch(displayed, () => {
 .quality-section {
   margin-bottom: 1.5rem;
   padding: 1.5rem;
-  background: #fff;
+  background: var(--fin-card);
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--fin-border);
 }
 
 .quality-header {
@@ -1086,23 +1086,23 @@ watch(displayed, () => {
 .quality-title {
   font-size: 1.125rem;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--fin-text);
   margin: 0;
 }
 
 .btn-toggle {
   padding: 0.25rem 0.75rem;
-  background: #f3f4f6;
+  background: var(--fin-card-soft);
   border: none;
   border-radius: 4px;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--fin-muted);
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .btn-toggle:hover {
-  background: #e5e7eb;
+  background: var(--fin-card-inset);
 }
 
 .quality-collapsed {
@@ -1112,18 +1112,18 @@ watch(displayed, () => {
 .btn-expand {
   width: 100%;
   padding: 1rem;
-  background: #f9fafb;
-  border: 1px dashed #d1d5db;
+  background: var(--fin-bg-3);
+  border: 1px dashed var(--fin-border);
   border-radius: 8px;
   font-size: 0.9375rem;
   font-weight: 500;
-  color: #4b5563;
+  color: var(--fin-text-2);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-expand:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
+  background: var(--fin-card-soft);
+  border-color: var(--fin-border-strong);
 }
 </style>

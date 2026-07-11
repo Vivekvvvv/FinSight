@@ -493,12 +493,12 @@ watch(() => identity.sessionId, () => { void refresh(); });
 /* 汇总 */
 .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .summary-card { padding: 20px; background: var(--fin-card); border: 1.5px solid var(--fin-border); border-radius: 12px; }
-.summary-card.gain { border-color: #27ae60; background: #f0faf4; }
-.summary-card.loss { border-color: #e74c3c; background: #fff4f4; }
+.summary-card.gain { border-color: var(--fin-success); background: var(--fin-success-soft); }
+.summary-card.loss { border-color: var(--fin-danger); background: var(--fin-danger-soft); }
 .summary-label { font-size: 12px; color: var(--fin-muted); margin-bottom: 8px; font-weight: 600; }
 .summary-value { font-size: 22px; font-weight: 700; color: var(--fin-text); }
-.summary-card.gain .summary-value { color: #27ae60; }
-.summary-card.loss .summary-value { color: #e74c3c; }
+.summary-card.gain .summary-value { color: var(--fin-success); }
+.summary-card.loss .summary-value { color: var(--fin-danger); }
 .pnl-pct { font-size: 14px; font-weight: 600; }
 
 .tool-panel { padding: 18px; background: var(--fin-card); border: 1.5px solid var(--fin-border); border-radius: 12px; }
@@ -573,7 +573,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
 
 /* Modal */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
-.modal { background: var(--fin-bg, #f7f6f4); border-radius: 8px; padding: 22px; width: min(560px, 100%); max-height: min(88vh, 720px); overflow-y: auto; box-shadow: 0 8px 40px rgba(0,0,0,0.15); }
+.modal { background: var(--fin-card); border-radius: 8px; padding: 22px; width: min(560px, 100%); max-height: min(88vh, 720px); overflow-y: auto; box-shadow: var(--fin-shadow); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .modal-title { font-size: 18px; font-weight: 700; margin: 0; }
 .modal-close { width: 34px; height: 34px; border: 1px solid var(--fin-border); border-radius: 8px; background: var(--fin-card); font-size: 18px; cursor: pointer; color: var(--fin-muted); }
@@ -585,12 +585,12 @@ watch(() => identity.sessionId, () => { void refresh(); });
 .csv-area { width: 100%; box-sizing: border-box; padding: 10px; border: 1.5px solid var(--fin-border); border-radius: 8px; font-size: 13px; font-family: monospace; background: var(--fin-card); resize: vertical; margin-bottom: 14px; }
 .preview { margin-top: 16px; }
 .preview-stat { font-size: 13px; margin: 0 0 10px; }
-.ok { color: var(--fin-success, #2d7d46); }
+.ok { color: var(--fin-success); }
 .fail { color: var(--fin-danger); }
 .preview-list { list-style: none; padding: 0; margin: 0 0 16px; max-height: 180px; overflow-y: auto; }
 .preview-list li { font-size: 12px; padding: 4px 8px; border-radius: 6px; margin-bottom: 4px; }
-.row-ok { background: #f0faf4; color: #2d7d46; }
-.row-err { background: #fff4f4; color: var(--fin-danger); }
+.row-ok { background: var(--fin-success-soft); color: var(--fin-success); }
+.row-err { background: var(--fin-danger-soft); color: var(--fin-danger); }
 .modal-actions { display: flex; gap: 10px; }
 
 @media (max-width: 768px) {
