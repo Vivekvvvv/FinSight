@@ -33,14 +33,14 @@ const filteredEvents = computed(() => {
   return props.events.filter(e => e.event_type === selectedType.value);
 });
 
-// 严重度颜色
+// 严重度颜色（走主题 token，随明暗切换）
 function getSeverityColor(severity: string): string {
   switch (severity) {
-    case 'critical': return '#dc2626'; // red-600
-    case 'high': return '#ea580c'; // orange-600
-    case 'medium': return '#d97706'; // amber-600
-    case 'low': return '#65a30d'; // lime-600
-    default: return '#6b7280'; // gray-500
+    case 'critical': return 'var(--fin-danger)';
+    case 'high': return 'var(--fin-primary)';
+    case 'medium': return 'var(--fin-warning)';
+    case 'low': return 'var(--fin-success)';
+    default: return 'var(--fin-muted)';
   }
 }
 
@@ -220,17 +220,17 @@ function getQualityBadgeLabel(badge: string): string {
   gap: 8px;
   margin-bottom: 24px;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--fin-card-soft);
   border-radius: 12px;
-  border: 1px solid rgba(31, 79, 114, 0.1);
+  border: 1px solid var(--fin-border);
 }
 
 .filter-btn {
   padding: 6px 14px;
-  border: 1px solid #d7dde6;
+  border: 1px solid var(--fin-border);
   border-radius: 999px;
-  background: #fff;
-  color: #536171;
+  background: var(--fin-card);
+  color: var(--fin-text-2);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -238,29 +238,29 @@ function getQualityBadgeLabel(badge: string): string {
 }
 
 .filter-btn:hover {
-  border-color: #1f4f72;
-  background: #f0f4f8;
+  border-color: var(--fin-primary);
+  background: var(--fin-primary-soft);
 }
 
 .filter-btn.active {
-  border-color: #1f4f72;
-  background: #1f4f72;
-  color: white;
+  border-color: var(--fin-primary);
+  background: var(--fin-primary);
+  color: #fff;
 }
 
 .loading-state,
 .empty-state {
   padding: 60px 20px;
   text-align: center;
-  color: #6b7280;
+  color: var(--fin-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
   margin: 0 auto 16px;
-  border: 3px solid #e5e7eb;
-  border-top-color: #1f4f72;
+  border: 3px solid var(--fin-border);
+  border-top-color: var(--fin-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -278,14 +278,14 @@ function getQualityBadgeLabel(badge: string): string {
   margin: 0 0 8px;
   font-size: 18px;
   font-weight: 800;
-  color: #1f2933;
+  color: var(--fin-text);
 }
 
 .empty-state p {
   max-width: 400px;
   margin: 0 auto;
   font-size: 14px;
-  color: #64748b;
+  color: var(--fin-muted);
 }
 
 .timeline-list {
@@ -316,8 +316,8 @@ function getQualityBadgeLabel(badge: string): string {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 3px solid #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 3px solid var(--fin-card);
+  box-shadow: var(--fin-shadow);
   z-index: 2;
 }
 
@@ -326,7 +326,7 @@ function getQualityBadgeLabel(badge: string): string {
   top: 12px;
   width: 2px;
   height: calc(100% + 24px);
-  background: linear-gradient(to bottom, #d1d5db 0%, #e5e7eb 100%);
+  background: var(--fin-border);
   z-index: 1;
 }
 
@@ -337,15 +337,15 @@ function getQualityBadgeLabel(badge: string): string {
 .event-card {
   flex: 1;
   padding: 16px 18px;
-  background: #fff;
-  border-left: 4px solid #1f4f72;
+  background: var(--fin-card);
+  border-left: 4px solid var(--fin-primary);
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(31, 41, 55, 0.08);
+  box-shadow: var(--fin-shadow);
   transition: all 0.2s;
 }
 
 .timeline-item.clickable .event-card:hover {
-  box-shadow: 0 4px 16px rgba(31, 41, 55, 0.15);
+  box-shadow: var(--fin-shadow);
   transform: translateY(-2px);
 }
 
@@ -363,21 +363,21 @@ function getQualityBadgeLabel(badge: string): string {
 .event-time {
   font-size: 12px;
   font-weight: 700;
-  color: #6b7280;
+  color: var(--fin-muted);
 }
 
 .event-title {
   margin: 0 0 8px;
   font-size: 15px;
   font-weight: 800;
-  color: #1f2933;
+  color: var(--fin-text);
   line-height: 1.4;
 }
 
 .event-summary {
   margin: 0 0 12px;
   font-size: 13px;
-  color: #546171;
+  color: var(--fin-text-2);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -402,23 +402,23 @@ function getQualityBadgeLabel(badge: string): string {
 }
 
 .quality-badge.blocked {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--fin-danger-soft);
+  color: var(--fin-danger);
 }
 
 .quality-badge.warning {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--fin-warning-soft);
+  color: var(--fin-warning);
 }
 
 .quality-badge.stale {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--fin-accent-soft);
+  color: var(--fin-accent);
 }
 
 .quality-badge.low-confidence {
-  background: #fef3c7;
-  color: #78350f;
+  background: var(--fin-warning-soft);
+  color: var(--fin-warning);
 }
 
 .evidence-info {
@@ -427,13 +427,13 @@ function getQualityBadgeLabel(badge: string): string {
   gap: 12px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--fin-border);
 }
 
 .evidence-item {
   font-size: 12px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--fin-muted);
 }
 
 @media (max-width: 640px) {

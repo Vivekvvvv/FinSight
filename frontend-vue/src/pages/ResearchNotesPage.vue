@@ -314,10 +314,8 @@ watch(() => identity.sessionId, () => { void refresh(); });
 .notes-page {
   min-height: 100vh;
   padding: 28px;
-  background:
-    radial-gradient(circle at 12% 8%, rgba(35, 88, 166, 0.14), transparent 28%),
-    linear-gradient(135deg, #f7f4ec 0%, #edf3f1 52%, #e9eef7 100%);
-  color: #1f2933;
+  background: var(--fin-bg);
+  color: var(--fin-text);
 }
 
 .hero {
@@ -331,7 +329,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
 .eyebrow,
 .editor-kicker {
   margin: 0 0 6px;
-  color: #6f7c8e;
+  color: var(--fin-primary);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -346,7 +344,7 @@ h2 {
 .subtitle {
   max-width: 760px;
   margin: 10px 0 0;
-  color: #5f6b7a;
+  color: var(--fin-text-2);
 }
 
 .hero-actions,
@@ -364,10 +362,10 @@ h2 {
 
 .notes-list,
 .editor-panel {
-  border: 1px solid rgba(43, 54, 70, 0.12);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 22px 70px rgba(31, 41, 55, 0.10);
+  border: 1px solid var(--fin-border);
+  border-radius: var(--fin-radius-lg);
+  background: var(--fin-card);
+  box-shadow: var(--fin-shadow);
 }
 
 .notes-list {
@@ -389,11 +387,11 @@ h2 {
 .input {
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid #d7dde6;
+  border: 1px solid var(--fin-border);
   border-radius: 12px;
   padding: 10px 12px;
-  background: #fff;
-  color: #1f2933;
+  background: var(--fin-input);
+  color: var(--fin-text);
 }
 
 .filter-btn,
@@ -408,19 +406,19 @@ h2 {
 }
 
 .primary-btn {
-  background: #1f4f72;
-  color: white;
+  background: var(--fin-primary);
+  color: #fff;
 }
 
 .secondary-btn,
 .filter-btn {
-  background: #edf2f7;
-  color: #263747;
+  background: var(--fin-card-soft);
+  color: var(--fin-text-2);
 }
 
 .danger-btn {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--fin-danger-soft);
+  color: var(--fin-danger);
 }
 
 button:disabled {
@@ -431,22 +429,22 @@ button:disabled {
 .note-card {
   width: 100%;
   margin-bottom: 10px;
-  border: 1px solid rgba(31, 79, 114, 0.12);
+  border: 1px solid var(--fin-border);
   border-radius: 16px;
   padding: 12px;
-  background: #fff;
+  background: var(--fin-card);
   text-align: left;
   cursor: pointer;
 }
 
 .note-card.active {
-  border-color: #1f4f72;
-  box-shadow: inset 4px 0 0 #1f4f72;
+  border-color: var(--fin-primary);
+  box-shadow: inset 4px 0 0 var(--fin-primary);
 }
 
 .note-card-title {
   font-weight: 900;
-  color: #172333;
+  color: var(--fin-text);
 }
 
 .note-card-meta,
@@ -455,7 +453,7 @@ button:disabled {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
-  color: #6b7280;
+  color: var(--fin-muted);
   font-size: 12px;
 }
 
@@ -463,31 +461,31 @@ button:disabled {
 .tag {
   border-radius: 999px;
   padding: 2px 8px;
-  background: #e7f0f7;
-  color: #1f4f72;
+  background: var(--fin-primary-soft);
+  color: var(--fin-primary-deep);
   font-weight: 800;
 }
 
 .tag {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: var(--fin-card-soft);
+  color: var(--fin-text-2);
 }
 
 .note-snippet {
   display: -webkit-box;
   margin: 10px 0 0;
   overflow: hidden;
-  color: #546171;
+  color: var(--fin-text-2);
   font-size: 13px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
 .empty {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--fin-border);
   border-radius: 16px;
   padding: 22px;
-  color: #64748b;
+  color: var(--fin-muted);
   text-align: center;
 }
 
@@ -509,7 +507,7 @@ button:disabled {
 .field {
   display: grid;
   gap: 6px;
-  color: #536171;
+  color: var(--fin-text-2);
   font-size: 13px;
   font-weight: 800;
 }
@@ -526,17 +524,17 @@ button:disabled {
 }
 
 .message.error {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--fin-danger-soft);
+  color: var(--fin-danger);
 }
 
 .message.success {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--fin-success-soft);
+  color: var(--fin-success);
 }
 
 .hint {
-  color: #6b7280;
+  color: var(--fin-muted);
   font-size: 12px;
 }
 
