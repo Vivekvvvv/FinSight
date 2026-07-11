@@ -796,7 +796,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                     logger.warning("RAG 鍙娴嬪啓鍏ュけ璐?method=%s error=%s", method_name, exc)
                     return None
 
-            _store_call("ensure_schema")
+            await asyncio.to_thread(_store_call, "ensure_schema")
 
             def _append_rag_event(event_type: str, stage: str, payload: dict[str, Any] | list[Any] | str) -> None:
                 if not rag_run_id:
@@ -813,7 +813,8 @@ async def execute_plan_stub(state: GraphState) -> dict:
                     )
                 )
 
-            _store_call(
+            await asyncio.to_thread(
+                _store_call,
                 "start_query_run",
                 QueryRunRecord(
                     id=rag_run_id,
@@ -1044,8 +1045,8 @@ async def execute_plan_stub(state: GraphState) -> dict:
                         )
                     )
 
-            _store_call("append_source_docs", source_doc_records)
-            _store_call("append_chunks", chunk_records)
+            await asyncio.to_thread(_store_call, "append_source_docs", source_doc_records)
+            await asyncio.to_thread(_store_call, "append_chunks", chunk_records)
             _append_rag_event("source_doc_created", "source_docs", {"source_doc_count": len(source_doc_records)})
             _append_rag_event("chunk_created", "chunking", {"chunk_count": len(chunk_records)})
 
@@ -1141,7 +1142,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                             },
                         )
                     )
-                _store_call("append_retrieval_hits", retrieval_records)
+                await asyncio.to_thread(_store_call, "append_retrieval_hits", retrieval_records)
                 _append_rag_event(
                     "retrieval_done",
                     "retrieval",
@@ -1173,7 +1174,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                             },
                         )
                     )
-                _store_call("append_rerank_hits", rerank_records)
+                await asyncio.to_thread(_store_call, "append_rerank_hits", rerank_records)
                 _append_rag_event(
                     "rerank_done",
                     "rerank",
@@ -1319,11 +1320,11 @@ async def execute_plan_stub(state: GraphState) -> dict:
     finally:
         if rag_run_id:
             if rag_event_records:
-                _store_call("append_query_events", rag_event_records)
+                await asyncio.to_thread(_store_call, "append_query_events", rag_event_records)
             for fallback_record in rag_fallback_records:
-                _store_call("append_fallback_event", fallback_record)
+                await asyncio.to_thread(_store_call, "append_fallback_event", fallback_record)
             if rag_final_update:
-                _store_call("update_query_run", rag_run_id, **rag_final_update)
+                await asyncio.to_thread(_store_call, "update_query_run", rag_run_id, **rag_final_update)
     trace.update(
         {
             "executor": {
