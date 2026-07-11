@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,19 @@ logger = logging.getLogger(__name__)
 
 # 数据库路径（项目根目录/data/monitoring.db）
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "monitoring.db"
+
+# 进程级串行化 + WAL/超时，对齐 portfolio_store 的并发安全模式。
+# get_storage() 是进程单例：写（/api/system/health）与读（trend/stats 端点）
+# 并发时，裸 sqlite3.connect（rollback journal + 默认 5s 超时、无锁）会抛
+# "database is locked"，而读端点无 try/except → 直接 HTTP 500（R55）。
+_lock = threading.RLock()
+
+
+def _connect(db_path: Path | str) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path), timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
 
 
 class MonitoringStorage:
@@ -32,7 +46,7 @@ class MonitoringStorage:
 
     def _init_database(self) -> None:
         """初始化数据库表结构"""
-        with sqlite3.connect(self.db_path) as conn:
+        with _lock, _connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS health_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,7 +101,7 @@ class MonitoringStorage:
         """
         timestamp = datetime.utcnow().isoformat()
 
-        with sqlite3.connect(self.db_path) as conn:
+        with _lock, _connect(self.db_path) as conn:
             for source_name, data in sources.items():
                 conn.execute("""
                     INSERT INTO health_records (
@@ -140,7 +154,7 @@ class MonitoringStorage:
         """
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
-        with sqlite3.connect(self.db_path) as conn:
+        with _lock, _connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             if source_name:
@@ -195,7 +209,7 @@ class MonitoringStorage:
         """
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
-        with sqlite3.connect(self.db_path) as conn:
+        with _lock, _connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT
@@ -227,7 +241,7 @@ class MonitoringStorage:
         """
         cutoff = (datetime.utcnow() - timedelta(days=keep_days)).isoformat()
 
-        with sqlite3.connect(self.db_path) as conn:
+        with _lock, _connect(self.db_path) as conn:
             cursor = conn.execute("""
                 DELETE FROM health_records
                 WHERE timestamp < ?
@@ -251,7 +265,7 @@ class MonitoringStorage:
             >>> stats = storage.get_stats()
             >>> print(f"总记录数: {stats['total_records']}")
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with _lock, _connect(self.db_path) as conn:
             cursor = conn.execute("""
                 SELECT
                     COUNT(*) as total_records,
