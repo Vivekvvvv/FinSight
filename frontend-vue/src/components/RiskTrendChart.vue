@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import VChart from 'vue-echarts';
 import type { EChartsOption } from 'echarts';
 import type { RiskSnapshot } from '@/api/types';
+import { useThemeStore } from '@/stores/theme';
 
 interface Props {
   snapshots: RiskSnapshot[];
@@ -13,10 +14,27 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   label: '风险评分',
-  color: '#ef4444',
+  color: '',
 });
 
+const theme = useThemeStore();
+
+/** 读取当前主题下的 CSS 变量实际值（echarts 在 canvas 里画，吃不到 CSS 变量，
+ *  必须解析成具体色值；依赖 theme.resolved 使切换主题时重新计算）。 */
+function cssVar(name: string, fallback: string): string {
+  if (typeof window === 'undefined') return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
 const chartOption = computed<EChartsOption>(() => {
+  // 触达 theme.resolved 建立响应依赖：主题切换 → 重算轴线/网格/线色
+  const _themeKey = theme.resolved;
+  const axisColor = cssVar('--fin-chart-axis', '#8c887e');
+  const gridColor = cssVar('--fin-chart-grid', 'rgba(28,25,23,0.08)');
+  const seriesColor = props.color || cssVar('--fin-danger', '#d1493f');
+  const tooltipBg = cssVar('--fin-text-2', '#5a5751');
+
   const labels = props.snapshots.map((s) => {
     const date = new Date(s.snapshot_date);
     return `${date.getMonth() + 1}/${date.getDate()}`;
@@ -33,7 +51,7 @@ const chartOption = computed<EChartsOption>(() => {
       axisPointer: {
         type: 'cross',
         label: {
-          backgroundColor: '#6a7985',
+          backgroundColor: tooltipBg,
         },
       },
     },
@@ -50,11 +68,11 @@ const chartOption = computed<EChartsOption>(() => {
       data: labels,
       axisLine: {
         lineStyle: {
-          color: '#e5e7eb',
+          color: gridColor,
         },
       },
       axisLabel: {
-        color: '#6b7280',
+        color: axisColor,
         fontSize: 11,
       },
     },
@@ -67,12 +85,12 @@ const chartOption = computed<EChartsOption>(() => {
         show: false,
       },
       axisLabel: {
-        color: '#6b7280',
+        color: axisColor,
         fontSize: 11,
       },
       splitLine: {
         lineStyle: {
-          color: '#f3f4f6',
+          color: gridColor,
         },
       },
     },
@@ -86,10 +104,10 @@ const chartOption = computed<EChartsOption>(() => {
         symbolSize: 6,
         lineStyle: {
           width: 2,
-          color: props.color,
+          color: seriesColor,
         },
         itemStyle: {
-          color: props.color,
+          color: seriesColor,
         },
         areaStyle: {
           color: {
@@ -101,11 +119,11 @@ const chartOption = computed<EChartsOption>(() => {
             colorStops: [
               {
                 offset: 0,
-                color: props.color + '40',
+                color: seriesColor + '40',
               },
               {
                 offset: 1,
-                color: props.color + '10',
+                color: seriesColor + '10',
               },
             ],
           },
@@ -120,7 +138,7 @@ const chartOption = computed<EChartsOption>(() => {
 <template>
   <div class="risk-trend-chart">
     <VChart v-if="snapshots.length > 0" :option="chartOption" autoresize style="height: 220px" />
-    <div v-else class="text-gray-500 text-center py-12 text-sm">
+    <div v-else class="risk-trend-empty">
       暂无历史数据
     </div>
   </div>
@@ -129,5 +147,11 @@ const chartOption = computed<EChartsOption>(() => {
 <style scoped>
 .risk-trend-chart {
   width: 100%;
+}
+.risk-trend-empty {
+  text-align: center;
+  padding: 48px 0;
+  font-size: 13px;
+  color: var(--fin-muted);
 }
 </style>

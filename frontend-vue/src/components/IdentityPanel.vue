@@ -118,8 +118,8 @@ async function handleLogout() {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 6px;
-  background: #fff4e6;
-  color: #d46b08;
+  background: var(--fin-warning-soft);
+  color: var(--fin-warning);
 }
 
 .btn-logout {

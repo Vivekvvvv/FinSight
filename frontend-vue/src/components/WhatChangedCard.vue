@@ -11,8 +11,8 @@ const router = useRouter();
 
 const severityColor = computed(() => {
   const mapping: Record<string, string> = {
-    critical: '#dc2626',
-    high: '#dc2626',
+    critical: 'var(--fin-danger)',
+    high: 'var(--fin-danger)',
     medium: 'var(--fin-primary)',
     low: 'var(--fin-success)',
   };

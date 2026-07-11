@@ -315,7 +315,6 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   flex-direction: column;
   gap: 18px;
   background: color-mix(in srgb, var(--fin-bg) 90%, transparent);
-  backdrop-filter: blur(24px);
   overflow: hidden;
 }
 
@@ -583,7 +582,6 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   top: 0;
   z-index: 20;
   background: color-mix(in srgb, var(--fin-bg) 92%, transparent);
-  backdrop-filter: blur(20px);
 }
 
 .route-title {
@@ -785,7 +783,6 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
     right: 0;
     z-index: 70;
     background: color-mix(in srgb, var(--fin-bg) 95%, transparent);
-    backdrop-filter: blur(20px);
     border-top: 1px solid var(--fin-border);
     padding: 6px 0 max(6px, env(safe-area-inset-bottom));
   }

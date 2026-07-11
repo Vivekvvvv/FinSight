@@ -3,11 +3,28 @@ import { ref, onMounted, computed } from 'vue';
 import { apiClient } from '@/api/client';
 import type { PortfolioRiskLensResponse, RiskSnapshot } from '@/api/types';
 import { useIdentityStore } from '@/stores/identity';
+import { useThemeStore } from '@/stores/theme';
 import RiskTrendChart from './RiskTrendChart.vue';
 
 const identity = useIdentityStore();
+const theme = useThemeStore();
 const sessionId = computed(() => identity.sessionId || 'default_session');
 const userId = computed(() => identity.userId || 'default_user');
+
+/** 四条趋势线的分类色，走主题 token（随明暗切换）。 */
+const chartColors = computed(() => {
+  const _themeKey = theme.resolved;
+  const read = (name: string, fallback: string) => {
+    if (typeof window === 'undefined') return fallback;
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  };
+  return {
+    risk: read('--fin-danger', '#d1493f'),
+    value: read('--fin-accent', '#7c9885'),
+    concentration: read('--fin-warning', '#d97706'),
+    loss: read('--fin-primary', '#cc785c'),
+  };
+});
 
 const riskLens = ref<PortfolioRiskLensResponse | null>(null);
 const history = ref<RiskSnapshot[]>([]);
@@ -148,7 +165,7 @@ function formatCurrency(value: number) {
             :snapshots="history"
             metric="risk_score"
             label="风险评分"
-            color="#ef4444"
+            :color="chartColors.risk"
           />
         </div>
         <div>
@@ -157,7 +174,7 @@ function formatCurrency(value: number) {
             :snapshots="history"
             metric="total_value"
             label="总市值"
-            color="#3b82f6"
+            :color="chartColors.value"
           />
         </div>
         <div>
@@ -166,7 +183,7 @@ function formatCurrency(value: number) {
             :snapshots="history"
             metric="concentration_risk_count"
             label="集中度风险"
-            color="#f59e0b"
+            :color="chartColors.concentration"
           />
         </div>
         <div>
@@ -175,7 +192,7 @@ function formatCurrency(value: number) {
             :snapshots="history"
             metric="loss_positions_count"
             label="亏损持仓"
-            color="#dc2626"
+            :color="chartColors.loss"
           />
         </div>
       </div>
