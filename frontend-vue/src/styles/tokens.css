@@ -1,76 +1,77 @@
-/* FinSight terminal design tokens */
+/* FinSight design tokens — Claude 暖白赤橙风 */
 :root {
-  --fin-font: "Bahnschrift", "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --fin-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  --fin-radius-sm: 12px;
-  --fin-radius: 18px;
-  --fin-radius-lg: 28px;
-  --fin-shadow: 0 24px 72px rgba(2, 6, 14, 0.34);
+  --fin-font: "Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --fin-mono: "SFMono-Regular", "Cascadia Code", Consolas, "Liberation Mono", monospace;
+  --fin-radius-sm: 6px;
+  --fin-radius: 8px;
+  --fin-radius-lg: 12px;
+  --fin-shadow: 0 1px 2px rgba(28, 25, 23, 0.05), 0 4px 12px rgba(28, 25, 23, 0.06);
   --fin-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   font-size: 16px;
 }
 
+/* 默认（裸 :root）= 亮色，与 light 主题一致：Claude 风以亮色为主 */
 :root,
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --fin-bg: #0d0f12;
-  --fin-bg-2: #14171d;
-  --fin-bg-3: #1b2028;
-  --fin-card: rgba(22, 26, 32, 0.96);
-  --fin-card-strong: #202630;
-  --fin-card-soft: rgba(232, 221, 196, 0.065);
-  --fin-card-inset: rgba(4, 6, 9, 0.46);
-  --fin-border: rgba(196, 184, 158, 0.2);
-  --fin-border-strong: rgba(222, 193, 128, 0.5);
-  --fin-text: #f3efe6;
-  --fin-text-2: #d2c8b7;
-  --fin-muted: #a79e91;
-  --fin-primary: #dec180;
-  --fin-primary-deep: #b9954f;
-  --fin-primary-soft: rgba(222, 193, 128, 0.15);
-  --fin-accent: #8fc7be;
-  --fin-accent-soft: rgba(143, 199, 190, 0.13);
-  --fin-success: #7fc99b;
-  --fin-success-soft: rgba(127, 201, 155, 0.14);
-  --fin-danger: #e78a84;
-  --fin-danger-soft: rgba(231, 138, 132, 0.15);
-  --fin-warning: #d9b76e;
-  --fin-warning-soft: rgba(217, 183, 110, 0.16);
-  --fin-input: rgba(243, 239, 230, 0.08);
-  --fin-overlay: rgba(5, 7, 10, 0.76);
-  --fin-chart-axis: #bcb3a5;
-  --fin-chart-grid: rgba(196, 184, 158, 0.16);
-}
-
 :root[data-theme="light"] {
   color-scheme: light;
-  --fin-bg: #eef2f7;
-  --fin-bg-2: #f8fafc;
-  --fin-bg-3: #dde5ef;
-  --fin-card: rgba(255, 255, 255, 0.97);
+  --fin-bg: #faf9f5;
+  --fin-bg-2: #ffffff;
+  --fin-bg-3: #f2f0ea;
+  --fin-card: #ffffff;
   --fin-card-strong: #ffffff;
-  --fin-card-soft: rgba(15, 23, 42, 0.055);
-  --fin-card-inset: rgba(15, 23, 42, 0.065);
-  --fin-border: rgba(51, 65, 85, 0.2);
-  --fin-border-strong: rgba(181, 103, 0, 0.46);
-  --fin-text: #101827;
-  --fin-text-2: #334155;
-  --fin-muted: #64748b;
-  --fin-primary: #b56700;
-  --fin-primary-deep: #7c4300;
-  --fin-primary-soft: rgba(181, 103, 0, 0.14);
-  --fin-accent: #007c9e;
-  --fin-accent-soft: rgba(0, 124, 158, 0.12);
-  --fin-success: #087f5b;
-  --fin-success-soft: rgba(8, 127, 91, 0.12);
-  --fin-danger: #c24141;
-  --fin-danger-soft: rgba(194, 65, 65, 0.12);
-  --fin-warning: #9a5a00;
-  --fin-warning-soft: rgba(154, 90, 0, 0.14);
-  --fin-input: rgba(255, 255, 255, 0.9);
-  --fin-overlay: rgba(15, 23, 42, 0.36);
-  --fin-chart-axis: #526174;
-  --fin-chart-grid: rgba(51, 65, 85, 0.16);
+  --fin-card-soft: rgba(204, 120, 92, 0.06);
+  --fin-card-inset: rgba(28, 25, 23, 0.04);
+  --fin-border: #e9e6df;
+  --fin-border-strong: rgba(204, 120, 92, 0.5);
+  --fin-text: #1a1a18;
+  --fin-text-2: #5a5751;
+  --fin-muted: #8c887e;
+  --fin-primary: #cc785c;
+  --fin-primary-deep: #a85c43;
+  --fin-primary-soft: #faece4;
+  --fin-accent: #7c9885;
+  --fin-accent-soft: rgba(124, 152, 133, 0.13);
+  --fin-success: #3d9970;
+  --fin-success-soft: rgba(61, 153, 112, 0.12);
+  --fin-danger: #d1493f;
+  --fin-danger-soft: rgba(209, 73, 63, 0.11);
+  --fin-warning: #d97706;
+  --fin-warning-soft: rgba(217, 119, 6, 0.13);
+  --fin-input: #ffffff;
+  --fin-overlay: rgba(28, 25, 23, 0.34);
+  --fin-chart-axis: #8c887e;
+  --fin-chart-grid: rgba(28, 25, 23, 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --fin-bg: #1c1a17;
+  --fin-bg-2: #232019;
+  --fin-bg-3: #2b2721;
+  --fin-card: #262320;
+  --fin-card-strong: #2d2a24;
+  --fin-card-soft: rgba(224, 149, 117, 0.08);
+  --fin-card-inset: rgba(0, 0, 0, 0.28);
+  --fin-border: rgba(233, 230, 223, 0.13);
+  --fin-border-strong: rgba(224, 149, 117, 0.5);
+  --fin-text: #f4f1ea;
+  --fin-text-2: #cfc9bd;
+  --fin-muted: #a19a8d;
+  --fin-primary: #e0956f;
+  --fin-primary-deep: #cc785c;
+  --fin-primary-soft: rgba(224, 149, 117, 0.16);
+  --fin-accent: #9db8a4;
+  --fin-accent-soft: rgba(157, 184, 164, 0.14);
+  --fin-success: #6fc99b;
+  --fin-success-soft: rgba(111, 201, 155, 0.15);
+  --fin-danger: #e88a80;
+  --fin-danger-soft: rgba(232, 138, 128, 0.16);
+  --fin-warning: #e0a552;
+  --fin-warning-soft: rgba(224, 165, 82, 0.17);
+  --fin-input: rgba(244, 241, 234, 0.06);
+  --fin-overlay: rgba(10, 9, 7, 0.72);
+  --fin-chart-axis: #a19a8d;
+  --fin-chart-grid: rgba(233, 230, 223, 0.13);
 }
 
 * {
@@ -82,10 +83,7 @@ body,
 #app {
   margin: 0;
   min-height: 100%;
-  background:
-    radial-gradient(circle at 12% -8%, var(--fin-accent-soft), transparent 28%),
-    radial-gradient(circle at 86% 6%, var(--fin-primary-soft), transparent 30%),
-    linear-gradient(135deg, var(--fin-bg), var(--fin-bg-2));
+  background: var(--fin-bg);
   color: var(--fin-text);
   font-family: var(--fin-font);
   font-size: 16px;
@@ -113,7 +111,7 @@ button {
 }
 
 button:hover:not(:disabled) {
-  transform: translateY(-1px);
+  filter: brightness(0.97);
 }
 
 button:disabled {
@@ -145,7 +143,6 @@ textarea::placeholder {
   border: 1px solid var(--fin-border);
   border-radius: var(--fin-radius-lg);
   box-shadow: var(--fin-shadow);
-  backdrop-filter: blur(18px);
 }
 
 .pos,
