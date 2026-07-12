@@ -601,6 +601,14 @@ def _safe_confidence(value: Any, default: float = 0.7) -> float:
     """Convert confidence to float safely — handles 'high'/'medium'/'low' strings."""
     if value is None:
         return default
+    # docstring 承诺处理 high/medium/low，但旧实现只 float()，三者都抛
+    # ValueError 塌成 default（0.7）→ 信号丢失。补 label 映射兑现契约；数字
+    # 字符串（"0.85"）不在 map，仍走下面的 float()（R65）。
+    if isinstance(value, str):
+        label = value.strip().lower()
+        label_map = {"high": 0.9, "medium": 0.6, "low": 0.3}
+        if label in label_map:
+            return label_map[label]
     try:
         return float(value)
     except (ValueError, TypeError):
