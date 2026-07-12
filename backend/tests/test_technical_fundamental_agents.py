@@ -162,3 +162,40 @@ async def test_fundamental_agent_quarterly_growth_consistency():
     assert isinstance(revenue_item.meta.get("qoq"), float)
     assert isinstance(revenue_item.meta.get("yoy"), float)
     assert ("QoQ" in result.summary or "环比" in result.summary) and ("YoY" in result.summary or "同比" in result.summary)
+
+
+@pytest.mark.asyncio
+async def test_fundamental_agent_quarterly_insufficient_history_no_fake_yoy():
+    """R63：季度数据不足 4 季（如次新股）时不得把环比值标成同比。"""
+    mock_llm = MagicMock()
+    cache = DummyCache()
+    tools = MagicMock()
+    tools.get_company_info = MagicMock(return_value="Company Profile (NEW):\n- Name: NewCo\n")
+    tools.get_financial_statements = MagicMock(return_value={
+        "ticker": "NEW",
+        "timestamp": "2026-01-10T00:00:00",
+        "financials": {
+            # 仅 3 季 → 不足以算真同比（需要 series[4]，即 4 季前）
+            "columns": ["2025-09-30", "2025-06-30", "2025-03-31"],
+            "index": ["Total Revenue", "Net Income"],
+            "data": [
+                {"2025-09-30": 120, "2025-06-30": 110, "2025-03-31": 100},
+                {"2025-09-30": 30, "2025-06-30": 27, "2025-03-31": 25},
+            ],
+        },
+        "balance_sheet": {"columns": [], "index": [], "data": []},
+        "cashflow": {"columns": [], "index": [], "data": []},
+        "error": None,
+    })
+
+    agent = FundamentalAgent(mock_llm, cache, tools)
+    result = await agent.research("fundamental analysis", "NEW")
+
+    revenue_item = next((item for item in result.evidence if item.meta.get("metric_key") == "revenue"), None)
+    assert revenue_item is not None
+    # 环比可算（有上一季），同比必须为 None（不足 4 季）
+    assert isinstance(revenue_item.meta.get("qoq"), float)
+    assert revenue_item.meta.get("yoy") is None, "数据不足 4 季不应伪造同比"
+    # 摘要不得出现"同比"（避免把环比误标）
+    assert "同比" not in result.summary and "YoY" not in result.summary
+

@@ -445,9 +445,10 @@ class FundamentalAgent(BaseFinancialAgent):
                 if len(series) > 4:
                     yoy = self._growth_pct(latest, series[4]["value"])
                     yoy_period = series[4]["period"]
-                elif len(series) > 1:
-                    yoy = self._growth_pct(latest, previous)
-                    yoy_period = series[1]["period"]
+                # 数据不足 4 季（如次新股）时不伪造同比：旧代码把环比值赋给
+                # yoy，而 _format_metric_sentence 无条件标"同比"，导致同一个环比
+                # 数字被同时显示为"环比 X%, 同比 X%"（后者误标）。保持 yoy=None，
+                # 只显示环比（R63）。
             else:
                 if len(series) > 1:
                     yoy = self._growth_pct(latest, previous)
