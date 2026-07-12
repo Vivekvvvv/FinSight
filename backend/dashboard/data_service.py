@@ -1612,14 +1612,17 @@ def fetch_recommendations(symbol: str) -> dict[str, Any] | None:
 
         import pandas as pd
         if isinstance(rec, pd.DataFrame) and not rec.empty:
-            # Take the most recent period row
+            # int(row.get(bucket, 0)) 的默认 0 只挡 key 缺失；若单元格存在但为
+            # NaN（yfinance 部分数据），int(nan) 抛 ValueError 被外层 except 吞成
+            # 整块 None → 一个桶 NaN 就丢掉整个分析师评级组件。safe_float 把
+            # NaN/None 归一为 None，该桶降级为 0 不牵连其余（R60）。
             row = rec.iloc[0]
             result = {
-                "strong_buy": int(row.get("strongBuy", 0)),
-                "buy": int(row.get("buy", 0)),
-                "hold": int(row.get("hold", 0)),
-                "sell": int(row.get("sell", 0)),
-                "strong_sell": int(row.get("strongSell", 0)),
+                "strong_buy": int(safe_float(row.get("strongBuy", 0)) or 0),
+                "buy": int(safe_float(row.get("buy", 0)) or 0),
+                "hold": int(safe_float(row.get("hold", 0)) or 0),
+                "sell": int(safe_float(row.get("sell", 0)) or 0),
+                "strong_sell": int(safe_float(row.get("strongSell", 0)) or 0),
             }
             if sum(result.values()) == 0:
                 return None
