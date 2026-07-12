@@ -193,6 +193,20 @@ def _period_sort_key(period: str) -> tuple[int, int]:
     return (int(match.group(1)), int(match.group(2)))
 
 
+def _entry_duration_days(entry: dict[str, Any]) -> int | None:
+    """companyfacts entry 的 start→end 天数；instant(无 start)返回 None。"""
+    start = str(entry.get("start") or "").strip()
+    end = str(entry.get("end") or "").strip()
+    if not start or not end:
+        return None
+    try:
+        d0 = datetime.fromisoformat(start.split(" ")[0])
+        d1 = datetime.fromisoformat(end.split(" ")[0])
+    except Exception:
+        return None
+    return (d1 - d0).days
+
+
 def _extract_companyfacts_metric(
     payload: dict[str, Any],
     *,
@@ -201,7 +215,7 @@ def _extract_companyfacts_metric(
 ) -> dict[str, float]:
     facts = payload.get("facts") if isinstance(payload.get("facts"), dict) else {}
     gaap = facts.get("us-gaap") if isinstance(facts.get("us-gaap"), dict) else {}
-    rows_by_period: dict[str, tuple[str, float]] = {}
+    rows_by_period: dict[str, tuple[str, float, bool]] = {}
 
     for concept in concepts:
         fact_obj = gaap.get(concept)
@@ -228,10 +242,22 @@ def _extract_companyfacts_metric(
                 except Exception:
                     continue
                 filed = str(entry.get("filed") or "")
+                # flow concept 的 Q2/Q3 同一 period 会同时含 3-month 与 YTD
+                # (6/9-month) context，end/fp/filed 都相同；仅按 filed tiebreak
+                # 时由数组顺序决定，可能选中 YTD 累计值 → Q2/Q3 虚高 2-3 倍。
+                # 用 start→end 跨度区分：~91 天是单季、YTD 是 180/270 天，优先
+                # 取单季跨度（R61）。instant(无 start)→None、is_quarter=False，
+                # 退回按 filed 取新，行为不变。
+                duration = _entry_duration_days(entry)
+                is_quarter = duration is not None and 80 <= duration <= 100
                 prev = rows_by_period.get(period)
-                if prev is None or filed > prev[0]:
-                    rows_by_period[period] = (filed, number)
-    return {period: value for period, (_, value) in rows_by_period.items()}
+                if prev is None:
+                    rows_by_period[period] = (filed, number, is_quarter)
+                elif is_quarter and not prev[2]:
+                    rows_by_period[period] = (filed, number, is_quarter)
+                elif is_quarter == prev[2] and filed > prev[0]:
+                    rows_by_period[period] = (filed, number, is_quarter)
+    return {period: value for period, (_, value, _) in rows_by_period.items()}
 
 
 def _build_filing_url(cik: str, accession_number: str, primary_doc: str) -> str:
