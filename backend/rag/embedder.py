@@ -273,7 +273,13 @@ class EmbeddingService:
                     requested_backend=self._requested_backend,
                 )
 
-        return _hash_encode_batch(text_list, self._hash_dim)
+        # fallback 用当前声明维度 self.dim（bge 模式=1024），而非固定的
+        # self._hash_dim（96）：否则 bge 运行时失败降级时输出 96 维向量，与
+        # HybridRAGService 构造时锁定的 vector_dim(1024) 不符 → Postgres 插入
+        # VECTOR(1024) 报错、整批 ingest 失败；memory 后端 _cosine 的 zip 截断
+        # 到 96 维致排序错乱。BGE 内部 fallback 已用 _BGE_M3_DIM，此处对齐
+        # （hash 模式下 self.dim == self._hash_dim，行为不变）（R66）。
+        return _hash_encode_batch(text_list, self.dim)
 
     def encode_single(self, text: str) -> tuple[list[float], SparseVector]:
         """Convenience: encode one text, return (dense_vec, sparse_vec)."""

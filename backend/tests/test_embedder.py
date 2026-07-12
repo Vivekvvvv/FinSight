@@ -77,3 +77,26 @@ def test_different_texts_produce_different_embeddings():
     v1 = _hash_embedding("apple iphone revenue", dim=64)
     v2 = _hash_embedding("microsoft azure cloud", dim=64)
     assert v1 != v2
+
+
+def test_encode_fallback_keeps_declared_dim(monkeypatch):
+    """R66：bge 运行时失败降级到 hash 时，输出维度必须等于声明维度（bge=1024），
+    而非固定的 _hash_dim(96)，否则与 vector_dim 不符致 Postgres 报错/排序错乱。"""
+    import backend.rag.embedder as emb
+
+    svc = emb.EmbeddingService(force_backend="bge")
+    # 假装 bge 可用（跳过 FlagEmbedding import 检查）
+    monkeypatch.setattr(svc, "_check_bge", lambda: True)
+    assert svc.dim == 1024
+
+    # bge 编码运行时抛错 → 触发 hash fallback
+    class _BoomModel:
+        def encode(self, _text_list):
+            raise RuntimeError("bge oom")
+
+    monkeypatch.setattr(emb, "_get_bge_m3", lambda: _BoomModel())
+
+    result = svc.encode(["hello world", "second doc"])
+    assert len(result.dense) == 2
+    for vec in result.dense:
+        assert len(vec) == svc.dim == 1024, "fallback 维度必须与声明一致"
