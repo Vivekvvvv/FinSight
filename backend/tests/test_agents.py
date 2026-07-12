@@ -181,3 +181,23 @@ async def test_news_agent_finance_query_prefers_authoritative_domains(
     urls = [item.url or "" for item in result.evidence]
     assert any("reuters.com" in url for url in urls)
     assert all("random-finance.cc" not in url for url in urls)
+
+
+def test_price_deterministic_summary_keeps_flat_change(mock_llm, mock_cache, mock_tools, circuit_breaker):
+    """R64：真平盘（change_percent==0.0）不应被 `or` 丢弃，日内涨跌行仍显示。"""
+    agent = PriceAgent(mock_llm, mock_cache, mock_tools, circuit_breaker)
+    text = agent._deterministic_summary({
+        "ticker": "AAPL", "price": 150.0, "currency": "USD", "change_percent": 0.0,
+    })
+    assert "日内" in text, "0.0% 平盘不应丢掉日内涨跌行"
+    assert "0.00%" in text
+
+
+def test_price_deterministic_summary_prefers_change_percent_over_change_pct(mock_llm, mock_cache, mock_tools, circuit_breaker):
+    # change_percent 存在（含 0.0）时优先，不回退到 change_pct
+    agent = PriceAgent(mock_llm, mock_cache, mock_tools, circuit_breaker)
+    text = agent._deterministic_summary({
+        "ticker": "AAPL", "price": 150.0, "currency": "USD",
+        "change_percent": 0.0, "change_pct": 5.0,
+    })
+    assert "0.00%" in text and "5.00%" not in text

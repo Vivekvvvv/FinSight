@@ -134,7 +134,12 @@ class PriceAgent(BaseFinancialAgent):
             ticker = data.get("ticker", "N/A")
             price = data.get("price", "N/A")
             currency = data.get("currency", "USD")
-            change_pct = data.get("change_percent") or data.get("change_pct")
+            # 用显式 None 判断而非 `or`：change_percent==0.0（真平盘）会被
+            # `0.0 or ...` 丢弃，若 change_pct 缺失则整行日内涨跌消失（R63 同类
+            # 的 falsy 吞 0）。_format_output 已用 is None，此处对齐（R64）。
+            change_pct = data.get("change_percent")
+            if change_pct is None:
+                change_pct = data.get("change_pct")
             text = f"{ticker} 当前价格: {currency} {price}"
             if change_pct is not None:
                 try:
