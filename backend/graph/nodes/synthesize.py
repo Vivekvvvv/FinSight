@@ -2141,8 +2141,12 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
         "cautiously_pessimistic": "谨慎悲观", "bearish": "看跌",
     }
     priced = [h for h in highlights if h.get("price") is not None]
-    if priced:
-        avg = sum(safe_float(h.get("price_change_pct")) or 0 for h in priced) / len(priced)
+    # 只用真正拿到涨跌幅的标的算情绪与计数：缺 change 的（partial quote：有价
+    # 无涨跌）此前被 `or 0` 当成平盘，虚增"横盘"数并把 mood 拉向中性（R67）。
+    changes = [safe_float(h.get("price_change_pct")) for h in priced]
+    valid_changes = [c for c in changes if c is not None]
+    if valid_changes:
+        avg = sum(valid_changes) / len(valid_changes)
         if avg >= 1.5:
             mood = "bullish"
         elif avg >= 0.3:
@@ -2156,10 +2160,10 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
     else:
         mood = "neutral"
 
-    # Summary text
-    up_cnt = sum(1 for h in priced if (safe_float(h.get("price_change_pct")) or 0) > 0)
-    down_cnt = sum(1 for h in priced if (safe_float(h.get("price_change_pct")) or 0) < 0)
-    flat_cnt = len(priced) - up_cnt - down_cnt
+    # Summary text — 缺涨跌幅的标的不计入涨/跌/横盘任一桶
+    up_cnt = sum(1 for c in valid_changes if c > 0)
+    down_cnt = sum(1 for c in valid_changes if c < 0)
+    flat_cnt = sum(1 for c in valid_changes if c == 0)
     summary = f"今日跟踪 {len(all_tickers)} 只标的，其中 {len(priced)} 只获取到实时报价。"
     if priced:
         summary += f"上涨 {up_cnt} 只，下跌 {down_cnt} 只，横盘 {flat_cnt} 只。"
