@@ -287,7 +287,11 @@ class DeepSearchAgent(BaseFinancialAgent):
         results: List[Dict[str, Any]] = []
         for q in queries:
             logger.info(f"[DeepSearch] search: {q}")
-            for rank, item in enumerate(self._search_web(q), 1):
+            # _search_web 做 Tavily/Exa advanced HTTP（阻塞），此处在 async 方法
+            # 内，须卸载到线程池——否则冻结共享事件循环，与 executor.gather 并发
+            # 的其他 agent 全被阻塞。相邻 _fetch_documents 早已 to_thread（R62）。
+            search_items = await asyncio.to_thread(self._search_web, q)
+            for rank, item in enumerate(search_items, 1):
                 enriched = dict(item or {})
                 enriched["search_query"] = q
                 enriched["deepsearch_phase"] = "initial"
@@ -375,7 +379,8 @@ queries 要求：
         results: List[Dict[str, Any]] = []
         for gap in gaps:
             query = f"{ticker} {gap}".strip()
-            for rank, item in enumerate(self._search_web(query), 1):
+            search_items = await asyncio.to_thread(self._search_web, query)
+            for rank, item in enumerate(search_items, 1):
                 enriched = dict(item or {})
                 enriched["search_query"] = query
                 enriched["gap_query"] = gap
