@@ -125,8 +125,17 @@ class ReportIndexStore:
         return self._path
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._path, check_same_thread=False)
+        # WAL + busy_timeout：report_index 是核心用户数据（报告索引）。单例，
+        # 但读方法（list_reports / get_report_replay / list_citations /
+        # count_reports_since）不持 self._lock，与写方法（upsert_report 的
+        # report_json + DELETE + N citations 大事务）并发时，裸连接（rollback
+        # journal + 默认 5s 超时）会抛 database is locked，读端点
+        # （report_router / timeline_service / what_changed / research_quality）
+        # 故障。WAL 让读写并发、busy_timeout 兜底（R55/R56 同类，R69）。
+        conn = sqlite3.connect(self._path, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         return conn
 
     def _column_exists(self, conn: sqlite3.Connection, table: str, column: str) -> bool:
