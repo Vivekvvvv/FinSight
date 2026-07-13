@@ -109,3 +109,28 @@ def test_report_followup_summary_failure_degraded_but_success():
     result = handler._handle_report_followup("summary", "正文第一段。\n正文第二段。")
     assert result["success"] is True
     assert result["degraded"] is True
+
+
+class _PartialThenBoomLLM:
+    """astream 先 yield 一个 token 再抛错，触发中途失败路径。"""
+    async def astream(self, messages):
+        yield StubChunk("苹果")
+        raise RuntimeError("stream broke")
+
+    def invoke(self, messages):
+        class R:
+            content = "苹果公司完整响应"
+        return R()
+
+
+def test_astream_midfail_no_duplicate_output():
+    """R72：astream 吐出部分 token 后失败，不得再走兜底整体 yield 造成重复。"""
+    context = ContextManager()
+    context.add_turn(query="Q", intent="chat", response="prev", metadata={})
+    context.get_last_long_response = lambda: None
+    handler = FollowupHandler(llm=_PartialThenBoomLLM(), orchestrator=None)
+    rc = {}
+    tokens = asyncio.run(_collect_tokens(handler.stream_with_llm("why", {}, context, rc)))
+    # 只收到已流出的 "苹果"，不重复整体响应
+    assert "".join(tokens) == "苹果", f"不应重复: {tokens}"
+    assert rc.get("degraded") is True

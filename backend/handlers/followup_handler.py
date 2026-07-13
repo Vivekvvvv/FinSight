@@ -273,7 +273,20 @@ class FollowupHandler:
                 result_container.update(result)
                 return
             except Exception:
-                # Fall back to non-streaming path below.
+                # astream 已 yield 部分 token 后失败：不能再走下面的非流式兜底
+                # 整体 yield，否则消费者收到"部分 token + 完整响应"的重复/错乱
+                # 内容。用已流出的部分收尾并标 degraded（R72）。
+                if full_response:
+                    result_container.update({
+                        'success': True,
+                        'response': full_response,
+                        'intent': 'followup',
+                        'followup_type': followup_type,
+                        'current_focus': current_focus,
+                        'degraded': True,
+                    })
+                    return
+                # 完全没 yield 过 → 安全落到下面的非流式兜底。
                 pass
 
         if self.llm:
