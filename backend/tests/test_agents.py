@@ -201,3 +201,29 @@ def test_price_deterministic_summary_prefers_change_percent_over_change_pct(mock
         "change_percent": 0.0, "change_pct": 5.0,
     })
     assert "0.00%" in text and "5.00%" not in text
+
+
+def test_news_query_uses_agent_in_sync_thread_without_running_loop():
+    """R73：同步线程（无 running loop，如 R27 的 to_thread worker）里，
+    get_running_loop 抛 RuntimeError → 走 asyncio.run 分支，NewsAgent 被真正
+    调用，而非因旧 get_event_loop() 报错被静默跳过降级。"""
+    from backend.handlers.chat_handler import ChatHandler
+
+    class _Out:
+        summary = "AAPL 新闻摘要要点"
+        confidence = 0.9
+        evidence = []
+        data_sources = ["newsagent"]
+        as_of = "2026-01-01"
+
+    async def _research(query, ticker):
+        return _Out()
+
+    news_agent = MagicMock()
+    news_agent.research = _research
+
+    handler = ChatHandler(llm=None, orchestrator=None, news_agent=news_agent)
+    result = handler._handle_news_query("AAPL", "AAPL 有什么新闻")
+
+    assert result["intent"] == "company_news"
+    assert "AAPL 新闻摘要要点" in result["response"]

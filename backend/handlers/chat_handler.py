@@ -666,15 +666,28 @@ class ChatHandler:
         if self.news_agent:
             try:
                 import asyncio
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                # 用 get_running_loop（无 loop 抛 RuntimeError）而非 get_event_loop：
+                # 后者在 worker 线程（R27 用 to_thread 卸载 handle 后）+ Python
+                # 3.10+ 会抛 "no current event loop" → 被下面 except 吞掉 →
+                # NewsAgent（高质量反思路径）在流式聊天里被静默跳过、永远降级。
+                # no-loop 分支再用 wait_for 让 30s 超时真正生效（原
+                # ThreadPoolExecutor 的 result(timeout) 会被 __exit__ 的
+                # shutdown(wait=True) 阻塞等待而规避）（R73）。
+                try:
+                    asyncio.get_running_loop()
+                    has_running_loop = True
+                except RuntimeError:
+                    has_running_loop = False
+                if has_running_loop:
                     import concurrent.futures
                     with concurrent.futures.ThreadPoolExecutor() as pool:
                         agent_output = pool.submit(
                             asyncio.run, self.news_agent.research(query, ticker)
                         ).result(timeout=30)
                 else:
-                    agent_output = asyncio.run(self.news_agent.research(query, ticker))
+                    agent_output = asyncio.run(
+                        asyncio.wait_for(self.news_agent.research(query, ticker), timeout=30)
+                    )
 
                 if agent_output and agent_output.summary:
                     # 缓存结果
