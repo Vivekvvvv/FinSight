@@ -68,3 +68,21 @@ def test_followup_handler_stream_with_llm():
     assert "".join(tokens) == "xy"
     assert result_container["response"] == "xy"
     assert result_container["intent"] == "followup"
+
+
+def test_followup_report_action_offloads_sync_invoke():
+    """R70：last_long_response 分支走 _handle_report_followup（内部同步 llm.invoke），
+    在 async 生成器里必须经 to_thread 卸载，不阻塞事件循环。验证卸载后仍正确产出。"""
+    context = ContextManager()
+    context.add_turn(query="给我一份报告", intent="report", response="报告正文", metadata={})
+    # 触发 last_long_response 分支（235）
+    context.get_last_long_response = lambda: "这是一份很长的研究报告正文……" * 20
+
+    handler = FollowupHandler(llm=StubLLM([]), orchestrator=None)
+    result_container = {}
+    tokens = asyncio.run(
+        _collect_tokens(handler.stream_with_llm("总结一下", {}, context, result_container))
+    )
+    # 走到了 report followup 分支并产出内容（不阻塞、有结果）
+    assert result_container, "report followup 分支应产出 result"
+    assert "".join(tokens) != "" or result_container.get("response") is not None

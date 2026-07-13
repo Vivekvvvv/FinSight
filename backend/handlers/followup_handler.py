@@ -6,6 +6,7 @@ FollowupHandler - 追问处理器
 
 import sys
 import os
+import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import re
@@ -232,7 +233,11 @@ class FollowupHandler:
 
         if last_long_response:
             action = self._detect_report_action(query.lower())
-            result = self._handle_report_followup(action, last_long_response)
+            # _handle_report_followup 内部同步 self.llm.invoke（阻塞 LLM 请求），
+            # 此处是 async 生成器，直接调会冻结事件循环、卡住同 loop 上所有并发
+            # SSE 流。卸到线程池，与孪生方法 ChatHandler.stream_with_llm 的 R27
+            # 修复对称（R70）。
+            result = await asyncio.to_thread(self._handle_report_followup, action, last_long_response)
             result_container.update(result)
             if result.get('response'):
                 yield result['response']
@@ -278,7 +283,7 @@ class FollowupHandler:
                     cached_data=cached_data,
                     context=context
                 )
-                response = self.llm.invoke([HumanMessage(content=prompt)])
+                response = await asyncio.to_thread(self.llm.invoke, [HumanMessage(content=prompt)])
                 result = {
                     'success': True,
                     'response': response.content,
