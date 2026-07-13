@@ -78,7 +78,12 @@ def principal_from_api_key(api_key: str) -> Principal:
             logger.warning("API_AUTH_PRINCIPALS is invalid JSON; falling back to hashed API key principal")
 
     admin_keys = {item.strip() for item in str(os.getenv("API_AUTH_ADMIN_KEYS") or "").split(",") if item.strip()}
-    role = "admin" if not admin_keys or api_key in admin_keys else "user"
+    # fail-close：未配 API_AUTH_ADMIN_KEYS 时默认 user，而非把所有 API_AUTH_KEYS
+    # 里的 key 都当 admin。原 `not admin_keys or ...` 是 fail-open：给下游
+    # consumer 发的 key 会意外获得 admin，可访问 config/entitlements/subscription
+    # 管理端点。需要 admin 的部署须显式配 API_AUTH_ADMIN_KEYS 或
+    # API_AUTH_PRINCIPALS（R68）。
+    role = "admin" if api_key in admin_keys else "user"
     return Principal(
         user_id=os.getenv("API_AUTH_DEFAULT_USER_ID") or api_key_fingerprint(api_key),
         email=os.getenv("API_AUTH_DEFAULT_EMAIL") or "api-user@example.invalid",
