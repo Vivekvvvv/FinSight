@@ -86,3 +86,26 @@ def test_followup_report_action_offloads_sync_invoke():
     # 走到了 report followup 分支并产出内容（不阻塞、有结果）
     assert result_container, "report followup 分支应产出 result"
     assert "".join(tokens) != "" or result_container.get("response") is not None
+
+
+class _BoomLLM:
+    """invoke 总是抛错，触发 _handle_report_followup 的兜底路径。"""
+    def invoke(self, messages):
+        raise RuntimeError("llm down")
+
+
+def test_report_followup_translate_failure_not_success():
+    """R71：翻译类 LLM 失败时返回原文头部，必须 success=False（不能把未翻译
+    原文当翻译成功），并标 degraded。"""
+    handler = FollowupHandler(llm=_BoomLLM(), orchestrator=None)
+    result = handler._handle_report_followup("translate_en", "这是中文报告正文。\n第二段。\n第三段。")
+    assert result["success"] is False, "翻译失败不应标成功"
+    assert result["degraded"] is True
+
+
+def test_report_followup_summary_failure_degraded_but_success():
+    """摘要/结论/风险类失败降级为原文头部，仍 success=True 但标 degraded。"""
+    handler = FollowupHandler(llm=_BoomLLM(), orchestrator=None)
+    result = handler._handle_report_followup("summary", "正文第一段。\n正文第二段。")
+    assert result["success"] is True
+    assert result["degraded"] is True

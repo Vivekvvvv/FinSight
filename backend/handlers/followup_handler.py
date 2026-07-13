@@ -10,6 +10,9 @@ import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 添加项目根目录
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -512,17 +515,22 @@ class FollowupHandler:
                     'followup_type': action,
                 }
             except Exception as e:
-                pass  # 回退到简单处理
+                logger.warning("[Followup] LLM invoke failed for action=%s: %s", action, e)
 
-        # 无 LLM 时简洁返回，不显示调试信息
+        # 无 LLM 或 LLM 失败：只能返回原文头部。对翻译类这是错误结果（原文
+        # 根本没被翻译），必须标 success=False，否则前端把未翻译原文当成翻译
+        # 成功展示；摘要/结论/风险是"原文头部"的粗略降级，标 degraded 让调用方
+        # 知道非 LLM 提炼结果（R71）。
         paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
         head = '\n'.join(paragraphs[:4]) if paragraphs else text[:500]
+        is_translation = action in ('translate_en', 'translate_zh')
 
         return {
-            'success': True,
+            'success': not is_translation,
             'response': head,
             'intent': 'followup',
             'followup_type': action,
+            'degraded': True,
         }
     
     def _no_context_response(self) -> str:
