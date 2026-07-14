@@ -23,6 +23,7 @@ from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceI
 from backend.agents.search_convergence import SearchConvergence
 from backend.orchestration.trace_schema import create_trace_event
 from backend.security.ssrf import is_safe_url
+from backend.security.pinned_http import safe_pinned_request
 from backend.services.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
@@ -1037,17 +1038,16 @@ queries 要求：
         url = item.get("url", "")
         if not url:
             return None
-        if not is_safe_url(url):
-            logger.info(f"[DeepSearch] Blocked unsafe url: {url}")
-            return None
         headers = {
             "User-Agent": "Mozilla/5.0 (compatible; FinSightBot/0.1)",
         }
         try:
-            session = self._get_session()
-            response = session.get(url, headers=headers, timeout=30, allow_redirects=True)
-            if response.url and not is_safe_url(response.url):
-                logger.info(f"[DeepSearch] Blocked unsafe redirect: {response.url}")
+            # safe_pinned_request 内置 resolve_safe_target 校验 + IP pin（强制连接到
+            # 校验时锁定的公网 IP，防 DNS rebinding/TOCTOU）+ 逐跳重定向校验；
+            # 返回 None = URL 不安全（含重定向目标）或抓取失败。
+            response = safe_pinned_request("GET", url, headers=headers, timeout=30)
+            if response is None:
+                logger.info(f"[DeepSearch] Blocked unsafe url or fetch failed: {url}")
                 return None
             response.raise_for_status()
         except Exception as exc:

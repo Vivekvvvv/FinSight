@@ -384,13 +384,6 @@ def test_fetch_documents_pdf_without_reader_uses_snippet_fallback(monkeypatch):
         def raise_for_status(self):
             return None
 
-    class _MockSession:
-        def __init__(self, response):
-            self._response = response
-
-        def get(self, *_args, **_kwargs):
-            return self._response
-
     url = "https://example.com/alpha-report.pdf"
     result_item = {
         "title": "Alpha Research",
@@ -400,10 +393,12 @@ def test_fetch_documents_pdf_without_reader_uses_snippet_fallback(monkeypatch):
     }
 
     monkeypatch.setattr(deep_search_module, "PdfReader", None)
-    monkeypatch.setattr(agent, "_get_session", lambda: _MockSession(_MockPdfResponse(url)))
-    # is_safe_url 对域名做真实 DNS 解析（ssrf.py getaddrinfo），失败即拒绝；
-    # 单测须隔离网络，否则 DNS 抖动导致 flaky（2026-07-06 全量实录）。
-    monkeypatch.setattr(deep_search_module, "is_safe_url", lambda _u: True)
+    # _fetch_document 改用 safe_pinned_request（内置 SSRF 校验 + IP pin + 逐跳
+    # 重定向），mock 它直接返回响应以隔离网络。
+    monkeypatch.setattr(
+        deep_search_module, "safe_pinned_request",
+        lambda method, _url, **kw: _MockPdfResponse(_url),
+    )
 
     docs = agent._fetch_documents([result_item])
 
@@ -631,19 +626,14 @@ def test_fetch_document_uses_jina_fallback_for_short_trusted_content(monkeypatch
         def raise_for_status(self):
             return None
 
-    class _MockSession:
-        def __init__(self, response):
-            self._response = response
-
-        def get(self, *_args, **_kwargs):
-            return self._response
-
     url = "https://www.reuters.com/technology/apple-longform-2026-02-18/"
-    monkeypatch.setattr(agent, "_get_session", lambda: _MockSession(_MockResponse(url)))
+    # _fetch_document 改用 safe_pinned_request（内置 SSRF 校验 + IP pin + 逐跳
+    # 重定向），mock 它直接返回响应以隔离网络。
+    monkeypatch.setattr(
+        deep_search_module, "safe_pinned_request",
+        lambda method, _url, **kw: _MockResponse(_url),
+    )
     monkeypatch.setenv("DEEPSEARCH_ENABLE_JINA_FALLBACK", "true")
-    # is_safe_url 对域名做真实 DNS 解析（ssrf.py getaddrinfo），失败即拒绝；
-    # 单测须隔离网络，否则 DNS 抖动导致 flaky（2026-07-06 全量实录）。
-    monkeypatch.setattr(deep_search_module, "is_safe_url", lambda _u: True)
 
     import backend.tools.jina_reader as jina_mod
 
@@ -681,20 +671,15 @@ def test_fetch_document_uses_wayback_fallback_when_jina_misses(monkeypatch):
         def raise_for_status(self):
             return None
 
-    class _MockSession:
-        def __init__(self, response):
-            self._response = response
-
-        def get(self, *_args, **_kwargs):
-            return self._response
-
     url = "https://www.wsj.com/markets/earnings/apple-hard-paywall-2026-02-20"
-    monkeypatch.setattr(agent, "_get_session", lambda: _MockSession(_MockResponse(url)))
+    # _fetch_document 改用 safe_pinned_request（内置 SSRF 校验 + IP pin + 逐跳
+    # 重定向），mock 它直接返回响应以隔离网络。
+    monkeypatch.setattr(
+        deep_search_module, "safe_pinned_request",
+        lambda method, _url, **kw: _MockResponse(_url),
+    )
     monkeypatch.setenv("DEEPSEARCH_ENABLE_JINA_FALLBACK", "true")
     monkeypatch.setenv("DEEPSEARCH_ENABLE_WAYBACK_FALLBACK", "true")
-    # is_safe_url 对域名做真实 DNS 解析（ssrf.py getaddrinfo），失败即拒绝；
-    # 单测须隔离网络，否则 DNS 抖动导致 flaky（R42：曾靠 network 标记掩盖）。
-    monkeypatch.setattr(deep_search_module, "is_safe_url", lambda _u: True)
 
     import backend.tools.jina_reader as jina_mod
     import backend.tools.wayback as wayback_mod

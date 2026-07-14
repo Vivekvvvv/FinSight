@@ -4,8 +4,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from backend.security.ssrf import is_safe_url
-from .http import _http_get
+from backend.security.pinned_http import safe_pinned_request
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +21,18 @@ def fetch_url_content(url: str, max_length: int = 5000) -> Optional[str]:
         提取的文本内容，失败返回 None
     """
     try:
-        if not is_safe_url(url):
-            logger.info(f"[fetch_url_content] Blocked unsafe url: {url}")
-            return None
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
 
-        response = _http_get(url, headers=headers, timeout=15, allow_redirects=True)
-        if response.url and not is_safe_url(response.url):
-            logger.info(f"[fetch_url_content] Blocked unsafe redirect: {response.url}")
+        # safe_pinned_request 内置 resolve_safe_target 校验 + IP pin（强制连接到
+        # 校验时锁定的公网 IP，防 DNS rebinding/TOCTOU）+ 逐跳重定向校验（禁自动
+        # 重定向，每跳重新校验）。返回 None = URL 不安全或抓取失败。
+        response = safe_pinned_request("GET", url, headers=headers, timeout=15)
+        if response is None:
+            logger.info(f"[fetch_url_content] Blocked unsafe url or fetch failed: {url}")
             return None
         response.raise_for_status()
 
