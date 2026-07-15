@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -119,16 +121,21 @@ class _FakeRagStore:
         return {'id': source_doc_id, 'deleted_by': deleted_by, 'reason': reason}
 
 
-def _build_client(store: _FakeRagStore) -> TestClient:
+def _build_client(
+    store: _FakeRagStore,
+    *,
+    graph_runner_ready: bool = True,
+    checkpointer_backend: str = 'memory',
+) -> TestClient:
     app = FastAPI()
     app.include_router(
         create_system_router(
             SystemRouterDeps(
                 metrics_enabled=False,
                 metrics_payload=lambda: ('', 'text/plain'),
-                graph_runner_ready=lambda: True,
-                get_graph_checkpointer_info=lambda: {'backend': 'memory'},
-                get_orchestrator_safe=lambda: None,
+                graph_runner_ready=lambda: graph_runner_ready,
+                get_graph_checkpointer_info=lambda: {'backend': checkpointer_backend},
+                get_orchestrator_safe=lambda: SimpleNamespace(cache=object(), tools_module=object()),
                 get_planner_ab_metrics=lambda: {'enabled': False, 'split_percent': 0, 'variants': {'A': 0, 'B': 0}},
                 get_rag_observability_store=lambda: store,
                 require_rag_read_access=lambda _request: {'user_id': 'user-test', 'auth_type': 'test', 'role': 'reader'},
@@ -139,6 +146,30 @@ def _build_client(store: _FakeRagStore) -> TestClient:
         )
     )
     return TestClient(app)
+
+
+def test_internal_health_degrades_when_graph_runner_is_not_ready(monkeypatch):
+    monkeypatch.setenv('RAG_V2_BACKEND', 'auto')
+    client = _build_client(_FakeRagStore(), graph_runner_ready=False)
+
+    response = client.get('/internal/health')
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['status'] == 'degraded'
+    assert payload['components']['langgraph_runner']['status'] == 'initializing'
+
+
+def test_internal_health_degrades_when_checkpointer_is_not_ready(monkeypatch):
+    monkeypatch.setenv('RAG_V2_BACKEND', 'auto')
+    client = _build_client(_FakeRagStore(), checkpointer_backend='unknown')
+
+    response = client.get('/internal/health')
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['status'] == 'degraded'
+    assert payload['components']['checkpointer']['status'] == 'initializing'
 
 
 def test_rag_status_endpoint_returns_health_summary():

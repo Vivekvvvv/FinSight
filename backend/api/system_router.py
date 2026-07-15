@@ -81,10 +81,15 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         status = "healthy"
         components: Dict[str, Dict[str, Any]] = {}
 
-        components["langgraph_runner"] = {"status": "ok" if deps.graph_runner_ready() else "initializing"}
+        runner_ready = deps.graph_runner_ready()
+        components["langgraph_runner"] = {"status": "ok" if runner_ready else "initializing"}
+        if not runner_ready:
+            status = "degraded"
         checkpointer_info = deps.get_graph_checkpointer_info()
         checkpointer_status = "ok" if checkpointer_info.get("backend") != "unknown" else "initializing"
         components["checkpointer"] = {"status": checkpointer_status, **checkpointer_info}
+        if checkpointer_status != "ok":
+            status = "degraded"
 
         orchestrator = deps.get_orchestrator_safe()
         if orchestrator:
