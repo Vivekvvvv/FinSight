@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 .pytest_cache/
+.pytest-basetemp*/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
@@ -18,6 +19,7 @@ venv/
 env/
 
 # Tests & reports
+tmp/
 tests/rag_quality/reports/
 tests/rag_qualityV2/reports/
 tests/retrieval_eval/reports/
