@@ -41,12 +41,25 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
     _logger = logging.getLogger("chat_router")
 
     @router.post("/chat/supervisor")
-    async def chat_supervisor_endpoint(request: ChatRequest, http_request: Request):
+    async def chat_supervisor_endpoint(
+        request: ChatRequest,
+        http_request: Request,
+        current_user: Principal = Depends(get_current_user),
+    ):
+        require_matching_identity(
+            principal=current_user,
+            provided=request.session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
+        resolved_session_id = (
+            request.session_id if current_user.auth_type == "dev" else current_user.session_id
+        )
         _t0 = _time.perf_counter()
         try:
             runner = await deps.get_graph_runner()
             try:
-                thread_id = deps.resolve_thread_id(request.session_id)
+                thread_id = deps.resolve_thread_id(resolved_session_id)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -141,13 +154,26 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/chat/supervisor/stream")
-    async def chat_supervisor_stream_endpoint(request: ChatRequest, http_request: Request):
+    async def chat_supervisor_stream_endpoint(
+        request: ChatRequest,
+        http_request: Request,
+        current_user: Principal = Depends(get_current_user),
+    ):
         import json as _json
 
         from backend.services.execution_service import ExecutionDeps, run_graph_pipeline
 
+        require_matching_identity(
+            principal=current_user,
+            provided=request.session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
+        resolved_session_id = (
+            request.session_id if current_user.auth_type == "dev" else current_user.session_id
+        )
         try:
-            thread_id = deps.resolve_thread_id(request.session_id)
+            thread_id = deps.resolve_thread_id(resolved_session_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -274,17 +300,30 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         return {"success": True, "session_id": thread_id}
 
     @router.post("/api/chat/add-chart-data", response_model=ChartDataResponse)
-    async def add_chart_data(request: dict):
-        try:
-            ticker = request.get("ticker")
-            summary = request.get("summary", "")
-            try:
-                session_id = deps.resolve_thread_id(request.get("session_id"))
-            except ValueError as exc:
-                return {"success": False, "error": str(exc)}
+    async def add_chart_data(
+        request: dict,
+        current_user: Principal = Depends(get_current_user),
+    ):
+        provided_session_id = request.get("session_id")
+        require_matching_identity(
+            principal=current_user,
+            provided=provided_session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
+        resolved_session_id = (
+            provided_session_id if current_user.auth_type == "dev" else current_user.session_id
+        )
+        ticker = request.get("ticker")
+        summary = request.get("summary", "")
+        if not ticker or not summary:
+            raise HTTPException(status_code=400, detail="Missing ticker or summary")
 
-            if not ticker or not summary:
-                return {"success": False, "error": "Missing ticker or summary"}
+        try:
+            try:
+                session_id = deps.resolve_thread_id(resolved_session_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
             chart_message = f"[Chart Data] {summary}"
             deps.get_session_context(session_id).add_turn(
@@ -295,8 +334,10 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             )
 
             return {"success": True, "message": "Chart data added to context", "session_id": session_id}
+        except HTTPException:
+            raise
         except Exception as exc:
-            traceback.print_exc()
-            return {"success": False, "error": str(exc)}
+            _logger.error("[chat/add-chart-data] failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router

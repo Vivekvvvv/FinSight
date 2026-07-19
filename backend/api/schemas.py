@@ -355,4 +355,6 @@ class ChartDetectResponse(BaseResponse):
 
 
 class ChartDataResponse(BaseResponse):
-    message: str = Field(..., description="operation message")
+    message: Optional[str] = Field(None, description="operation message")
+    error: Optional[str] = Field(None, description="operation error")
+    session_id: Optional[str] = Field(None, description="resolved session id")

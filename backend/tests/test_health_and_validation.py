@@ -8,6 +8,7 @@ P0 稳定性回归测试：健康检查与基本请求校验。
   避免空请求进入主链路。
 """
 
+import logging
 import os
 import sys
 
@@ -60,6 +61,65 @@ def test_chat_empty_query_validation(client):
     """
     resp = client.post("/chat/supervisor", json={"query": ""})
     assert resp.status_code == 422
+
+
+def test_add_chart_data_response_preserves_session_id(client):
+    resp = client.post(
+        "/api/chat/add-chart-data",
+        json={
+            "ticker": "AAPL",
+            "summary": "Chart context",
+            "session_id": "public:anonymous:chart-contract",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["session_id"] == "public:anonymous:chart-contract"
+
+
+def test_add_chart_data_error_matches_response_model(client):
+    resp = client.post(
+        "/api/chat/add-chart-data",
+        json={"summary": "Missing ticker"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Missing ticker or summary"
+
+
+def test_add_chart_data_invalid_session_returns_422(client):
+    resp = client.post(
+        "/api/chat/add-chart-data",
+        json={
+            "ticker": "AAPL",
+            "summary": "Chart context",
+            "session_id": "too:many:session:parts",
+        },
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "session_id format invalid, expected tenant:user:thread"
+
+
+def test_add_chart_data_internal_error_returns_500(client, monkeypatch, caplog, capsys):
+    from backend.conversation.context import ContextManager
+
+    def fail_add_turn(*_args, **_kwargs):
+        raise RuntimeError("private storage detail")
+
+    monkeypatch.setattr(ContextManager, "add_turn", fail_add_turn)
+    caplog.set_level(logging.ERROR, logger="chat_router")
+
+    resp = client.post(
+        "/api/chat/add-chart-data",
+        json={"ticker": "AAPL", "summary": "Chart context"},
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Internal server error"
+    assert "private storage detail" not in capsys.readouterr().err
+    assert "private storage detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_legacy_chat_endpoint_removed(client):

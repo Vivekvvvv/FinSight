@@ -48,12 +48,14 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
         """
         try:
             # 身份校验
+            provided_user_id = _provided_user_id(user_id)
             require_matching_identity(
                 principal=current_user,
-                provided=_provided_user_id(user_id),
+                provided=provided_user_id,
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            effective_user_id = provided_user_id or current_user.user_id
             # session_id 是报告事件的查询键（timeline_service 仅按它过滤），
             # 必须绑定认证主体，防止伪造 session_id 读取他人报告时间线。
             require_matching_identity(
@@ -76,7 +78,7 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
             events = timeline_service.get_timeline(
                 symbol=symbol.upper(),
                 session_id=normalized_session,
-                user_id=user_id,
+                user_id=effective_user_id,
                 event_type=event_type,  # type: ignore
                 from_date=from_date,
                 to_date=to_date,

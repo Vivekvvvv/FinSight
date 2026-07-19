@@ -56,18 +56,20 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         """创建研究笔记"""
         try:
             # 身份校验
+            provided_user_id = _provided_user_id(req.user_id)
             require_matching_identity(
                 principal=current_user,
-                provided=_provided_user_id(req.user_id),
+                provided=provided_user_id,
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            effective_user_id = provided_user_id or current_user.user_id
             normalized_session = deps.resolve_thread_id(req.session_id)
 
             # 创建笔记
             note_id = research_notes.create_note(
                 session_id=normalized_session,
-                user_id=req.user_id,
+                user_id=effective_user_id,
                 title=req.title,
                 content=req.content,
                 ticker=req.ticker,
@@ -98,32 +100,34 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         """列出研究笔记"""
         try:
             # 身份校验
+            provided_user_id = _provided_user_id(user_id)
             require_matching_identity(
                 principal=current_user,
-                provided=_provided_user_id(user_id),
+                provided=provided_user_id,
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            effective_user_id = provided_user_id or current_user.user_id
             normalized_session = deps.resolve_thread_id(session_id)
 
             # 搜索或列表
             if q:
                 notes = research_notes.search_notes(
                     session_id=normalized_session,
-                    user_id=user_id,
+                    user_id=effective_user_id,
                     query=q,
                     limit=limit,
                 )
             else:
                 notes = research_notes.list_notes(
                     session_id=normalized_session,
-                    user_id=user_id,
+                    user_id=effective_user_id,
                     ticker=ticker,
                     limit=limit,
                     offset=offset,
                 )
             if is_demo_mode() and not notes and not q:
-                notes = demo_notes(normalized_session, user_id, ticker=ticker, limit=limit)
+                notes = demo_notes(normalized_session, effective_user_id, ticker=ticker, limit=limit)
 
             return {
                 "success": True,
@@ -155,18 +159,20 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         """
         try:
             # 权限验证：确保用户只能搜索自己的笔记
+            provided_user_id = _provided_user_id(user_id)
             require_matching_identity(
                 principal=current_user,
-                provided=_provided_user_id(user_id),
+                provided=provided_user_id,
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            effective_user_id = provided_user_id or current_user.user_id
             normalized_session = deps.resolve_thread_id(session_id)
 
             from backend.services.notes_rag import semantic_search_notes
             results = semantic_search_notes(
                 session_id=normalized_session,
-                user_id=user_id,
+                user_id=effective_user_id,
                 query=q,
                 limit=min(limit, 20),
             )
@@ -399,16 +405,18 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
     ):
         """批量向量化所有未向量化的笔记"""
         try:
+            provided_user_id = _provided_user_id(user_id)
             require_matching_identity(
                 principal=current_user,
-                provided=_provided_user_id(user_id),
+                provided=provided_user_id,
                 expected=current_user.user_id,
                 field_name="user_id",
             )
+            effective_user_id = provided_user_id or current_user.user_id
             normalized_session = deps.resolve_thread_id(session_id)
 
             from backend.services.notes_rag import vectorize_all_notes
-            stats = vectorize_all_notes(session_id=normalized_session, user_id=user_id)
+            stats = vectorize_all_notes(session_id=normalized_session, user_id=effective_user_id)
             return {"success": True, **stats}
         except HTTPException:
             raise

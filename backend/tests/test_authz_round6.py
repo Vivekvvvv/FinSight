@@ -72,6 +72,43 @@ def test_a7_what_changed_rejects_forged_user_id_with_valid_session(monkeypatch):
     assert resp.status_code == 403
 
 
+def test_research_quality_rejects_forged_user_id_with_valid_session(monkeypatch):
+    with _client(monkeypatch) as client:
+        resp = client.get(
+            "/api/research-quality",
+            params={"session_id": "private:alice:default", "user_id": "bob"},
+            headers=_KEY,
+        )
+
+    assert resp.status_code == 403
+
+
+def test_research_quality_default_user_uses_authenticated_principal(monkeypatch):
+    from backend.api import research_quality_router
+
+    captured = {}
+
+    def fake_get_research_quality(**kwargs):
+        captured.update(kwargs)
+        return {"success": True, "summary": {}, "top_issues": [], "next_actions": []}
+
+    monkeypatch.setattr(
+        research_quality_router.research_quality,
+        "get_research_quality",
+        fake_get_research_quality,
+    )
+
+    with _client(monkeypatch) as client:
+        resp = client.get(
+            "/api/research-quality",
+            params={"session_id": "private:alice:default"},
+            headers=_KEY,
+        )
+
+    assert resp.status_code == 200
+    assert captured["user_id"] == "alice"
+
+
 def test_a6_today_rejects_forged_session_id(monkeypatch):
     with _client(monkeypatch) as client:
         resp = client.get(
@@ -102,6 +139,32 @@ def test_a10_risk_lens_history_rejects_forged_session_id(monkeypatch):
     assert resp.status_code == 403
 
 
+def test_a10_risk_history_default_user_uses_authenticated_principal(monkeypatch):
+    from backend.api import risk_lens_router
+
+    captured = {}
+
+    def fake_get_risk_snapshots_history(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        risk_lens_router,
+        "get_risk_snapshots_history",
+        fake_get_risk_snapshots_history,
+    )
+
+    with _client(monkeypatch) as client:
+        resp = client.get(
+            "/api/portfolio/risk-lens/history",
+            params={"session_id": "private:alice:default"},
+            headers=_KEY,
+        )
+
+    assert resp.status_code == 200
+    assert captured["user_id"] == "alice"
+
+
 def test_a11_timeline_rejects_forged_session_id(monkeypatch):
     # timeline_service 的报告事件仅按 session_id 过滤，此前只校验 user_id，
     # 传自己的 user_id + 他人 session_id 即可读到他人报告时间线（R47 修复）。
@@ -112,6 +175,28 @@ def test_a11_timeline_rejects_forged_session_id(monkeypatch):
             headers=_KEY,
         )
     assert resp.status_code == 403
+
+
+def test_a11_timeline_default_user_uses_authenticated_principal(monkeypatch):
+    from backend.api import timeline_router
+
+    captured = {}
+
+    def fake_get_timeline(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(timeline_router.timeline_service, "get_timeline", fake_get_timeline)
+
+    with _client(monkeypatch) as client:
+        resp = client.get(
+            "/api/timeline/AAPL",
+            params={"session_id": "private:alice:default"},
+            headers=_KEY,
+        )
+
+    assert resp.status_code == 200
+    assert captured["user_id"] == "alice"
 
 
 def test_a1_chat_history_get_rejects_forged_session_id(monkeypatch):
@@ -131,4 +216,91 @@ def test_a2_chat_history_delete_rejects_forged_session_id(monkeypatch):
             params={"session_id": "private:bob:default"},
             headers=_KEY,
         )
+    assert resp.status_code == 403
+
+
+def test_execute_rejects_forged_session_id(monkeypatch):
+    from backend.api import execution_router
+
+    async def fake_run_graph_pipeline(**_kwargs):
+        yield {"type": "done"}
+
+    monkeypatch.setattr(execution_router, "run_graph_pipeline", fake_run_graph_pipeline)
+
+    with _client(monkeypatch) as client:
+        resp = client.post(
+            "/api/execute",
+            json={"query": "test", "session_id": "private:bob:default"},
+            headers=_KEY,
+        )
+
+    assert resp.status_code == 403
+
+
+def test_execute_resume_rejects_forged_thread_id(monkeypatch):
+    from backend.api import execution_router
+
+    async def fake_resume_graph_pipeline(**_kwargs):
+        yield {"type": "done"}
+
+    monkeypatch.setattr(execution_router, "resume_graph_pipeline", fake_resume_graph_pipeline)
+
+    with _client(monkeypatch) as client:
+        resp = client.post(
+            "/api/execute/resume",
+            json={"thread_id": "private:bob:default", "resume_value": "confirm"},
+            headers=_KEY,
+        )
+
+    assert resp.status_code == 403
+
+
+def test_chat_supervisor_rejects_forged_session_id(monkeypatch):
+    from backend.graph import runner as graph_runner
+
+    async def fake_run_graph_traced(*_args, **_kwargs):
+        return {"artifacts": {"draft_markdown": "ok"}, "trace": []}
+
+    monkeypatch.setattr(graph_runner, "run_graph_traced", fake_run_graph_traced)
+
+    with _client(monkeypatch) as client:
+        resp = client.post(
+            "/chat/supervisor",
+            json={"query": "test", "session_id": "private:bob:default"},
+            headers=_KEY,
+        )
+
+    assert resp.status_code == 403
+
+
+def test_chat_supervisor_stream_rejects_forged_session_id(monkeypatch):
+    from backend.services import execution_service
+
+    async def fake_run_graph_pipeline(**_kwargs):
+        yield {"type": "done"}
+
+    monkeypatch.setattr(execution_service, "run_graph_pipeline", fake_run_graph_pipeline)
+
+    with _client(monkeypatch) as client:
+        resp = client.post(
+            "/chat/supervisor/stream",
+            json={"query": "test", "session_id": "private:bob:default"},
+            headers=_KEY,
+        )
+
+    assert resp.status_code == 403
+
+
+def test_chat_add_chart_data_rejects_forged_session_id(monkeypatch):
+    with _client(monkeypatch) as client:
+        resp = client.post(
+            "/api/chat/add-chart-data",
+            json={
+                "ticker": "AAPL",
+                "summary": "forged chart context",
+                "session_id": "private:bob:default",
+            },
+            headers=_KEY,
+        )
+
     assert resp.status_code == 403

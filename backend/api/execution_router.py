@@ -14,12 +14,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
 from typing import Any, Awaitable, Callable, Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.graph.confirmation_policy import parse_confirmation_mode
+from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.execution_service import ExecutionDeps, run_graph_pipeline, resume_graph_pipeline
 
 logger = logging.getLogger("execution_router")
@@ -107,9 +108,21 @@ def create_execution_router(deps: ExecutionRouterDeps) -> APIRouter:
     router = APIRouter(tags=["Execution"])
 
     @router.post("/api/execute")
-    async def execute_endpoint(request: ExecuteRequest):
+    async def execute_endpoint(
+        request: ExecuteRequest,
+        current_user: Principal = Depends(get_current_user),
+    ):
+        require_matching_identity(
+            principal=current_user,
+            provided=request.session_id,
+            expected=current_user.session_id,
+            field_name="session_id",
+        )
+        resolved_session_id = (
+            request.session_id if current_user.auth_type == "dev" else current_user.session_id
+        )
         try:
-            thread_id = deps.resolve_thread_id(request.session_id)
+            thread_id = deps.resolve_thread_id(resolved_session_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -189,11 +202,33 @@ def create_execution_router(deps: ExecutionRouterDeps) -> APIRouter:
     # ------------------------------------------------------------------
 
     @router.post("/api/execute/resume")
-    async def resume_endpoint(request: ResumeRequest):
-        thread_id = request.thread_id
+    async def resume_endpoint(
+        request: ResumeRequest,
+        current_user: Principal = Depends(get_current_user),
+    ):
+        require_matching_identity(
+            principal=current_user,
+            provided=request.thread_id,
+            expected=current_user.session_id,
+            field_name="thread_id",
+        )
+        if request.session_id:
+            require_matching_identity(
+                principal=current_user,
+                provided=request.session_id,
+                expected=current_user.session_id,
+                field_name="session_id",
+            )
+
+        thread_id = request.thread_id if current_user.auth_type == "dev" else current_user.session_id
         if request.session_id:
             try:
-                thread_id = deps.resolve_thread_id(request.session_id)
+                resolved_session_id = (
+                    request.session_id
+                    if current_user.auth_type == "dev"
+                    else current_user.session_id
+                )
+                thread_id = deps.resolve_thread_id(resolved_session_id)
             except ValueError:
                 pass
 

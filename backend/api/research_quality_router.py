@@ -10,6 +10,11 @@ from backend.security.auth import Principal, get_current_user, require_matching_
 from backend.services import research_quality
 
 
+def _provided_user_id(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    return None if text in {"", "default_user"} else text
+
+
 def create_research_quality_router() -> APIRouter:
     """创建 Research Quality 路由"""
     router = APIRouter()
@@ -32,10 +37,18 @@ def create_research_quality_router() -> APIRouter:
             expected=current_user.session_id,
             field_name="session_id",
         )
+        provided_user_id = _provided_user_id(user_id)
+        require_matching_identity(
+            principal=current_user,
+            provided=provided_user_id,
+            expected=current_user.user_id,
+            field_name="user_id",
+        )
+        effective_user_id = provided_user_id or current_user.user_id
 
         result = research_quality.get_research_quality(
             session_id=session_id,
-            user_id=user_id,
+            user_id=effective_user_id,
             symbol=symbol,
         )
 
