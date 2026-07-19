@@ -1,5 +1,7 @@
 # FinSight AI
 
+[简体中文](./readme_cn.md)
+
 FinSight AI is an evidence-driven financial research workspace built with **Vue 3 + FastAPI**. It helps a personal researcher answer four daily questions:
 
 - What changed today?
@@ -8,6 +10,10 @@ FinSight AI is an evidence-driven financial research workspace built with **Vue 
 - Where should I review the evidence next?
 
 The project is not positioned as a trading or commercial product. It provides research review suggestions only, not buy/sell advice.
+
+![FinSight Today Workspace](./images/today-workspace.png)
+
+> Screenshots use clearly labeled Demo Mode data for product illustration. They do not represent live quotes or investment advice.
 
 ## Current Mainline
 
@@ -19,6 +25,24 @@ Browser
 ```
 
 Legacy React and Spring migration experiments are no longer part of the active runtime path.
+
+## Latest Repository Update (2026-07-19)
+
+- Internal health now reports `degraded` when the LangGraph runner or checkpointer is not ready, instead of returning a false healthy status.
+- Docker build contexts now exclude pytest temporary directories and local `tmp/` artifacts.
+- The local Compose deployment was rebuilt and verified with `postgres`, `backend`, and `frontend` all reporting `healthy`.
+- The frontend entry point and proxied `/health` endpoint were verified with HTTP 200 responses.
+- GitHub-facing screenshots and both README variants now reflect the active seven-entry Vue workspace.
+
+## Product Tour
+
+| Symbol research dossier | Stock discovery |
+| --- | --- |
+| ![AAPL symbol research dossier](./images/symbol-dossier.png) | ![CN stock discovery](./images/stock-discovery.png) |
+| Portfolio management | Reports library |
+| ![Portfolio management](./images/portfolio-management.png) | ![Reports library](./images/reports-library.png) |
+| Research notebook | AI research assistant |
+| ![Research notebook](./images/research-notebook.png) | ![AI research assistant](./images/ai-assistant.png) |
 
 ## Highlights
 
@@ -56,6 +80,17 @@ npm run dev
 
 Open the local Vite URL shown in the terminal. The frontend defaults to the FastAPI backend at `127.0.0.1:8000` in local development.
 
+### Docker Compose
+
+After configuring `.env.server`, build and start the complete local stack:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+Open `http://localhost/`. The default Compose stack keeps FastAPI and PostgreSQL on the internal Docker network and exposes the nginx frontend on port 80.
+
 ## Configuration
 
 Copy the example files and fill in local-only values:
@@ -81,7 +116,7 @@ npm run build
 npm run test:e2e
 ```
 
-Phase 6/7 verification reached 48/48 E2E passing and all core backend checks passing before the repository history cleanup.
+GitHub Actions runs frontend lint/build/E2E checks, the backend pytest suite, retrieval and RAG quality gates, and Docker smoke validation.
 
 ## Documentation
 

@@ -1,11 +1,17 @@
 # FinSight AI
 
+[English](./README.md)
+
 FinSight AI 是一个基于 **Vue 3 + FastAPI** 的证据驱动金融研究工作台。它不是交易顾问，不输出买入、卖出、持有、目标价或仓位指令；它的目标是帮助个人研究者每天回答四个问题：
 
 - 今天发生了什么变化？
 - 这个变化为什么重要？
 - 它影响哪个标的、报告、风险项、提醒或研究笔记？
 - 下一步应该去哪里复查证据？
+
+![FinSight 今日工作台](./images/today-workspace.png)
+
+> 截图使用明确标注的 Demo Mode 数据，仅用于展示产品界面，不代表实时行情，也不构成投资建议。
 
 ## 当前主线
 
@@ -17,6 +23,23 @@ Browser
 ```
 
 旧 React 前端和 Spring 迁移实验已经退出当前运行链路。
+
+## 最新仓库更新（2026-07-19）
+
+- LangGraph runner 或 checkpointer 未就绪时，内部健康检查会返回 `degraded`，不再出现假绿状态。
+- Docker 构建上下文已排除 pytest 临时目录和本地 `tmp/` 产物。
+- 本地 Compose 已完成重建验证，`postgres`、`backend`、`frontend` 均为 `healthy`。
+- GitHub 展示截图与中英文 README 已同步到当前 7 入口 Vue 工作台。
+
+## 产品导览
+
+| 标的研究档案 | 股票发现 |
+| --- | --- |
+| ![AAPL 标的研究档案](./images/symbol-dossier.png) | ![A 股股票发现](./images/stock-discovery.png) |
+| 组合管理 | 报告库 |
+| ![组合管理](./images/portfolio-management.png) | ![报告库](./images/reports-library.png) |
+| 研究笔记 | AI 研究助手 |
+| ![研究笔记](./images/research-notebook.png) | ![AI 研究助手](./images/ai-assistant.png) |
 
 ## 核心能力
 
@@ -50,6 +73,17 @@ npm run dev
 ```
 
 打开终端输出的 Vite 地址即可。开发环境下前端默认连接 `127.0.0.1:8000`。
+
+### Docker Compose
+
+配置 `.env.server` 后，构建并启动完整本地服务：
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+访问 `http://localhost/`。默认 Compose 仅暴露 nginx 前端的 80 端口，FastAPI 与 PostgreSQL 保持在 Docker 内部网络。
 
 ## Demo Mode
 
@@ -107,6 +141,8 @@ npm run test:e2e
 ```powershell
 python scripts/local_release_gate.py
 ```
+
+GitHub Actions 会执行前端 lint/build/E2E、后端 pytest、检索与 RAG 质量门禁，以及 Docker smoke 验证。
 
 ## 文档入口
 
