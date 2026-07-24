@@ -65,9 +65,9 @@ async def analyze_news_sentiment(
     prompt = _SENTIMENT_PROMPT.format(news_json=news_json)
 
     try:
-        from backend.llm_config import get_llm
+        from backend.llm_config import create_llm
 
-        llm = get_llm(temperature=0.0, max_tokens=2048)
+        llm = create_llm(temperature=0.0, max_tokens=2048)
         response = await llm.ainvoke(prompt)
         text = response.content if hasattr(response, "content") else str(response)
 
@@ -89,11 +89,11 @@ async def analyze_news_sentiment(
             result.append(enriched)
         return result
 
-    except json.JSONDecodeError as e:
-        logger.warning("[NewsSentiment] LLM返回非JSON: %s", e)
+    except json.JSONDecodeError as exc:
+        logger.warning("[NewsSentiment] LLM返回非JSON: %s", type(exc).__name__)
         return [dict(n, **_neutral_sentiment()) for n in news_list]
-    except Exception as e:
-        logger.exception("[NewsSentiment] 分析失败: %s", e)
+    except Exception as exc:
+        logger.error("[NewsSentiment] 分析失败: %s", type(exc).__name__)
         return [dict(n, **_neutral_sentiment()) for n in news_list]
 
 

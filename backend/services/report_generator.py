@@ -175,13 +175,13 @@ class ResearchReportGenerator:
             生成的报告内容（Markdown格式）
         """
         try:
-            from backend.llm_config import get_llm
+            from backend.llm_config import create_llm
 
             # 获取GPT-4o模型（优先使用高级模型生成报告）
-            llm = get_llm(
+            llm = create_llm(
                 temperature=0.3,  # 较低温度确保输出稳定
                 max_tokens=4096,  # 长报告需要更多token
-                model_name="gpt-4o"  # 指定使用GPT-4o
+                model="gpt-4o"  # 指定使用GPT-4o
             )
 
             # 生成报告
@@ -191,15 +191,15 @@ class ResearchReportGenerator:
                 return response.content
             return str(response)
 
-        except Exception as e:
-            logger.exception(f"[ResearchReport] LLM调用失败 for {ticker}: {e}")
-            return self._fallback_report(ticker, str(e))
+        except Exception as exc:
+            logger.error("[ResearchReport] LLM调用失败 for %s: %s", ticker, type(exc).__name__)
+            return self._fallback_report(ticker)
 
-    def _fallback_report(self, ticker: str, error: str) -> str:
+    def _fallback_report(self, ticker: str) -> str:
         """生成失败时的备用报告"""
         return f"""# {ticker} 研究报告生成失败
 
-生成报告时遇到错误：{error}
+生成报告时遇到错误，请稍后重试。
 
 请稍后重试，或检查以下事项：
 1. LLM服务是否正常运行

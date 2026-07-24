@@ -305,8 +305,8 @@ async def smart_qa(request: SmartQARequest):
 - 风险提示：末尾附加"以上仅供研究参考，不构成投资建议"
 """
 
-        from backend.llm_config import get_llm
-        llm = get_llm(temperature=0.3, max_tokens=1024)
+        from backend.llm_config import create_llm
+        llm = create_llm(temperature=0.3, max_tokens=1024)
         response = await llm.ainvoke(prompt)
         answer = response.content if hasattr(response, "content") else str(response)
 

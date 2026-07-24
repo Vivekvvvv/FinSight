@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
@@ -100,3 +103,303 @@ def test_security_gate_rate_limit_blocks_second_request(monkeypatch):
     assert second.status_code == 429
     assert second.json().get("detail") == "Rate limit exceeded"
     assert second.headers.get("Retry-After") is not None
+
+
+def test_research_qa_uses_configured_llm_factory(monkeypatch):
+    from backend.api.research_router import router
+    from backend import llm_config
+
+    captured = {}
+
+    class Response:
+        content = "configured model answer"
+
+    class WorkingLlm:
+        async def ainvoke(self, _prompt):
+            return Response()
+
+    def fake_create_llm(**kwargs):
+        captured.update(kwargs)
+        return WorkingLlm()
+
+    monkeypatch.setattr(llm_config, "create_llm", fake_create_llm)
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/qa",
+            json={"question": "analyze risk", "use_cn_data": False},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "configured model answer"
+    assert captured == {"temperature": 0.3, "max_tokens": 1024}
+
+
+def test_research_report_uses_configured_llm_factory(monkeypatch):
+    from backend.api.research_router import router
+    from backend import llm_config, tools
+
+    captured = {}
+
+    class Response:
+        content = "configured report content"
+
+    class WorkingLlm:
+        async def ainvoke(self, _prompt):
+            return Response()
+
+    def fake_create_llm(**kwargs):
+        captured.update(kwargs)
+        return WorkingLlm()
+
+    monkeypatch.setattr(llm_config, "create_llm", fake_create_llm)
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {})
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/report/generate",
+            json={
+                "ticker": "AAPL",
+                "report_type": "technical",
+                "include_news": False,
+                "include_technical": False,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["content"] == "configured report content"
+    assert captured == {"temperature": 0.3, "max_tokens": 4096, "model": "gpt-4o"}
+
+
+def test_research_report_fallback_redacts_llm_error(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import llm_config, tools
+
+    class FailingLlm:
+        async def ainvoke(self, _prompt):
+            raise RuntimeError("private report provider detail")
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: FailingLlm())
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {})
+    caplog.set_level(logging.ERROR, logger="backend.services.report_generator")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/report/generate",
+            json={
+                "ticker": "AAPL",
+                "report_type": "technical",
+                "include_news": False,
+                "include_technical": False,
+            },
+        )
+
+    assert response.status_code == 200
+    assert "生成报告时遇到错误，请稍后重试。" in response.json()["content"]
+    assert "private report provider detail" not in response.text
+    assert "private report provider detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_financials_analysis_uses_configured_llm_factory(monkeypatch):
+    from backend.api.research_router import router
+    from backend import llm_config, tools
+
+    captured = {}
+
+    class Response:
+        content = '{"overall_rating":{"score":8}}'
+
+    class WorkingLlm:
+        async def ainvoke(self, _prompt):
+            return Response()
+
+    def fake_create_llm(**kwargs):
+        captured.update(kwargs)
+        return WorkingLlm()
+
+    monkeypatch.setattr(llm_config, "create_llm", fake_create_llm)
+    monkeypatch.setattr(tools, "get_financial_statements", lambda _ticker: {"revenue": 100})
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {"name": "Apple"})
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/financials/analyze",
+            json={"ticker": "AAPL"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    assert response.json()["overall_rating"]["score"] == 8
+    assert captured == {"temperature": 0.1, "max_tokens": 2048}
+
+
+def test_financials_analysis_fallback_redacts_llm_error(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import llm_config, tools
+
+    class FailingLlm:
+        async def ainvoke(self, _prompt):
+            raise RuntimeError("private financials provider detail")
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: FailingLlm())
+    monkeypatch.setattr(tools, "get_financial_statements", lambda _ticker: {"revenue": 100})
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {"name": "Apple"})
+    caplog.set_level(logging.ERROR, logger="backend.services.financials_analyzer")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/financials/analyze",
+            json={"ticker": "AAPL"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "error"
+    assert response.json()["error"] == "Internal server error"
+    assert "private financials provider detail" not in response.text
+    assert "private financials provider detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_financials_analysis_json_parse_fallback_redacts_error(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import llm_config, tools
+
+    class NonJsonLlm:
+        async def ainvoke(self, _prompt):
+            class Response:
+                content = "not-json-private-fragment"
+
+            return Response()
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: NonJsonLlm())
+    monkeypatch.setattr(tools, "get_financial_statements", lambda _ticker: {"revenue": 100})
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {"name": "Apple"})
+    caplog.set_level(logging.WARNING, logger="backend.services.financials_analyzer")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/financials/analyze",
+            json={"ticker": "AAPL"},
+        )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["status"] == "error"
+    assert body["error"] == "Internal server error"
+    assert "not-json-private-fragment" not in response.text
+    assert "解析LLM响应失败" not in response.text
+    assert "not-json-private-fragment" not in caplog.text
+    assert "JSONDecodeError" in caplog.text
+
+
+def test_news_sentiment_uses_configured_llm_factory(monkeypatch):
+    from backend.api.research_router import router
+    from backend import llm_config
+
+    captured = {}
+
+    class Response:
+        content = (
+            '[{"sentiment":"positive","sentiment_cn":"利好",'
+            '"confidence":0.9,"key_event":"earnings beat","impact_level":"high"}]'
+        )
+
+    class WorkingLlm:
+        async def ainvoke(self, _prompt):
+            return Response()
+
+    def fake_create_llm(**kwargs):
+        captured.update(kwargs)
+        return WorkingLlm()
+
+    monkeypatch.setattr(llm_config, "create_llm", fake_create_llm)
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/news/sentiment",
+            json={
+                "ticker": "AAPL",
+                "news": [{"title": "Quarterly earnings beat expectations"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["news"][0]["sentiment"] == "positive"
+    assert response.json()["aggregate"]["positive"] == 1
+    assert captured == {"temperature": 0.0, "max_tokens": 2048}
+
+
+def test_news_sentiment_fallback_redacts_llm_error(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import llm_config
+
+    class FailingLlm:
+        async def ainvoke(self, _prompt):
+            raise RuntimeError("private sentiment provider detail")
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: FailingLlm())
+    caplog.set_level(logging.ERROR, logger="backend.services.news_sentiment")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/news/sentiment",
+            json={
+                "ticker": "AAPL",
+                "news": [{"title": "Quarterly earnings beat expectations"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["news"][0]["sentiment"] == "neutral"
+    assert "private sentiment provider detail" not in response.text
+    assert "private sentiment provider detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_news_sentiment_json_parse_fallback_redacts_error(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import llm_config
+
+    class NonJsonLlm:
+        async def ainvoke(self, _prompt):
+            class Response:
+                content = "not-json-private-sentiment-fragment"
+
+            return Response()
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: NonJsonLlm())
+    caplog.set_level(logging.WARNING, logger="backend.services.news_sentiment")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/news/sentiment",
+            json={
+                "ticker": "AAPL",
+                "news": [{"title": "Quarterly earnings beat expectations"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["news"][0]["sentiment"] == "neutral"
+    assert "not-json-private-sentiment-fragment" not in response.text
+    assert "not-json-private-sentiment-fragment" not in caplog.text
+    assert "JSONDecodeError" in caplog.text

@@ -83,9 +83,9 @@ async def analyze_financials(
     )
 
     try:
-        from backend.llm_config import get_llm
+        from backend.llm_config import create_llm
 
-        llm = get_llm(temperature=0.1, max_tokens=2048)
+        llm = create_llm(temperature=0.1, max_tokens=2048)
         response = await llm.ainvoke(prompt)
         text = response.content if hasattr(response, "content") else str(response)
 
@@ -100,12 +100,12 @@ async def analyze_financials(
         result["status"] = "success"
         return result
 
-    except json.JSONDecodeError as e:
-        logger.warning("[FinancialsAnalyzer] LLM返回非JSON，fallback: %s", e)
-        return _fallback_result(ticker, f"解析LLM响应失败: {e}")
-    except Exception as e:
-        logger.exception("[FinancialsAnalyzer] 分析失败: %s", e)
-        return _fallback_result(ticker, str(e))
+    except json.JSONDecodeError as exc:
+        logger.warning("[FinancialsAnalyzer] LLM返回非JSON，fallback: %s", type(exc).__name__)
+        return _fallback_result(ticker, "Internal server error")
+    except Exception as exc:
+        logger.error("[FinancialsAnalyzer] 分析失败: %s", type(exc).__name__)
+        return _fallback_result(ticker, "Internal server error")
 
 
 def _fallback_result(ticker: str, error: str) -> Dict[str, Any]:
