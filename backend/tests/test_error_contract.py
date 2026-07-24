@@ -85,3 +85,44 @@ def test_timeline_invalid_event_type_returns_400_not_500(client):
         params={"session_id": "pytest_router_session", "event_type": "bogus"},
     )
     assert resp.status_code == 400
+
+
+def test_timeline_internal_error_is_redacted(client, monkeypatch, caplog):
+    from backend.api import timeline_router
+
+    def fail_get_timeline(**_kwargs):
+        raise RuntimeError("private timeline database detail")
+
+    monkeypatch.setattr(timeline_router.timeline_service, "get_timeline", fail_get_timeline)
+    caplog.set_level(logging.ERROR, logger="backend.api.timeline_router")
+    response = client.get(
+        "/api/timeline/AAPL",
+        params={"session_id": "pytest_router_session"},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert "private timeline database detail" not in response.text
+    assert "private timeline database detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_timeline_value_error_returns_fixed_400(client, monkeypatch, caplog):
+    from backend.api import timeline_router
+
+    def fail_get_timeline(**_kwargs):
+        raise ValueError("private parser path C:/secret/timeline.db")
+
+    monkeypatch.setattr(timeline_router.timeline_service, "get_timeline", fail_get_timeline)
+    caplog.set_level(logging.WARNING, logger="backend.api.timeline_router")
+    response = client.get(
+        "/api/timeline/AAPL",
+        params={"session_id": "pytest_router_session"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid timeline request"
+    assert "private parser path" not in response.text
+    assert "C:/secret/timeline.db" not in response.text
+    assert "private parser path" not in caplog.text
+    assert "ValueError" in caplog.text

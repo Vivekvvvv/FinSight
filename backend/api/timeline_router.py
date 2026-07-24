@@ -2,6 +2,7 @@
 """Evidence Timeline API Router"""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -10,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.demo_mode import demo_timeline, is_demo_mode
 from backend.services import timeline_service
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -99,9 +102,13 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
 
         except HTTPException:
             raise  # 身份 403 / event_type 400 在 try 内抛出，不得被下面的宽 except 重包成 500
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"获取时间线失败: {e}")
+        except ValueError as exc:
+            # 路由层无显式 raise ValueError；服务层 ISO 解析会吞掉 ValueError。
+            # 该分支仅作防御，禁止回传 str(exc) 以免未来服务/解析路径泄露内部细节。
+            logger.warning("timeline invalid value: %s", type(exc).__name__)
+            raise HTTPException(status_code=400, detail="Invalid timeline request") from exc
+        except Exception as exc:
+            logger.error("获取时间线失败: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router
