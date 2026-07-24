@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -150,3 +152,215 @@ def test_vectorize_default_user_uses_authenticated_principal(authenticated_clien
 
     assert response.status_code == 200
     assert captured["user_id"] == "pytest_authenticated_user"
+
+
+def _assert_internal_error_redacted(response, caplog, secret: str) -> None:
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_create_note_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    secret = "C:/private/notes.db create detail"
+
+    def fail_create_note(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(research_notes, "create_note", fail_create_note)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.post(
+        "/api/research-notes",
+        json={"session_id": "pytest_router_session", "title": "private research"},
+    )
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_list_notes_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    secret = "C:/private/notes.db list detail"
+
+    def fail_list_notes(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(research_notes, "list_notes", fail_list_notes)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.get(
+        "/api/research-notes",
+        params={"session_id": "pytest_router_session"},
+    )
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_semantic_search_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    from backend.services import notes_rag
+
+    secret = "C:/private/vector.db search detail"
+
+    def fail_semantic_search_notes(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(notes_rag, "semantic_search_notes", fail_semantic_search_notes)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.get(
+        "/api/research-notes/semantic-search",
+        params={"session_id": "pytest_router_session", "q": "估值"},
+    )
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_get_note_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    secret = "C:/private/notes.db get detail"
+
+    def fail_get_note(_note_id):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(research_notes, "get_note", fail_get_note)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.get("/api/research-notes/note-1")
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_update_note_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    secret = "C:/private/notes.db update detail"
+
+    monkeypatch.setattr(
+        research_notes,
+        "get_note",
+        lambda _note_id: {"user_id": "pytest_authenticated_user"},
+    )
+
+    def fail_update_note(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(research_notes, "update_note", fail_update_note)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.put(
+        "/api/research-notes/note-1",
+        json={"title": "updated"},
+    )
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_delete_note_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    secret = "C:/private/notes.db delete detail"
+
+    monkeypatch.setattr(
+        research_notes,
+        "get_note",
+        lambda _note_id: {"user_id": "pytest_authenticated_user"},
+    )
+
+    def fail_delete_note(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(research_notes, "delete_note", fail_delete_note)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.delete("/api/research-notes/note-1")
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_upload_note_image_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    from backend.services import note_images
+
+    secret = "C:/private/uploads/storage detail"
+
+    async def fail_save_image(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(
+        research_notes,
+        "get_note",
+        lambda _note_id: {"user_id": "pytest_authenticated_user"},
+    )
+    monkeypatch.setattr(note_images, "save_image", fail_save_image)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.post(
+        "/api/research-notes/note-1/images",
+        files={"file": ("chart.png", b"image-bytes", "image/png")},
+    )
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_get_note_image_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    from backend.services import note_images
+
+    secret = "C:/private/uploads/read detail"
+
+    def fail_get_image_path(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(note_images, "get_image_path", fail_get_image_path)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.get(
+        "/api/notes/images/pytest_authenticated_user/note-1/chart.png",
+    )
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_list_note_images_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    from backend.services import note_images
+
+    secret = "C:/private/uploads/list detail"
+
+    monkeypatch.setattr(
+        research_notes,
+        "get_note",
+        lambda _note_id: {"user_id": "pytest_authenticated_user"},
+    )
+
+    def fail_list_images(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(note_images, "list_images", fail_list_images)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.get("/api/research-notes/note-1/images")
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_delete_note_image_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    from backend.services import note_images
+
+    secret = "C:/private/uploads/delete detail"
+
+    monkeypatch.setattr(
+        research_notes,
+        "get_note",
+        lambda _note_id: {"user_id": "pytest_authenticated_user"},
+    )
+
+    def fail_delete_image(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(note_images, "delete_image", fail_delete_image)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.delete("/api/research-notes/note-1/images/chart.png")
+    _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_vectorize_all_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):
+    from backend.services import notes_rag
+
+    secret = "C:/private/vector.db vectorize detail"
+
+    def fail_vectorize_all_notes(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(notes_rag, "vectorize_all_notes", fail_vectorize_all_notes)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_notes_router")
+
+    response = authenticated_client.post(
+        "/api/research-notes/vectorize-all",
+        params={"session_id": "pytest_router_session", "user_id": "default_user"},
+    )
+    _assert_internal_error_redacted(response, caplog, secret)
