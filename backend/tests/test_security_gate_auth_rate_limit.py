@@ -105,6 +105,32 @@ def test_security_gate_rate_limit_blocks_second_request(monkeypatch):
     assert second.headers.get("Retry-After") is not None
 
 
+def test_research_qa_internal_error_is_redacted(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import llm_config
+
+    class FailingLlm:
+        async def ainvoke(self, _prompt):
+            raise RuntimeError("private LLM provider detail")
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: FailingLlm())
+    caplog.set_level(logging.ERROR, logger="backend.api.research_router")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/qa",
+            json={"question": "analyze risk", "use_cn_data": False},
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert "private LLM provider detail" not in response.text
+    assert "private LLM provider detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 def test_research_qa_uses_configured_llm_factory(monkeypatch):
     from backend.api.research_router import router
     from backend import llm_config
@@ -207,6 +233,36 @@ def test_research_report_fallback_redacts_llm_error(monkeypatch, caplog):
     assert "RuntimeError" in caplog.text
 
 
+def test_research_report_internal_error_is_redacted(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend.services import report_generator
+
+    def fail_get_report_generator():
+        raise RuntimeError("private report initialization detail")
+
+    monkeypatch.setattr(report_generator, "get_report_generator", fail_get_report_generator)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_router")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/report/generate",
+            json={
+                "ticker": "AAPL",
+                "report_type": "technical",
+                "include_news": False,
+                "include_technical": False,
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert "private report initialization detail" not in response.text
+    assert "private report initialization detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 def test_financials_analysis_uses_configured_llm_factory(monkeypatch):
     from backend.api.research_router import router
     from backend import llm_config, tools
@@ -303,6 +359,59 @@ def test_financials_analysis_json_parse_fallback_redacts_error(monkeypatch, capl
     assert "解析LLM响应失败" not in response.text
     assert "not-json-private-fragment" not in caplog.text
     assert "JSONDecodeError" in caplog.text
+
+
+def test_financials_analysis_internal_error_is_redacted(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import tools
+    from backend.services import financials_analyzer
+
+    async def fail_analyze_financials(**_kwargs):
+        raise RuntimeError("private financials service detail")
+
+    monkeypatch.setattr(financials_analyzer, "analyze_financials", fail_analyze_financials)
+    monkeypatch.setattr(tools, "get_financial_statements", lambda _ticker: {"revenue": 100})
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {"name": "Apple"})
+    caplog.set_level(logging.ERROR, logger="backend.api.research_router")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/financials/analyze",
+            json={"ticker": "AAPL"},
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert "private financials service detail" not in response.text
+    assert "private financials service detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_financials_fetch_warning_redacts_exception_text(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import tools
+
+    def fail_get_financial_statements(_ticker):
+        raise RuntimeError("private financials fetch detail")
+
+    monkeypatch.setattr(tools, "get_financial_statements", fail_get_financial_statements)
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {"name": "Apple"})
+    caplog.set_level(logging.WARNING, logger="backend.api.research_router")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/financials/analyze",
+            json={"ticker": "AAPL"},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "无法获取该股票财报数据，请确认代码正确"
+    assert "private financials fetch detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_news_sentiment_uses_configured_llm_factory(monkeypatch):
@@ -403,3 +512,31 @@ def test_news_sentiment_json_parse_fallback_redacts_error(monkeypatch, caplog):
     assert "not-json-private-sentiment-fragment" not in response.text
     assert "not-json-private-sentiment-fragment" not in caplog.text
     assert "JSONDecodeError" in caplog.text
+
+
+def test_news_sentiment_internal_error_is_redacted(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend.services import news_sentiment
+
+    async def fail_analyze_news_sentiment(*_args, **_kwargs):
+        raise RuntimeError("private sentiment service detail")
+
+    monkeypatch.setattr(news_sentiment, "analyze_news_sentiment", fail_analyze_news_sentiment)
+    caplog.set_level(logging.ERROR, logger="backend.api.research_router")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/news/sentiment",
+            json={
+                "ticker": "AAPL",
+                "news": [{"title": "Quarterly earnings beat expectations"}],
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert "private sentiment service detail" not in response.text
+    assert "private sentiment service detail" not in caplog.text
+    assert "RuntimeError" in caplog.text

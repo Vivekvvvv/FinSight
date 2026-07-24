@@ -102,9 +102,9 @@ async def generate_report(request: ReportGenerateRequest):
         )
         return ReportResponse(**report)
 
-    except Exception as e:
-        logger.exception("生成报告失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"生成报告失败: {e}")
+    except Exception as exc:
+        logger.error("生成报告失败: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 # ── 财报分析 ───────────────────────────────────────────────────────────────────
@@ -130,8 +130,8 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
 
         try:
             financials = get_financial_statements(request.ticker) or {}
-        except Exception as e:
-            logger.warning("获取财报失败 %s: %s", request.ticker, e)
+        except Exception as exc:
+            logger.warning("获取财报失败 %s: %s", request.ticker, type(exc).__name__)
 
         try:
             company_info = get_company_info(request.ticker) or {}
@@ -150,9 +150,9 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.exception("财报分析失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"财报分析失败: {e}")
+    except Exception as exc:
+        logger.error("财报分析失败: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 # ── 新闻情绪分析 ───────────────────────────────────────────────────────────────
@@ -178,8 +178,8 @@ async def news_sentiment(request: NewsSentimentRequest):
                     news_list = raw.get("news") or raw.get("items") or raw.get("data") or []
                 elif isinstance(raw, list):
                     news_list = raw
-            except Exception as e:
-                logger.warning("获取新闻失败 %s: %s", request.ticker, e)
+            except Exception as exc:
+                logger.warning("获取新闻失败 %s: %s", request.ticker, type(exc).__name__)
 
         if not news_list:
             return {"ticker": request.ticker, "news": [], "aggregate": {
@@ -198,9 +198,9 @@ async def news_sentiment(request: NewsSentimentRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.exception("新闻情绪分析失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"新闻情绪分析失败: {e}")
+    except Exception as exc:
+        logger.error("新闻情绪分析失败: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 # ── 智能股票问答 ───────────────────────────────────────────────────────────────
@@ -317,6 +317,6 @@ async def smart_qa(request: SmartQARequest):
             "context_used": context_parts,
         }
 
-    except Exception as e:
-        logger.exception("智能问答失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"智能问答失败: {e}")
+    except Exception as exc:
+        logger.error("智能问答失败: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
