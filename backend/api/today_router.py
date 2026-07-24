@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -21,6 +22,8 @@ from backend.security.auth import Principal, get_current_user, require_matching_
 from backend.demo_mode import demo_today_workspace, is_demo_mode
 from backend.services.next_actions import generate_next_actions
 from backend.services.reports_to_review import get_reports_to_review
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -188,6 +191,7 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
         except Exception as exc:
             # 不再压成 200+空骨架（审计 F/项目规则 3）：空骨架会被前端当正常数据渲染，
             # 后端故障对用户和监控完全不可见；WelcomePage 已有 catch+errorMsg 处理 500。
-            raise HTTPException(status_code=500, detail=str(exc))
+            logger.error("今日工作台生成失败: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router

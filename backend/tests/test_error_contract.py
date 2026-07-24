@@ -8,6 +8,8 @@ vectorize 端点的既有语义一致。
 """
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,15 +22,21 @@ def client():
         yield test_client
 
 
-def test_today_internal_error_returns_500(client, monkeypatch):
+def test_today_internal_error_is_redacted(client, monkeypatch, caplog):
     from backend.api import today_router as module
 
     def _boom():
-        raise RuntimeError("today pipeline exploded")
+        raise RuntimeError("private today workspace detail")
 
     monkeypatch.setattr(module, "is_demo_mode", _boom)
-    resp = client.get("/api/today", params={"session_id": "pytest_router_session"})
-    assert resp.status_code == 500
+    caplog.set_level(logging.ERROR, logger="backend.api.today_router")
+    response = client.get("/api/today", params={"session_id": "pytest_router_session"})
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert "private today workspace detail" not in response.text
+    assert "private today workspace detail" not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_notes_list_internal_error_returns_500(client, monkeypatch):
