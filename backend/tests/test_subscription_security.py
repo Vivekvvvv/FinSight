@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -47,3 +50,56 @@ def test_admin_subscription_list_requires_admin(monkeypatch, tmp_path):
         response = client.get("/api/admin/subscriptions", headers={"x-api-key": "release-key-1"})
 
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        ("POST", "/api/subscribe", {"email": "alice@example.invalid", "ticker": "AAPL"}),
+        ("POST", "/api/unsubscribe", {"email": "alice@example.invalid", "ticker": "AAPL"}),
+        ("GET", "/api/subscriptions", None),
+        (
+            "POST",
+            "/api/subscription/toggle",
+            {"email": "alice@example.invalid", "ticker": "AAPL", "enabled": True},
+        ),
+        ("GET", "/api/admin/subscriptions", None),
+    ],
+)
+def test_subscription_internal_errors_are_redacted(monkeypatch, method, path, payload, caplog, capsys):
+    from backend.api import main
+    from backend.services import subscription_service as subs
+
+    class FailingSubscriptionService:
+        @staticmethod
+        def is_valid_email(_email):
+            return True
+
+        @staticmethod
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("private subscription storage detail")
+
+        subscribe = fail
+        unsubscribe = fail
+        get_subscriptions = fail
+        toggle_subscription = fail
+
+    _set_prod_env(monkeypatch, role="admin")
+    monkeypatch.setattr(subs, "get_subscription_service", lambda: FailingSubscriptionService())
+    monkeypatch.setattr(main, "_rate_limiter", main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False))
+    caplog.set_level(logging.ERROR, logger="backend.api.subscription_router")
+
+    with TestClient(main.app) as client:
+        response = client.request(
+            method,
+            path,
+            headers={"x-api-key": "release-key-1"},
+            json=payload,
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert "private subscription storage detail" not in response.text
+    assert "private subscription storage detail" not in capsys.readouterr().err
+    assert "private subscription storage detail" not in caplog.text
+    assert "RuntimeError" in caplog.text

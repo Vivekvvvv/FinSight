@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import traceback
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -52,8 +51,8 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            logger.error("[subscription/subscribe] failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/api/unsubscribe")
     async def unsubscribe_email(request: UnsubscribeRequest, current_user: Principal = Depends(get_current_user)):
@@ -82,8 +81,8 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            logger.error("[subscription/unsubscribe] failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/subscriptions", response_model=SubscriptionListResponse)
     async def get_subscriptions(email: str = None, current_user: Principal = Depends(get_current_user)):
@@ -105,8 +104,8 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            logger.error("[subscription/list] failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/api/subscription/toggle", response_model=SubscriptionResponse)
     async def toggle_subscription(request: ToggleSubscriptionRequest, current_user: Principal = Depends(get_current_user)):
@@ -133,8 +132,8 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            logger.error("[subscription/toggle] failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/admin/subscriptions", response_model=SubscriptionListResponse)
     async def get_admin_subscriptions(request: Request, current_user: Principal = Depends(require_admin_principal)):
@@ -153,7 +152,7 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            logger.error("[subscription/admin-list] failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router
