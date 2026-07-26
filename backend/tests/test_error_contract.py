@@ -126,3 +126,31 @@ def test_timeline_value_error_returns_fixed_400(client, monkeypatch, caplog):
     assert "C:/secret/timeline.db" not in response.text
     assert "private parser path" not in caplog.text
     assert "ValueError" in caplog.text
+
+
+def test_portfolio_optimize_internal_error_is_redacted(client, monkeypatch):
+    from backend import tools
+    from backend.services import portfolio_optimizer
+
+    secret = "private optimizer credential detail"
+
+    monkeypatch.setattr(
+        tools,
+        "get_stock_historical_data",
+        lambda *_args, **_kwargs: {
+            "kline_data": [{"close": value} for value in range(1, 22)]
+        },
+    )
+
+    def fail_optimize(**_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(portfolio_optimizer, "optimize_portfolio", fail_optimize)
+    response = client.post(
+        "/api/portfolio/optimize",
+        json={"tickers": ["AAPL", "MSFT"], "n_simulations": 100},
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text

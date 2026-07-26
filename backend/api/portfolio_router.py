@@ -362,7 +362,7 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
         return result
     except Exception as e:
         logger.exception("组合优化失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"优化失败: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 __all__ = ["portfolio_router"]
