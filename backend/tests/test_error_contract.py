@@ -154,3 +154,83 @@ def test_portfolio_optimize_internal_error_is_redacted(client, monkeypatch):
     assert response.status_code == 500
     assert response.json()["detail"] == "Internal server error"
     assert secret not in response.text
+
+
+def _system_client(**overrides):
+    """构造只挂载 system_router 的最小 app。
+
+    /diagnostics/* 的依赖在 main.py 装配 SystemRouterDeps 时就绑定了函数对象，
+    monkeypatch 模块属性注入不到故障，因此这里直接注入伪 deps 测路由本身。
+    """
+    from fastapi import FastAPI
+
+    from backend.api.system_router import SystemRouterDeps, create_system_router
+
+    deps_kwargs = {
+        "metrics_enabled": False,
+        "metrics_payload": lambda: ("", "text/plain"),
+        "graph_runner_ready": lambda: True,
+        "get_graph_checkpointer_info": lambda: {"backend": "memory"},
+        "get_orchestrator_safe": lambda: None,
+        "get_planner_ab_metrics": lambda: {},
+        "get_rag_observability_store": lambda: None,
+        "require_rag_read_access": lambda _request: {"role": "admin"},
+        "require_rag_mutation_access": lambda _request: {"role": "admin"},
+        "memory_service": None,
+        "logger": logging.getLogger("backend.api.system_router"),
+    }
+    deps_kwargs.update(overrides)
+    app = FastAPI()
+    app.include_router(create_system_router(SystemRouterDeps(**deps_kwargs)))
+    return TestClient(app)
+
+
+def test_diagnostics_orchestrator_internal_error_is_redacted(caplog):
+    """/diagnostics/orchestrator 无鉴权依赖，5xx 不得回显异常原文。"""
+    secret = "private orchestrator state path C:/secret/orchestrator.state"
+
+    class _Orchestrator:
+        def get_stats(self):
+            raise RuntimeError(secret)
+
+    caplog.set_level(logging.ERROR, logger="backend.api.system_router")
+    with _system_client(get_orchestrator_safe=lambda: _Orchestrator()) as client:
+        response = client.get("/diagnostics/orchestrator")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text
+    assert "orchestrator diagnostics failed" not in response.text
+    # 服务端日志只保留异常类型，不落异常原文
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_diagnostics_orchestrator_uninitialized_keeps_existing_detail():
+    """既有的固定文案不含内部细节，不应被机械替换。"""
+    with _system_client(get_orchestrator_safe=lambda: None) as client:
+        response = client.get("/diagnostics/orchestrator")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Orchestrator not initialized"
+
+
+@pytest.mark.parametrize("path", ["/diagnostics/planner-ab", "/diagnostics/planner_ab"])
+def test_diagnostics_planner_ab_internal_error_is_redacted(path, caplog):
+    """两个别名路径都必须脱敏。"""
+    secret = "private planner ab store path C:/secret/planner.db"
+
+    def _boom():
+        raise RuntimeError(secret)
+
+    caplog.set_level(logging.ERROR, logger="backend.api.system_router")
+    with _system_client(get_planner_ab_metrics=_boom) as client:
+        response = client.get(path)
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text
+    assert "planner-ab diagnostics failed" not in response.text
+    # 服务端日志只保留异常类型，不落异常原文
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text

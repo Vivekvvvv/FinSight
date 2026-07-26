@@ -146,7 +146,8 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         try:
             return {"status": "ok", "data": orchestrator.get_stats(), "timestamp": _now()}
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"orchestrator diagnostics failed: {exc}") from exc
+            deps.logger.error("orchestrator diagnostics failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/diagnostics/planner-ab")
     @router.get("/diagnostics/planner_ab")
@@ -154,7 +155,8 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         try:
             return {"status": "ok", "data": deps.get_planner_ab_metrics(), "timestamp": _now()}
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"planner-ab diagnostics failed: {exc}") from exc
+            deps.logger.error("planner-ab diagnostics failed: %s", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/diagnostics/rag/status")
     def diagnostics_rag_status(request: Request, include: str | None = None):
