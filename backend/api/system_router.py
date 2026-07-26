@@ -35,6 +35,14 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
     def _rag_store() -> Any:
         return deps.get_rag_observability_store()
 
+    def _log_error(message: str, exc: BaseException) -> None:
+        """type-only 错误日志：只记异常类型，不落异常原文。
+
+        deps.logger 可能未注入（测试夹具传 None），错误处理本身不得再抛异常。
+        """
+        if deps.logger:
+            deps.logger.error("%s: %s", message, type(exc).__name__)
+
     def _require_rag_read_access(request: Request) -> Dict[str, Any]:
         return deps.require_rag_read_access(request)
 
@@ -112,7 +120,8 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
             rag_service = get_rag_service()
             rag_component: Dict[str, Any] = {"status": "ok", "backend": rag_service.backend_name, "embedding_model": getattr(rag_service, "embedding_model", "unknown"), "vector_dim": int(getattr(rag_service, "vector_dim", 0) or 0), "doc_count": int(rag_service.count_documents())}
             if getattr(rag_service, "fallback_reason", None):
-                rag_component["fallback_reason"] = str(rag_service.fallback_reason)
+                # 上游 fallback_reason 直接来自 str(exc)，只暴露固定文案
+                rag_component["fallback_reason"] = "backend fallback active"
             expected_backend = str(os.getenv("RAG_V2_BACKEND", "auto")).strip().lower()
             if expected_backend == "postgres" and rag_service.backend_name != "postgres":
                 rag_component["status"] = "degraded"
@@ -123,11 +132,14 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
                 rag_component["fallback_summary"] = rag_obs.get("fallback_summary") or []
                 components["rag_observability"] = {"status": rag_obs.get("status") or ("ok" if rag_obs.get("enabled") else "disabled"), **rag_obs}
             except Exception as exc:
-                components["rag_observability"] = {"status": "error", "error": str(exc)}
+                _log_error("internal health rag observability check failed", exc)
+                status = "degraded"
+                components["rag_observability"] = {"status": "error", "error": "unavailable"}
             components["rag"] = rag_component
         except Exception as exc:
+            _log_error("internal health rag service check failed", exc)
             status = "degraded"
-            components["rag"] = {"status": "error", "error": str(exc)}
+            components["rag"] = {"status": "error", "error": "unavailable"}
 
         return {"status": status, "components": components, "timestamp": _now()}
 

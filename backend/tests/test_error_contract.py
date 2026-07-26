@@ -234,3 +234,121 @@ def test_diagnostics_planner_ab_internal_error_is_redacted(path, caplog):
     # 服务端日志只保留异常类型，不落异常原文
     assert secret not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+def _fake_rag_service(**overrides):
+    """最小 rag_service 替身，覆盖 /internal/health 读取的属性。"""
+    from types import SimpleNamespace
+
+    attrs = {
+        "backend_name": "memory",
+        "embedding_model": "hash",
+        "vector_dim": 96,
+        "count_documents": lambda: 0,
+        "fallback_reason": None,
+    }
+    attrs.update(overrides)
+    return SimpleNamespace(**attrs)
+
+
+class _OkRagStore:
+    def health_summary(self, **_kwargs):
+        return {"enabled": True, "status": "ok", "recent_runs": [], "fallback_summary": []}
+
+
+def test_internal_health_rag_observability_error_is_redacted(monkeypatch, caplog):
+    """内层 except：可观测性存储故障不得回显原文，且必须把顶层置为 degraded。"""
+    secret = "private rag observability store path C:/secret/rag.db"
+    monkeypatch.setenv("RAG_V2_BACKEND", "auto")
+
+    from backend.rag import hybrid_service
+
+    monkeypatch.setattr(hybrid_service, "get_rag_service", lambda: _fake_rag_service())
+
+    class _BoomStore:
+        def health_summary(self, **_kwargs):
+            raise RuntimeError(secret)
+
+    caplog.set_level(logging.ERROR, logger="backend.api.system_router")
+    with _system_client(get_rag_observability_store=lambda: _BoomStore()) as client:
+        response = client.get("/internal/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "degraded"
+    component = payload["components"]["rag_observability"]
+    assert component["status"] == "error"
+    assert component["error"] == "unavailable"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_internal_health_rag_service_error_is_redacted(monkeypatch, caplog):
+    """外层 except：RAG 服务故障不得回显原文，顶层保持 degraded。"""
+    secret = "private rag service detail C:/secret/rag-service.ini"
+    monkeypatch.setenv("RAG_V2_BACKEND", "auto")
+
+    from backend.rag import hybrid_service
+
+    def _boom():
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(hybrid_service, "get_rag_service", _boom)
+
+    caplog.set_level(logging.ERROR, logger="backend.api.system_router")
+    with _system_client() as client:
+        response = client.get("/internal/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "degraded"
+    component = payload["components"]["rag"]
+    assert component["status"] == "error"
+    assert component["error"] == "unavailable"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_internal_health_fallback_reason_is_not_raw_exception(monkeypatch):
+    """fallback_reason 上游即 str(exc)：保持字符串与字段名，但只暴露固定文案。"""
+    secret = "private fallback detail C:/secret/pgvector.conf"
+    monkeypatch.setenv("RAG_V2_BACKEND", "auto")
+
+    from backend.rag import hybrid_service
+
+    monkeypatch.setattr(
+        hybrid_service,
+        "get_rag_service",
+        lambda: _fake_rag_service(fallback_reason=secret),
+    )
+
+    with _system_client(get_rag_observability_store=lambda: _OkRagStore()) as client:
+        response = client.get("/internal/health")
+
+    assert response.status_code == 200
+    component = response.json()["components"]["rag"]
+    assert isinstance(component["fallback_reason"], str)
+    assert component["fallback_reason"] == "backend fallback active"
+    assert secret not in response.text
+
+
+def test_internal_health_error_handling_survives_missing_logger(monkeypatch):
+    """现有夹具传 logger=None：错误处理本身不得再抛异常。"""
+    monkeypatch.setenv("RAG_V2_BACKEND", "auto")
+
+    from backend.rag import hybrid_service
+
+    def _boom():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(hybrid_service, "get_rag_service", _boom)
+
+    with _system_client(logger=None) as client:
+        response = client.get("/internal/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "degraded"
+    assert payload["components"]["rag"]["error"] == "unavailable"
