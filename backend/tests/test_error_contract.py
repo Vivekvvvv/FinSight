@@ -533,6 +533,143 @@ def test_export_pdf_empty_messages_still_400(monkeypatch):
     assert response.json()["detail"] == "messages 不能为空"
 
 
+@pytest.mark.parametrize("path", ["/api/stock/kline/AAPL", "/api/kline/AAPL"])
+def test_kline_internal_error_returns_fixed_502(path, monkeypatch, caplog):
+    """M2：kline 异常（demo 兜底不可用时）不得再压成 200+str(exc)，改固定 502。"""
+    secret = "private kline provider path C:/secret/kline-cache.db"
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+
+    def _boom(_ticker, **_kwargs):
+        raise RuntimeError(secret)
+
+    caplog.set_level(logging.WARNING, logger="backend.api.market_router")
+    with _market_client(get_stock_historical_data=_boom) as client:
+        response = client.get(path)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Kline data unavailable"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_kline_demo_fallback_preserved_on_exception(monkeypatch):
+    """守护：demo 模式下异常仍先走 demo 兜底，保持 200。"""
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "true")
+
+    def _boom(_ticker, **_kwargs):
+        raise RuntimeError("boom")
+
+    with _market_client(get_stock_historical_data=_boom) as client:
+        response = client.get("/api/kline/AAPL")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["source"] == "demo"
+
+
+def test_kline_upstream_error_payload_passthrough_preserved(monkeypatch):
+    """守护：上游正常返回的固定 error 文案仍按 200 透传（非异常路径）。"""
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+
+    with _market_client(
+        get_stock_historical_data=lambda _t, **_kw: {"error": "history unavailable"}
+    ) as client:
+        response = client.get("/api/kline/AAPL")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["error"] == "history unavailable"
+
+
+def test_intraday_internal_error_returns_fixed_502(monkeypatch, caplog):
+    """M2：intraday 异常改固定 502，不回显异常原文。"""
+    secret = "private intraday provider path C:/secret/tencent.ini"
+
+    from backend.api import market_router as market_module
+
+    monkeypatch.setattr(market_module, "is_cn_symbol", lambda _t: True)
+
+    def _boom(_ticker):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(market_module, "fetch_cn_intraday", _boom)
+    caplog.set_level(logging.WARNING, logger="backend.api.market_router")
+    with _market_client() as client:
+        response = client.get("/api/stock/intraday/600519.SS")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Intraday data unavailable"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_intraday_non_cn_business_message_preserved():
+    """守护：非A股的既有 200 固定业务文案不受影响。"""
+    with _market_client() as client:
+        response = client.get("/api/stock/intraday/AAPL")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["error"] == "intraday data not available"
+
+
+def test_chart_detect_internal_error_reason_is_fixed(monkeypatch, caplog):
+    """M2：chart/detect 保持 200，reason 改固定 detector_error，日志 type-only。"""
+    secret = "private detector model path C:/secret/detector.bin"
+
+    def _boom(_query, _ticker):
+        raise RuntimeError(secret)
+
+    caplog.set_level(logging.WARNING, logger="backend.api.market_router")
+    with _market_client(detect_chart_type=_boom) as client:
+        response = client.post(
+            "/api/chart/detect", json={"query": "chart AAPL trend", "ticker": "AAPL"}
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["reason"] == "detector_error"
+    assert "AAPL" in payload["ticker_candidates"]
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_chart_detect_empty_query_reason_preserved():
+    """守护：empty_query 的既有 reason 枚举不受影响。"""
+    with _market_client() as client:
+        response = client.post("/api/chart/detect", json={"query": "", "ticker": "AAPL"})
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "empty_query"
+
+
+def test_market_warning_helper_survives_missing_logger(monkeypatch):
+    """回归：logger=None 时新 warning helper 不得改变 502 / 200 响应契约。"""
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+
+    def _boom_kline(_ticker, **_kwargs):
+        raise RuntimeError("boom")
+
+    with _market_client(get_stock_historical_data=_boom_kline, logger=None) as client:
+        kline_resp = client.get("/api/kline/AAPL")
+
+    assert kline_resp.status_code == 502
+    assert kline_resp.headers["content-type"].startswith("application/json")
+    assert kline_resp.json()["detail"] == "Kline data unavailable"
+
+    def _boom_detect(_query, _ticker):
+        raise RuntimeError("boom")
+
+    with _market_client(detect_chart_type=_boom_detect, logger=None) as client:
+        chart_resp = client.post(
+            "/api/chart/detect", json={"query": "chart AAPL trend", "ticker": "AAPL"}
+        )
+
+    assert chart_resp.status_code == 200
+    assert chart_resp.json()["reason"] == "detector_error"
+
+
 def test_internal_health_error_handling_survives_missing_logger(monkeypatch):
     """现有夹具传 logger=None：错误处理本身不得再抛异常。"""
     monkeypatch.setenv("RAG_V2_BACKEND", "auto")

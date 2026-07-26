@@ -96,6 +96,20 @@ def _financials_payload(payload: Any, fallback_source: str = "financials", *, ca
 def create_market_router(deps: MarketRouterDeps) -> APIRouter:
     router = APIRouter(tags=["Market"])
 
+    def _log_warning(message: str, exc: BaseException) -> None:
+        """kline/intraday/chart-detect 专用 type-only 警告日志。
+
+        deps.logger 是 Any：可能为 None 或不带可调用 warning 的对象。
+        记日志失败不得覆盖原始的固定 502 / 200 响应契约。
+        """
+        warning = getattr(getattr(deps, "logger", None), "warning", None)
+        if not callable(warning):
+            return
+        try:
+            warning("%s: %s", message, type(exc).__name__)
+        except Exception:
+            pass
+
     @router.post("/api/chart/detect")
     def detect_chart(payload: dict[str, Any]):
         query = str(payload.get("query") or "").strip()
@@ -155,14 +169,14 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 "resolved_ticker": resolved_ticker,
             }
         except Exception as exc:
-            deps.logger.warning("[ChartDetect] failed: %s", exc)
+            _log_warning("[ChartDetect] failed", exc)
             return {
                 "success": False,
                 "should_generate": False,
                 "chart_type": None,
                 "data_dimension": None,
                 "confidence": 0.0,
-                "reason": str(exc),
+                "reason": "detector_error",
                 "ticker_candidates": ticker_candidates,
                 "resolved_ticker": resolved_ticker,
             }
@@ -318,7 +332,8 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 demo = demo_kline(normalized_ticker, period=period, interval=interval)
                 if demo:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
-            return {"ticker": normalized_ticker, "data": _market_payload({"error": str(exc)}, "unknown"), "cached": False}
+            _log_warning(f"[API] get_kline_data failed for {normalized_ticker}", exc)
+            raise HTTPException(status_code=502, detail="Kline data unavailable") from exc
 
     @router.get("/api/kline/{ticker}")
     def get_kline_alias(ticker: str, period: str = "1mo", interval: str = "1d"):
@@ -350,7 +365,8 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             # 非A股或腾讯失败，返回错误
             return {"ticker": normalized_ticker, "data": _market_payload({"error": "intraday data not available"}, "unknown"), "cached": False}
         except Exception as exc:
-            return {"ticker": normalized_ticker, "data": _market_payload({"error": str(exc)}, "unknown"), "cached": False}
+            _log_warning(f"[API] get_intraday_data failed for {normalized_ticker}", exc)
+            raise HTTPException(status_code=502, detail="Intraday data unavailable") from exc
 
     def _log_export_error(message: str, exc: BaseException) -> None:
         """export_pdf 专用 type-only 日志。
