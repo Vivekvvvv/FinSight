@@ -334,6 +334,205 @@ def test_internal_health_fallback_reason_is_not_raw_exception(monkeypatch):
     assert secret not in response.text
 
 
+def _market_client(**overrides):
+    """构造只挂载 market_router 的最小 app（不带 security_gate 中间件）。"""
+    from fastapi import FastAPI
+
+    from backend.api.market_router import MarketRouterDeps, create_market_router
+
+    deps_kwargs = {
+        "get_orchestrator_safe": lambda: None,
+        "get_stock_price": lambda _ticker: {},
+        "get_company_news": lambda _ticker: {},
+        "get_financial_statements": lambda _ticker: {},
+        "get_financial_statements_summary": lambda _ticker: {},
+        "get_stock_historical_data": lambda _ticker, **_kwargs: {},
+        "detect_chart_type": lambda _query, _ticker: {},
+        "logger": logging.getLogger("backend.api.market_router"),
+    }
+    deps_kwargs.update(overrides)
+    app = FastAPI()
+    app.include_router(create_market_router(MarketRouterDeps(**deps_kwargs)))
+    return TestClient(app)
+
+
+def test_market_historical_internal_error_is_redacted(monkeypatch, caplog, capsys):
+    """/api/market/historical 的 500 不得回显异常原文。"""
+    secret = "private baostock cache path C:/secret/historical.sqlite"
+
+    from backend.services import historical_data_store
+
+    def _boom(**_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(historical_data_store, "fetch_and_cache_kline", _boom)
+    caplog.set_level(logging.ERROR, logger="backend.api.market_router")
+    with _market_client() as client:
+        response = client.get("/api/market/historical/AAPL")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def _patch_pdf(monkeypatch, service_factory):
+    """放行套餐校验并替换 PDF 服务工厂（两者均在函数内 import）。"""
+    from backend.services import entitlements, pdf_export
+
+    monkeypatch.setattr(entitlements, "enforce_feature", lambda *_a, **_kw: None)
+    monkeypatch.setattr(pdf_export, "get_pdf_service", service_factory)
+
+
+def test_export_pdf_internal_error_is_redacted(monkeypatch, caplog, capsys):
+    """/api/export/pdf 的 500 不得回显异常原文，且不得再打 traceback 到 stdout/stderr。"""
+    secret = "private pdf template path C:/secret/report-template.html"
+
+    class _Service:
+        def export_conversation(self, *_a, **_kw):
+            raise RuntimeError(secret)
+
+    _patch_pdf(monkeypatch, lambda: _Service())
+    caplog.set_level(logging.ERROR, logger="backend.api.market_router")
+    with _market_client() as client:
+        response = client.post(
+            "/api/export/pdf", json={"messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_export_pdf_import_error_returns_fixed_503(monkeypatch, caplog):
+    """ImportError 仍是 503，但文案固定，不暴露缺失依赖细节。"""
+    secret = "No module named 'private_pdf_backend'"
+
+    def _boom():
+        raise ImportError(secret)
+
+    _patch_pdf(monkeypatch, _boom)
+    caplog.set_level(logging.ERROR, logger="backend.api.market_router")
+    with _market_client() as client:
+        response = client.post(
+            "/api/export/pdf", json={"messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "PDF export unavailable"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "ImportError" in caplog.text
+
+
+def test_export_pdf_internal_error_survives_missing_logger(monkeypatch, capsys):
+    """回归：logger=None 时记日志不得抛异常，否则固定 JSON 500 会退化成框架默认响应。"""
+    secret = "private pdf template path C:/secret/report-template.html"
+
+    class _Service:
+        def export_conversation(self, *_a, **_kw):
+            raise RuntimeError(secret)
+
+    _patch_pdf(monkeypatch, lambda: _Service())
+    with _market_client(logger=None) as client:
+        response = client.post(
+            "/api/export/pdf", json={"messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def test_export_pdf_import_error_survives_missing_logger(monkeypatch, capsys):
+    """回归：logger=None 时 ImportError 仍须是 503 JSON，不得退化成 500。"""
+    secret = "No module named 'private_pdf_backend'"
+
+    def _boom():
+        raise ImportError(secret)
+
+    _patch_pdf(monkeypatch, _boom)
+    with _market_client(logger=None) as client:
+        response = client.post(
+            "/api/export/pdf", json={"messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert response.status_code == 503
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["detail"] == "PDF export unavailable"
+    assert secret not in response.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def test_export_pdf_error_survives_logger_without_error_method(monkeypatch):
+    """回归：logger 不含可调用 error 时也不得覆盖原始异常处理。"""
+    secret = "private pdf detail C:/secret/font.ttf"
+
+    class _Service:
+        def export_conversation(self, *_a, **_kw):
+            raise RuntimeError(secret)
+
+    _patch_pdf(monkeypatch, lambda: _Service())
+    with _market_client(logger=object()) as client:
+        response = client.post(
+            "/api/export/pdf", json={"messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text
+
+
+def test_export_pdf_entitlement_403_is_preserved(monkeypatch):
+    """守护：套餐 403 的结构化 detail 必须原样透出，不被宽 except 重包成 500。"""
+    from fastapi import HTTPException as _HTTPException
+
+    from backend.services import entitlements
+
+    def _deny(*_a, **_kw):
+        raise _HTTPException(
+            status_code=403,
+            detail={"code": "plan_feature_required", "feature": "export_pdf"},
+        )
+
+    monkeypatch.setattr(entitlements, "enforce_feature", _deny)
+    with _market_client() as client:
+        response = client.post(
+            "/api/export/pdf", json={"messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_feature_required"
+    assert detail["feature"] == "export_pdf"
+
+
+def test_export_pdf_empty_messages_still_400(monkeypatch):
+    """守护：既有 400 业务文案不受影响。"""
+    _patch_pdf(monkeypatch, lambda: object())
+    with _market_client() as client:
+        response = client.post("/api/export/pdf", json={"messages": []})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "messages 不能为空"
+
+
 def test_internal_health_error_handling_survives_missing_logger(monkeypatch):
     """现有夹具传 logger=None：错误处理本身不得再抛异常。"""
     monkeypatch.setenv("RAG_V2_BACKEND", "auto")

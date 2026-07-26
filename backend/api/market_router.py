@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import traceback
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -353,6 +352,20 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         except Exception as exc:
             return {"ticker": normalized_ticker, "data": _market_payload({"error": str(exc)}, "unknown"), "cached": False}
 
+    def _log_export_error(message: str, exc: BaseException) -> None:
+        """export_pdf 专用 type-only 日志。
+
+        MarketRouterDeps.logger 是 Any：可能为 None 或不带可调用 error 的对象。
+        记日志失败不得覆盖原始异常处理，否则固定错误响应会退化成框架默认 500。
+        """
+        error = getattr(getattr(deps, "logger", None), "error", None)
+        if not callable(error):
+            return
+        try:
+            error("%s: %s", message, type(exc).__name__)
+        except Exception:
+            pass
+
     @router.post("/api/export/pdf")
     def export_pdf(request: dict, http_request: Request):
         # def 而非 async def：PDF 渲染是同步 CPU 密集操作，async 下直接调用会
@@ -396,10 +409,11 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except ImportError as exc:
-            raise HTTPException(status_code=503, detail=f"PDF export unavailable: {str(exc)}") from exc
+            _log_export_error("[API] export_pdf import failed", exc)
+            raise HTTPException(status_code=503, detail="PDF export unavailable") from exc
         except Exception as exc:
-            traceback.print_exc()
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            _log_export_error("[API] export_pdf failed", exc)
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/system/health")
     def get_system_health():
@@ -763,8 +777,8 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 "data": bars,
             }
         except Exception as e:
-            deps.logger.exception("historical kline error %s: %s", clean_ticker, e)
-            raise HTTPException(status_code=500, detail=str(e))
+            deps.logger.error("historical kline error %s: %s", clean_ticker, type(e).__name__)
+            raise HTTPException(status_code=500, detail="Internal server error") from e
 
     @router.get("/api/market/historical-cache/tickers")
     def list_cached_tickers():
