@@ -78,7 +78,7 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
         try:
             stored_positions = deps.get_portfolio_positions(normalized_session) or []
         except Exception as exc:
-            logger.warning("[Tasks] get_portfolio_positions failed: %s", exc)
+            logger.warning("[Tasks] get_portfolio_positions failed: %s", type(exc).__name__)
             stored_positions = []
 
         positions_by_ticker: dict[str, dict[str, Any]] = {}

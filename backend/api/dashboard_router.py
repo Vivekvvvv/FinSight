@@ -82,7 +82,7 @@ async def _run_blocking(
     except asyncio.TimeoutError:
         logger.warning("[Dashboard] %s timed out (%.1fs)", name, timeout)
     except Exception as exc:
-        logger.warning("[Dashboard] %s failed: %s", name, exc)
+        logger.warning("[Dashboard] %s failed: %s", name, type(exc).__name__)
     return None
 
 
@@ -775,14 +775,14 @@ async def get_dashboard(
             indicator_series=IndicatorSeries(**g2_indicator_series) if g2_indicator_series else None,
         )
     except Exception as exc:
-        logger.warning("[Dashboard] DashboardData construction failed: %s", exc)
+        logger.warning("[Dashboard] DashboardData construction failed: %s", type(exc).__name__)
         data = DashboardData(
             snapshot=raw_data.get("snapshot", {}),
             charts=filtered_charts,
             news={"market": [], "impact": []},
             meta=meta_map,
         )
-        state.debug["data_construction_error"] = str(exc)
+        state.debug["data_construction_error"] = "unavailable"
 
     return DashboardResponse(success=True, state=state, data=data)
 

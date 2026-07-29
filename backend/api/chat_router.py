@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import traceback
 import time as _time
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
@@ -104,7 +103,10 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
 
                 report = build_report_payload(state=state, query=resolved_query, thread_id=thread_id)
             except Exception as _report_exc:
-                _logger.warning("[chat/supervisor] report build failed: %s", _report_exc, exc_info=True)
+                _logger.warning(
+                    "[chat/supervisor] report build failed: %s",
+                    type(_report_exc).__name__,
+                )
                 report = None
 
             report_quality, quality_blocked = apply_quality_to_report(report)
@@ -150,7 +152,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            traceback.print_exc()
+            _logger.error("[chat/supervisor] failed: %s", type(exc).__name__)
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/chat/supervisor/stream")
