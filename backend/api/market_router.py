@@ -234,7 +234,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 demo = demo_quote(normalized_ticker)
                 if demo:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
-            deps.logger.warning("[API] get_price failed for %s: %s", normalized_ticker, exc)
+            _log_warning(f"[API] get_price failed for {normalized_ticker}", exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 价格数据") from exc
 
     @router.get("/api/quote/{ticker}")
@@ -249,7 +249,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             news = deps.get_company_news(normalized_ticker)
             return {"ticker": normalized_ticker, "data": news}
         except Exception as exc:
-            deps.logger.warning("[API] get_news failed for %s: %s", normalized_ticker, exc)
+            _log_warning(f"[API] get_news failed for {normalized_ticker}", exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 新闻数据") from exc
 
     @router.get("/api/financials/{ticker}")
@@ -274,7 +274,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 demo = demo_financials(normalized_ticker)
                 if demo:
                     return _financials_payload(demo, "demo")
-            deps.logger.warning("[API] get_financials failed for %s: %s", normalized_ticker, exc)
+            _log_warning(f"[API] get_financials failed for {normalized_ticker}", exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 财务数据") from exc
 
     @router.get("/api/financials/{ticker}/summary")
@@ -284,7 +284,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             summary = deps.get_financial_statements_summary(normalized_ticker)
             return {"ticker": normalized_ticker, "summary": summary}
         except Exception as exc:
-            deps.logger.warning("[API] get_financials_summary failed for %s: %s", normalized_ticker, exc)
+            _log_warning(f"[API] get_financials_summary failed for {normalized_ticker}", exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 财务摘要") from exc
 
     @router.get("/api/stock/kline/{ticker}", response_model=KlineResponse)
@@ -793,7 +793,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 "data": bars,
             }
         except Exception as e:
-            deps.logger.error("historical kline error %s: %s", clean_ticker, type(e).__name__)
+            _log_export_error(f"historical kline error {clean_ticker}", e)
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     @router.get("/api/market/historical-cache/tickers")

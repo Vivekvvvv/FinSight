@@ -356,6 +356,48 @@ def _market_client(**overrides):
     return TestClient(app)
 
 
+class _FailingLogger:
+    def warning(self, *_args, **_kwargs):
+        raise RuntimeError("logger unavailable")
+
+    def error(self, *_args, **_kwargs):
+        raise RuntimeError("logger unavailable")
+
+    def info(self, *_args, **_kwargs):
+        raise RuntimeError("logger unavailable")
+
+
+def _broken_logger(mode: str):
+    if mode == "none":
+        return None
+    if mode == "missing_method":
+        return object()
+    if mode == "raises":
+        return _FailingLogger()
+    raise AssertionError(f"Unexpected logger mode: {mode}")
+
+
+def _config_client(**overrides):
+    from fastapi import FastAPI
+
+    from backend.api.config_router import ConfigRouterDeps, create_config_router
+    from backend.security.auth import Principal, require_admin_principal
+
+    deps_kwargs = {
+        "project_root": ".",
+        "logger": logging.getLogger("backend.api.config_router"),
+    }
+    deps_kwargs.update(overrides)
+    app = FastAPI()
+    app.dependency_overrides[require_admin_principal] = lambda: Principal(
+        user_id="test-admin",
+        role="admin",
+        auth_type="test",
+    )
+    app.include_router(create_config_router(ConfigRouterDeps(**deps_kwargs)))
+    return TestClient(app)
+
+
 def test_market_historical_internal_error_is_redacted(monkeypatch, caplog, capsys):
     """/api/market/historical 的 500 不得回显异常原文。"""
     secret = "private baostock cache path C:/secret/historical.sqlite"
@@ -670,8 +712,9 @@ def test_market_warning_helper_survives_missing_logger(monkeypatch):
     assert chart_resp.json()["reason"] == "detector_error"
 
 
-def test_internal_health_error_handling_survives_missing_logger(monkeypatch):
-    """现有夹具传 logger=None：错误处理本身不得再抛异常。"""
+@pytest.mark.parametrize("logger_mode", ["none", "missing_method", "raises"])
+def test_internal_health_error_handling_survives_broken_logger(monkeypatch, logger_mode):
+    """日志器不可用时，internal-health 的既有降级响应不得退化。"""
     monkeypatch.setenv("RAG_V2_BACKEND", "auto")
 
     from backend.rag import hybrid_service
@@ -681,10 +724,116 @@ def test_internal_health_error_handling_survives_missing_logger(monkeypatch):
 
     monkeypatch.setattr(hybrid_service, "get_rag_service", _boom)
 
-    with _system_client(logger=None) as client:
+    with _system_client(logger=_broken_logger(logger_mode)) as client:
         response = client.get("/internal/health")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "degraded"
     assert payload["components"]["rag"]["error"] == "unavailable"
+
+
+@pytest.mark.parametrize("logger_mode", ["none", "missing_method", "raises"])
+@pytest.mark.parametrize(
+    ("route", "failure_point", "expected_status", "expected_detail"),
+    [
+        ("/api/stock/price/AAPL", "price", 502, "无法获取 AAPL 价格数据"),
+        ("/api/stock/news/AAPL", "news", 502, "无法获取 AAPL 新闻数据"),
+        ("/api/financials/AAPL", "financials", 502, "无法获取 AAPL 财务数据"),
+        ("/api/financials/AAPL/summary", "financials_summary", 502, "无法获取 AAPL 财务摘要"),
+        ("/api/market/historical/AAPL", "historical", 500, "Internal server error"),
+    ],
+)
+def test_market_error_paths_survive_broken_loggers(
+    monkeypatch,
+    logger_mode,
+    route,
+    failure_point,
+    expected_status,
+    expected_detail,
+):
+    """五个既有错误出口不得因日志器故障退化为框架默认响应。"""
+    secret = "private market provider detail C:/secret/market-provider.ini"
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    overrides = {}
+    if failure_point == "price":
+        from backend.api import market_router as market_module
+
+        monkeypatch.setattr(market_module, "resolve_live_quote", _boom)
+    elif failure_point == "historical":
+        from backend.services import historical_data_store
+
+        monkeypatch.setattr(historical_data_store, "fetch_and_cache_kline", _boom)
+    else:
+        dependency_name = {
+            "news": "get_company_news",
+            "financials": "get_financial_statements",
+            "financials_summary": "get_financial_statements_summary",
+        }[failure_point]
+        overrides[dependency_name] = _boom
+
+    with _market_client(logger=_broken_logger(logger_mode), **overrides) as client:
+        response = client.get(route)
+
+    assert response.status_code == expected_status
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["detail"] == expected_detail
+    assert secret not in response.text
+
+
+@pytest.mark.parametrize("logger_mode", ["none", "missing_method", "raises"])
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/diagnostics/orchestrator",
+        "/diagnostics/planner-ab",
+        "/diagnostics/planner_ab",
+    ],
+)
+def test_diagnostics_error_paths_survive_broken_loggers(logger_mode, route):
+    """两条 diagnostics 错误路径经安全日志器后仍返回既有 JSON 500。"""
+    secret = "private diagnostics state C:/secret/diagnostics.state"
+
+    def _boom():
+        raise RuntimeError(secret)
+
+    if route == "/diagnostics/orchestrator":
+        class _Orchestrator:
+            def get_stats(self):
+                _boom()
+
+        overrides = {"get_orchestrator_safe": lambda: _Orchestrator()}
+    else:
+        overrides = {"get_planner_ab_metrics": _boom}
+
+    with _system_client(logger=_broken_logger(logger_mode), **overrides) as client:
+        response = client.get(route)
+
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["detail"] == "Internal server error"
+    assert secret not in response.text
+
+
+@pytest.mark.parametrize("logger_mode", ["none", "missing_method", "raises"])
+def test_config_save_survives_broken_logger(monkeypatch, tmp_path, logger_mode):
+    """配置保存成功不能因可选日志器不可用而降级为错误响应。"""
+    import json
+
+    from backend.api import config_router as config_module
+
+    config_path = tmp_path / f"config-{logger_mode}.json"
+    monkeypatch.setattr(config_module, "USER_CONFIG_PATH", str(config_path))
+
+    with _config_client(logger=_broken_logger(logger_mode)) as client:
+        response = client.post("/api/config", json={"layout_mode": "wide"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["success"] is True
+    assert config_path.is_file()
+    assert json.loads(config_path.read_text(encoding="utf-8"))["layout_mode"] == "wide"

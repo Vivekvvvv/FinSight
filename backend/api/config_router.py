@@ -200,7 +200,12 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
                         except OSError:
                             pass
 
-            deps.logger.info("[Config] saved to %s (filtered %d keys)", config_file, len(filtered))
+            info = getattr(getattr(deps, "logger", None), "info", None)
+            if callable(info):
+                try:
+                    info("[Config] saved to %s (filtered %d keys)", config_file, len(filtered))
+                except Exception:
+                    pass
             return {"success": True, "message": "配置已保存"}
         except Exception as exc:
             traceback.print_exc()

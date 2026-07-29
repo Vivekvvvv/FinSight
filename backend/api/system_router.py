@@ -40,8 +40,13 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
 
         deps.logger 可能未注入（测试夹具传 None），错误处理本身不得再抛异常。
         """
-        if deps.logger:
-            deps.logger.error("%s: %s", message, type(exc).__name__)
+        error = getattr(getattr(deps, "logger", None), "error", None)
+        if not callable(error):
+            return
+        try:
+            error("%s: %s", message, type(exc).__name__)
+        except Exception:
+            pass
 
     def _require_rag_read_access(request: Request) -> Dict[str, Any]:
         return deps.require_rag_read_access(request)
@@ -158,7 +163,7 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         try:
             return {"status": "ok", "data": orchestrator.get_stats(), "timestamp": _now()}
         except Exception as exc:
-            deps.logger.error("orchestrator diagnostics failed: %s", type(exc).__name__)
+            _log_error("orchestrator diagnostics failed", exc)
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/diagnostics/planner-ab")
@@ -167,7 +172,7 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         try:
             return {"status": "ok", "data": deps.get_planner_ab_metrics(), "timestamp": _now()}
         except Exception as exc:
-            deps.logger.error("planner-ab diagnostics failed: %s", type(exc).__name__)
+            _log_error("planner-ab diagnostics failed", exc)
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/diagnostics/rag/status")
