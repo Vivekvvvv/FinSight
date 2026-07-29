@@ -753,7 +753,11 @@ async def security_gate(request: Request, call_next):
         return await call_next(request)
 
     api_key = None
-    if request.url.path.startswith("/diagnostics/rag"):
+    if request.url.path.startswith("/diagnostics/rag") or request.url.path in {
+        "/diagnostics/orchestrator",
+        "/diagnostics/planner-ab",
+        "/diagnostics/planner_ab",
+    }:
         try:
             # 内部经 _fetch_supabase_user_identity 做同步 urlopen(timeout=5)：
             # 缓存未命中时会把整个事件循环阻塞最长 5 秒，必须卸载线程池（R34）

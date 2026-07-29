@@ -15,15 +15,16 @@ def _load_app():
 
 
 @pytest.fixture()
-def client():
-    os.environ["API_AUTH_ENABLED"] = "false"
+def client(monkeypatch):
+    monkeypatch.setenv("API_AUTH_ENABLED", "false")
+    monkeypatch.setenv("API_AUTH_KEYS", "planner-test-key")
     app = _load_app()
     with TestClient(app) as test_client:
         yield test_client
 
 
 def test_planner_ab_diagnostics_endpoint_returns_shape(client):
-    response = client.get("/diagnostics/planner-ab")
+    response = client.get("/diagnostics/planner-ab", headers={"x-api-key": "planner-test-key"})
     assert response.status_code == 200
     payload = response.json()
     assert payload.get("status") == "ok"
@@ -37,7 +38,7 @@ def test_planner_ab_diagnostics_endpoint_returns_shape(client):
 
 
 def test_planner_ab_diagnostics_alias_endpoint_returns_shape(client):
-    response = client.get("/diagnostics/planner_ab")
+    response = client.get("/diagnostics/planner_ab", headers={"x-api-key": "planner-test-key"})
     assert response.status_code == 200
     payload = response.json()
     assert payload.get("status") == "ok"

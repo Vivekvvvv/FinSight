@@ -288,3 +288,108 @@ def test_rag_raw_fields_require_admin_include():
     admin_response = admin.get('/diagnostics/rag/chunks', params={'include': 'raw'})
     assert admin_response.status_code == 200
     assert 'chunk_text' in str(admin_response.json())
+
+
+def test_internal_health_projects_stable_redacted_rag_observability(monkeypatch):
+    secret = 'private-rag-observability-secret'
+
+    class _ProjectionStore(_FakeRagStore):
+        def health_summary(self, recent_limit: int = 5, fallback_limit: int = 5) -> dict[str, object]:
+            return {
+                'enabled': True,
+                'status': 'ok',
+                'backend': 'postgres',
+                'recent_run_count_24h': recent_limit,
+                'recent_fallback_count_24h': fallback_limit,
+                'recent_empty_hits_rate_24h': 0.25,
+                'last_run_at': '2026-03-06T00:00:00Z',
+                'last_fallback_at': '2026-03-05T00:00:00Z',
+                'future_store_field': secret,
+                'recent_runs': [
+                    {
+                        'id': 'run-1',
+                        'collection': 'finance-news',
+                        'backend_requested': 'postgres',
+                        'backend_actual': 'postgres',
+                        'status': 'fallback',
+                        'retrieval_hit_count': 3,
+                        'source_doc_count': 2,
+                        'chunk_count': 5,
+                        'started_at': '2026-03-06T00:00:00Z',
+                        'finished_at': '2026-03-06T00:00:01Z',
+                        'latency_ms': 1000,
+                        'query_text': secret,
+                        'fallback_reason': secret,
+                        'error_message': secret,
+                        'metadata_json': secret,
+                    }
+                ],
+                'fallback_summary': [
+                    {
+                        'reason_code': 'backend_timeout',
+                        'backend_before': 'postgres',
+                        'backend_after': 'memory',
+                        'count': 1,
+                        'latest_at': '2026-03-06T00:00:01Z',
+                        'reason_text': secret,
+                        'payload_json': secret,
+                    }
+                ],
+            }
+
+    from backend.rag import hybrid_service
+
+    monkeypatch.setenv('RAG_V2_BACKEND', 'auto')
+    monkeypatch.setattr(
+        hybrid_service,
+        'get_rag_service',
+        lambda: SimpleNamespace(
+            backend_name='memory',
+            embedding_model='hash',
+            vector_dim=96,
+            count_documents=lambda: 0,
+            fallback_reason=None,
+        ),
+    )
+
+    with _build_client(_ProjectionStore()) as client:
+        response = client.get('/internal/health')
+
+    assert response.status_code == 200
+    payload = response.json()
+    observability = payload['components']['rag_observability']
+    assert set(observability) == {
+        'status',
+        'enabled',
+        'backend',
+        'recent_run_count_24h',
+        'recent_fallback_count_24h',
+        'recent_empty_hits_rate_24h',
+        'last_run_at',
+        'last_fallback_at',
+        'recent_runs',
+        'fallback_summary',
+    }
+    assert set(observability['recent_runs'][0]) == {
+        'id',
+        'collection',
+        'backend_requested',
+        'backend_actual',
+        'status',
+        'retrieval_hit_count',
+        'source_doc_count',
+        'chunk_count',
+        'started_at',
+        'finished_at',
+        'latency_ms',
+    }
+    assert set(observability['fallback_summary'][0]) == {
+        'reason_code',
+        'backend_before',
+        'backend_after',
+        'count',
+        'latest_at',
+    }
+    assert payload['components']['rag']['recent_runs'] == observability['recent_runs']
+    assert payload['components']['rag']['fallback_summary'] == observability['fallback_summary']
+    assert secret not in response.text

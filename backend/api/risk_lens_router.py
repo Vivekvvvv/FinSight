@@ -2,6 +2,7 @@
 """Portfolio Risk Lens API Router"""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -10,6 +11,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.portfolio_risk_lens import calculate_portfolio_risk_lens
 from backend.services.risk_snapshots import get_risk_snapshots_history
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_error(message: str, exc: BaseException) -> None:
+    error = getattr(logger, "error", None)
+    if not callable(error):
+        return
+    try:
+        error("%s: %s", message, type(exc).__name__)
+    except Exception:
+        pass
 
 
 @dataclass(frozen=True)
@@ -93,9 +107,10 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
+            _log_error("portfolio risk lens failed", exc)
             return {
                 "success": False,
-                "error": str(exc),
+                "error": "Internal server error",
                 "risk_score": 0,
                 "concentration_risk": [],
                 "sector_exposure": [],
@@ -159,9 +174,10 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
+            _log_error("portfolio risk lens history failed", exc)
             return {
                 "success": False,
-                "error": str(exc),
+                "error": "Internal server error",
                 "snapshots": [],
             }
 

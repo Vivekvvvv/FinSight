@@ -837,3 +837,398 @@ def test_config_save_survives_broken_logger(monkeypatch, tmp_path, logger_mode):
     assert response.json()["success"] is True
     assert config_path.is_file()
     assert json.loads(config_path.read_text(encoding="utf-8"))["layout_mode"] == "wide"
+
+
+def test_config_get_internal_error_is_redacted(monkeypatch, caplog, capsys):
+    secret = "private config path C:/secret/user_config.json"
+
+    from backend.api import config_router as config_module
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(config_module, "open", _boom, raising=False)
+    caplog.set_level(logging.ERROR, logger="backend.api.config_router")
+    with _config_client() as client:
+        response = client.get("/api/config")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {"success": False, "error": "Internal server error"}
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def test_config_save_internal_error_is_redacted(monkeypatch, tmp_path, caplog, capsys):
+    secret = "private config temp file C:/secret/config.tmp"
+
+    from backend.api import config_router as config_module
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(config_module, "USER_CONFIG_PATH", str(tmp_path / "user_config.json"))
+    monkeypatch.setattr(config_module.tempfile, "mkstemp", _boom)
+    caplog.set_level(logging.ERROR, logger="backend.api.config_router")
+    with _config_client() as client:
+        response = client.post("/api/config", json={"layout_mode": "wide"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["success"] is False
+    assert response.json()["error"] == "Internal server error"
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_personas_internal_error_is_redacted(monkeypatch, caplog, capsys):
+    secret = "private personas registry C:/secret/personas.yaml"
+
+    from backend import personas
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(personas, "list_personas", _boom)
+    caplog.set_level(logging.ERROR, logger="backend.api.config_router")
+    with _config_client() as client:
+        response = client.get("/api/personas")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "success": False,
+        "error": "Internal server error",
+        "personas": [],
+    }
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize("logger_mode", ["none", "missing_method", "raises"])
+@pytest.mark.parametrize("failure_point", ["get_config", "save_config", "personas"])
+def test_config_error_paths_survive_broken_loggers(
+    monkeypatch,
+    tmp_path,
+    logger_mode,
+    failure_point,
+):
+    secret = "private config dependency C:/secret/config-dependency.ini"
+
+    from backend.api import config_router as config_module
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    if failure_point == "get_config":
+        monkeypatch.setattr(config_module, "open", _boom, raising=False)
+        method = "get"
+        path = "/api/config"
+        payload = None
+    elif failure_point == "save_config":
+        monkeypatch.setattr(config_module, "USER_CONFIG_PATH", str(tmp_path / "user_config.json"))
+        monkeypatch.setattr(config_module.tempfile, "mkstemp", _boom)
+        method = "post"
+        path = "/api/config"
+        payload = {"layout_mode": "wide"}
+    else:
+        from backend import personas
+
+        monkeypatch.setattr(personas, "list_personas", _boom)
+        method = "get"
+        path = "/api/personas"
+        payload = None
+
+    with _config_client(logger=_broken_logger(logger_mode)) as client:
+        response = getattr(client, method)(path, json=payload) if payload else getattr(client, method)(path)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["success"] is False
+    assert response.json()["error"] == "Internal server error"
+    assert secret not in response.text
+
+
+def test_config_get_redacts_persisted_secrets(monkeypatch, tmp_path):
+    import json
+
+    from backend.api import config_router as config_module
+
+    secret = "private-config-secret"
+    config_path = tmp_path / "user_config.json"
+    config_path.write_text(json.dumps({"llm_api_key": secret, "layout_mode": "wide"}), encoding="utf-8")
+    monkeypatch.setattr(config_module, "USER_CONFIG_PATH", str(config_path))
+
+    with _config_client() as client:
+        response = client.get("/api/config")
+
+    assert response.status_code == 200
+    assert response.json()["config"]["llm_api_key"] == "*" * len(secret)
+    assert secret not in response.text
+
+
+def _agent_client(memory_service):
+    from fastapi import FastAPI
+
+    from backend.api.agent_router import AgentRouterDeps, create_agent_router
+    from backend.security.auth import Principal, get_current_user
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: Principal(
+        user_id="test-user",
+        role="user",
+        auth_type="test",
+    )
+    app.include_router(create_agent_router(AgentRouterDeps(memory_service=memory_service)))
+    return TestClient(app)
+
+
+def _risk_lens_client():
+    from fastapi import FastAPI
+
+    from backend.api.risk_lens_router import RiskLensRouterDeps, create_risk_lens_router
+    from backend.security.auth import Principal, get_current_user
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: Principal(
+        user_id="test-user",
+        role="user",
+        auth_type="test",
+    )
+    app.include_router(create_risk_lens_router(RiskLensRouterDeps(resolve_thread_id=lambda value: value or "")))
+    return TestClient(app)
+
+
+def test_agent_preferences_get_internal_error_is_redacted(caplog, capsys):
+    secret = "private agent preferences C:/secret/agent-preferences.json"
+
+    class _MemoryService:
+        def get_user_profile(self, _user_id):
+            raise RuntimeError(secret)
+
+    caplog.set_level(logging.ERROR, logger="backend.api.agent_router")
+    with _agent_client(_MemoryService()) as client:
+        response = client.get("/api/agents/preferences")
+
+    assert response.status_code == 200
+    assert response.json() == {"success": False, "error": "Internal server error"}
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def test_agent_preferences_update_internal_error_is_redacted(caplog, capsys):
+    secret = "private agent preferences C:/secret/agent-preferences.json"
+
+    class _Profile:
+        preferences = {}
+
+    class _MemoryService:
+        def get_user_profile(self, _user_id):
+            return _Profile()
+
+        def update_user_profile(self, _profile):
+            raise RuntimeError(secret)
+
+    caplog.set_level(logging.ERROR, logger="backend.api.agent_router")
+    with _agent_client(_MemoryService()) as client:
+        response = client.put(
+            "/api/agents/preferences",
+            json={"preferences": {"maxRounds": 4}},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"success": False, "error": "Internal server error"}
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def test_risk_lens_internal_error_is_redacted(monkeypatch, caplog, capsys):
+    secret = "private portfolio store C:/secret/portfolio-store.json"
+
+    from backend.services import portfolio_store
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(portfolio_store, "get_positions", _boom)
+    caplog.set_level(logging.ERROR, logger="backend.api.risk_lens_router")
+    with _risk_lens_client() as client:
+        response = client.get(
+            "/api/portfolio/risk-lens",
+            params={"session_id": "private:test-user:default"},
+        )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["success"] is False
+    assert payload["error"] == "Internal server error"
+    assert payload["risk_score"] == 0
+    assert payload["concentration_risk"] == []
+    assert payload["next_actions"] == []
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def test_risk_lens_history_internal_error_is_redacted(monkeypatch, caplog, capsys):
+    secret = "private risk history C:/secret/risk-snapshots.sqlite"
+
+    from backend.api import risk_lens_router as risk_lens_module
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(risk_lens_module, "get_risk_snapshots_history", _boom)
+    caplog.set_level(logging.ERROR, logger="backend.api.risk_lens_router")
+    with _risk_lens_client() as client:
+        response = client.get(
+            "/api/portfolio/risk-lens/history",
+            params={"session_id": "private:test-user:default"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": False,
+        "error": "Internal server error",
+        "snapshots": [],
+    }
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+def _user_client(memory_service, user_profile_cls):
+    from fastapi import FastAPI
+
+    from backend.api.user_router import UserRouterDeps, create_user_router
+    from backend.security.auth import Principal, get_current_user
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: Principal(
+        user_id="test-user",
+        role="user",
+        auth_type="test",
+    )
+    app.include_router(
+        create_user_router(
+            UserRouterDeps(
+                memory_service=memory_service,
+                user_profile_cls=user_profile_cls,
+            )
+        )
+    )
+    return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "request_kwargs"),
+    [
+        ("GET", "/api/user/profile", {}),
+        ("POST", "/api/user/profile", {"json": {"profile": {"risk_tolerance": "medium"}}}),
+        ("POST", "/api/user/watchlist/add", {"json": {"ticker": "AAPL"}}),
+        ("POST", "/api/user/watchlist/update", {"json": {"ticker": "AAPL"}}),
+        ("GET", "/api/user/watchlist", {}),
+        ("POST", "/api/user/watchlist/remove", {"json": {"ticker": "AAPL"}}),
+    ],
+    ids=["profile_get", "profile_save", "watchlist_add", "watchlist_update", "watchlist_list", "watchlist_remove"],
+)
+def test_user_router_internal_errors_are_redacted(method, path, request_kwargs, caplog, capsys):
+    secret = "private user memory C:/secret/user-memory.json"
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    class _MemoryService:
+        def get_user_profile(self, _user_id):
+            _boom()
+
+        def update_user_profile(self, _profile):
+            _boom()
+
+        def add_to_watchlist(self, *_args, **_kwargs):
+            _boom()
+
+        def update_watchlist_meta(self, *_args, **_kwargs):
+            _boom()
+
+        def list_watchlist_items(self, _user_id):
+            _boom()
+
+        def remove_from_watchlist(self, *_args, **_kwargs):
+            _boom()
+
+    class _UserProfile:
+        @classmethod
+        def from_dict(cls, _data):
+            _boom()
+
+    caplog.set_level(logging.ERROR, logger="backend.api.user_router")
+    with _user_client(_MemoryService(), _UserProfile) as client:
+        response = client.request(method, path, **request_kwargs)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {"success": False, "error": "Internal server error"}
+    assert secret not in response.text
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/diagnostics/orchestrator",
+        "/diagnostics/planner-ab",
+        "/diagnostics/planner_ab",
+    ],
+)
+def test_diagnostics_require_rag_read_access(path):
+    from fastapi import HTTPException
+
+    calls = []
+
+    def _deny(request):
+        calls.append(request.url.path)
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    with _system_client(
+        get_orchestrator_safe=lambda: (_ for _ in ()).throw(AssertionError("business dependency called")),
+        get_planner_ab_metrics=lambda: (_ for _ in ()).throw(AssertionError("business dependency called")),
+        require_rag_read_access=_deny,
+    ) as client:
+        response = client.get(path)
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+    assert calls == [path]

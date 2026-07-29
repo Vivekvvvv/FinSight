@@ -46,6 +46,34 @@ def test_rag_diagnostics_read_requires_logged_in_user(monkeypatch):
     assert response.json().get('detail') == 'Authentication required'
 
 
+def test_orchestrator_and_planner_diagnostics_require_logged_in_user(monkeypatch):
+    main = _configure_auth(monkeypatch)
+    monkeypatch.setenv('API_AUTH_ENABLED', 'false')
+
+    with TestClient(main.app) as client:
+        for path in ('/diagnostics/orchestrator', '/diagnostics/planner-ab', '/diagnostics/planner_ab'):
+            response = client.get(path)
+            assert response.status_code == 401
+            assert response.json().get('detail') == 'Authentication required'
+
+
+def test_planner_diagnostics_allows_bearer_user_even_when_api_auth_enabled(monkeypatch):
+    main = _configure_auth(monkeypatch)
+    monkeypatch.setenv('API_AUTH_ENABLED', 'true')
+    monkeypatch.setenv('API_AUTH_KEYS', 'release-key-1')
+    monkeypatch.setattr(
+        main,
+        '_fetch_supabase_user_identity',
+        lambda token: {'user_id': f'user:{token}', 'email': 'reader@example.com', 'auth_type': 'supabase', 'role': 'reader'},
+    )
+
+    with TestClient(main.app) as client:
+        for path in ('/diagnostics/planner-ab', '/diagnostics/planner_ab'):
+            response = client.get(path, headers={'Authorization': 'Bearer access-token-reader'})
+            assert response.status_code == 200
+            assert response.json()['status'] == 'ok'
+
+
 def test_rag_diagnostics_read_allows_bearer_user_even_when_api_auth_enabled(monkeypatch):
     main = _configure_auth(monkeypatch)
     monkeypatch.setenv('API_AUTH_ENABLED', 'true')

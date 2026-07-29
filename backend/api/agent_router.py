@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +13,17 @@ _VALID_DEPTHS = {"standard", "deep", "off"}
 _MAX_ROUNDS_MIN = 1
 _MAX_ROUNDS_MAX = 10
 _MAX_ROUNDS_DEFAULT = 3
+logger = logging.getLogger(__name__)
+
+
+def _log_error(message: str, exc: BaseException) -> None:
+    error = getattr(logger, "error", None)
+    if not callable(error):
+        return
+    try:
+        error("%s: %s", message, type(exc).__name__)
+    except Exception:
+        pass
 
 
 def _provided_user_id(value: str | None) -> str | None:
@@ -91,7 +103,8 @@ def create_agent_router(deps: AgentRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("agent preferences load failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     @router.put("/api/agents/preferences")
     async def update_agent_preferences(
@@ -121,6 +134,7 @@ def create_agent_router(deps: AgentRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("agent preferences save failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     return router

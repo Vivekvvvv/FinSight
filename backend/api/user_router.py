@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.security.auth import Principal, get_current_user, require_matching_identity
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_error(message: str, exc: BaseException) -> None:
+    error = getattr(logger, "error", None)
+    if not callable(error):
+        return
+    try:
+        error("%s: %s", message, type(exc).__name__)
+    except Exception:
+        pass
 
 
 @dataclass(frozen=True)
@@ -34,7 +48,8 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("user profile load failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     @router.post("/api/user/profile")
     async def update_user_profile(request: dict, current_user: Principal = Depends(get_current_user)):
@@ -54,7 +69,8 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("user profile save failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     @router.post("/api/user/watchlist/add")
     async def add_watchlist(request: dict, current_user: Principal = Depends(get_current_user)):
@@ -91,7 +107,8 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("watchlist add failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     @router.post("/api/user/watchlist/update")
     async def update_watchlist_meta(request: dict, current_user: Principal = Depends(get_current_user)):
@@ -127,7 +144,8 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("watchlist update failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     @router.get("/api/user/watchlist")
     async def list_watchlist(user_id: str = "default_user", q: str = "", current_user: Principal = Depends(get_current_user)):
@@ -150,7 +168,8 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("watchlist list failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     @router.post("/api/user/watchlist/remove")
     async def remove_watchlist(request: dict, current_user: Principal = Depends(get_current_user)):
@@ -170,6 +189,7 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("watchlist remove failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     return router

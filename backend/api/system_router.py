@@ -78,6 +78,55 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
             return [_redact_rag_payload(item, include_raw=include_raw) for item in value]
         return value
 
+    def _project_rag_observability(raw: Any) -> Dict[str, Any]:
+        source = raw if isinstance(raw, dict) else {}
+
+        def _project_items(value: Any, fields: tuple[str, ...]) -> list[Dict[str, Any]]:
+            if not isinstance(value, list):
+                return []
+            return [
+                {field: item[field] for field in fields if field in item}
+                for item in value
+                if isinstance(item, dict)
+            ]
+
+        return {
+            "status": source.get("status"),
+            "enabled": bool(source.get("enabled")),
+            "backend": source.get("backend"),
+            "recent_run_count_24h": source.get("recent_run_count_24h"),
+            "recent_fallback_count_24h": source.get("recent_fallback_count_24h"),
+            "recent_empty_hits_rate_24h": source.get("recent_empty_hits_rate_24h"),
+            "last_run_at": source.get("last_run_at"),
+            "last_fallback_at": source.get("last_fallback_at"),
+            "recent_runs": _project_items(
+                source.get("recent_runs"),
+                (
+                    "id",
+                    "collection",
+                    "backend_requested",
+                    "backend_actual",
+                    "status",
+                    "retrieval_hit_count",
+                    "source_doc_count",
+                    "chunk_count",
+                    "started_at",
+                    "finished_at",
+                    "latency_ms",
+                ),
+            ),
+            "fallback_summary": _project_items(
+                source.get("fallback_summary"),
+                (
+                    "reason_code",
+                    "backend_before",
+                    "backend_after",
+                    "count",
+                    "latest_at",
+                ),
+            ),
+        }
+
     @router.get("/")
     def read_root():
         return {"status": "healthy", "message": "FinSight API is running", "timestamp": _now()}
@@ -133,9 +182,13 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
                 status = "degraded"
             try:
                 rag_obs = _rag_store().health_summary(recent_limit=3, fallback_limit=3)
-                rag_component["recent_runs"] = rag_obs.get("recent_runs") or []
-                rag_component["fallback_summary"] = rag_obs.get("fallback_summary") or []
-                components["rag_observability"] = {"status": rag_obs.get("status") or ("ok" if rag_obs.get("enabled") else "disabled"), **rag_obs}
+                rag_observability = _project_rag_observability(rag_obs)
+                rag_observability["status"] = rag_observability["status"] or (
+                    "ok" if rag_observability["enabled"] else "disabled"
+                )
+                rag_component["recent_runs"] = rag_observability["recent_runs"]
+                rag_component["fallback_summary"] = rag_observability["fallback_summary"]
+                components["rag_observability"] = rag_observability
             except Exception as exc:
                 _log_error("internal health rag observability check failed", exc)
                 status = "degraded"
@@ -156,7 +209,8 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         return Response(content=payload, media_type=content_type)
 
     @router.get("/diagnostics/orchestrator")
-    def diagnostics_orchestrator():
+    def diagnostics_orchestrator(request: Request):
+        _require_rag_read_access(request)
         orchestrator = deps.get_orchestrator_safe()
         if not orchestrator:
             raise HTTPException(status_code=500, detail="Orchestrator not initialized")
@@ -168,7 +222,8 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
 
     @router.get("/diagnostics/planner-ab")
     @router.get("/diagnostics/planner_ab")
-    def diagnostics_planner_ab():
+    def diagnostics_planner_ab(request: Request):
+        _require_rag_read_access(request)
         try:
             return {"status": "ok", "data": deps.get_planner_ab_metrics(), "timestamp": _now()}
         except Exception as exc:

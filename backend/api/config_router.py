@@ -5,11 +5,11 @@ import os
 import re
 import tempfile
 import threading
-import traceback
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 
 from backend.api.schemas import ConfigResponse
 from backend.llm_config import USER_CONFIG_PATH
@@ -123,6 +123,16 @@ class ConfigRouterDeps:
 def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
     router = APIRouter(tags=["Config"])
 
+    def _log_error(message: str, exc: BaseException) -> None:
+        """仅记录异常类型；日志失败不得覆盖既有错误响应。"""
+        error = getattr(getattr(deps, "logger", None), "error", None)
+        if not callable(error):
+            return
+        try:
+            error("%s: %s", message, type(exc).__name__)
+        except Exception:
+            pass
+
     @router.get("/api/config", response_model=ConfigResponse)
     async def get_config():
         try:
@@ -147,7 +157,11 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
                     },
                 }
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            _log_error("config load failed", exc)
+            return JSONResponse(
+                status_code=200,
+                content={"success": False, "error": "Internal server error"},
+            )
 
     @router.post("/api/config")
     async def save_config(
@@ -208,8 +222,8 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
                     pass
             return {"success": True, "message": "配置已保存"}
         except Exception as exc:
-            traceback.print_exc()
-            return {"success": False, "error": str(exc)}
+            _log_error("config save failed", exc)
+            return {"success": False, "error": "Internal server error"}
 
     @router.get("/api/personas")
     async def list_personas_endpoint():
@@ -239,7 +253,7 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
                 ],
             }
         except Exception as exc:
-            traceback.print_exc()
-            return {"success": False, "error": str(exc), "personas": []}
+            _log_error("personas list failed", exc)
+            return {"success": False, "error": "Internal server error", "personas": []}
 
     return router
