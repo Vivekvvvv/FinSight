@@ -89,7 +89,10 @@ def _load_user_config() -> dict:
                 if isinstance(payload, dict):
                     return payload
         except Exception as exc:
-            logger.info("[Config] Failed to load user_config.json: %s", exc)
+            logger.info(
+                "[Config] Failed to load user_config.json: %s",
+                type(exc).__name__,
+            )
     return {}
 
 

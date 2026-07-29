@@ -1,3 +1,8 @@
+import logging
+import threading
+
+import pytest
+
 from backend.services.chat_history import ChatHistoryStore
 
 
@@ -59,3 +64,92 @@ def test_chat_history_store_avoids_sanitized_name_collisions(tmp_path):
 
     assert store.list_messages(session_id="a:b")[0]["content"] == "colon"
     assert store.list_messages(session_id="a_b")[0]["content"] == "underscore"
+
+
+@pytest.mark.parametrize(
+    ("corrupt_payload", "error_type"),
+    [
+        ("{invalid json", "JSONDecodeError"),
+        ('{"messages": "not-a-list"}', "ValueError"),
+        ('{"messages": ["not-an-object"]}', "ValueError"),
+    ],
+)
+def test_chat_history_store_backs_up_corrupt_payload_before_recovery(
+    tmp_path, caplog, corrupt_payload, error_type
+):
+    store = ChatHistoryStore(storage_path=tmp_path)
+    session_id = "tenant:user:corrupt"
+    path = store._path_for_session(session_id)
+    path.write_text(corrupt_payload, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="backend.services.chat_history"):
+        assert store.list_messages(session_id=session_id) == []
+
+    backups = list(tmp_path.glob("*.corrupt"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == corrupt_payload
+    assert not path.exists()
+    assert error_type in caplog.text
+    assert corrupt_payload not in caplog.text
+
+    store.append_turn(
+        session_id=session_id,
+        user_content="recovered question",
+        assistant_content="recovered answer",
+    )
+    assert path.exists()
+    assert backups[0].read_text(encoding="utf-8") == corrupt_payload
+
+
+def test_chat_history_store_instances_share_read_modify_write_lock(tmp_path, monkeypatch):
+    first = ChatHistoryStore(storage_path=tmp_path)
+    second = ChatHistoryStore(storage_path=tmp_path)
+    session_id = "tenant:user:shared"
+    first_read_started = threading.Event()
+    release_first_read = threading.Event()
+    second_read_started = threading.Event()
+    first_read = first._read_payload
+    second_read = second._read_payload
+
+    def blocking_first_read(current_session_id):
+        first_read_started.set()
+        assert release_first_read.wait(timeout=2)
+        return first_read(current_session_id)
+
+    def observed_second_read(current_session_id):
+        second_read_started.set()
+        return second_read(current_session_id)
+
+    monkeypatch.setattr(first, "_read_payload", blocking_first_read)
+    monkeypatch.setattr(second, "_read_payload", observed_second_read)
+
+    first_thread = threading.Thread(
+        target=first.append_turn,
+        kwargs={
+            "session_id": session_id,
+            "user_content": "first question",
+            "assistant_content": "first answer",
+        },
+    )
+    second_thread = threading.Thread(
+        target=second.append_turn,
+        kwargs={
+            "session_id": session_id,
+            "user_content": "second question",
+            "assistant_content": "second answer",
+        },
+    )
+
+    first_thread.start()
+    assert first_read_started.wait(timeout=2)
+    second_thread.start()
+    assert not second_read_started.wait(timeout=0.1)
+
+    release_first_read.set()
+    first_thread.join(timeout=2)
+    second_thread.join(timeout=2)
+
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert second_read_started.is_set()
+    assert len(first.list_messages(session_id=session_id)) == 4

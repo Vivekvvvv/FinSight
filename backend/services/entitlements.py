@@ -20,8 +20,10 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
+_PLANS_LOCK = threading.RLock()
 
 # ── 配置 ───────────────────────────────────────────────────────────
 
@@ -140,10 +142,11 @@ class EntitlementsService:
 
     def __init__(self) -> None:
         self._path = PLANS_FILE
-        self._lock = threading.RLock()
+        self._lock = _PLANS_LOCK
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._plans: Dict[str, Dict[str, Any]] = {}
-        self._load()
+        with self._lock:
+            self._load()
 
     def _load(self) -> None:
         if not self._path.exists():
@@ -152,14 +155,20 @@ class EntitlementsService:
         try:
             with open(self._path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self._plans = data if isinstance(data, dict) else {}
-        except Exception as exc:
-            # 损坏文件先备份再回退空，避免下一次 _save 把用户 plan 数据永久覆盖。
-            logger.warning("User plans file corrupt, backed up to *.corrupt before starting empty: %s", exc)
-            try:
-                os.replace(self._path, f"{self._path}.corrupt")
-            except OSError:
-                pass
+            if not isinstance(data, dict):
+                raise ValueError("user plans payload must be a JSON object")
+            if any(not isinstance(record, dict) for record in data.values()):
+                raise ValueError("user plan entries must be JSON objects")
+            self._plans = data
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            backup_path = self._path.with_name(
+                f"{self._path.name}.{uuid4().hex}.corrupt"
+            )
+            os.replace(self._path, backup_path)
+            logger.warning(
+                "User plans file was corrupt and moved to a backup (%s)",
+                type(exc).__name__,
+            )
             self._plans = {}
 
     def _save(self) -> None:
@@ -201,6 +210,7 @@ class EntitlementsService:
         if not uid:
             raise ValueError("user_id is required")
         with self._lock:
+            self._load()
             self._plans[uid] = {
                 "plan": normalized,
                 "updated_at": _now_iso(),
@@ -331,8 +341,11 @@ def build_usage_view(
             session_id=_build_session_id_for_user(user_id),
             since=_today_utc_start_iso(),
         )
-    except Exception:
-        logger.exception("build_usage_view: count_reports_since failed; fallback 0")
+    except Exception as exc:
+        logger.error(
+            "build_usage_view: count_reports_since failed; fallback 0 (%s)",
+            type(exc).__name__,
+        )
         reports_used = 0
     result["max_reports_per_day"] = _quota_entry(
         plan=plan, used=reports_used, limit=int(limits.get("max_reports_per_day", 0))
@@ -348,8 +361,11 @@ def build_usage_view(
         # 直接查 subscriptions[email]; 不存在则空列表
         subs = sub_service.get_subscriptions(email=target_email)
         alerts_used = len(subs)
-    except Exception:
-        logger.exception("build_usage_view: count subscriptions failed; fallback 0")
+    except Exception as exc:
+        logger.error(
+            "build_usage_view: count subscriptions failed; fallback 0 (%s)",
+            type(exc).__name__,
+        )
         alerts_used = 0
     result["max_alerts"] = _quota_entry(
         plan=plan, used=alerts_used, limit=int(limits.get("max_alerts", 0))
@@ -362,8 +378,11 @@ def build_usage_view(
 
         positions = get_positions(_build_session_id_for_user(user_id))
         pf_used = len(positions) if positions else 0
-    except Exception:
-        logger.exception("build_usage_view: count portfolio positions failed; fallback 0")
+    except Exception as exc:
+        logger.error(
+            "build_usage_view: count portfolio positions failed; fallback 0 (%s)",
+            type(exc).__name__,
+        )
         pf_used = 0
     result["max_portfolio_positions"] = _quota_entry(
         plan=plan, used=pf_used, limit=int(limits.get("max_portfolio_positions", 0))

@@ -18,8 +18,9 @@ def test_subscription_store_backs_up_corrupt_file(tmp_path, monkeypatch):
     svc = mod.SubscriptionService()
     assert svc.subscriptions == {}
 
-    backup = tmp_path / "subscriptions.json.corrupt"
-    assert backup.exists()
+    backups = list(tmp_path.glob("subscriptions.json.*.corrupt"))
+    assert len(backups) == 1
+    backup = backups[0]
     assert backup.read_text(encoding="utf-8") == "{ not valid json"
 
     # 后续写入生成新文件，损坏原文保留在备份里可人工恢复
@@ -41,8 +42,9 @@ def test_entitlements_store_backs_up_corrupt_file(tmp_path):
         svc = ent.get_entitlements_service()
         assert svc.get_plan("alice") == "free"
 
-        backup = tmp_path / "user_plans_test.json.corrupt"
-        assert backup.exists()
+        backups = list(tmp_path.glob("user_plans_test.json.*.corrupt"))
+        assert len(backups) == 1
+        backup = backups[0]
         assert backup.read_text(encoding="utf-8") == "[[[ broken"
 
         # 写入新 plan 不触碰备份

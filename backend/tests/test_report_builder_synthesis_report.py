@@ -1,11 +1,33 @@
 # -*- coding: utf-8 -*-
 
+import backend.graph.report_builder as report_builder_module
 from backend.graph.report_builder import (
     _count_content_chars,
     _is_suspicious_citation_item,
     _sanitize_deep_search_summary,
     build_report_payload,
 )
+
+
+def test_build_report_payload_redacts_fallback_error(monkeypatch, caplog):
+    secret = "PRIVATE_REPORT_ERROR_SENTINEL"
+
+    def fail_build(**_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(report_builder_module, "_build_report_payload_impl", fail_build)
+
+    report = build_report_payload(
+        state={"output_mode": "investment_report"},
+        query="AAPL",
+        thread_id="thread-1",
+    )
+
+    assert report is not None
+    assert report["meta"]["builder_error"] == "internal_error"
+    assert secret not in str(report)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_count_content_chars_ignores_raw_urls():

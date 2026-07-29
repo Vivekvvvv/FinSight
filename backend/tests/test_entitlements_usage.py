@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+import logging
 from pathlib import Path
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -168,3 +169,27 @@ def test_count_reports_since_returns_zero_when_empty(tmp_path, monkeypatch):
         since="2026-05-18T00:00:00+00:00",
     )
     assert count == 0
+
+
+def test_usage_fallback_logs_do_not_expose_exception_details(
+    tmp_path, monkeypatch, caplog
+):
+    _configure_storage(tmp_path)
+    from backend.services import portfolio_store, report_index, subscription_service
+    from backend.services.entitlements import build_usage_view
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("private usage storage detail")
+
+    monkeypatch.setattr(report_index, "get_report_index_store", fail)
+    monkeypatch.setattr(subscription_service, "get_subscription_service", fail)
+    monkeypatch.setattr(portfolio_store, "get_positions", fail)
+
+    with caplog.at_level(logging.ERROR, logger="backend.services.entitlements"):
+        usage = build_usage_view("usage_error_user")
+
+    assert usage["max_reports_per_day"]["used"] == 0
+    assert usage["max_alerts"]["used"] == 0
+    assert usage["max_portfolio_positions"]["used"] == 0
+    assert "private usage storage detail" not in caplog.text
+    assert caplog.text.count("RuntimeError") == 3

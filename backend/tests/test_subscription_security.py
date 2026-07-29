@@ -103,3 +103,192 @@ def test_subscription_internal_errors_are_redacted(monkeypatch, method, path, pa
     assert "private subscription storage detail" not in capsys.readouterr().err
     assert "private subscription storage detail" not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("payload", "error_type"),
+    [
+        ("{invalid json", "JSONDecodeError"),
+        ('["not-an-object"]', "ValueError"),
+        ('{"alice@example.invalid": "not-a-list"}', "ValueError"),
+        ('{"alice@example.invalid": ["not-an-object"]}', "ValueError"),
+    ],
+)
+def test_subscription_service_backs_up_corrupt_storage(
+    monkeypatch, tmp_path, caplog, payload, error_type
+):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    storage_path.write_text(payload, encoding="utf-8")
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+
+    with caplog.at_level(logging.WARNING, logger="backend.services.subscription_service"):
+        service = subs.SubscriptionService()
+
+    backups = list(tmp_path.glob("*.corrupt"))
+    assert service.subscriptions == {}
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == payload
+    assert not storage_path.exists()
+    assert error_type in caplog.text
+    assert payload not in caplog.text
+
+
+def test_subscription_service_does_not_report_success_when_save_fails(
+    monkeypatch, tmp_path, caplog
+):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+
+    def fail_replace(_source, _target):
+        raise OSError("private subscription write detail")
+
+    monkeypatch.setattr(subs.os, "replace", fail_replace)
+    with caplog.at_level(logging.ERROR, logger="backend.services.subscription_service"):
+        with pytest.raises(OSError, match="private subscription write detail"):
+            service.subscribe("alice@example.invalid", "AAPL")
+
+    assert not storage_path.exists()
+    assert "private subscription write detail" not in caplog.text
+    assert "OSError" in caplog.text
+
+
+def test_subscription_instances_do_not_overwrite_new_subscribers(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    first = subs.SubscriptionService()
+    second = subs.SubscriptionService()
+
+    assert first.subscribe("alice@example.invalid", "AAPL") is True
+    assert second.subscribe("bob@example.invalid", "MSFT") is True
+
+    reloaded = subs.SubscriptionService()
+    assert len(reloaded.get_subscriptions("alice@example.invalid")) == 1
+    assert len(reloaded.get_subscriptions("bob@example.invalid")) == 1
+
+
+def test_stale_subscription_instance_does_not_erase_newer_data(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    first = subs.SubscriptionService()
+    assert first.subscribe("alice@example.invalid", "AAPL") is True
+    stale = subs.SubscriptionService()
+    assert first.subscribe("bob@example.invalid", "MSFT") is True
+
+    assert stale.unsubscribe("alice@example.invalid", "AAPL") is True
+
+    reloaded = subs.SubscriptionService()
+    assert reloaded.get_subscriptions("alice@example.invalid") == []
+    assert len(reloaded.get_subscriptions("bob@example.invalid")) == 1
+
+
+def test_stale_toggle_does_not_erase_newer_subscriptions(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    first = subs.SubscriptionService()
+    assert first.subscribe("alice@example.invalid", "AAPL") is True
+    stale = subs.SubscriptionService()
+    assert first.subscribe("bob@example.invalid", "MSFT") is True
+
+    assert stale.toggle_subscription("alice@example.invalid", "AAPL", False) is True
+
+    reloaded = subs.SubscriptionService()
+    assert reloaded.get_subscriptions("alice@example.invalid")[0]["disabled"] is True
+    assert len(reloaded.get_subscriptions("bob@example.invalid")) == 1
+
+
+def test_stale_alert_attempt_does_not_erase_newer_subscriptions(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    first = subs.SubscriptionService()
+    assert first.subscribe("alice@example.invalid", "AAPL") is True
+    stale = subs.SubscriptionService()
+    assert first.subscribe("bob@example.invalid", "MSFT") is True
+
+    stale.record_alert_attempt("alice@example.invalid", "AAPL", success=True)
+
+    reloaded = subs.SubscriptionService()
+    alice = reloaded.get_subscriptions("alice@example.invalid")[0]
+    assert alice["last_alert_at"] is not None
+    assert len(reloaded.get_subscriptions("bob@example.invalid")) == 1
+
+
+def test_stale_last_alert_update_does_not_erase_newer_subscriptions(
+    monkeypatch, tmp_path
+):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    first = subs.SubscriptionService()
+    assert first.subscribe("alice@example.invalid", "AAPL") is True
+    stale = subs.SubscriptionService()
+    assert first.subscribe("bob@example.invalid", "MSFT") is True
+
+    stale.update_last_alert("alice@example.invalid", "AAPL")
+
+    reloaded = subs.SubscriptionService()
+    assert reloaded.get_subscriptions("alice@example.invalid")[0]["last_alert_at"]
+    assert len(reloaded.get_subscriptions("bob@example.invalid")) == 1
+
+
+@pytest.mark.parametrize(
+    ("method_name", "expected_field"),
+    [
+        ("update_last_news", "last_news_at"),
+        ("update_last_risk", "last_risk_at"),
+        ("set_price_target_fired", "price_target_fired"),
+        ("record_alert_event", "recent_events"),
+    ],
+)
+def test_remaining_stale_writes_do_not_erase_newer_subscriptions(
+    monkeypatch, tmp_path, method_name, expected_field
+):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    first = subs.SubscriptionService()
+    assert first.subscribe("alice@example.invalid", "AAPL") is True
+    stale = subs.SubscriptionService()
+    assert first.subscribe("bob@example.invalid", "MSFT") is True
+
+    method = getattr(stale, method_name)
+    if method_name == "record_alert_event":
+        method("alice@example.invalid", "AAPL", "price_change")
+    else:
+        method("alice@example.invalid", "AAPL")
+
+    reloaded = subs.SubscriptionService()
+    alice = reloaded.get_subscriptions("alice@example.invalid")[0]
+    assert alice[expected_field]
+    assert len(reloaded.get_subscriptions("bob@example.invalid")) == 1
+
+
+def test_stale_subscription_reads_refresh_from_storage(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    writer = subs.SubscriptionService()
+    stale = subs.SubscriptionService()
+    assert writer.subscribe("alice@example.invalid", "AAPL") is True
+    assert writer.record_alert_event(
+        "alice@example.invalid", "AAPL", "price_change"
+    ) is True
+
+    assert len(stale.get_subscriptions("alice@example.invalid")) == 1
+    assert len(stale.get_subscribers_for_ticker("AAPL")) == 1
+    assert len(stale.list_alert_events("alice@example.invalid")) == 1

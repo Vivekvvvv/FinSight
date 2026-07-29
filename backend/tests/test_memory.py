@@ -69,7 +69,7 @@ def test_reject_path_traversal_user_id(memory_service):
         memory_service.set_preference("../evil", "theme", "dark")
 
 
-def test_corrupt_profile_backed_up_not_overwritten(memory_service, tmp_path):
+def test_corrupt_profile_backed_up_not_overwritten(memory_service, tmp_path, caplog):
     user_id = "corrupt_user"
     memory_service.add_to_watchlist(user_id, "AAPL")
     file_path = os.path.join(str(tmp_path), f"{user_id}.json")
@@ -80,9 +80,12 @@ def test_corrupt_profile_backed_up_not_overwritten(memory_service, tmp_path):
 
     profile = memory_service.get_user_profile(user_id)
     assert profile.watchlist == []  # 回退默认画像
-    assert os.path.exists(file_path + ".corrupt")  # 损坏内容保留备份
-    with open(file_path + ".corrupt", encoding="utf-8") as f:
+    backups = list(tmp_path.glob("*.corrupt"))
+    assert len(backups) == 1
+    with open(backups[0], encoding="utf-8") as f:
         assert f.read() == "{ not valid json"
+    assert "JSONDecodeError" in caplog.text
+    assert "{ not valid json" not in caplog.text
 
 
 def test_concurrent_watchlist_adds_do_not_lose_updates(memory_service):
@@ -102,3 +105,20 @@ def test_concurrent_watchlist_adds_do_not_lose_updates(memory_service):
 
     profile = memory_service.get_user_profile(user_id)
     assert sorted(profile.watchlist) == tickers
+
+
+def test_profile_save_error_log_is_redacted(memory_service, monkeypatch, caplog):
+    profile = UserProfile(user_id="save_error_user")
+
+    def fail_replace(_source, _target):
+        raise OSError("private profile storage detail")
+
+    monkeypatch.setattr("backend.services.memory.os.replace", fail_replace)
+    assert memory_service.update_user_profile(profile) is False
+    temp_files = [
+        item.name for item in os.scandir(memory_service.storage_path)
+        if item.name.endswith(".tmp")
+    ]
+    assert temp_files == []
+    assert "private profile storage detail" not in caplog.text
+    assert "OSError" in caplog.text

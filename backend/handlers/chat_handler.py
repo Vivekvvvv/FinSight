@@ -241,13 +241,13 @@ class ChatHandler:
                     return self._handle_advice_query(ticker, query, context)
             
         except Exception as e:
-            traceback.print_exc()
+            logger.error("[ChatHandler] request handling failed: %s", type(e).__name__)
             return {
                 'success': False,
-                'response': f"系统处理您的请求时出错: {str(e)}",
-                'error': str(e),
+                'response': "Unable to process the request",
+                'error': 'internal_error',
                 'intent': 'error',
-                'thinking': f"Critical Error in ChatHandler: {str(e)}"
+                'thinking': "ChatHandler request failed"
             }
     
     def handle_schema_tool(
@@ -565,9 +565,11 @@ class ChatHandler:
                 elif result:
                     orchestrator_error = result.error
             except Exception as e:
-                traceback.print_exc()
-                orchestrator_error = str(e)
-                logger.info(f"[ChatHandler] Orchestrator price fetch failed: {e}")
+                orchestrator_error = type(e).__name__
+                logger.info(
+                    "[ChatHandler] Orchestrator price fetch failed: %s",
+                    type(e).__name__,
+                )
         
         # 回退到直接调用 tools
         if self.tools_module and hasattr(self.tools_module, 'get_stock_price'):
@@ -584,20 +586,21 @@ class ChatHandler:
                     'thinking': "Fetched price via direct tools module."
                 }
             except Exception as e:
-                traceback.print_exc()
+                logger.error(
+                    "[ChatHandler] Direct price fetch failed for %s: %s",
+                    ticker,
+                    type(e).__name__,
+                )
                 fallback = self._fallback_price_from_kline(ticker)
                 if fallback:
                     return fallback
 
-                error_msg = str(e)
-                if orchestrator_error:
-                    error_msg = f"{orchestrator_error}; {error_msg}"
                 return {
                     'success': False,
-                    'response': f"获取 {ticker} 价格时出错: {error_msg}",
-                    'error': error_msg,
+                    'response': f"Unable to fetch price for {ticker}",
+                    'error': 'internal_error',
                     'intent': 'chat',
-                    'thinking': f"Direct tool call for price failed: {error_msg}"
+                    'thinking': "Direct price fetch failed"
                 }
         
         fallback = self._fallback_price_from_kline(ticker)
@@ -711,7 +714,11 @@ class ChatHandler:
                         'thinking': f"NewsAgent research completed with {len(agent_output.evidence)} evidence items.",
                     }
             except Exception as e:
-                logger.info(f"[ChatHandler] NewsAgent failed for {ticker}: {e}")
+                logger.info(
+                    "[ChatHandler] NewsAgent failed for %s: %s",
+                    ticker,
+                    type(e).__name__,
+                )
 
         # 尝试 DeepSearch 聚合（高召回，含链接）
         if self.tools_module and hasattr(self.tools_module, 'deepsearch_news'):
@@ -730,7 +737,11 @@ class ChatHandler:
                     'thinking': "Fetched news via DeepSearch aggregation.",
                 }
             except Exception as e:
-                logger.info(f"[ChatHandler] DeepSearch news failed for {ticker}: {e}")
+                logger.info(
+                    "[ChatHandler] DeepSearch news failed for %s: %s",
+                    ticker,
+                    type(e).__name__,
+                )
 
         # 回退常规新闻工具
         if self.tools_module and hasattr(self.tools_module, 'get_company_news'):
@@ -764,13 +775,17 @@ class ChatHandler:
                     'thinking': "Fetched company news via tools module.",
                 }
             except Exception as e:
-                traceback.print_exc()
+                logger.error(
+                    "[ChatHandler] Company news fetch failed for %s: %s",
+                    ticker,
+                    type(e).__name__,
+                )
                 return {
                     'success': False,
-                    'response': f"获取 {ticker} 新闻时出错: {str(e)}",
-                    'error': str(e),
+                    'response': f"Unable to fetch news for {ticker}",
+                    'error': 'internal_error',
                     'intent': 'chat',
-                    'thinking': f"Tool call for news failed: {str(e)}"
+                    'thinking': "Company news fetch failed"
                 }
         
         return {
@@ -888,8 +903,11 @@ class ChatHandler:
                 if result:
                     orchestrator_error = result.error
             except Exception as e:
-                orchestrator_error = str(e)
-                logger.info(f"[ChatHandler] Orchestrator sentiment fetch failed: {e}")
+                orchestrator_error = type(e).__name__
+                logger.info(
+                    "[ChatHandler] Orchestrator sentiment fetch failed: %s",
+                    type(e).__name__,
+                )
 
         if self.tools_module and hasattr(self.tools_module, 'get_market_sentiment'):
             try:
@@ -905,13 +923,16 @@ class ChatHandler:
                     'thinking': "Fetched market sentiment via tools module.",
                 }
             except Exception as e:
-                traceback.print_exc()
+                logger.error(
+                    "[ChatHandler] Market sentiment fetch failed: %s",
+                    type(e).__name__,
+                )
                 return {
                     'success': False,
-                    'response': f"获取市场情绪指标失败: {str(e)}",
-                    'error': str(e),
+                    'response': "Unable to fetch market sentiment",
+                    'error': 'internal_error',
                     'intent': 'market_sentiment',
-                    'thinking': f"Tool call for sentiment failed: {str(e)}",
+                    'thinking': "Market sentiment fetch failed",
                 }
 
         response = "市场情绪指标暂不可用，如需我改为整理市场要闻请告诉我。"
@@ -969,8 +990,11 @@ class ChatHandler:
                 if result:
                     orchestrator_error = result.error
             except Exception as e:
-                orchestrator_error = str(e)
-                logger.info(f"[ChatHandler] Orchestrator economic events fetch failed: {e}")
+                orchestrator_error = type(e).__name__
+                logger.info(
+                    "[ChatHandler] Orchestrator economic events fetch failed: %s",
+                    type(e).__name__,
+                )
 
         if self.tools_module and hasattr(self.tools_module, 'get_economic_events'):
             try:
@@ -985,13 +1009,16 @@ class ChatHandler:
                     'thinking': "Fetched economic events via tools module.",
                 }
             except Exception as e:
-                traceback.print_exc()
+                logger.error(
+                    "[ChatHandler] Economic events fetch failed: %s",
+                    type(e).__name__,
+                )
                 return {
                     'success': False,
-                    'response': f"获取经济日历失败: {str(e)}",
-                    'error': str(e),
+                    'response': "Unable to fetch economic events",
+                    'error': 'internal_error',
                     'intent': 'economic_events',
-                    'thinking': f"Tool call for economic events failed: {str(e)}",
+                    'thinking': "Economic events fetch failed",
                 }
 
         response = "经济日历暂不可用，请稍后重试。"
@@ -1038,8 +1065,11 @@ class ChatHandler:
                 if result:
                     orchestrator_error = result.error
             except Exception as e:
-                orchestrator_error = str(e)
-                logger.info(f"[ChatHandler] Orchestrator news sentiment fetch failed: {e}")
+                orchestrator_error = type(e).__name__
+                logger.info(
+                    "[ChatHandler] Orchestrator news sentiment fetch failed: %s",
+                    type(e).__name__,
+                )
 
         if self.tools_module and hasattr(self.tools_module, 'get_news_sentiment'):
             try:
@@ -1057,13 +1087,17 @@ class ChatHandler:
                     'thinking': "Fetched news sentiment via tools module.",
                 }
             except Exception as e:
-                traceback.print_exc()
+                logger.error(
+                    "[ChatHandler] News sentiment fetch failed for %s: %s",
+                    ticker,
+                    type(e).__name__,
+                )
                 return {
                     'success': False,
-                    'response': f"获取 {ticker} 新闻情绪失败: {str(e)}",
-                    'error': str(e),
+                    'response': f"Unable to fetch news sentiment for {ticker}",
+                    'error': 'internal_error',
                     'intent': 'news_sentiment',
-                    'thinking': f"Tool call for news sentiment failed: {str(e)}",
+                    'thinking': "News sentiment fetch failed",
                 }
 
         response = "新闻情绪工具暂不可用，请稍后重试。"
@@ -1099,13 +1133,17 @@ class ChatHandler:
                     'thinking': "Fetched company info via tools module."
                 }
             except Exception as e:
-                traceback.print_exc()
+                logger.error(
+                    "[ChatHandler] Company info fetch failed for %s: %s",
+                    ticker,
+                    type(e).__name__,
+                )
                 return {
                     'success': False,
-                    'response': f"获取 {ticker} 公司信息时出错: {str(e)}",
-                    'error': str(e),
+                    'response': f"Unable to fetch company information for {ticker}",
+                    'error': 'internal_error',
                     'intent': 'chat',
-                    'thinking': f"Tool call for company info failed: {str(e)}"
+                    'thinking': "Company info fetch failed"
                 }
         
         return {
@@ -1191,13 +1229,17 @@ class ChatHandler:
                     'thinking': "Used search tool; no LLM for summary."
                 }
         except Exception as e:
-            traceback.print_exc()
+            logger.error(
+                "[ChatHandler] Composition search failed for %s: %s",
+                ticker,
+                type(e).__name__,
+            )
             return {
                 'success': False,
-                'response': f"搜索 {ticker} 成分股信息时出错: {str(e)}",
-                'error': str(e),
+                'response': f"Unable to search composition data for {ticker}",
+                'error': 'internal_error',
                 'intent': 'chat',
-                'thinking': f"Composition search failed: {str(e)}"
+                'thinking': "Composition search failed"
             }
 
     def _handle_comparison_query(
@@ -1342,13 +1384,16 @@ class ChatHandler:
                 'thinking': "Used LLM to generate research review guidance within advice boundary."
             }
         except Exception as e:
-            traceback.print_exc()
+            logger.error(
+                "[ChatHandler] Research review generation failed: %s",
+                type(e).__name__,
+            )
             return {
                 'success': False,
-                'response': f"生成研究复查建议时失败: {str(e)}",
-                'error': str(e),
+                'response': "Unable to generate research review guidance",
+                'error': 'internal_error',
                 'intent': 'chat',
-                'thinking': f"LLM research review generation failed: {str(e)}"
+                'thinking': "Research review generation failed"
             }
 
     def _handle_generic_recommendation(self, query: str) -> Dict[str, Any]:
@@ -1437,13 +1482,16 @@ class ChatHandler:
                     'thinking': "Used search tool; no LLM for summary."
                 }
         except Exception as e:
-            traceback.print_exc()
+            logger.error(
+                "[ChatHandler] General search failed: %s",
+                type(e).__name__,
+            )
             return {
                 'success': False,
-                'response': f"搜索 “{query}” 时出错: {str(e)}",
-                'error': str(e),
+                'response': "Unable to complete search",
+                'error': 'internal_error',
                 'intent': 'chat',
-                'thinking': f"General search failed: {str(e)}"
+                'thinking': "General search failed"
             }
 
     # --- 辅助方法 ---
@@ -1542,7 +1590,10 @@ class ChatHandler:
             return final_result
         
         except Exception as e:
-            traceback.print_exc()
+            logger.error(
+                "[ChatHandler] LLM response enhancement failed: %s",
+                type(e).__name__,
+            )
             # LLM 增强失败，返回基础结果
             return basic_result
 
@@ -1594,8 +1645,11 @@ class ChatHandler:
             if full_response:
                 final_result['enhanced_by_llm'] = True
             result_container.update(final_result)
-        except Exception:
-            traceback.print_exc()
+        except Exception as exc:
+            logger.error(
+                "[ChatHandler] Streaming LLM enhancement failed: %s",
+                type(exc).__name__,
+            )
             result_container.update(basic_result)
             if raw_response:
                 yield raw_response

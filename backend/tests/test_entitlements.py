@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import os
 import sys
+import logging
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -88,6 +90,48 @@ def test_entitlements_persist_across_instances(tmp_path):
     # Reset singleton — should re-read from disk
     ent_module.reset_entitlements_service_for_tests()
     assert get_entitlements_service().get_plan("dave") == "team"
+
+
+def test_entitlements_instances_do_not_overwrite_each_other(tmp_path):
+    _configure_test_storage(tmp_path)
+    from backend.services.entitlements import EntitlementsService
+
+    first = EntitlementsService()
+    second = EntitlementsService()
+    first.set_plan("alice", "pro")
+    second.set_plan("bob", "team")
+
+    reloaded = EntitlementsService()
+    assert reloaded.get_plan("alice") == "pro"
+    assert reloaded.get_plan("bob") == "team"
+
+
+@pytest.mark.parametrize(
+    ("payload", "error_type"),
+    [
+        ("{invalid json", "JSONDecodeError"),
+        ('["not-an-object"]', "ValueError"),
+        ('{"alice": "not-an-object"}', "ValueError"),
+    ],
+)
+def test_entitlements_back_up_corrupt_storage(
+    tmp_path, caplog, payload, error_type
+):
+    _configure_test_storage(tmp_path)
+    from backend.services import entitlements as ent_module
+    from backend.services.entitlements import get_entitlements_service
+
+    ent_module.PLANS_FILE.write_text(payload, encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="backend.services.entitlements"):
+        service = get_entitlements_service()
+
+    backups = list(tmp_path.glob("*.corrupt"))
+    assert service.get_plan("alice") == "free"
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == payload
+    assert not ent_module.PLANS_FILE.exists()
+    assert error_type in caplog.text
+    assert payload not in caplog.text
 
 
 def test_api_me_entitlements_dev_mode(tmp_path, monkeypatch):

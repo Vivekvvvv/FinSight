@@ -1691,7 +1691,7 @@ def build_report_payload(*, state: dict[str, Any], query: str, thread_id: str) -
     try:
         return _build_report_payload_impl(state=state, query=query, thread_id=thread_id)
     except Exception as exc:
-        logger.exception("[ReportBuilder] build_report_payload failed: %s", exc)
+        logger.error("[ReportBuilder] build_report_payload failed: %s", type(exc).__name__)
         fallback = {
             "report_id": f"lg_{uuid.uuid4().hex[:10]}",
             "ticker": "N/A",
@@ -1708,7 +1708,7 @@ def build_report_payload(*, state: dict[str, Any], query: str, thread_id: str) -
                     "agent_name": "report_builder",
                     "confidence": 0.2,
                     "data_sources": ["system"],
-                    "contents": [{"type": "text", "content": f"报告构建异常：{_safe_str(exc)[:400]}"}],
+                    "contents": [{"type": "text", "content": "Report build failed"}],
                 }
             ],
             "citations": [],
@@ -1719,7 +1719,7 @@ def build_report_payload(*, state: dict[str, Any], query: str, thread_id: str) -
                 "thread_id": thread_id,
                 "subject_type": "unknown",
                 "builder_fallback": True,
-                "builder_error": _safe_str(exc)[:500],
+                "builder_error": "internal_error",
             },
             "synthesis_report": "## 研究摘要\n- 报告生成过程中发生异常，已返回最小可用结果。",
             "agent_status": {},

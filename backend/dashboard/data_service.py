@@ -171,7 +171,10 @@ def fetch_macro_snapshot() -> dict[str, Any]:
                 snapshot["fear_greed_label"] = _label_fear_greed(fear_greed_value)
                 has_fear_greed = True
     except Exception as exc:
-        logger.warning("[DataService] fetch_macro_snapshot sentiment failed: %s", exc)
+        logger.warning(
+            "[DataService] fetch_macro_snapshot sentiment failed: %s",
+            type(exc).__name__,
+        )
 
     try:
         from backend.tools.macro import get_fred_data
@@ -187,7 +190,10 @@ def fetch_macro_snapshot() -> dict[str, Any]:
             if fred_as_of:
                 snapshot["as_of"] = fred_as_of
     except Exception as exc:
-        logger.warning("[DataService] fetch_macro_snapshot FRED failed: %s", exc)
+        logger.warning(
+            "[DataService] fetch_macro_snapshot FRED failed: %s",
+            type(exc).__name__,
+        )
 
     if has_fear_greed and has_fred:
         snapshot["status"] = "ok"
@@ -266,7 +272,11 @@ def fetch_market_chart(symbol: str, period: str = "1y", interval: str = "1d") ->
             )
         return output
     except Exception as exc:
-        logger.warning("[DataService] fetch_market_chart failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_market_chart failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None  # exception — do not cache
 
 
@@ -309,7 +319,11 @@ def fetch_snapshot(symbol: str, asset_type: str) -> dict[str, Any] | None:
 
         return output
     except Exception as exc:
-        logger.warning("[DataService] fetch_snapshot failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_snapshot failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None  # failure — do not cache
 
 
@@ -346,7 +360,11 @@ def fetch_revenue_trend(symbol: str) -> list[dict[str, Any]]:
         output.reverse()
         return output[-8:]
     except Exception as exc:
-        logger.warning("[DataService] fetch_revenue_trend failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_revenue_trend failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return []
 
 
@@ -366,7 +384,11 @@ def fetch_segment_mix(symbol: str) -> list[dict[str, Any]]:
             for row in rows
         ]
     except Exception as exc:
-        logger.warning("[DataService] fetch_segment_mix failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_segment_mix failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return []
 
 
@@ -687,7 +709,11 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
                 elif isinstance(raw_impact, str):
                     impact_items = _parse_news_text(raw_impact)
             except (FuturesTimeout, Exception) as exc:
-                logger.warning("[DataService] get_company_news failed for %s: %s", symbol, exc)
+                logger.warning(
+                    "[DataService] get_company_news failed for %s: %s",
+                    symbol,
+                    type(exc).__name__,
+                )
 
             try:
                 raw_market = f_market.result(timeout=30)
@@ -697,7 +723,10 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
                 elif isinstance(raw_market, str):
                     market_items = _parse_news_text(raw_market)
             except (FuturesTimeout, Exception) as exc:
-                logger.warning("[DataService] get_market_news_headlines failed: %s", exc)
+                logger.warning(
+                    "[DataService] get_market_news_headlines failed: %s",
+                    type(exc).__name__,
+                )
 
         # 两个来源都抛异常（而非都返回空列表）→ 视为 news 管道故障，返回 None。
         # 此前无论如何都返回空 payload，而 router 只把 None 当失败，导致真实
@@ -717,7 +746,11 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
         }
         return result
     except Exception as exc:
-        logger.warning("[DataService] fetch_news failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_news failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return _empty_news_payload()
 
 
@@ -735,7 +768,11 @@ def fetch_sector_weights(symbol: str, asset_type: str) -> list[dict[str, Any]]:
             for row in rows
         ]
     except Exception as exc:
-        logger.warning("[DataService] fetch_sector_weights failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_sector_weights failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return []
 
 
@@ -757,7 +794,11 @@ def fetch_top_constituents(symbol: str, asset_type: str, limit: int = 10) -> lis
             for row in rows[:limit]
         ]
     except Exception as exc:
-        logger.warning("[DataService] fetch_top_constituents failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_top_constituents failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return []
 
 
@@ -781,7 +822,11 @@ def fetch_holdings(symbol: str, asset_type: str, limit: int = 50) -> list[dict[s
             for row in rows[:limit]
         ]
     except Exception as exc:
-        logger.warning("[DataService] fetch_holdings failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_holdings failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return []
 
 
@@ -852,7 +897,11 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
                 if frame is not None and not frame.empty:
                     return frame
         except Exception as exc:
-            logger.warning("[DataService] CN/HK OHLCV fallback failed for %s: %s", symbol, exc)
+            logger.warning(
+                "[DataService] CN/HK OHLCV fallback failed for %s: %s",
+                symbol,
+                type(exc).__name__,
+            )
 
     try:
         import yfinance as yf
@@ -861,7 +910,11 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
         if hist is not None and not hist.empty:
             return hist
     except Exception as exc:
-        logger.warning("[DataService] yfinance OHLCV failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] yfinance OHLCV failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
 
     # Fast fallback: Stooq is usually quicker than the full multi-source pipeline
     # and helps avoid technical tab timeouts when yfinance is rate-limited.
@@ -880,7 +933,11 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
                 )
                 return frame
     except Exception as exc:
-        logger.warning("[DataService] Stooq OHLCV fallback failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] Stooq OHLCV fallback failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
 
     try:
         from backend.tools.price import get_stock_historical_data
@@ -902,7 +959,11 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
         )
         return frame
     except Exception as exc:
-        logger.warning("[DataService] fallback OHLCV failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fallback OHLCV failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -929,7 +990,11 @@ def _finnhub_request(path: str, params: Optional[dict[str, Any]] = None) -> Any 
             return None
         return payload
     except Exception as exc:
-        logger.warning("[DataService] Finnhub request failed for %s: %s", path, exc)
+        logger.warning(
+            "[DataService] Finnhub request failed for %s: %s",
+            path,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -999,7 +1064,11 @@ def _fetch_valuation_from_cn_hk_market(symbol: str) -> dict[str, Any] | None:
             return None
         return result
     except Exception as exc:
-        logger.warning("[DataService] CN/HK valuation fallback failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] CN/HK valuation fallback failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -1060,7 +1129,11 @@ def _fetch_financial_statements_from_sec_companyfacts(symbol: str, periods: int 
         )
         return result if has_any_value else None
     except Exception as exc:
-        logger.warning("[DataService] SEC companyfacts fallback failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] SEC companyfacts fallback failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -1100,7 +1173,11 @@ def _fetch_financial_statements_from_cn_hk_market(symbol: str, periods: int = 8)
         )
         return result if has_any_value else None
     except Exception as exc:
-        logger.warning("[DataService] CN/HK financials fallback failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] CN/HK financials fallback failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -1324,7 +1401,11 @@ def fetch_valuation(symbol: str) -> dict[str, Any] | None:
         if any(v is not None for v in result.values()):
             return result
     except Exception as exc:
-        logger.warning("[DataService] fetch_valuation failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_valuation failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
 
     fallback = _fetch_valuation_from_finnhub(symbol)
     if fallback:
@@ -1478,7 +1559,11 @@ def fetch_financial_statements(symbol: str, periods: int = 8) -> dict[str, Any] 
             return fallback
         return None
     except Exception as exc:
-        logger.warning("[DataService] fetch_financial_statements failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_financial_statements failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         sec_fallback = _fetch_financial_statements_from_sec_companyfacts(symbol, periods=periods)
         if sec_fallback:
             logger.info("[DataService] financials fallback via SEC companyfacts for %s", symbol)
@@ -1506,7 +1591,11 @@ def fetch_technical_indicators(symbol: str) -> dict[str, Any] | None:
         result = compute_technical_indicators(hist)
         return result if result else None
     except Exception as exc:
-        logger.warning("[DataService] fetch_technical_indicators failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_technical_indicators failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -1522,7 +1611,11 @@ def fetch_indicator_series(symbol: str, n_days: int = 120) -> dict[str, Any] | N
         result = compute_indicator_series(hist, n_days)
         return result if result else None
     except Exception as exc:
-        logger.warning("[DataService] fetch_indicator_series failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_indicator_series failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -1554,7 +1647,11 @@ def fetch_earnings_history(symbol: str) -> list[dict[str, Any]] | None:
             return entries if entries else None
         return None
     except Exception as exc:
-        logger.warning("[DataService] fetch_earnings_history failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_earnings_history failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -1596,7 +1693,11 @@ def fetch_analyst_targets(symbol: str) -> dict[str, Any] | None:
             return None
         return result
     except Exception as exc:
-        logger.warning("[DataService] fetch_analyst_targets failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_analyst_targets failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 
@@ -1629,7 +1730,11 @@ def fetch_recommendations(symbol: str) -> dict[str, Any] | None:
             return result
         return None
     except Exception as exc:
-        logger.warning("[DataService] fetch_recommendations failed for %s: %s", symbol, exc)
+        logger.warning(
+            "[DataService] fetch_recommendations failed for %s: %s",
+            symbol,
+            type(exc).__name__,
+        )
         return None
 
 

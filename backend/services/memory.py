@@ -12,6 +12,7 @@ from datetime import datetime
 import json
 import os
 import re
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 _USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -87,14 +88,17 @@ class MemoryService:
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
+                    if not isinstance(data, dict):
+                        raise ValueError("profile payload must be a JSON object")
                     return UserProfile.from_dict(data)
-                except Exception as e:
-                    # 损坏的画像文件先备份再回退默认，避免后续写操作把用户数据永久覆盖。
-                    logger.warning(f"[MemoryService] Corrupt profile for {user_id}, backing up: {e}")
-                    try:
-                        os.replace(file_path, file_path + ".corrupt")
-                    except OSError:
-                        pass
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+                    backup_path = f"{file_path}.{uuid4().hex}.corrupt"
+                    os.replace(file_path, backup_path)
+                    logger.warning(
+                        "[MemoryService] Corrupt profile for %s moved to backup (%s)",
+                        user_id,
+                        type(e).__name__,
+                    )
                     return UserProfile(user_id=user_id)
             else:
                 return UserProfile(user_id=user_id)
@@ -111,8 +115,21 @@ class MemoryService:
                 os.replace(tmp_path, file_path)
             return True
         except Exception as e:
-            logger.warning(f"[MemoryService] Error saving profile for {profile.user_id}: {e}")
+            logger.warning(
+                "[MemoryService] Error saving profile for %s (%s)",
+                profile.user_id,
+                type(e).__name__,
+            )
             return False
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError as cleanup_error:
+                    logger.warning(
+                        "[MemoryService] Failed to remove profile temp file (%s)",
+                        type(cleanup_error).__name__,
+                    )
 
     def add_to_watchlist(
         self,

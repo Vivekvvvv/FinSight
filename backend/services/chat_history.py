@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -15,6 +16,9 @@ from uuid import uuid4
 _DEFAULT_LIMIT = 100
 _MAX_MESSAGES_PER_SESSION = 200
 _MAX_CONTENT_CHARS = 20_000
+_STORE_LOCK = threading.RLock()
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> str:
@@ -41,11 +45,10 @@ class ChatHistoryStore:
     def __init__(self, storage_path: str | os.PathLike[str] | None = None) -> None:
         base = storage_path or os.getenv("CHAT_HISTORY_STORAGE_PATH", "data/chat_history")
         self.storage_path = Path(base)
-        self._lock = threading.RLock()
 
     def list_messages(self, *, session_id: str, limit: int = _DEFAULT_LIMIT) -> list[dict[str, Any]]:
         safe_limit = max(1, min(int(limit or _DEFAULT_LIMIT), _MAX_MESSAGES_PER_SESSION))
-        with self._lock:
+        with _STORE_LOCK:
             payload = self._read_payload(session_id)
             messages = payload.get("messages") if isinstance(payload, dict) else []
             if not isinstance(messages, list):
@@ -89,7 +92,7 @@ class ChatHistoryStore:
                 assistant["evidence"] = evidence
             additions.append(assistant)
 
-        with self._lock:
+        with _STORE_LOCK:
             payload = self._read_payload(session_id)
             messages = payload.get("messages") if isinstance(payload, dict) else []
             if not isinstance(messages, list):
@@ -106,7 +109,7 @@ class ChatHistoryStore:
             return [self._public_message(item) for item in messages]
 
     def clear(self, *, session_id: str) -> None:
-        with self._lock:
+        with _STORE_LOCK:
             path = self._path_for_session(session_id)
             if path.exists():
                 path.unlink()
@@ -120,9 +123,21 @@ class ChatHistoryStore:
             return {"session_id": session_id, "messages": []}
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {"session_id": session_id, "messages": []}
-        if not isinstance(data, dict):
+            if not isinstance(data, dict):
+                raise ValueError("chat history payload must be a JSON object")
+            messages = data.get("messages", [])
+            if not isinstance(messages, list) or any(
+                not isinstance(item, dict) for item in messages
+            ):
+                raise ValueError("chat history messages must be a list of objects")
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            backup_path = path.with_name(f"{path.name}.{uuid4().hex}.corrupt")
+            os.replace(path, backup_path)
+            logger.warning(
+                "Backed up corrupt chat history file %s (%s)",
+                path.name,
+                type(exc).__name__,
+            )
             return {"session_id": session_id, "messages": []}
         data.setdefault("session_id", session_id)
         data.setdefault("messages", [])

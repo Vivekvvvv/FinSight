@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi.testclient import TestClient
 
 
@@ -155,3 +157,20 @@ def test_rag_diagnostics_read_allows_local_dev_bearer_without_supabase(monkeypat
     assert payload['status'] == 'ok'
     assert payload['data']['enabled'] is True
     assert payload['data']['backend'] == 'postgres'
+
+
+def test_rag_auth_upstream_error_log_is_redacted(monkeypatch, caplog):
+    main = _configure_auth(monkeypatch)
+
+    def fail_access(_request):
+        raise RuntimeError("private auth upstream detail")
+
+    monkeypatch.setattr(main, '_require_rag_read_access', fail_access)
+    with caplog.at_level(logging.ERROR, logger='backend.api.main'):
+        with TestClient(main.app) as client:
+            response = client.get('/diagnostics/rag/status')
+
+    assert response.status_code == 503
+    assert response.json()['detail'] == 'Auth upstream unavailable'
+    assert 'private auth upstream detail' not in caplog.text
+    assert 'RuntimeError' in caplog.text

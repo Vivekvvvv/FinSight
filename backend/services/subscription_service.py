@@ -30,6 +30,7 @@ EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 RISK_THRESHOLD_ALLOWED = {"low", "medium", "high", "critical"}
 ALERT_MODE_ALLOWED = {"price_change_pct", "price_target"}
 DIRECTION_ALLOWED = {"above", "below"}
+_SUBSCRIPTIONS_LOCK = threading.RLock()
 
 
 class SubscriptionService:
@@ -37,23 +38,37 @@ class SubscriptionService:
     
     def __init__(self):
         self.subscriptions_file = SUBSCRIPTIONS_FILE
-        self._lock = threading.RLock()
+        self._lock = _SUBSCRIPTIONS_LOCK
         self.subscriptions_file.parent.mkdir(parents=True, exist_ok=True)
-        self._load_subscriptions()
+        with self._lock:
+            self._load_subscriptions()
     
     def _load_subscriptions(self):
         """加载订阅数据"""
         if self.subscriptions_file.exists():
             try:
                 with open(self.subscriptions_file, 'r', encoding='utf-8') as f:
-                    self.subscriptions = json.load(f)
-            except Exception as e:
-                # 损坏文件先备份再回退空，避免下一次 _save 把用户订阅永久覆盖。
-                logger.warning(f"⚠️  订阅数据损坏，已备份为 *.corrupt 后回退空: {e}")
-                try:
-                    os.replace(self.subscriptions_file, f"{self.subscriptions_file}.corrupt")
-                except OSError:
-                    pass
+                    subscriptions = json.load(f)
+                if not isinstance(subscriptions, dict):
+                    raise ValueError("subscriptions payload must be a JSON object")
+                if any(
+                    not isinstance(items, list)
+                    or any(not isinstance(item, dict) for item in items)
+                    for items in subscriptions.values()
+                ):
+                    raise ValueError(
+                        "subscription entries must be lists of JSON objects"
+                    )
+                self.subscriptions = subscriptions
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+                backup_path = self.subscriptions_file.with_name(
+                    f"{self.subscriptions_file.name}.{uuid4().hex}.corrupt"
+                )
+                os.replace(self.subscriptions_file, backup_path)
+                logger.warning(
+                    "Subscription data was corrupt and moved to a backup (%s)",
+                    type(e).__name__,
+                )
                 self.subscriptions = {}
         else:
             self.subscriptions = {}
@@ -146,7 +161,8 @@ class SubscriptionService:
                     if os.path.exists(temp_path):
                         os.unlink(temp_path)
         except Exception as e:
-            logger.info(f"❌ 保存订阅数据失败: {e}")
+            logger.error("Failed to save subscription data (%s)", type(e).__name__)
+            raise
 
     @staticmethod
     def _parse_iso(value: Optional[str]) -> Optional[datetime]:
@@ -221,6 +237,7 @@ class SubscriptionService:
             return False
 
         with self._lock:
+            self._load_subscriptions()
             if email not in self.subscriptions:
                 self.subscriptions[email] = []
 
@@ -292,10 +309,8 @@ class SubscriptionService:
         Returns:
             是否取消成功
         """
-        if email not in self.subscriptions:
-            return False
-
         with self._lock:
+            self._load_subscriptions()
             if email not in self.subscriptions:
                 return False
             if ticker is None:
@@ -331,12 +346,14 @@ class SubscriptionService:
                 return []
             # 返回所有订阅
             with self._lock:
+                self._load_subscriptions()
                 all_subs = []
                 for email_key, subs in self.subscriptions.items():
                     all_subs.extend(subs)
                 return all_subs
         else:
             with self._lock:
+                self._load_subscriptions()
                 return list(self.subscriptions.get(email, []))
 
     def get_subscribers_for_ticker(self, ticker: str) -> List[Dict]:
@@ -351,6 +368,7 @@ class SubscriptionService:
         """
         subscribers = []
         with self._lock:
+            self._load_subscriptions()
             for email, subs in self.subscriptions.items():
                 for sub in subs:
                     if sub['ticker'] == ticker:
@@ -360,6 +378,7 @@ class SubscriptionService:
     def update_last_alert(self, email: str, ticker: str):
         """更新最后提醒时间"""
         with self._lock:
+            self._load_subscriptions()
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if sub['ticker'] == ticker:
@@ -370,6 +389,7 @@ class SubscriptionService:
     def record_alert_attempt(self, email: str, ticker: str, success: bool, error: Optional[str] = None, disable: bool = False, is_transient_error: bool = False):
         """Record alert delivery attempt and optionally disable subscription."""
         with self._lock:
+            self._load_subscriptions()
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if sub['ticker'] == ticker:
@@ -404,6 +424,7 @@ class SubscriptionService:
         裸 datetime.now() 是本地时区，中国区会把新文章误判为已推送过。
         """
         with self._lock:
+            self._load_subscriptions()
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if sub['ticker'] == ticker:
@@ -414,6 +435,7 @@ class SubscriptionService:
     def update_last_risk(self, email: str, ticker: str):
         """Update last risk alert timestamp."""
         with self._lock:
+            self._load_subscriptions()
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if sub['ticker'] == ticker:
@@ -425,6 +447,7 @@ class SubscriptionService:
         """Mark one-shot target alert as fired."""
         ticker_norm = str(ticker or "").strip().upper()
         with self._lock:
+            self._load_subscriptions()
             if email not in self.subscriptions:
                 return False
             for sub in self.subscriptions[email]:
@@ -448,6 +471,7 @@ class SubscriptionService:
             是否操作成功
         """
         with self._lock:
+            self._load_subscriptions()
             if email not in self.subscriptions:
                 return False
 
@@ -484,6 +508,7 @@ class SubscriptionService:
         normalized_ticker = str(ticker or "").strip().upper()
 
         with self._lock:
+            self._load_subscriptions()
             if email not in self.subscriptions:
                 return False
 
@@ -524,6 +549,7 @@ class SubscriptionService:
     ) -> List[Dict]:
         """Aggregate recent alert events for one user across all subscriptions."""
         with self._lock:
+            self._load_subscriptions()
             subscriptions = list(self.subscriptions.get(email, []))
         if not isinstance(subscriptions, list):
             return []

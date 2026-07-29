@@ -158,7 +158,8 @@ async def test_deep_search_rag_observability_failure_does_not_block_research(mon
     rag_events = [event for event in result.trace if event.get("event_type") == "rag_observability"]
     assert rag_events
     assert rag_events[-1]["metadata"]["enabled"] is False
-    assert "rag down" in rag_events[-1]["metadata"]["error"]
+    assert rag_events[-1]["metadata"]["error"] == "unavailable"
+    assert "rag down" not in str(rag_events[-1])
 
 
 @pytest.mark.asyncio

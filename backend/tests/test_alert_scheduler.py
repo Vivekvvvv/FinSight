@@ -186,6 +186,8 @@ def test_c3_news_window_and_dedup_use_utc_basis(subscription_service_tmp):
 
     now = _utcnow_naive()
     service.subscriptions["user@example.com"][0]["last_news_at"] = (now - timedelta(hours=2)).isoformat()
+    with service._lock:
+        service._save_subscriptions()
 
     def fake_news_fetcher(_ticker: str):
         return [

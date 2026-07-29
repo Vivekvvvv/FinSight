@@ -717,7 +717,10 @@ queries 要求：
                         "score": item.get("score"),
                     })
             except Exception as exc:
-                logger.info(f"[DeepSearch] Tavily search failed: {exc}")
+                logger.info(
+                    "[DeepSearch] Tavily search failed (%s)",
+                    type(exc).__name__,
+                )
 
         if not results and exa_key and exa_available:
             try:
@@ -745,14 +748,20 @@ queries 要求：
                         "published_date": getattr(item, "published_date", None),
                     })
             except Exception as exc:
-                logger.info(f"[DeepSearch] Exa search failed: {exc}")
+                logger.info(
+                    "[DeepSearch] Exa search failed (%s)",
+                    type(exc).__name__,
+                )
 
         if not results and self.tools and hasattr(self.tools, "search"):
             try:
                 raw = self.tools.search(query)
                 results = self._parse_search_text(raw)
             except Exception as exc:
-                logger.info(f"[DeepSearch] Search fallback failed: {exc}")
+                logger.info(
+                    "[DeepSearch] Search fallback failed (%s)",
+                    type(exc).__name__,
+                )
 
         trusted_count = 0
         for item in results:
@@ -791,7 +800,10 @@ queries 要求：
                         }
                     )
             except Exception as exc:
-                logger.info(f"[DeepSearch] Authoritative feed supplement failed: {exc}")
+                logger.info(
+                    "[DeepSearch] Authoritative feed supplement failed (%s)",
+                    type(exc).__name__,
+                )
 
         return results
 
@@ -1051,7 +1063,10 @@ queries 要求：
                 return None
             response.raise_for_status()
         except Exception as exc:
-            logger.info(f"[DeepSearch] Fetch failed: {exc}")
+            logger.info(
+                "[DeepSearch] Fetch failed (%s)",
+                type(exc).__name__,
+            )
             return None
 
         content_type = response.headers.get("Content-Type", "").lower()
@@ -1147,8 +1162,11 @@ queries 要求：
         try:
             from backend.rag import RAGDocument, get_rag_service
         except Exception as exc:
-            logger.info("[DeepSearch] RAG observability unavailable: %s", exc)
-            return {"enabled": False, "error": str(exc)}
+            logger.info(
+                "[DeepSearch] RAG observability unavailable (%s)",
+                type(exc).__name__,
+            )
+            return {"enabled": False, "error": "unavailable"}
 
         collection = self._build_rag_collection(query=query, ticker=ticker)
         rag_docs: List[Any] = []
@@ -1221,8 +1239,11 @@ queries 要求：
         try:
             return await asyncio.to_thread(_sync_record)
         except Exception as exc:
-            logger.exception("[DeepSearch] Failed to record RAG observability: %s", exc)
-            return {"enabled": False, "collection": collection, "error": str(exc)}
+            logger.error(
+                "[DeepSearch] Failed to record RAG observability (%s)",
+                type(exc).__name__,
+            )
+            return {"enabled": False, "collection": collection, "error": "unavailable"}
 
     def _build_rag_collection(self, *, query: str, ticker: str) -> str:
         normalized_ticker = (ticker or "unknown").strip().lower() or "unknown"
@@ -1242,7 +1263,10 @@ queries 要求：
                 pages.append(page.extract_text() or "")
             return "\n".join(pages)
         except Exception as exc:
-            logger.info(f"[DeepSearch] PDF parse failed: {exc}")
+            logger.info(
+                "[DeepSearch] PDF parse failed (%s)",
+                type(exc).__name__,
+            )
             return ""
 
     def _extract_html_text(self, html: str) -> str:

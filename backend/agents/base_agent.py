@@ -214,12 +214,12 @@ class BaseFinancialAgent:
             )
             return content.strip()
         except Exception as exc:
-            logger.info("[%s] _llm_analyze failed: %s", self.AGENT_NAME, exc)
+            logger.info("[%s] _llm_analyze failed: %s", self.AGENT_NAME, type(exc).__name__)
             try:
                 get_trace_emitter().emit_llm_end(
                     model=getattr(self.llm, "model_name", None) if self.llm else None,
                     success=False,
-                    error=str(exc),
+                    error=type(exc).__name__,
                     agent=self.AGENT_NAME,
                 )
             except Exception:
@@ -434,7 +434,7 @@ class BaseFinancialAgent:
             trace_emitter.emit_llm_end(
                 model=getattr(self.llm, "model_name", None) if self.llm else None,
                 success=False,
-                error=str(e),
+                error=type(e).__name__,
                 agent=self.AGENT_NAME
             )
             return []
@@ -528,8 +528,19 @@ class BaseFinancialAgent:
                 else:
                     trace_emitter.emit_tool_end(tool_name, success=False, agent=self.AGENT_NAME)
             except Exception as e:
-                logger.warning("[%s] Tool %s failed for '%s': %s", self.AGENT_NAME, tool_name, gap_desc[:40], e)
-                trace_emitter.emit_tool_end(tool_name, success=False, error=str(e), agent=self.AGENT_NAME)
+                logger.warning(
+                    "[%s] Tool %s failed for '%s': %s",
+                    self.AGENT_NAME,
+                    tool_name,
+                    gap_desc[:40],
+                    type(e).__name__,
+                )
+                trace_emitter.emit_tool_end(
+                    tool_name,
+                    success=False,
+                    error=type(e).__name__,
+                    agent=self.AGENT_NAME,
+                )
                 # Fallback to search if a specialized tool fails
                 if tool_name != "search":
                     search_entry = registry.get("search")
@@ -618,7 +629,7 @@ class BaseFinancialAgent:
             trace_emitter.emit_llm_end(
                 model=getattr(self.llm, "model_name", None) if self.llm else None,
                 success=False,
-                error=str(e),
+                error=type(e).__name__,
                 agent=self.AGENT_NAME
             )
             return summary
@@ -677,7 +688,7 @@ class BaseFinancialAgent:
             yield json.dumps({
                 "type": "error",
                 "agent": self.AGENT_NAME,
-                "message": f"搜索失败: {str(e)}"
+                "message": "Search failed"
             }, ensure_ascii=False)
             return
         

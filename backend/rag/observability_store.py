@@ -848,7 +848,10 @@ def install_rag_observability_hooks() -> bool:
                 try:
                     get_rag_observability_store().cache_ingest_batch(docs=doc_list, ingest_stats=result if isinstance(result, dict) else {"result": result}, backend_requested=str(os.getenv("RAG_V2_BACKEND", "auto")).strip().lower() or "auto", backend_actual=str(getattr(self, "backend_name", "unknown") or "unknown"))
                 except Exception as exc:
-                    logger.exception("[RAGObservability] 缓存 ingest 批次失败: %s", exc)
+                    logger.error(
+                        "[RAGObservability] 缓存 ingest 批次失败 (%s)",
+                        type(exc).__name__,
+                    )
             return result
 
         @functools.wraps(original_search)
@@ -858,7 +861,10 @@ def install_rag_observability_hooks() -> bool:
             try:
                 context = store.begin_search_run(query=query, collection=collection, top_k=max(1, int(top_k)), backend_requested=str(os.getenv("RAG_V2_BACKEND", "auto")).strip().lower() or "auto", backend_actual=str(getattr(self, "backend_name", "unknown") or "unknown"), route_name="hybrid_search", router_decision="hybrid_search", fallback_reason=str(getattr(self, "fallback_reason", "") or "") or None, metadata_json={"embedding_model": getattr(self, "embedding_model", None), "vector_dim": getattr(self, "vector_dim", None)})
             except Exception as exc:
-                logger.exception("[RAGObservability] 创建查询运行失败: %s", exc)
+                logger.error(
+                    "[RAGObservability] 创建查询运行失败 (%s)",
+                    type(exc).__name__,
+                )
             try:
                 hits = original_search(self, query, collection=collection, top_k=top_k)
             except Exception as exc:
@@ -866,13 +872,19 @@ def install_rag_observability_hooks() -> bool:
                     try:
                         store.complete_search_run(context, hits=None, error=exc)
                     except Exception as inner_exc:
-                        logger.exception("[RAGObservability] 记录失败查询时出错: %s", inner_exc)
+                        logger.error(
+                            "[RAGObservability] 记录失败查询时出错 (%s)",
+                            type(inner_exc).__name__,
+                        )
                 raise
             if context is not None:
                 try:
                     store.complete_search_run(context, hits=hits, error=None)
                 except Exception as exc:
-                    logger.exception("[RAGObservability] 记录查询完成失败: %s", exc)
+                    logger.error(
+                        "[RAGObservability] 记录查询完成失败 (%s)",
+                        type(exc).__name__,
+                    )
             return hits
 
         HybridRAGService.ingest_documents = observed_ingest
@@ -890,5 +902,3 @@ __all__ = [
     "reset_rag_observability_store_cache",
     "install_rag_observability_hooks",
 ]
-
-
