@@ -23,7 +23,8 @@
 | Method | Path | 说明 |
 |---|---|---|
 | GET | `/api/quote/{symbol}` | 报价；真实源失败且 Demo Mode 开启时返回差异化 Demo 数据 |
-| GET | `/api/kline/{symbol}` | K 线；支持真实源、免费兜底、缓存和 Demo |
+| GET | `/api/kline/{symbol}` | K 线；支持真实源、免费兜底、缓存和 Demo；非 Demo 模式下内部获取失败返回 `502 {"detail":"Kline data unavailable"}` |
+| GET | `/api/stock/intraday/{symbol}` | 分时数据；非 Demo 模式下内部获取失败返回 `502 {"detail":"Intraday data unavailable"}` |
 | GET | `/api/financials/{symbol}` | 财务指标；真实数据为空时可回落到 Demo |
 | GET | `/api/screener/filters/meta` | 股票发现筛选元数据 |
 | POST | `/api/screener/run` | 股票发现结果；无 FMP 时走 yfinance 或静态候选池兜底 |

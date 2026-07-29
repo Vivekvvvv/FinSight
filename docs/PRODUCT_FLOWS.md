@@ -9,7 +9,7 @@
 | # | 页面 | 路由 | 主要用途 | 主要后端依赖 |
 |---|---|---|---|---|
 | 1 | 今日工作台 | `/welcome` | 每日研究入口、待复查事项、数据源/系统状态抽屉 | `/api/today`、`/api/what-changed`、`/api/research-quality`、`/api/data-sources/status` |
-| 2 | 标的研究 | `/dossier/:symbol` | 单个标的的行情、K 线、AI 洞察、时间线、报告、笔记聚合 | `/api/dashboard*`、`/api/quote/*`、`/api/kline/*`、`/api/timeline/*` |
+| 2 | 标的研究 | `/dossier/:symbol` | 单个标的的行情、K 线、AI 洞察、时间线、报告、笔记聚合 | `/api/dashboard*`、`/api/quote/*`、`/api/timeline/*` |
 | 3 | 股票发现 | `/stocks` | 筛选候选股、自选、A 股市场工具 | `/api/screener/*`、`/api/user/watchlist/*`、A 股工具接口 |
 | 4 | 组合管理 | `/portfolio` | 持仓摘要、持仓维护、风险镜头、组合工具 | `/api/portfolio/*`、`/api/portfolio/risk-lens`、`/api/backtest`、`/api/rebalance` |
 | 5 | 报告库 | `/reports` | 报告列表、报告详情、生成报告、财报分析入口 | `/api/reports/index`、`/api/reports/replay/*`、研究报告接口 |
