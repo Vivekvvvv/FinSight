@@ -41,7 +41,11 @@ jobs:
           pip-audit -r requirements.txt
           cyclonedx-py requirements requirements.txt --output-file sbom.json
       - name: Run backend pytest suite
-        run: pytest -q backend/tests
+        run: >-
+          pytest -q backend/tests
+          tests/rag_quality/test_rag_quality.py
+          tests/regression/test_mock_tools_contract.py
+          tests/unit/test_trace_emitter.py
       - name: Upload SBOM
         if: always()
         uses: actions/upload-artifact@v4
