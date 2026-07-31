@@ -8,6 +8,7 @@ import requests
 from .env import FRED_API_KEY
 from .http import _http_get
 from .search import search
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,9 @@ def get_market_sentiment() -> str:
         response.raise_for_status() 
         
         data = response.json()
-        score = float(data['fear_and_greed']['score'])
+        score = safe_float(data['fear_and_greed']['score'])
+        if score is None:
+            raise ValueError("invalid fear and greed score")
         rating = data['fear_and_greed']['rating']
         
         logger.info("CNN API fetch successful!")
@@ -54,7 +57,9 @@ def get_market_sentiment() -> str:
         # 使用正则表达式从搜索结果中提取数值和评级
         match = re.search(r'(?:Index|Score)[:\s]*(\d+\.?\d*)\s*\((\w+\s?\w*)\)', search_result, re.IGNORECASE)
         if match:
-            score = float(match.group(1))
+            score = safe_float(match.group(1))
+            if score is None:
+                raise ValueError("invalid fear and greed score")
             rating = match.group(2)
             logger.info("Fallback search successful!")
             return f"CNN Fear & Greed Index (via search): {score:.1f} ({rating})"
@@ -140,7 +145,7 @@ def get_fred_data(series_id: str = None) -> Dict[str, Any]:
                 if observations:
                     value = observations[0].get("value", ".")
                     if value != ".":
-                        result[key] = float(value)
+                        result[key] = safe_float(value)
 
         except Exception as e:
             logger.info("[FRED] Failed to fetch %s: %s", sid, type(e).__name__)

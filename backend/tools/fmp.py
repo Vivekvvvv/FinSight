@@ -18,6 +18,7 @@ from typing import Any, Optional
 import requests
 
 from backend.tools.env import FMP_API_KEY
+from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -131,11 +132,14 @@ def get_revenue_product_segmentation(symbol: str) -> list[dict]:
 
     # 转换为标准格式
     segments = []
-    total_revenue = sum(v for v in segments_raw.values() if isinstance(v, (int, float)))
+    normalized_segments = {
+        name: parsed
+        for name, raw in segments_raw.items()
+        if (parsed := safe_float(raw)) is not None and parsed > 0
+    }
+    total_revenue = sum(normalized_segments.values())
 
-    for seg_name, revenue in segments_raw.items():
-        if not isinstance(revenue, (int, float)) or revenue <= 0:
-            continue
+    for seg_name, revenue in normalized_segments.items():
         percentage = (revenue / total_revenue * 100) if total_revenue > 0 else 0
         segments.append({
             "segment": seg_name,
@@ -199,11 +203,14 @@ def get_revenue_geographic_segmentation(symbol: str) -> list[dict]:
 
     # 转换为标准格式
     regions = []
-    total_revenue = sum(v for v in regions_raw.values() if isinstance(v, (int, float)))
+    normalized_regions = {
+        name: parsed
+        for name, raw in regions_raw.items()
+        if (parsed := safe_float(raw)) is not None and parsed > 0
+    }
+    total_revenue = sum(normalized_regions.values())
 
-    for region_name, revenue in regions_raw.items():
-        if not isinstance(revenue, (int, float)) or revenue <= 0:
-            continue
+    for region_name, revenue in normalized_regions.items():
         percentage = (revenue / total_revenue * 100) if total_revenue > 0 else 0
         regions.append({
             "region": region_name,
@@ -252,10 +259,7 @@ def get_etf_sector_weights(symbol: str) -> list[dict]:
         weight_str = item.get("weightPercentage", "0%")
 
         # 解析权重百分比（去掉 % 符号）
-        try:
-            weight = float(str(weight_str).replace("%", "").strip())
-        except (ValueError, TypeError):
-            weight = 0
+        weight = safe_float(str(weight_str).replace("%", "").strip()) or 0.0
 
         if sector and weight > 0:
             sectors.append({
@@ -306,10 +310,7 @@ def get_etf_holdings(symbol: str, limit: int = 50) -> list[dict]:
         value = item.get("marketValue", 0)
 
         # 解析权重
-        try:
-            weight = float(str(weight_str).replace("%", "").strip())
-        except (ValueError, TypeError):
-            weight = 0
+        weight = safe_float(str(weight_str).replace("%", "").strip()) or 0.0
 
         if asset:
             holdings.append({
@@ -322,8 +323,9 @@ def get_etf_holdings(symbol: str, limit: int = 50) -> list[dict]:
 
     holdings.sort(key=lambda x: x["weight"], reverse=True)
 
-    logger.info(f"[FMP] etf_holdings OK for {symbol}: {len(holdings[:limit])} holdings")
-    return holdings[:limit]
+    result_limit = max(0, safe_int(limit, 50))
+    logger.info(f"[FMP] etf_holdings OK for {symbol}: {len(holdings[:result_limit])} holdings")
+    return holdings[:result_limit]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -394,8 +396,9 @@ def get_index_constituents(symbol: str, limit: int = 10) -> list[dict]:
     # 按符号排序（没有权重信息）
     constituents.sort(key=lambda x: x["symbol"])
 
-    logger.info(f"[FMP] index_constituents OK for {symbol}: {len(constituents[:limit])} constituents")
-    return constituents[:limit]
+    result_limit = max(0, safe_int(limit, 10))
+    logger.info(f"[FMP] index_constituents OK for {symbol}: {len(constituents[:result_limit])} constituents")
+    return constituents[:result_limit]
 
 
 # ══════════════════════════════════════════════════════════════════════════════

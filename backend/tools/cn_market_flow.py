@@ -7,7 +7,7 @@ from backend.utils.env_config import env_int
 from typing import Any
 
 from backend.tools.http import _http_get
-from backend.utils.quote import safe_float
+from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, 
     """返回行列表；上游请求失败/非 200/结构异常时返回 None（区别于"真的 0 行"）。"""
     params = {
         "pn": "1",
-        "pz": str(max(1, min(int(limit), 200))),
+        "pz": str(max(1, min(safe_int(limit, 20) or 20, 200))),
         "po": "1",
         "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281",

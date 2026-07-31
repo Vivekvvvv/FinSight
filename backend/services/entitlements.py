@@ -22,6 +22,9 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
+from backend.utils.strict_json import json_load_strict
+from backend.utils.quote import safe_int
+
 logger = logging.getLogger(__name__)
 _PLANS_LOCK = threading.RLock()
 
@@ -158,7 +161,7 @@ class EntitlementsService:
             return
         try:
             with open(self._path, "r", encoding="utf-8") as f:
-                data = json.load(f, parse_constant=_reject_non_finite_json)
+                data = json_load_strict(f)
             if not isinstance(data, dict):
                 raise ValueError("user plans payload must be a JSON object")
             if any(not isinstance(record, dict) for record in data.values()):
@@ -259,8 +262,8 @@ class EntitlementsService:
         -1 视为无限,allowed 始终 True;否则当 current >= limit 时拒绝。
         """
         plan = self.get_plan(user_id, role=role)
-        limit = int(PLAN_LIMITS.get(plan, {}).get(quota_key, 0))
-        current = max(0, int(current_count))
+        limit = safe_int(PLAN_LIMITS.get(plan, {}).get(quota_key, 0), 0) or 0
+        current = max(0, safe_int(current_count, 0) or 0)
         if limit < 0:
             return {"allowed": True, "limit": -1, "current": current, "remaining": -1, "plan": plan}
         remaining = max(0, limit - current)
@@ -358,7 +361,7 @@ def build_usage_view(
         )
         reports_used = 0
     result["max_reports_per_day"] = _quota_entry(
-        plan=plan, used=reports_used, limit=int(limits.get("max_reports_per_day", 0))
+                plan=plan, used=reports_used, limit=safe_int(limits.get("max_reports_per_day"), 0) or 0
     )
 
     # 2) max_alerts (基于订阅服务的当前订阅数)
@@ -378,7 +381,7 @@ def build_usage_view(
         )
         alerts_used = 0
     result["max_alerts"] = _quota_entry(
-        plan=plan, used=alerts_used, limit=int(limits.get("max_alerts", 0))
+                plan=plan, used=alerts_used, limit=safe_int(limits.get("max_alerts"), 0) or 0
     )
 
     # 3) max_portfolio_positions
@@ -395,13 +398,13 @@ def build_usage_view(
         )
         pf_used = 0
     result["max_portfolio_positions"] = _quota_entry(
-        plan=plan, used=pf_used, limit=int(limits.get("max_portfolio_positions", 0))
+                plan=plan, used=pf_used, limit=safe_int(limits.get("max_portfolio_positions"), 0) or 0
     )
 
     # 4) 静态项: 其余配额返回 used=0 + limit (前端展示用)
     for quota_key in ("max_watchlist", "max_deep_research_per_day"):
         result[quota_key] = _quota_entry(
-            plan=plan, used=0, limit=int(limits.get(quota_key, 0))
+                plan=plan, used=0, limit=safe_int(limits.get(quota_key), 0) or 0
         )
 
     return result
@@ -409,8 +412,9 @@ def build_usage_view(
 
 def _quota_entry(*, plan: str, used: int, limit: int) -> Dict[str, Any]:
     """规范化一个 quota 条目 (used/limit/remaining/percent/allowed)."""
-    used_clean = max(0, int(used))
-    if limit < 0:
+    used_clean = max(0, safe_int(used, 0) or 0)
+    normalized_limit = safe_int(limit, 0) or 0
+    if normalized_limit < 0:
         return {
             "plan": plan,
             "used": used_clean,
@@ -419,7 +423,7 @@ def _quota_entry(*, plan: str, used: int, limit: int) -> Dict[str, Any]:
             "percent": 0,
             "allowed": True,
         }
-    limit_clean = max(0, int(limit))
+    limit_clean = max(0, normalized_limit)
     remaining = max(0, limit_clean - used_clean)
     percent = int(round((used_clean / limit_clean) * 100)) if limit_clean > 0 else 100
     return {

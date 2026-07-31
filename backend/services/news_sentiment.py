@@ -8,6 +8,8 @@ import json
 import logging
 from typing import Any, Dict, List
 
+from backend.utils.strict_json import json_loads_strict
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,10 +82,7 @@ async def analyze_news_sentiment(
             lines = text.split("\n")
             text = "\n".join(lines[1:-1])
 
-        sentiments: List[Dict[str, Any]] = json.loads(
-            text,
-            parse_constant=_reject_json_constant,
-        )
+        sentiments: List[Dict[str, Any]] = json_loads_strict(text)
 
         # 合并回原新闻
         result = []

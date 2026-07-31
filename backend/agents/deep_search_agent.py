@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import asyncio
 import hashlib
 import json
+import math
 import os
 import re
 import logging
@@ -26,8 +27,22 @@ from backend.security.ssrf import is_safe_url
 from backend.security.pinned_http import safe_pinned_request
 from backend.services.circuit_breaker import CircuitBreaker
 from backend.utils.env_config import env_float, env_int
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
+
+
+def _finite_float(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _finite_int(value: Any, default: int) -> int:
+    parsed = _finite_float(value, float(default))
+    return int(parsed)
 
 
 def _reject_json_constant(value: str) -> None:
@@ -444,8 +459,8 @@ queries 要求：
                         "degrade_reason": item.get("degrade_reason"),
                         "doc_quality": doc_quality,
                         "evidence_quality": {
-                            "overall_score": float(evidence_quality.get("overall_score", 0.0)),
-                            "source_diversity": int(evidence_quality.get("source_diversity", 0)),
+                            "overall_score": _finite_float(evidence_quality.get("overall_score", 0.0), 0.0),
+                            "source_diversity": _finite_int(evidence_quality.get("source_diversity", 0), 0),
                             "has_conflicts": has_conflicts,
                         },
                         "conflict_flag": has_conflicts,
@@ -973,8 +988,8 @@ queries 要求：
             merged["gap_queries"] = self._merge_unique_strings(merged.get("gap_queries") or [], [item.get("gap_query")])
             merged["deepsearch_phases"] = self._merge_unique_strings(merged.get("deepsearch_phases") or [], [item.get("deepsearch_phase")])
             merged["search_rank"] = min(
-                int(merged.get("search_rank") or 10**9),
-                int(item.get("search_rank") or 10**9),
+                _finite_int(merged.get("search_rank"), 10**9),
+                _finite_int(item.get("search_rank"), 10**9),
             )
         return [deduped_by_url[url] for url in order]
 
@@ -1036,7 +1051,7 @@ queries 要求：
                         degraded_doc = dict(doc)
                         degraded_doc["content"] = fallback_text
                         degraded_doc["snippet"] = snippet or fallback_text[:240]
-                        degraded_doc["confidence"] = min(float(doc.get("confidence", 0.7)), 0.45)
+                        degraded_doc["confidence"] = min(_finite_float(doc.get("confidence", 0.7), 0.7), 0.45)
                         degraded_doc["degraded"] = True
                         degraded_doc["degrade_reason"] = "pdf_parse_or_short_content"
                         degraded_docs.append(degraded_doc)
@@ -1423,10 +1438,7 @@ queries 要求：
         if not match:
             return {}
         try:
-            return json.loads(
-                match.group(0),
-                parse_constant=_reject_json_constant,
-            )
+            return json_loads_strict(match.group(0))
         except (json.JSONDecodeError, ValueError):
             return {}
 

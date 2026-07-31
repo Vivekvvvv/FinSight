@@ -5,7 +5,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from backend.tools.http import _http_get
-from backend.utils.quote import safe_float
+from backend.utils.quote import safe_float, safe_int
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,8 @@ def _is_recent_eastmoney_date(value: Any, *, max_age_days: int, now: datetime | 
     if parsed is None:
         return False
     today = (now or datetime.now(timezone.utc)).date()
-    return parsed.date() >= today - timedelta(days=max(1, int(max_age_days)))
+    age_days = max(1, safe_int(max_age_days, 90))
+    return parsed.date() >= today - timedelta(days=age_days)
 
 
 def is_cn_symbol(symbol: str) -> bool:
@@ -513,7 +515,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
             return None
 
         import json
-        data_list = json.loads(match.group(1))
+        data_list = json_loads_strict(match.group(1))
 
         if not data_list:
             logger.info("[东方财富] 龙虎榜无数据 for %s", symbol)
@@ -611,7 +613,7 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
         sell_seats = []
 
         if buy_match:
-            buy_data = json.loads(buy_match.group(1))
+            buy_data = json_loads_strict(buy_match.group(1))
             for idx, seat in enumerate(buy_data[:5], 1):  # 前5席位
                 buy_amt = _wan_to_yuan(seat.get("Bmoney", 0))  # 万元转元
                 sell_amt = _wan_to_yuan(seat.get("Smoney", 0))
@@ -628,7 +630,7 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
                 })
 
         if sell_match:
-            sell_data = json.loads(sell_match.group(1))
+            sell_data = json_loads_strict(sell_match.group(1))
             for idx, seat in enumerate(sell_data[:5], 1):
                 buy_amt = _wan_to_yuan(seat.get("Bmoney", 0))
                 sell_amt = _wan_to_yuan(seat.get("Smoney", 0))
@@ -706,7 +708,7 @@ def fetch_cn_top_list_history(
                 "columns": "ALL",
                 "filter": f'(SECURITY_CODE="{stock_code}")',
                 "pageNumber": "1",
-                "pageSize": str(max(1, min(int(days), 100))),
+        "pageSize": str(max(1, min(safe_int(days, 30), 100))),
                 "sortTypes": "-1",
                 "sortColumns": "TRADE_DATE",
                 "source": "WEB",
@@ -764,7 +766,7 @@ def fetch_cn_top_list_history(
             logger.info("[东方财富] 龙虎榜历史数据解析失败 for %s", symbol)
             return []
 
-        data_list = json.loads(match.group(1))
+        data_list = json_loads_strict(match.group(1))
 
         if not data_list:
             return []
@@ -861,7 +863,7 @@ def fetch_north_flow(date: str | None = None) -> dict[str, Any] | None:
             return None
 
         import json
-        data = json.loads(match.group(1))
+        data = json_loads_strict(match.group(1))
 
         if data.get("rc") != 0 or not data.get("data"):
             logger.info("[东方财富] 北向资金返回错误")
@@ -959,7 +961,7 @@ def fetch_north_flow_history(days: int = 30) -> list[dict[str, Any]]:
             return []
 
         import json
-        data = json.loads(resp.text)
+        data = json_loads_strict(resp.text)
 
         if data.get("rc") != 0 or not data.get("data"):
             logger.info("[东方财富] 北向资金历史返回错误")
@@ -1198,7 +1200,7 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
                 "columns": "ALL",
                 "filter": f'(SCODE="{stock_code}")',
                 "pageNumber": "1",
-                "pageSize": str(max(1, min(int(days), 200))),
+        "pageSize": str(max(1, min(safe_int(days, 90), 200))),
                 "sortTypes": "-1",
                 "sortColumns": "DATE",
                 "source": "WEB",

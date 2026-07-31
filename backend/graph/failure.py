@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from backend.utils.quote import safe_int
+
 FAILURE_STRATEGY_VERSION = "failure.v1"
 
 
@@ -38,7 +40,7 @@ def append_failure(
             "error": error,
             "fallback": fallback,
             "retryable": retryable,
-            "retry_attempts": max(0, int(retry_attempts)),
+            "retry_attempts": max(0, safe_int(retry_attempts, 0) or 0),
             "metadata": metadata or {},
         }
     )
@@ -58,7 +60,7 @@ def build_runtime(
     payload = {
         "mode": mode,
         "fallback": bool(fallback),
-        "retry_attempts": max(0, int(retry_attempts)),
+        "retry_attempts": max(0, safe_int(retry_attempts, 0) or 0),
         "failure_strategy_version": FAILURE_STRATEGY_VERSION,
     }
     if reason:
@@ -67,4 +69,3 @@ def build_runtime(
 
 
 __all__ = ["FAILURE_STRATEGY_VERSION", "append_failure", "build_runtime", "utc_now_iso"]
-

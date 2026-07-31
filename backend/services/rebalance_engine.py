@@ -12,6 +12,7 @@ HC-2: ``executable`` is always ``False``, ``mode`` is always ``suggestion_only``
 from __future__ import annotations
 
 import logging
+import math
 import os
 import uuid
 from datetime import datetime, timezone
@@ -88,8 +89,12 @@ _DEFAULT_MOCK_PRICE = 100.0
 def _get_price(ticker: str, live_prices: dict[str, float]) -> float:
     """Return live price if available, else optional mock price."""
     price = live_prices.get(ticker)
-    if price is not None and price > 0:
-        return price
+    try:
+        parsed_price = float(price) if price is not None else None
+    except (TypeError, ValueError, OverflowError):
+        parsed_price = None
+    if parsed_price is not None and math.isfinite(parsed_price) and parsed_price > 0:
+        return parsed_price
     if os.getenv("REBALANCE_USE_MOCK_PRICES", "false").lower() in {"1", "true", "yes", "on"}:
         return _MOCK_PRICES.get(ticker, _DEFAULT_MOCK_PRICE)
     return 0.0
@@ -155,8 +160,11 @@ class RebalanceEngine:
             ticker = str(pos.get("ticker", "")).strip().upper()
             if not ticker:
                 continue
-            shares = float(pos.get("shares", 0))
-            if shares <= 0:
+            try:
+                shares = float(pos.get("shares", 0))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not math.isfinite(shares) or shares <= 0:
                 continue
             price = _get_price(ticker, ctx.live_prices)
             if price <= 0:

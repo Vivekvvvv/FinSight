@@ -7,13 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.utils.quote import safe_int
+
 
 def _safe_priority(value: Any) -> int:
     """把历史数据中的空值或异常值安全归零。"""
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
+    return safe_int(value, 0) or 0
 
 
 def generate_next_actions(

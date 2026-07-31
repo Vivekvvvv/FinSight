@@ -81,6 +81,7 @@ from backend.services.chat_history import ChatHistoryStore
 from backend.services.portfolio_store import get_positions as get_portfolio_positions
 from backend.services.report_index import get_report_index_store
 from backend.utils.env_config import env_float as _env_float
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 _DEFAULT_CONFIG_LOCK = Lock()
@@ -555,7 +556,7 @@ def _fetch_supabase_user_identity(token: str) -> Optional[Dict[str, Any]]:
     user_identity: Optional[Dict[str, Any]] = None
     try:
         with urllib_request.urlopen(request_obj, timeout=5) as response:
-            payload = json.loads(response.read().decode("utf-8") or "{}")
+            payload = json_loads_strict(response.read().decode("utf-8") or "{}")
         user_id = str(payload.get("id") or "").strip() if isinstance(payload, dict) else ""
         if user_id:
             email = payload.get("email") if isinstance(payload, dict) else None

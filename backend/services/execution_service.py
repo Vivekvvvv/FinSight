@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -106,7 +107,10 @@ def _execution_timeout_seconds(output_mode: str | None = None) -> float:
         else os.getenv("LANGGRAPH_EXECUTION_TIMEOUT_SECONDS", default_base)
     )
     try:
-        return max(60.0, float(raw))
+        parsed = float(raw)
+        if not math.isfinite(parsed):
+            raise ValueError("execution timeout must be finite")
+        return max(60.0, parsed)
     except Exception:
         return 900.0 if mode == "investment_report" else 500.0
 

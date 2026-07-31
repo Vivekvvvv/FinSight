@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from backend.graph.capability_registry import REPORT_AGENT_CANDIDATES
 from backend.security.auth import Principal, get_current_user, require_matching_identity
+from backend.utils.quote import safe_int
 
 _VALID_DEPTHS = {"standard", "deep", "off"}
 _MAX_ROUNDS_MIN = 1
@@ -60,11 +61,7 @@ def _normalize_preferences(raw: Any) -> dict[str, Any]:
             if depth_text in _VALID_DEPTHS:
                 normalized_agents[name] = depth_text
 
-    max_rounds = raw.get("maxRounds", defaults["maxRounds"])
-    try:
-        max_rounds_value = int(max_rounds)
-    except Exception:
-        max_rounds_value = defaults["maxRounds"]
+    max_rounds_value = safe_int(raw.get("maxRounds"), defaults["maxRounds"])
     max_rounds_value = max(_MAX_ROUNDS_MIN, min(_MAX_ROUNDS_MAX, max_rounds_value))
 
     concurrent_mode = raw.get("concurrentMode", defaults["concurrentMode"])

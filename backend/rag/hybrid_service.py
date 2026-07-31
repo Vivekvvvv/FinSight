@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 from dataclasses import dataclass, field
@@ -16,6 +17,8 @@ from backend.rag.embedder import (
     SparseVector,
     get_embedding_service,
 )
+from backend.utils.quote import safe_int
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 
@@ -66,26 +69,45 @@ def _embed_text(text_value: str, embedder: EmbeddingService) -> tuple[list[float
 def _cosine(a: list[float], b: list[float]) -> float:
     if not a or not b:
         return 0.0
-    return sum(x * y for x, y in zip(a, b))
+    try:
+        score = sum(float(x) * float(y) for x, y in zip(a, b))
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return score if math.isfinite(score) else 0.0
 
 
 def _sparse_score(query_sparse: SparseVector, doc_sparse: SparseVector) -> float:
     """Weighted sparse matching using lexical weights."""
     if not query_sparse.weights or not doc_sparse.weights:
         return 0.0
-    score = 0.0
-    for token, q_weight in query_sparse.weights.items():
-        if token in doc_sparse.weights:
-            score += q_weight * doc_sparse.weights[token]
+    try:
+        score = sum(
+            float(q_weight) * float(doc_sparse.weights[token])
+            for token, q_weight in query_sparse.weights.items()
+            if token in doc_sparse.weights
+        )
+        q_norm = sum(float(weight) * float(weight) for weight in query_sparse.weights.values()) ** 0.5
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
     # Normalise by query magnitude
-    q_norm = sum(w * w for w in query_sparse.weights.values()) ** 0.5
-    if q_norm > 0:
+    if math.isfinite(q_norm) and q_norm > 0:
         score /= q_norm
-    return score
+    return score if math.isfinite(score) else 0.0
 
 
 def _vector_literal(vec: list[float]) -> str:
-    return "[" + ",".join(f"{v:.8f}" for v in vec) + "]"
+    values = [float(value) for value in vec]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("embedding vector contains non-finite values")
+    return "[" + ",".join(f"{value:.8f}" for value in values) + "]"
+
+
+def _finite_score(value: Any) -> float:
+    try:
+        parsed = float(value or 0.0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    return parsed if math.isfinite(parsed) else 0.0
 
 
 def _safe_metadata(value: Any) -> dict[str, Any]:
@@ -245,13 +267,14 @@ class _InMemoryHybridStore:
         fused_sorted = sorted(
             fused,
             key=lambda x: (
-                float(x.get("rrf_score") or 0.0),
-                float(x.get("dense_score") or 0.0),
-                float(x.get("sparse_score") or 0.0),
+                _finite_score(x.get("rrf_score")),
+                _finite_score(x.get("dense_score")),
+                _finite_score(x.get("sparse_score")),
             ),
             reverse=True,
         )
-        return fused_sorted[: max(1, int(top_k))]
+        limit = max(1, safe_int(top_k, 6))
+        return fused_sorted[:limit]
 
     def cleanup_expired(self) -> int:
         now = _utc_now()
@@ -275,7 +298,8 @@ class _InMemoryHybridStore:
             )
 
     def cleanup_stale_filings(self, *, older_than_days: int = 365) -> int:
-        threshold = _utc_now() - timedelta(days=max(1, int(older_than_days)))
+        retention_days = max(1, safe_int(older_than_days, 365))
+        threshold = _utc_now() - timedelta(days=retention_days)
         to_delete: list[tuple[str, str]] = []
         with self._lock:
             for key, payload in self._docs.items():
@@ -391,7 +415,7 @@ class _PostgresHybridStore:
                 )
             ).fetchone()
             if row and row[0]:
-                return int(row[0])
+                return safe_int(row[0], 0) or 0
         except Exception as exc:
             logger.debug("RAG v2 embedding dimension lookup failed: %s", type(exc).__name__)
         return None
@@ -469,7 +493,8 @@ class _PostgresHybridStore:
             return []
         q_dense, _q_sparse = _embed_text(query_text, self._embedder)
         q_emb = _vector_literal(q_dense)
-        candidate_k = max(12, int(top_k) * 4)
+        limit = max(1, safe_int(top_k, 6))
+        candidate_k = max(12, limit * 4)
         # Scope boost constants for RRF
         scope_boost_persistent = 0.15
         scope_boost_medium = 0.05
@@ -545,7 +570,7 @@ class _PostgresHybridStore:
                     "query": query_text,
                     "query_embedding": q_emb,
                     "candidate_k": candidate_k,
-                    "top_k": max(1, int(top_k)),
+                    "top_k": limit,
                     "rrf_k": self._rrf_k,
                     "scope_boost_persistent": scope_boost_persistent,
                     "scope_boost_medium": scope_boost_medium,
@@ -557,7 +582,7 @@ class _PostgresHybridStore:
                 metadata = row.get("metadata")
                 if isinstance(metadata, str):
                     try:
-                        metadata = json.loads(metadata)
+                        metadata = json_loads_strict(metadata)
                     except Exception:
                         metadata = {}
                 elif not isinstance(metadata, dict):
@@ -575,10 +600,10 @@ class _PostgresHybridStore:
                         "created_at": row.get("created_at"),
                         "expires_at": row.get("expires_at"),
                         "dense_rank": row.get("dense_rank"),
-                        "dense_score": float(row.get("dense_score") or 0.0),
+                        "dense_score": _finite_score(row.get("dense_score")),
                         "sparse_rank": row.get("sparse_rank"),
-                        "sparse_score": float(row.get("sparse_score") or 0.0),
-                        "rrf_score": float(row.get("rrf_score") or 0.0),
+                        "sparse_score": _finite_score(row.get("sparse_score")),
+                        "rrf_score": _finite_score(row.get("rrf_score")),
                     }
                 )
             return hits
@@ -588,7 +613,7 @@ class _PostgresHybridStore:
         sql = text("DELETE FROM rag_documents_v2 WHERE expires_at IS NOT NULL AND expires_at <= now()")
         with self._engine.begin() as conn:
             result = conn.execute(sql)
-        return int(result.rowcount or 0)
+        return safe_int(result.rowcount, 0) or 0
 
     def count_documents(self) -> int:
         self._ensure_schema()
@@ -601,7 +626,7 @@ class _PostgresHybridStore:
         )
         with self._engine.connect() as conn:
             value = conn.execute(sql).scalar() or 0
-        return int(value)
+        return safe_int(value, 0) or 0
 
     def cleanup_stale_filings(self, *, older_than_days: int = 365) -> int:
         self._ensure_schema()
@@ -612,9 +637,10 @@ class _PostgresHybridStore:
               AND lower(COALESCE(metadata->>'type', '')) IN ('filing', 'research_doc')
             """
         )
+        retention_days = max(1, safe_int(older_than_days, 365))
         with self._engine.begin() as conn:
-            result = conn.execute(sql, {"older_than_days": max(1, int(older_than_days))})
-        return int(result.rowcount or 0)
+            result = conn.execute(sql, {"older_than_days": retention_days})
+        return safe_int(result.rowcount, 0) or 0
 
 
 class HybridRAGService:
@@ -630,9 +656,10 @@ class HybridRAGService:
     ) -> None:
         self._embedder = embedder or get_embedding_service()
         # Use embedder's native dim when available; env override still honoured
-        effective_dim = self._embedder.dim if vector_dim <= 0 else max(16, int(vector_dim))
+        normalized_dim = safe_int(vector_dim, 0) or 0
+        effective_dim = self._embedder.dim if normalized_dim <= 0 else max(16, normalized_dim)
         self.vector_dim = effective_dim
-        self.rrf_k = max(1, int(rrf_k))
+        self.rrf_k = max(1, safe_int(rrf_k, 60))
         self.backend_name = "memory"
         self.embedding_model = self._embedder.model_name
         self.fallback_reason: Optional[str] = None
@@ -687,8 +714,8 @@ class HybridRAGService:
         backend = os.getenv("RAG_V2_BACKEND", "auto")
         # Default to 0 = "auto-detect from embedder"
         raw_dim = os.getenv("RAG_V2_VECTOR_DIM", "").strip()
-        vector_dim = int(raw_dim) if raw_dim else 0
-        rrf_k = int((os.getenv("RAG_V2_RRF_K") or "60").strip())
+        vector_dim = safe_int(raw_dim, 0) or 0
+        rrf_k = safe_int((os.getenv("RAG_V2_RRF_K") or "60").strip(), 60) or 60
         postgres_dsn = (os.getenv("RAG_V2_POSTGRES_DSN") or os.getenv("LANGGRAPH_CHECKPOINT_POSTGRES_DSN") or "").strip()
         allow_fallback = _env_bool("RAG_V2_ALLOW_MEMORY_FALLBACK", True)
         return cls(
@@ -716,7 +743,8 @@ class HybridRAGService:
         return self._store.ingest_documents(docs)
 
     def hybrid_search(self, query: str, *, collection: str, top_k: int = 6) -> list[dict[str, Any]]:
-        return self._store.hybrid_search(query, collection=collection, top_k=max(1, int(top_k)))
+        limit = max(1, safe_int(top_k, 6))
+        return self._store.hybrid_search(query, collection=collection, top_k=limit)
 
     def cleanup_expired(self) -> int:
         return self._store.cleanup_expired()
@@ -724,13 +752,13 @@ class HybridRAGService:
     def count_documents(self) -> int:
         count_fn = getattr(self._store, "count_documents", None)
         if callable(count_fn):
-            return int(count_fn())
+            return safe_int(count_fn(), 0) or 0
         return 0
 
     def cleanup_stale_filings(self, *, older_than_days: int = 365) -> int:
         cleanup_fn = getattr(self._store, "cleanup_stale_filings", None)
         if callable(cleanup_fn):
-            return int(cleanup_fn(older_than_days=older_than_days))
+            return safe_int(cleanup_fn(older_than_days=older_than_days), 0) or 0
         return 0
 
 

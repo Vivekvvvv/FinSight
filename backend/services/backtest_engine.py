@@ -17,8 +17,18 @@ class PricePoint:
 
 class BacktestEngine:
     def __init__(self, *, default_fee_bps: float = 5.0, default_slippage_bps: float = 3.0) -> None:
-        self.default_fee_bps = float(default_fee_bps)
-        self.default_slippage_bps = float(default_slippage_bps)
+        fee_bps = self._finite_number(default_fee_bps)
+        slippage_bps = self._finite_number(default_slippage_bps)
+        self.default_fee_bps = fee_bps if fee_bps is not None else 5.0
+        self.default_slippage_bps = slippage_bps if slippage_bps is not None else 3.0
+
+    @staticmethod
+    def _finite_number(value: Any) -> float | None:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return parsed if math.isfinite(parsed) else None
 
     @staticmethod
     def list_strategies() -> list[dict[str, Any]]:
@@ -58,11 +68,8 @@ class BacktestEngine:
         for item in raw:
             if not isinstance(item, dict):
                 continue
-            try:
-                close = float(item.get("close"))
-            except Exception:
-                continue
-            if not math.isfinite(close) or close <= 0:
+            close = BacktestEngine._finite_number(item.get("close"))
+            if close is None or close <= 0:
                 continue  # 停牌/脏数据的 0 价 bar：入回测会在买入路径 cash/(0*...) 除零 500
             ts = str(item.get("time") or "").strip()
             if not ts:
@@ -140,10 +147,15 @@ class BacktestEngine:
         if len(signals) != len(points):
             return {"success": False, "error": "signal_length_mismatch"}
 
-        fee_rate = max(0.0, float(self.default_fee_bps if fee_bps is None else fee_bps)) / 10000.0
-        slippage_rate = max(0.0, float(self.default_slippage_bps if slippage_bps is None else slippage_bps)) / 10000.0
+        fee_value = self._finite_number(self.default_fee_bps if fee_bps is None else fee_bps)
+        slippage_value = self._finite_number(self.default_slippage_bps if slippage_bps is None else slippage_bps)
+        cash = self._finite_number(initial_cash)
+        if fee_value is None or slippage_value is None or cash is None or cash <= 0:
+            return {"success": False, "error": "invalid_numeric_input"}
+        fee_rate = max(0.0, fee_value) / 10000.0
+        slippage_rate = max(0.0, slippage_value) / 10000.0
+        initial_cash_value = cash
 
-        cash = float(initial_cash)
         shares = 0.0
         buy_index = -10**9
         equity_curve: list[dict[str, Any]] = []
@@ -153,7 +165,10 @@ class BacktestEngine:
 
         for idx, point in enumerate(points):
             signal_idx = idx - 1 if t_plus_one else idx
-            target = int(signals[signal_idx]) if signal_idx >= 0 else 0
+            try:
+                target = int(signals[signal_idx]) if signal_idx >= 0 else 0
+            except (TypeError, ValueError, OverflowError):
+                return {"success": False, "error": "invalid_strategy_signals"}
             price = float(point.close)
 
             can_sell = True
@@ -213,7 +228,7 @@ class BacktestEngine:
             equity_curve.append({"time": point.time, "equity": equity, "price": price, "position": int(shares > 0)})
 
         final_equity = float(equity_curve[-1]["equity"])
-        total_return = (final_equity / float(initial_cash) - 1.0) * 100.0
+        total_return = (final_equity / initial_cash_value - 1.0) * 100.0
         max_dd = self._max_drawdown(equity_curve)
         win_rate = (wins / closed_trades * 100.0) if closed_trades > 0 else 0.0
 
@@ -229,7 +244,7 @@ class BacktestEngine:
                 "bars": len(points),
             },
             "settings": {
-                "initial_cash": float(initial_cash),
+                "initial_cash": initial_cash_value,
                 "fee_bps": float(fee_rate * 10000),
                 "slippage_bps": float(slippage_rate * 10000),
                 "t_plus_one": bool(t_plus_one),

@@ -14,6 +14,8 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 
+from backend.utils.strict_json import json_loads_strict
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,7 +83,7 @@ def principal_from_api_key(api_key: str) -> Principal:
     mappings_raw = str(os.getenv("API_AUTH_PRINCIPALS") or "").strip()
     if mappings_raw:
         try:
-            mappings = json.loads(mappings_raw)
+            mappings = json_loads_strict(mappings_raw)
             row = mappings.get(api_key) if isinstance(mappings, dict) else None
             if isinstance(row, dict):
                 return Principal(

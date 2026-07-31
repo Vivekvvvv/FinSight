@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from threading import RLock
 from typing import Dict, Optional, Any
 
+from backend.utils.quote import safe_float, safe_int
+
 
 CLOSED = "CLOSED"
 OPEN = "OPEN"
@@ -49,17 +51,16 @@ class CircuitBreaker:
         half_open_success_threshold: int = 1,
         source_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
-        self.failure_threshold = max(1, failure_threshold)
-        try:
-            parsed_recovery_timeout = float(recovery_timeout)
-        except Exception:
+        self.failure_threshold = max(1, safe_int(failure_threshold, 3))
+        parsed_recovery_timeout = safe_float(recovery_timeout)
+        if parsed_recovery_timeout is None:
             parsed_recovery_timeout = 300.0
         self.recovery_timeout = (
             max(0.1, parsed_recovery_timeout)
             if math.isfinite(parsed_recovery_timeout)
             else 300.0
         )
-        self.half_open_success_threshold = max(1, half_open_success_threshold)
+        self.half_open_success_threshold = max(1, safe_int(half_open_success_threshold, 1))
         self._states: Dict[str, _CircuitState] = {}
         self._lock = RLock()
         self._source_overrides = source_overrides or {}
@@ -193,14 +194,14 @@ class CircuitBreaker:
         override = self._get_override(source, "failure_threshold")
         if override is not None:
             try:
-                return max(1, int(override))
+                return max(1, safe_int(override, self.failure_threshold) or self.failure_threshold)
             except Exception:
                 pass
         env_key = f"CB_{self._normalize_source(source)}_FAILURE_THRESHOLD"
         env_val = os.getenv(env_key)
         if env_val:
             try:
-                return max(1, int(env_val))
+                return max(1, safe_int(env_val, self.failure_threshold) or self.failure_threshold)
             except Exception:
                 pass
         return self.failure_threshold
@@ -209,8 +210,8 @@ class CircuitBreaker:
         override = self._get_override(source, "recovery_timeout")
         if override is not None:
             try:
-                parsed = float(override)
-                if math.isfinite(parsed):
+                parsed = safe_float(override)
+                if parsed is not None:
                     return max(0.1, parsed)
             except Exception:
                 pass
@@ -218,8 +219,8 @@ class CircuitBreaker:
         env_val = os.getenv(env_key)
         if env_val:
             try:
-                parsed = float(env_val)
-                if math.isfinite(parsed):
+                parsed = safe_float(env_val)
+                if parsed is not None:
                     return max(0.1, parsed)
             except Exception:
                 pass

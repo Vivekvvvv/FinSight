@@ -21,6 +21,8 @@ from backend.api.rebalance_schemas import (
     EvidenceSnapshot,
     RebalanceAction,
 )
+from backend.utils.strict_json import json_loads_strict
+from backend.utils.quote import safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -194,10 +196,8 @@ class AgentBackedEnhancer:
                 new_reason = enh.get("enhanced_reason", c.reason)
 
                 # Validate priority range
-                if isinstance(new_priority, (int, float)):
-                    new_priority = max(1, min(5, int(new_priority)))
-                else:
-                    new_priority = c.priority
+                parsed_priority = safe_int(new_priority)
+                new_priority = max(1, min(5, parsed_priority)) if parsed_priority is not None else c.priority
 
                 # Add LLM evidence
                 llm_evidence = EvidenceSnapshot(
@@ -241,10 +241,7 @@ class AgentBackedEnhancer:
         if start < 0 or end < 0 or end <= start:
             return []
         try:
-            parsed = json.loads(
-                text[start:end + 1],
-                parse_constant=_reject_json_constant,
-            )
+            parsed = json_loads_strict(text[start:end + 1])
             if isinstance(parsed, list):
                 return parsed
         except (json.JSONDecodeError, ValueError):

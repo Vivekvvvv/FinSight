@@ -8,6 +8,8 @@ import os
 from fastapi import APIRouter, Body, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 
+from backend.utils.quote import safe_int
+
 
 @dataclass(frozen=True)
 class SystemRouterDeps:
@@ -181,7 +183,7 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
             from backend.rag.hybrid_service import get_rag_service
 
             rag_service = get_rag_service()
-            rag_component: Dict[str, Any] = {"status": "ok", "backend": rag_service.backend_name, "embedding_model": getattr(rag_service, "embedding_model", "unknown"), "vector_dim": int(getattr(rag_service, "vector_dim", 0) or 0), "doc_count": int(rag_service.count_documents())}
+            rag_component: Dict[str, Any] = {"status": "ok", "backend": rag_service.backend_name, "embedding_model": getattr(rag_service, "embedding_model", "unknown"), "vector_dim": safe_int(getattr(rag_service, "vector_dim", 0), 0) or 0, "doc_count": safe_int(rag_service.count_documents(), 0) or 0}
             if getattr(rag_service, "fallback_reason", None):
                 # 上游 fallback_reason 直接来自 str(exc)，只暴露固定文案
                 rag_component["fallback_reason"] = "backend fallback active"
@@ -250,14 +252,14 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         payload = {
             "backend_requested": str(os.getenv("RAG_V2_BACKEND", "auto") or "auto").strip().lower() or "auto",
             "backend_actual": str(getattr(rag_service, "backend_name", "unknown") or "unknown"),
-            "doc_count": int(rag_service.count_documents()),
-            "vector_dim": int(getattr(rag_service, "vector_dim", 0) or 0),
+            "doc_count": safe_int(rag_service.count_documents(), 0) or 0,
+            "vector_dim": safe_int(getattr(rag_service, "vector_dim", 0), 0) or 0,
             "embedding_model": str(getattr(rag_service, "embedding_model", "unknown") or "unknown"),
             "fallback_reason": str(getattr(rag_service, "fallback_reason", "") or "") or None,
             "enabled": bool(observability.get("enabled")),
             "backend": str(observability.get("backend") or observability.get("status") or "unknown"),
-            "recent_run_count_24h": int(observability.get("recent_run_count_24h") or 0),
-            "recent_fallback_count_24h": int(observability.get("recent_fallback_count_24h") or 0),
+            "recent_run_count_24h": safe_int(observability.get("recent_run_count_24h"), 0) or 0,
+            "recent_fallback_count_24h": safe_int(observability.get("recent_fallback_count_24h"), 0) or 0,
             "recent_empty_hits_rate_24h": observability.get("recent_empty_hits_rate_24h"),
             "last_run_at": observability.get("last_run_at"),
             "last_fallback_at": observability.get("last_fallback_at"),
@@ -342,8 +344,8 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
                 raise ValueError("invalid query")
             if not isinstance(collection, str) or len(collection) > 256:
                 raise ValueError("invalid collection")
-            top_k = int(payload.get('top_k') or 10)
-            if not 1 <= top_k <= 100:
+            top_k = safe_int(payload.get('top_k', 10))
+            if top_k is None or not 1 <= top_k <= 100:
                 raise ValueError("invalid top_k")
             return {"status": "ok", "data": _rag_store().search_preview(query=query, collection=collection, top_k=top_k), "timestamp": _now()}
         except ValueError as exc:

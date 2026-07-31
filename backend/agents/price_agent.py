@@ -1,10 +1,12 @@
 from typing import Any, Optional
+import math
 import os
 from datetime import datetime
 
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceItem
 from backend.services.circuit_breaker import CircuitBreaker
 from backend.utils.env_config import env_float, env_int
+from backend.utils.quote import safe_float
 
 
 class AllSourcesFailedError(Exception):
@@ -144,7 +146,9 @@ class PriceAgent(BaseFinancialAgent):
             text = f"{ticker} 当前价格: {currency} {price}"
             if change_pct is not None:
                 try:
-                    pct = float(change_pct)
+                    pct = safe_float(change_pct)
+                    if pct is None:
+                        raise ValueError("invalid change percent")
                     direction = "上涨" if pct >= 0 else "下跌"
                     text += f"，日内{direction} {pct:+.2f}%"
                 except (TypeError, ValueError):
@@ -153,15 +157,15 @@ class PriceAgent(BaseFinancialAgent):
             option_metrics = self._last_option_metrics if isinstance(self._last_option_metrics, dict) else {}
             if option_metrics and not option_metrics.get("error"):
                 snippets = []
-                iv_atm = option_metrics.get("iv_atm")
-                pcr = option_metrics.get("put_call_ratio_oi") or option_metrics.get("put_call_ratio_volume")
-                skew = option_metrics.get("iv_skew_25d")
-                if isinstance(iv_atm, (int, float)):
-                    snippets.append(f"ATM IV {float(iv_atm):.2%}")
-                if isinstance(pcr, (int, float)):
-                    snippets.append(f"PCR {float(pcr):.2f}")
-                if isinstance(skew, (int, float)):
-                    snippets.append(f"Skew {float(skew):+.2%}")
+                iv_atm = safe_float(option_metrics.get("iv_atm"))
+                pcr = safe_float(option_metrics.get("put_call_ratio_oi") or option_metrics.get("put_call_ratio_volume"))
+                skew = safe_float(option_metrics.get("iv_skew_25d"))
+                if iv_atm is not None:
+                    snippets.append(f"ATM IV {iv_atm:.2%}")
+                if pcr is not None:
+                    snippets.append(f"PCR {pcr:.2f}")
+                if skew is not None:
+                    snippets.append(f"Skew {skew:+.2%}")
                 if snippets:
                     text += "；" + "，".join(snippets)
             return text + "。"
@@ -187,6 +191,8 @@ class PriceAgent(BaseFinancialAgent):
                 try:
                     change_percent = float(change_percent)
                 except Exception:
+                    change_percent = None
+                if change_percent is not None and not math.isfinite(change_percent):
                     change_percent = None
             summary_text = f"{ticker} 当前价格: {currency} {price}。"
             if change_percent is not None:
@@ -231,16 +237,16 @@ class PriceAgent(BaseFinancialAgent):
         if option_metrics and not option_metrics.get("error"):
             option_source = str(option_metrics.get("source") or "yfinance_options")
             option_as_of = str(option_metrics.get("as_of") or as_of)
-            pcr = option_metrics.get("put_call_ratio_oi") or option_metrics.get("put_call_ratio_volume")
-            iv_atm = option_metrics.get("iv_atm")
-            skew = option_metrics.get("iv_skew_25d")
+            pcr = safe_float(option_metrics.get("put_call_ratio_oi") or option_metrics.get("put_call_ratio_volume"))
+            iv_atm = safe_float(option_metrics.get("iv_atm"))
+            skew = safe_float(option_metrics.get("iv_skew_25d"))
             option_bits = []
-            if isinstance(iv_atm, (int, float)):
-                option_bits.append(f"ATM IV {float(iv_atm):.2%}")
-            if isinstance(pcr, (int, float)):
-                option_bits.append(f"PCR {float(pcr):.2f}")
-            if isinstance(skew, (int, float)):
-                option_bits.append(f"Skew {float(skew):+.2%}")
+            if iv_atm is not None:
+                option_bits.append(f"ATM IV {iv_atm:.2%}")
+            if pcr is not None:
+                option_bits.append(f"PCR {pcr:.2f}")
+            if skew is not None:
+                option_bits.append(f"Skew {skew:+.2%}")
             option_text = "Option metrics: " + ", ".join(option_bits) if option_bits else "Option metrics available."
             evidence.append(
                 EvidenceItem(

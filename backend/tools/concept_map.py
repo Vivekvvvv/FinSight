@@ -7,7 +7,7 @@ from backend.utils.env_config import env_int
 from typing import Any
 
 from backend.tools.http import _http_get
-from backend.utils.quote import safe_float
+from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def fetch_concept_map(*, keyword: str = "", limit: int = 20) -> dict[str, Any]:
     """Fetch concept board list and apply keyword filter."""
     params = {
         "pn": "1",
-        "pz": str(max(1, min(int(limit), 200))),
+        "pz": str(max(1, min(safe_int(limit, 20) or 20, 200))),
         "po": "1",
         "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281",
@@ -78,8 +78,8 @@ def fetch_concept_map(*, keyword: str = "", limit: int = 20) -> dict[str, Any]:
                 "concept_name": concept_name or concept_code,
                 "change_percent": safe_float(row.get("f3")),
                 "main_net_inflow": safe_float(row.get("f62")),
-                "up_count": safe_float(row.get("f104")),
-                "down_count": safe_float(row.get("f105")),
+                "up_count": safe_int(row.get("f104")),
+                "down_count": safe_int(row.get("f105")),
             }
         )
 

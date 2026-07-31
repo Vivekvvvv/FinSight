@@ -5,6 +5,7 @@ Report Validator - 研报结构校验器
 """
 
 import logging
+import math
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
 from backend.report.ir import ReportIR, ReportSection, ReportContent, Citation, ContentType, Sentiment
@@ -90,6 +91,8 @@ class ReportValidator:
             # 3. 数值校验
             try:
                 confidence_score = float(data.get("confidence_score", 0.5))
+                if not math.isfinite(confidence_score):
+                    raise ValueError("confidence_score must be finite")
                 confidence_score = max(0.0, min(1.0, confidence_score))
             except (ValueError, TypeError):
                 confidence_score = 0.5
@@ -104,7 +107,9 @@ class ReportValidator:
                         confidence = c.get("confidence", 0.7)
                         try:
                             confidence = float(confidence)
-                        except (TypeError, ValueError):
+                            if not math.isfinite(confidence):
+                                raise ValueError("citation confidence must be finite")
+                        except (TypeError, ValueError, OverflowError):
                             confidence = 0.7
                         confidence = max(0.0, min(1.0, confidence))
 
@@ -122,8 +127,10 @@ class ReportValidator:
                         else:
                             try:
                                 freshness_hours = float(freshness_hours)
+                                if not math.isfinite(freshness_hours):
+                                    raise ValueError("citation freshness must be finite")
                                 freshness_hours = max(0.0, freshness_hours)
-                            except (TypeError, ValueError):
+                            except (TypeError, ValueError, OverflowError):
                                 freshness_hours = 24.0
 
                         citations.append(Citation(
@@ -202,14 +209,16 @@ class ReportValidator:
         title = str(data.get("title", "Untitled Section"))
         try:
             order = int(data.get("order", default_order))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             order = default_order
         confidence = data.get("confidence", None)
         if confidence is not None:
             try:
                 confidence = float(confidence)
+                if not math.isfinite(confidence):
+                    raise ValueError("section confidence must be finite")
                 confidence = max(0.0, min(1.0, confidence))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 confidence = None
         agent_name = data.get("agent_name")
         if agent_name is not None:

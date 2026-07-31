@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from backend.utils.quote import safe_float
+from backend.utils.quote import safe_float, safe_int
 
 from .http import _http_get
 
@@ -91,7 +91,7 @@ def _eastmoney_get_json(url: str, params: dict[str, Any], timeout: int | None = 
         resp = _http_get(
             url,
             params=params,
-            timeout=int(timeout or _EASTMONEY_TIMEOUT),
+            timeout=max(1, safe_int(timeout, _EASTMONEY_TIMEOUT) or _EASTMONEY_TIMEOUT),
             headers={"User-Agent": _EASTMONEY_USER_AGENT},
         )
         if getattr(resp, "status_code", 0) != 200:
@@ -108,7 +108,7 @@ def _http_get_text(url: str, *, timeout: int | None = None, referer: str | None 
         headers = {"User-Agent": _EASTMONEY_USER_AGENT}
         if referer:
             headers["Referer"] = referer
-        resp = _http_get(url, timeout=int(timeout or 3), headers=headers)
+        resp = _http_get(url, timeout=max(1, safe_int(timeout, 3) or 3), headers=headers)
         if getattr(resp, "status_code", 0) != 200:
             return None
         return str(getattr(resp, "text", "") or "")
@@ -358,7 +358,7 @@ def fetch_cn_hk_kline(ticker: str, *, limit: int = 260, klt: str = "101", fqt: s
             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
             "klt": str(klt),
             "fqt": str(fqt),
-            "lmt": str(max(1, min(int(limit), 1200))),
+            "lmt": str(max(1, min(safe_int(limit, 260) or 260, 1200))),
             "end": "20500101",
         },
     )
@@ -415,7 +415,7 @@ def fetch_cn_hk_financial_statements(ticker: str, periods: int = 8) -> dict[str,
     if not secu_code:
         return None
 
-    target_periods = max(1, min(int(periods), 12))
+    target_periods = max(1, min(safe_int(periods, 8), 12))
     rows_by_period: dict[str, dict[str, Any]] = {}
 
     if market == "CN":

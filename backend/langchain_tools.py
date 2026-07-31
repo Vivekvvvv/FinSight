@@ -403,15 +403,18 @@ def get_technical_snapshot(ticker: str) -> str:
                 {"ticker": ticker, "error": "no_kline_data", "source": data.get("source")}, ensure_ascii=False
             )
 
+        from backend.utils.quote import safe_float
+
         closes = []
         last_time = None
         for item in kline:
             if not isinstance(item, dict):
                 continue
             close = item.get("close")
-            if close is None:
+            parsed_close = safe_float(close)
+            if parsed_close is None:
                 continue
-            closes.append(float(close))
+            closes.append(parsed_close)
             last_time = item.get("time") or item.get("datetime") or item.get("ts") or last_time
 
         if len(closes) < 30:

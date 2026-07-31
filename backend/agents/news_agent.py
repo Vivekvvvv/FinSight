@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceItem
 from backend.services.circuit_breaker import CircuitBreaker
 from backend.utils.env_config import env_float, env_int
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +196,7 @@ class NewsAgent(BaseFinancialAgent):
             cloned = dict(item)
             cloned["source_reliability"] = rel
             score = rel.get("reliability_score")
-            if isinstance(score, (int, float)) and "confidence" not in cloned:
+            if isinstance(score, (int, float)) and math.isfinite(float(score)) and "confidence" not in cloned:
                 cloned["confidence"] = max(0.1, min(0.95, float(score)))
             annotated.append(cloned)
         return annotated
@@ -385,7 +386,7 @@ class NewsAgent(BaseFinancialAgent):
                         )
                         if isinstance(payload, str):
                             try:
-                                payload = json.loads(payload)
+                                payload = json_loads_strict(payload)
                             except Exception:
                                 payload = {}
                         articles = payload.get("articles") if isinstance(payload, dict) else []
@@ -561,7 +562,7 @@ class NewsAgent(BaseFinancialAgent):
                     source_reliability = item.get("source_reliability") if isinstance(item.get("source_reliability"), dict) else {}
                     rel_score = source_reliability.get("reliability_score")
                     confidence = item.get("confidence", 0.7)
-                    if isinstance(rel_score, (int, float)):
+                    if isinstance(rel_score, (int, float)) and math.isfinite(float(rel_score)):
                         confidence = max(0.1, min(0.95, float(rel_score)))
                     evidence.append(EvidenceItem(
                         text=item.get("headline", item.get("title", "")),
@@ -596,7 +597,11 @@ class NewsAgent(BaseFinancialAgent):
         reliability_summary = self._last_reliability_summary if isinstance(self._last_reliability_summary, dict) else {}
         avg_reliability = reliability_summary.get("avg_reliability")
         low_count = reliability_summary.get("low_reliability_count")
-        if isinstance(avg_reliability, (int, float)) and float(avg_reliability) < 0.65:
+        if (
+            isinstance(avg_reliability, (int, float))
+            and math.isfinite(float(avg_reliability))
+            and float(avg_reliability) < 0.65
+        ):
             risks.append("News source reliability is low; validate key claims with primary disclosures.")
         if isinstance(low_count, int) and low_count >= 2:
             risks.append("Multiple low-reliability sources detected in this batch.")
@@ -621,7 +626,7 @@ class NewsAgent(BaseFinancialAgent):
                 sources.add("event_calendar")
 
         output_confidence = 0.8 if evidence else 0.1
-        if isinstance(avg_reliability, (int, float)):
+        if isinstance(avg_reliability, (int, float)) and math.isfinite(float(avg_reliability)):
             output_confidence = max(0.1, min(0.9, float(avg_reliability)))
 
         return AgentOutput(

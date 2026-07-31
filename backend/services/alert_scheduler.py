@@ -58,6 +58,22 @@ def _positive_env_int(name: str, default: int) -> int:
         return default
 
 
+def _positive_finite_float(value: object) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
+
+
+def _first_positive_finite(*values: object) -> Optional[float]:
+    for value in values:
+        parsed = _positive_finite_float(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
 
 
 
@@ -135,7 +151,7 @@ class PriceChangeScheduler:
                 continue
             try:
                 snapshot_price = float(snapshot.price)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 continue
             if not math.isfinite(snapshot_price) or snapshot_price <= 0:
                 continue
@@ -185,7 +201,7 @@ class PriceChangeScheduler:
                     continue
                 try:
                     change_percent = float(snapshot.change_percent)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     continue
                 if not math.isfinite(change_percent):
                     continue
@@ -832,11 +848,17 @@ def _fetch_with_yfinance(ticker: str) -> Optional[PriceSnapshot]:
 
         t = yf.Ticker(ticker)
         info = getattr(t, "fast_info", {}) or {}
-        price = info.get("last_price") or info.get("last_close") or info.get("lastClose")
-        prev_close = info.get("previous_close") or info.get("previousClose") or info.get("regularMarketPreviousClose")
+        price = _first_positive_finite(
+            info.get("last_price"), info.get("last_close"), info.get("lastClose")
+        )
+        if price is None:
+            return None
+        prev_close = _first_positive_finite(
+            info.get("previous_close"), info.get("previousClose"), info.get("regularMarketPreviousClose")
+        )
 
         change_percent = None
-        if price is not None and prev_close:
+        if prev_close is not None:
             change_percent = (price - prev_close) / prev_close * 100.0
 
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
@@ -861,10 +883,12 @@ def _fetch_with_yahoo_quote(ticker: str) -> Optional[PriceSnapshot]:
         if not data:
             return None
         item = data[0]
-        price = item.get("regularMarketPrice")
-        prev_close = item.get("regularMarketPreviousClose")
+        price = _positive_finite_float(item.get("regularMarketPrice"))
+        if price is None:
+            return None
+        prev_close = _positive_finite_float(item.get("regularMarketPreviousClose"))
         change_percent = None
-        if price is not None and prev_close not in (None, 0):
+        if prev_close is not None:
             change_percent = (price - prev_close) / prev_close * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
     except Exception as exc:
@@ -898,7 +922,9 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
         close = item.get("close")
         if close in (None, "N/D"):
             return None
-        price = float(close)
+        price = _positive_finite_float(close)
+        if price is None:
+            return None
 
         prev = None
         try:
@@ -912,11 +938,8 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
                 for row in csv.DictReader(io.StringIO(hist.text)):
                     row_date = str(row.get("Date") or row.get("Data") or "").strip()
                     raw = row.get("Close") or row.get("Zamkniecie")
-                    try:
-                        value = float(raw)
-                    except (TypeError, ValueError):
-                        continue
-                    if value > 0 and row_date and row_date < today_iso:
+                    value = _positive_finite_float(raw)
+                    if value is not None and row_date and row_date < today_iso:
                         closes.append(value)
                 if closes:
                     prev = closes[-1]
@@ -949,8 +972,9 @@ def _fetch_with_yahoo_chart(ticker: str) -> Optional[PriceSnapshot]:
         closes = (result.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
         if len(closes) < 2:
             return None
-        prev_close, price = closes[-2], closes[-1]
-        if price is None or prev_close in (None, 0):
+        prev_close = _positive_finite_float(closes[-2])
+        price = _positive_finite_float(closes[-1])
+        if price is None or prev_close is None:
             return None
         change_percent = (price - prev_close) / prev_close * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
@@ -970,7 +994,11 @@ def _get_cached_snapshot(ticker: str) -> Optional[PriceSnapshot]:
     if not snap_ts:
         return None
     snap, ts = snap_ts
-    if now - ts <= _CACHE_TTL:
+    try:
+        age = now - float(ts)
+    except (TypeError, ValueError, OverflowError):
+        age = math.inf
+    if math.isfinite(age) and 0 <= age <= _CACHE_TTL:
         return snap
     _PRICE_CACHE.pop(ticker.upper(), None)
     return None

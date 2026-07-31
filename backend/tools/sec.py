@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 from .http import _http_get
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -237,9 +238,8 @@ def _extract_companyfacts_metric(
                 if not period:
                     continue
                 val = entry.get("val")
-                try:
-                    number = float(val)
-                except Exception:
+                number = safe_float(val)
+                if number is None:
                     continue
                 filed = str(entry.get("filed") or "")
                 # flow concept 的 Q2/Q3 同一 period 会同时含 3-month 与 YTD

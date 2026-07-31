@@ -9,6 +9,7 @@ import yfinance as yf
 from backend.tools.env import ALPHA_VANTAGE_API_KEY, FMP_API_KEY
 from backend.tools.http import _http_get
 from backend.tools.cn_hk_market import fetch_cn_hk_quote_metrics
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -733,7 +734,8 @@ def _alpha_vantage_screen_stocks(
     try:
         now = time.monotonic()
         cached_items = _ALPHA_TOP_MOVERS_CACHE.get("items")
-        if isinstance(cached_items, list) and now < float(_ALPHA_TOP_MOVERS_CACHE.get("expires_at") or 0):
+        expires_at = _clean_float(_ALPHA_TOP_MOVERS_CACHE.get("expires_at")) or 0.0
+        if isinstance(cached_items, list) and now < expires_at:
             rows = cached_items
         else:
             response = _http_get(
@@ -771,11 +773,11 @@ def _alpha_vantage_screen_stocks(
             price = _clean_float(row.get("price"))
             volume = _clean_float(row.get("volume"))
             change_percent = _parse_percent(row.get("change_percentage"))
-            if active_filters.get("priceMoreThan") and price and price < float(active_filters["priceMoreThan"]):
+            if (threshold := _clean_float(active_filters.get("priceMoreThan"))) is not None and price is not None and price < threshold:
                 continue
-            if active_filters.get("priceLowerThan") and price and price > float(active_filters["priceLowerThan"]):
+            if (threshold := _clean_float(active_filters.get("priceLowerThan"))) is not None and price is not None and price > threshold:
                 continue
-            if active_filters.get("volumeMoreThan") and volume and volume < float(active_filters["volumeMoreThan"]):
+            if (threshold := _clean_float(active_filters.get("volumeMoreThan"))) is not None and volume is not None and volume < threshold:
                 continue
 
             items.append({
@@ -853,15 +855,15 @@ def _yfinance_popular_stocks(
 
                 # Apply filters
                 if filters:
-                    if filters.get("priceMoreThan") and price and price < float(filters["priceMoreThan"]):
+                    if (threshold := _clean_float(filters.get("priceMoreThan"))) is not None and price is not None and price < threshold:
                         continue
-                    if filters.get("priceLowerThan") and price and price > float(filters["priceLowerThan"]):
+                    if (threshold := _clean_float(filters.get("priceLowerThan"))) is not None and price is not None and price > threshold:
                         continue
-                    if filters.get("marketCapMoreThan") and market_cap and market_cap < float(filters["marketCapMoreThan"]):
+                    if (threshold := _clean_float(filters.get("marketCapMoreThan"))) is not None and market_cap is not None and market_cap < threshold:
                         continue
-                    if filters.get("marketCapLowerThan") and market_cap and market_cap > float(filters["marketCapLowerThan"]):
+                    if (threshold := _clean_float(filters.get("marketCapLowerThan"))) is not None and market_cap is not None and market_cap > threshold:
                         continue
-                    if filters.get("volumeMoreThan") and volume and volume < float(filters["volumeMoreThan"]):
+                    if (threshold := _clean_float(filters.get("volumeMoreThan"))) is not None and volume is not None and volume < threshold:
                         continue
 
                 items.append(item)
@@ -1019,15 +1021,15 @@ def _passes_screener_filters(item: dict[str, Any], filters: dict[str, Any] | Non
     price = _clean_float(item.get("price"))
     market_cap = _clean_float(item.get("market_cap"))
     volume = _clean_float(item.get("volume"))
-    if active.get("priceMoreThan") and price and price < float(active["priceMoreThan"]):
+    if (threshold := _clean_float(active.get("priceMoreThan"))) is not None and price is not None and price < threshold:
         return False
-    if active.get("priceLowerThan") and price and price > float(active["priceLowerThan"]):
+    if (threshold := _clean_float(active.get("priceLowerThan"))) is not None and price is not None and price > threshold:
         return False
-    if active.get("marketCapMoreThan") and market_cap and market_cap < float(active["marketCapMoreThan"]):
+    if (threshold := _clean_float(active.get("marketCapMoreThan"))) is not None and market_cap is not None and market_cap < threshold:
         return False
-    if active.get("marketCapLowerThan") and market_cap and market_cap > float(active["marketCapLowerThan"]):
+    if (threshold := _clean_float(active.get("marketCapLowerThan"))) is not None and market_cap is not None and market_cap > threshold:
         return False
-    if active.get("volumeMoreThan") and volume and volume < float(active["volumeMoreThan"]):
+    if (threshold := _clean_float(active.get("volumeMoreThan"))) is not None and volume is not None and volume < threshold:
         return False
     return True
 
@@ -1121,15 +1123,15 @@ def _static_fallback_items(market: str, filters: dict[str, Any] | None) -> list[
         price = _clean_float(item.get("price"))
         market_cap = _clean_float(item.get("market_cap"))
         volume = _clean_float(item.get("volume"))
-        if active_filters.get("priceMoreThan") and price and price < float(active_filters["priceMoreThan"]):
+        if (threshold := _clean_float(active_filters.get("priceMoreThan"))) is not None and price is not None and price < threshold:
             continue
-        if active_filters.get("priceLowerThan") and price and price > float(active_filters["priceLowerThan"]):
+        if (threshold := _clean_float(active_filters.get("priceLowerThan"))) is not None and price is not None and price > threshold:
             continue
-        if active_filters.get("marketCapMoreThan") and market_cap and market_cap < float(active_filters["marketCapMoreThan"]):
+        if (threshold := _clean_float(active_filters.get("marketCapMoreThan"))) is not None and market_cap is not None and market_cap < threshold:
             continue
-        if active_filters.get("marketCapLowerThan") and market_cap and market_cap > float(active_filters["marketCapLowerThan"]):
+        if (threshold := _clean_float(active_filters.get("marketCapLowerThan"))) is not None and market_cap is not None and market_cap > threshold:
             continue
-        if active_filters.get("volumeMoreThan") and volume and volume < float(active_filters["volumeMoreThan"]):
+        if (threshold := _clean_float(active_filters.get("volumeMoreThan"))) is not None and volume is not None and volume < threshold:
             continue
         items.append(dict(item))
     return items
@@ -1140,12 +1142,7 @@ def _static_us_fallback_items(filters: dict[str, Any] | None) -> list[dict[str, 
 
 
 def _clean_float(value: Any) -> float | None:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except Exception:
-        return None
+    return safe_float(value)
 
 
 def _clean_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:

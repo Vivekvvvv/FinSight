@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import Request
 
 from backend.security.auth import env_bool, is_dev_mode
+from backend.utils.quote import safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -127,8 +128,8 @@ def validate_production_runtime_config() -> None:
 class SimpleRateLimiter:
     def __init__(self, limit_per_window: int, window_seconds: int, enabled: bool = True):
         self.enabled = enabled
-        self.limit = max(1, int(limit_per_window))
-        self.window_seconds = max(1, int(window_seconds))
+        self.limit = max(1, safe_int(limit_per_window, 1) or 1)
+        self.window_seconds = max(1, safe_int(window_seconds, 1) or 1)
         self._buckets: dict[str, deque[float]] = {}
         self._last_cleanup = time.time()
 

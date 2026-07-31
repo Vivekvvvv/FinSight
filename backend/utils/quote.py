@@ -44,8 +44,20 @@ def safe_float(value: Any) -> Optional[float]:
         if math.isnan(out) or math.isinf(out):
             return None
         return out
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
+
+
+def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    """Convert *value* to int; return *default* for invalid numbers."""
+    if value is None:
+        return default
+    if isinstance(value, float) and not math.isfinite(value):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 def parse_quote_payload(payload: Any) -> dict[str, Any] | None:
@@ -151,4 +163,3 @@ def resolve_live_quote(
         return fallback, raw_payload
 
     return None, raw_payload
-

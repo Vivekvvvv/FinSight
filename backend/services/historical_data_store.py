@@ -10,7 +10,6 @@ A股历史K线数据下载与缓存服务
 from __future__ import annotations
 
 import logging
-import math
 import os
 import sqlite3
 import threading
@@ -18,6 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from backend.services.cn_holiday import is_cn_holiday
+from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -106,11 +106,11 @@ def _fetch_baostock(ticker: str, start: str, end: str, adjust: str) -> list[dict
             row = rs.get_row_data()
             rows.append({
                 "date": row[0],
-                "open": float(row[1]) if row[1] else None,
-                "high": float(row[2]) if row[2] else None,
-                "low": float(row[3]) if row[3] else None,
-                "close": float(row[4]) if row[4] else None,
-                "volume": float(row[5]) if row[5] else None,
+                "open": safe_float(row[1]),
+                "high": safe_float(row[2]),
+                "low": safe_float(row[3]),
+                "close": safe_float(row[4]),
+                "volume": safe_float(row[5]),
             })
         bs.logout()
         return rows
@@ -132,11 +132,10 @@ def _clean(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # 过滤 close 为空、不可解析、非有限或非正的行。
     valid = []
     for row in rows:
-        try:
-            close = float(row.get("close"))
-        except (TypeError, ValueError):
+        close = safe_float(row.get("close"))
+        if close is None:
             continue
-        if math.isfinite(close) and close > 0:
+        if close > 0:
             row["close"] = close
             valid.append(row)
     if not valid:
@@ -148,19 +147,13 @@ def _clean(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # ffill：用前一天 close 填充缺失的 open/high/low
     for i, r in enumerate(valid):
         for field in ("open", "high", "low"):
-            try:
-                value = float(r.get(field))
-            except (TypeError, ValueError):
-                value = 0.0
-            if not math.isfinite(value) or value <= 0:
+            value = safe_float(r.get(field))
+            if value is None or value <= 0:
                 value = valid[i - 1]["close"] if field == "open" and i > 0 else r["close"]
             r[field] = value
 
-        try:
-            volume = float(r.get("volume"))
-        except (TypeError, ValueError):
-            volume = 0.0
-        r["volume"] = volume if math.isfinite(volume) and volume >= 0 else 0.0
+        volume = safe_float(r.get("volume"))
+        r["volume"] = volume if volume is not None and volume >= 0 else 0.0
 
     # 标记异常（涨跌幅 > 22%）
     for i, r in enumerate(valid):
@@ -265,7 +258,7 @@ def _write_cache(
         """, [
             (ticker.upper(), r["date"], r.get("open"), r.get("high"),
              r.get("low"), r["close"], r.get("volume"), adjust,
-             int(r.get("is_suspicious", False)))
+             safe_int(r.get("is_suspicious"), 0) or 0)
             for r in rows
         ])
 

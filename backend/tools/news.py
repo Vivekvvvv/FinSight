@@ -18,6 +18,7 @@ from .http import _http_get
 from .search import search
 from .utils import _normalize_published_date
 from backend.utils.env_config import env_int
+from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -713,7 +714,7 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
     - 市场指数：使用搜索策略获取宏观市场新闻
     """
     try:
-        limit = int(limit) if limit is not None else 5
+        limit = max(1, safe_int(limit, 5) or 5)
     except Exception:
         limit = 5
     limit = max(1, min(limit, 20))
@@ -987,7 +988,8 @@ def _to_date_candidate(value: Any) -> Optional[date]:
         return value.date()
     if isinstance(value, (int, float)):
         try:
-            return datetime.utcfromtimestamp(float(value)).date()
+            timestamp = safe_float(value)
+            return datetime.utcfromtimestamp(timestamp).date() if timestamp is not None else None
         except Exception:
             return None
 
@@ -1026,7 +1028,7 @@ def _within_window(candidate: Optional[date], start_date: date, end_date: date) 
 def get_event_calendar(ticker: str, days_ahead: int = 30) -> Dict[str, Any]:
     """Get upcoming earnings/dividend/macro events (free-first)."""
     today = datetime.now(UTC).date()
-    days = max(1, min(int(days_ahead or 30), 120))
+    days = max(1, min(safe_int(days_ahead, 30) or 30, 120))
     end_date = today + timedelta(days=days)
     result: Dict[str, Any] = {
         "ticker": str(ticker or "").upper(),
@@ -1203,9 +1205,12 @@ def get_news_sentiment(ticker: str, limit: int = 5) -> str:
             sentiment_desc = "N/A"
             try:
                 if score is not None:
-                    score_val = float(score)
-                    scores.append(score_val)
-                    sentiment_desc = f"{label or 'Unknown'} ({score_val:.2f})"
+                    score_val = safe_float(score)
+                    if score_val is not None:
+                        scores.append(score_val)
+                        sentiment_desc = f"{label or 'Unknown'} ({score_val:.2f})"
+                    elif label:
+                        sentiment_desc = label
                 elif label:
                     sentiment_desc = label
             except Exception:

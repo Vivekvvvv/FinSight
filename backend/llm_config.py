@@ -14,6 +14,8 @@ from uuid import uuid4
 from dotenv import load_dotenv
 
 from backend.services.langfuse_tracer import get_langfuse_callback
+from backend.utils.quote import safe_int
+from backend.utils.strict_json import json_load_strict
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +92,7 @@ def _load_user_config() -> dict:
     if os.path.exists(USER_CONFIG_PATH):
         try:
             with open(USER_CONFIG_PATH, "r", encoding="utf-8") as f:
-                payload = json.load(f, parse_constant=_reject_non_finite_json)
+                payload = json_load_strict(f)
             if not isinstance(payload, dict):
                 raise ValueError("user config payload must be a JSON object")
             return payload
@@ -212,7 +214,7 @@ class EndpointManager:
             total_weight = 0
             winner: EndpointRuntime | None = None
             for ep in available:
-                weight = max(1, int(ep.cfg.weight))
+                weight = max(1, safe_int(ep.cfg.weight, 1) or 1)
                 total_weight += weight
                 ep.current_weight += weight
                 if winner is None or ep.current_weight > winner.current_weight:
@@ -229,7 +231,7 @@ class EndpointManager:
             for ep in self.endpoints:
                 if ep.cfg.name != endpoint_name:
                     continue
-                ep.cooldown_until = time.time() + max(1, int(ep.cfg.cooldown_sec))
+                ep.cooldown_until = time.time() + max(1, safe_int(ep.cfg.cooldown_sec, 1) or 1)
                 ep.current_weight = 0
                 logger.warning(
                     "[LLM Rotation] endpoint cooling down: name=%s cooldown=%ss reason=%s",
@@ -299,9 +301,9 @@ def _parse_user_endpoints(user_config: dict, provider: str, model: str | None) -
                     api_base=api_base,
                     api_key=api_key,
                     model=endpoint_model,
-                    weight=max(1, int(raw.get("weight", 1) or 1)),
+                    weight=max(1, safe_int(raw.get("weight"), 1) or 1),
                     enabled=True,
-                    cooldown_sec=max(1, int(raw.get("cooldown_sec", default_cooldown) or default_cooldown)),
+                    cooldown_sec=max(1, safe_int(raw.get("cooldown_sec"), default_cooldown) or default_cooldown),
                     raw_url=is_raw_url,
                 )
             )
@@ -467,7 +469,7 @@ def create_llm(
     resolved_max_tokens = max_tokens
     if resolved_max_tokens is None:
         resolved_max_tokens = _env_int("LLM_MAX_TOKENS", 8192)
-    resolved_max_tokens = max(256, int(resolved_max_tokens))
+    resolved_max_tokens = max(256, safe_int(resolved_max_tokens, 8192) or 8192)
 
     if not api_key:
         resolved_provider = str(cfg.get("provider") or provider or _default_provider())

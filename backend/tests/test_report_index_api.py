@@ -101,6 +101,7 @@ def test_report_index_list_replay_and_favorite_flow(tmp_path, monkeypatch):
     [
         ("{ PRIVATE_CORRUPT_JSON", "JSONDecodeError"),
         ('{"value":NaN}', "ValueError"),
+        ('{"value":1e309}', "ValueError"),
     ],
 )
 def test_report_index_logs_corrupt_stored_json_without_exposing_payload(

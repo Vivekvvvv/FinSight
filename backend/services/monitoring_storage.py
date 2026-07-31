@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from backend.utils.quote import safe_float, safe_int
+
 logger = logging.getLogger(__name__)
 
 # 数据库路径（项目根目录/data/monitoring.db）
@@ -113,12 +115,12 @@ class MonitoringStorage:
                     timestamp,
                     source_name,
                     data.get("status", "unknown"),
-                    data.get("success_rate", 0.0),
-                    data.get("avg_response_time_ms", 0.0),
-                    data.get("total_requests", 0),
-                    data.get("success_count", 0),
-                    data.get("failure_count", 0),
-                    data.get("consecutive_failures", 0),
+                    safe_float(data.get("success_rate")) or 0.0,
+                    safe_float(data.get("avg_response_time_ms")) or 0.0,
+                    safe_int(data.get("total_requests"), 0) or 0,
+                    safe_int(data.get("success_count"), 0) or 0,
+                    safe_int(data.get("failure_count"), 0) or 0,
+                    safe_int(data.get("consecutive_failures"), 0) or 0,
                     1 if data.get("is_healthy", False) else 0
                 ))
             conn.commit()

@@ -30,6 +30,7 @@ from backend.report.evidence_policy import (
     normalize_quality_reasons,
     normalize_quality_state,
 )
+from backend.utils.quote import safe_int
 
 
 @dataclass(frozen=True)
@@ -144,9 +145,9 @@ def build_runtime_quality_reasons(
     hints = quality_hints if isinstance(quality_hints, dict) else {}
     missing_counts = hints.get("missing_counts") if isinstance(hints.get("missing_counts"), dict) else {}
     deep_required = hints.get("deep_report_required") is True
-    critical_missing = int(missing_counts.get("critical") or 0)
-    important_missing = int(missing_counts.get("important") or 0)
-    minor_missing = int(missing_counts.get("minor") or 0)
+    critical_missing = safe_int(missing_counts.get("critical"), 0) or 0
+    important_missing = safe_int(missing_counts.get("important"), 0) or 0
+    minor_missing = safe_int(missing_counts.get("minor"), 0) or 0
     missing_items = hints.get("missing_requirements") if isinstance(hints.get("missing_requirements"), list) else []
 
     if deep_required and critical_missing > 0:
@@ -188,6 +189,8 @@ def build_runtime_quality_reasons(
         rate = grounding_stats.get("grounding_rate")
         if isinstance(rate, (int, float)):
             grounding_rate = float(rate)
+            if not math.isfinite(grounding_rate):
+                grounding_rate = 0.0
 
     if grounding_rate is not None:
         if grounding_rate < threshold_cfg.grounding_block:
@@ -358,12 +361,16 @@ def record_quality_metrics(quality: dict[str, Any], *, source: str) -> None:
             raw = grounding.get("grounding_rate")
             if isinstance(raw, (int, float)):
                 grounding_rate = float(raw)
+                if not math.isfinite(grounding_rate):
+                    grounding_rate = None
     if grounding_rate is None:
         metrics = quality.get("metrics")
         if isinstance(metrics, dict):
             raw = metrics.get("grounding_rate")
             if isinstance(raw, (int, float)):
                 grounding_rate = float(raw)
+                if not math.isfinite(grounding_rate):
+                    grounding_rate = None
     if grounding_rate is not None:
         observe_report_quality_grounding_rate(grounding_rate=grounding_rate, source=source)
 

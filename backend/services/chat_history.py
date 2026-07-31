@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from backend.utils.strict_json import json_loads_strict
+from backend.utils.quote import safe_int
+
 
 _DEFAULT_LIMIT = 100
 _MAX_MESSAGES_PER_SESSION = 200
@@ -67,7 +70,7 @@ class ChatHistoryStore:
         self.storage_path = Path(base)
 
     def list_messages(self, *, session_id: str, limit: int = _DEFAULT_LIMIT) -> list[dict[str, Any]]:
-        safe_limit = max(1, min(int(limit or _DEFAULT_LIMIT), _MAX_MESSAGES_PER_SESSION))
+        safe_limit = max(1, min(safe_int(limit, _DEFAULT_LIMIT) or _DEFAULT_LIMIT, _MAX_MESSAGES_PER_SESSION))
         with _STORE_LOCK:
             payload = self._read_payload(session_id)
             messages = payload.get("messages") if isinstance(payload, dict) else []
@@ -145,10 +148,7 @@ class ChatHistoryStore:
         try:
             if path.stat().st_size > _MAX_HISTORY_FILE_BYTES:
                 raise ValueError("chat history file is too large")
-            data = json.loads(
-                path.read_text(encoding="utf-8"),
-                parse_constant=_reject_non_finite_json,
-            )
+            data = json_loads_strict(path.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 raise ValueError("chat history payload must be a JSON object")
             messages = data.get("messages", [])

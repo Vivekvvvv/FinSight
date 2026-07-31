@@ -15,6 +15,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from backend.utils.strict_json import json_loads_strict
+
 logger = logging.getLogger(__name__)
 
 # 必须与 research_notes.py 的 _DB_PATH 指向同一个文件：
@@ -159,7 +161,7 @@ def _vector_search(
     for row in rows:
         note_id, vec_json, title, content, ticker, tags_json, created_at, updated_at = row
         try:
-            doc_vec = json.loads(vec_json, parse_constant=_reject_json_constant)
+            doc_vec = json_loads_strict(vec_json)
             score = _cosine(q_vec, doc_vec)
             if not math.isfinite(score):
                 raise ValueError("non-finite similarity")
@@ -167,7 +169,7 @@ def _vector_search(
             logger.warning("invalid stored note vector (%s)", type(exc).__name__)
             score = 0.0
         try:
-            tags = json.loads(tags_json or "[]", parse_constant=_reject_json_constant)
+            tags = json_loads_strict(tags_json or "[]")
             if not isinstance(tags, list):
                 raise ValueError("tags must be a list")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:

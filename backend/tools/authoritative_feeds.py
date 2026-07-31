@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import quote_plus, urlparse
 
 from backend.utils.env_config import env_int
+from backend.utils.quote import safe_int
 
 from .http import _http_get
 
@@ -228,7 +229,7 @@ def get_authoritative_media_news(
     Returns normalized payload and never raises.
     """
     query_text = str(query or "").strip()
-    limit = max(1, min(int(max_results or 8), 20))
+    limit = max(1, min(safe_int(max_results, 8) or 8, 20))
     if not query_text:
         return {
             "query": query_text,

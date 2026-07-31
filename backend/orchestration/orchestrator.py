@@ -23,6 +23,7 @@ from backend.orchestration.validator import DataValidator, ValidationResult
 from backend.orchestration.data_context import DataContextCollector, extract_context_fields
 from backend.orchestration.trace_emitter import get_trace_emitter
 from backend.services import CircuitBreaker
+from backend.utils.quote import safe_int
 from backend.metrics import (
     observe_orch_latency,
     increment_cache_hit,
@@ -457,7 +458,7 @@ class ToolOrchestrator:
         
         cache_key = f"{data_type}:{ticker}"
         if self._should_negative_cache(last_error):
-            negative_ttl = int(os.getenv("CACHE_NEGATIVE_TTL", "60"))
+            negative_ttl = safe_int(os.getenv("CACHE_NEGATIVE_TTL"), 60)
             self.cache.set_negative(
                 cache_key,
                 reason=f"{data_type} not found: {last_error}",
@@ -658,7 +659,7 @@ class ToolOrchestrator:
                 skip_reason = None
 
                 if cb_state.get("state") == "OPEN":
-                    cooldown = int(cb_state.get("cooldown_remaining") or 0)
+                    cooldown = safe_int(cb_state.get("cooldown_remaining"), 0)
                     skip_reason = f"circuit_open:{cooldown}s"
                 elif cb_state.get("state") == "HALF_OPEN":
                     skip_reason = "circuit_half_open"

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import os
 import re
 import threading
@@ -181,13 +182,30 @@ class _BGEM3Wrapper:
 
         for idx, text in enumerate(texts):
             if raw_dense is not None:
-                dense_vecs.append([float(value) for value in raw_dense[idx]])
+                try:
+                    dense_row = [float(value) for value in raw_dense[idx]]
+                except (TypeError, ValueError, OverflowError, IndexError):
+                    dense_row = []
+                if len(dense_row) != _BGE_M3_DIM or not all(math.isfinite(value) for value in dense_row):
+                    dense_row = _hash_embedding(text, _BGE_M3_DIM)
+                dense_vecs.append(dense_row)
             else:
                 dense_vecs.append(_hash_embedding(text, _BGE_M3_DIM))
 
             if raw_sparse is not None:
-                row = raw_sparse[idx]
-                weights = {str(key): float(value) for key, value in row.items()} if isinstance(row, dict) else {}
+                try:
+                    row = raw_sparse[idx]
+                except (TypeError, IndexError):
+                    row = None
+                weights: dict[str, float] = {}
+                if isinstance(row, dict):
+                    for key, value in row.items():
+                        try:
+                            parsed = float(value)
+                        except (TypeError, ValueError, OverflowError):
+                            continue
+                        if math.isfinite(parsed):
+                            weights[str(key)] = parsed
                 sparse_vecs.append(SparseVector(weights=weights))
             else:
                 sparse_vecs.append(_hash_sparse(text))

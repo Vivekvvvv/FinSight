@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .search import search
+from backend.utils.quote import safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ def _build_queries(ticker: str, market: str) -> list[str]:
 def get_local_market_filings(ticker: str, limit: int = 8) -> dict[str, Any]:
     """Fetch CN/HK local disclosure links via free search sources."""
     ticker_norm = str(ticker or "").strip().upper()
-    capped_limit = max(1, min(int(limit or 8), 20))
+    capped_limit = max(1, min(safe_int(limit, 8) or 8, 20))
     market = _detect_market(ticker_norm)
 
     if not ticker_norm:

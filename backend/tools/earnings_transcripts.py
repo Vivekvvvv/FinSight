@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .search import search
+from backend.utils.quote import safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +250,7 @@ def get_earnings_call_transcripts(ticker: str, limit: int = 6) -> dict[str, Any]
     """Best-effort free transcript discovery via public web sources."""
     ticker_norm = _normalize_ticker(ticker)
     market = _infer_market(ticker_norm)
-    capped_limit = max(1, min(int(limit or 6), 20))
+    capped_limit = max(1, min(safe_int(limit, 6) or 6, 20))
     if not ticker_norm:
         return {
             "ticker": ticker_norm,

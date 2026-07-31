@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from backend.api.schemas import ConfigResponse
 from backend.llm_config import USER_CONFIG_PATH
 from backend.security.auth import Principal, require_admin_principal
+from backend.utils.strict_json import json_load_strict
 
 # 全局配置是单文件，save_config 为读-改-写，多请求并发时须持模块级锁（项目规则1）。
 _CONFIG_WRITE_LOCK = threading.RLock()
@@ -160,10 +161,7 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
             with _CONFIG_WRITE_LOCK:
                 try:
                     with open(config_file, "r", encoding="utf-8") as file_obj:
-                        saved_config = json.load(
-                            file_obj,
-                            parse_constant=_reject_non_finite_json,
-                        )
+                        saved_config = json_load_strict(file_obj)
                     if not isinstance(saved_config, dict):
                         raise ValueError("config payload must be a JSON object")
                     return {"success": True, "config": _redact_config(saved_config)}
@@ -225,10 +223,7 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
                 existing: dict = {}
                 try:
                     with open(config_file, "r", encoding="utf-8") as file_obj:
-                        existing = json.load(
-                            file_obj,
-                            parse_constant=_reject_non_finite_json,
-                        )
+                        existing = json_load_strict(file_obj)
                     if not isinstance(existing, dict):
                         raise ValueError("config payload must be a JSON object")
                 except FileNotFoundError:

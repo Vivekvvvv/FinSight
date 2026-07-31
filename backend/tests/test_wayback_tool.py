@@ -91,3 +91,22 @@ def test_resolve_wayback_rejects_embedded_url_credentials(monkeypatch):
 
     assert wayback_mod.resolve_wayback_snapshot("https://user:secret@example.com/article") is None
     assert calls == []
+
+
+def test_resolve_wayback_rejects_non_finite_json_payload(monkeypatch):
+    payload = {
+        "archived_snapshots": {
+            "closest": {
+                "available": True,
+                "url": "https://web.archive.org/web/20260210120000/https://example.com",
+                "score": float("nan"),
+            }
+        }
+    }
+    monkeypatch.setattr(
+        wayback_mod,
+        "_http_get",
+        lambda *_args, **_kwargs: _MockResponse(payload=payload),
+    )
+
+    assert wayback_mod.resolve_wayback_snapshot("https://example.com") is None

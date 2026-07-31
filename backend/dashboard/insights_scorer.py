@@ -22,6 +22,16 @@ def _safe_get(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
     return current
 
 
+def _finite_number(value: Any) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def clamp_score(value: float) -> float:
     """Clamp score to [1, 10] range, rounded to 1 decimal."""
     try:
@@ -47,8 +57,8 @@ def score_technical(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     score = 5.0
     points: list[str] = []
 
-    rsi = _safe_get(data, "rsi")
-    if isinstance(rsi, (int, float)) and math.isfinite(rsi):
+    rsi = _finite_number(_safe_get(data, "rsi"))
+    if rsi is not None:
         if 30 < rsi < 70:
             score += 1
             points.append(f"RSI ({rsi:.1f}) 处于正常区间")
@@ -67,9 +77,9 @@ def score_technical(data: dict[str, Any]) -> tuple[float, str, list[str]]:
         score -= 1
         points.append("整体趋势偏空")
 
-    ma20 = _safe_get(data, "ma20")
-    ma50 = _safe_get(data, "ma50")
-    if isinstance(ma20, (int, float)) and isinstance(ma50, (int, float)):
+    ma20 = _finite_number(_safe_get(data, "ma20"))
+    ma50 = _finite_number(_safe_get(data, "ma50"))
+    if ma20 is not None and ma50 is not None:
         if ma20 > ma50:
             score += 1
             points.append("MA20/MA50 金叉，短期均线多头排列")
@@ -77,9 +87,9 @@ def score_technical(data: dict[str, Any]) -> tuple[float, str, list[str]]:
             score -= 0.5
             points.append("MA20/MA50 死叉，短期均线空头排列")
 
-    macd = _safe_get(data, "macd")
-    macd_signal = _safe_get(data, "macd_signal")
-    if isinstance(macd, (int, float)) and isinstance(macd_signal, (int, float)):
+    macd = _finite_number(_safe_get(data, "macd"))
+    macd_signal = _finite_number(_safe_get(data, "macd_signal"))
+    if macd is not None and macd_signal is not None:
         if macd > macd_signal:
             score += 1
             points.append("MACD 在信号线上方，动能偏多")
@@ -102,8 +112,8 @@ def score_financial(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     points: list[str] = []
 
     # Valuation data may be nested or flat
-    pe = _safe_get(data, "trailing_pe") or _safe_get(data, "valuation", "trailing_pe")
-    if isinstance(pe, (int, float)) and math.isfinite(pe):
+    pe = _finite_number(_safe_get(data, "trailing_pe") or _safe_get(data, "valuation", "trailing_pe"))
+    if pe is not None:
         if 0 < pe < 35:
             score += 2
             comparison = "低于" if pe < 15 else ("高于" if pe > 25 else "接近")
@@ -112,10 +122,10 @@ def score_financial(data: dict[str, Any]) -> tuple[float, str, list[str]]:
             points.append(f"市盈率 ({pe:.1f}) 偏高，估值可能较贵")
 
     # Revenue growth
-    revenue_growth = _safe_get(data, "revenue_growth") or _safe_get(
-        data, "financials", "revenue_growth"
+    revenue_growth = _finite_number(
+        _safe_get(data, "revenue_growth") or _safe_get(data, "financials", "revenue_growth")
     )
-    if isinstance(revenue_growth, (int, float)) and math.isfinite(revenue_growth):
+    if revenue_growth is not None:
         if revenue_growth > 0:
             score += 1
             points.append(f"营收同比增长 {revenue_growth:.1%}")
@@ -124,10 +134,10 @@ def score_financial(data: dict[str, Any]) -> tuple[float, str, list[str]]:
             points.append(f"营收同比下降 {abs(revenue_growth):.1%}")
 
     # Net income positive
-    net_income = _safe_get(data, "net_income") or _safe_get(
-        data, "financials", "net_income"
+    net_income = _finite_number(
+        _safe_get(data, "net_income") or _safe_get(data, "financials", "net_income")
     )
-    if isinstance(net_income, (int, float)):
+    if net_income is not None:
         if net_income > 0:
             score += 1
             points.append("最近季度净利润为正")
@@ -136,10 +146,10 @@ def score_financial(data: dict[str, Any]) -> tuple[float, str, list[str]]:
             points.append("最近季度净利润为负")
 
     # Debt to equity
-    de_ratio = _safe_get(data, "debt_to_equity") or _safe_get(
-        data, "financials", "debt_to_equity"
+    de_ratio = _finite_number(
+        _safe_get(data, "debt_to_equity") or _safe_get(data, "financials", "debt_to_equity")
     )
-    if isinstance(de_ratio, (int, float)) and math.isfinite(de_ratio):
+    if de_ratio is not None:
         if de_ratio < 0.6:
             score += 1
             points.append(f"资产负债率 ({de_ratio:.2f}) 较低，财务稳健")
@@ -148,10 +158,10 @@ def score_financial(data: dict[str, Any]) -> tuple[float, str, list[str]]:
             points.append(f"资产负债率 ({de_ratio:.2f}) 偏高")
 
     # Free cash flow
-    fcf = _safe_get(data, "free_cash_flow") or _safe_get(
-        data, "financials", "free_cash_flow"
+    fcf = _finite_number(
+        _safe_get(data, "free_cash_flow") or _safe_get(data, "financials", "free_cash_flow")
     )
-    if isinstance(fcf, (int, float)):
+    if fcf is not None:
         if fcf > 0:
             score += 1
             points.append("自由现金流为正")
@@ -248,13 +258,13 @@ def score_peers(data: dict[str, Any]) -> tuple[float, str, list[str]]:
         return 5.0, "中性", ["暂无同行对比数据"]
 
     # Compare PE
-    company_pe = _safe_get(company, "trailing_pe")
-    if isinstance(company_pe, (int, float)) and math.isfinite(company_pe):
+    company_pe = _finite_number(_safe_get(company, "trailing_pe"))
+    if company_pe is not None:
         peer_pes = [
-            p.get("trailing_pe")
+            value
             for p in peers_list
-            if isinstance(p.get("trailing_pe"), (int, float))
-            and math.isfinite(p["trailing_pe"])
+            if isinstance(p, dict)
+            and (value := _finite_number(p.get("trailing_pe"))) is not None
         ]
         if peer_pes:
             avg_pe = sum(peer_pes) / len(peer_pes)
@@ -266,12 +276,13 @@ def score_peers(data: dict[str, Any]) -> tuple[float, str, list[str]]:
                 points.append(f"PE ({company_pe:.1f}) 高于行业均值 ({avg_pe:.1f})，估值偏高")
 
     # Compare revenue growth
-    company_growth = _safe_get(company, "revenue_growth")
-    if isinstance(company_growth, (int, float)):
+    company_growth = _finite_number(_safe_get(company, "revenue_growth"))
+    if company_growth is not None:
         peer_growths = [
-            p.get("revenue_growth")
+            value
             for p in peers_list
-            if isinstance(p.get("revenue_growth"), (int, float))
+            if isinstance(p, dict)
+            and (value := _finite_number(p.get("revenue_growth"))) is not None
         ]
         if peer_growths:
             avg_growth = sum(peer_growths) / len(peer_growths)
@@ -283,12 +294,13 @@ def score_peers(data: dict[str, Any]) -> tuple[float, str, list[str]]:
                 points.append("营收增速低于行业平均水平")
 
     # Compare profit margin
-    company_margin = _safe_get(company, "profit_margin")
-    if isinstance(company_margin, (int, float)):
+    company_margin = _finite_number(_safe_get(company, "profit_margin"))
+    if company_margin is not None:
         peer_margins = [
-            p.get("profit_margin")
+            value
             for p in peers_list
-            if isinstance(p.get("profit_margin"), (int, float))
+            if isinstance(p, dict)
+            and (value := _finite_number(p.get("profit_margin"))) is not None
         ]
         if peer_margins:
             avg_margin = sum(peer_margins) / len(peer_margins)
@@ -318,6 +330,14 @@ def score_overview(
 
     Weights: financial 35%, technical 25%, news 20%, peers 20%.
     """
+    tech_score = _finite_number(tech_score)
+    fin_score = _finite_number(fin_score)
+    news_score = _finite_number(news_score)
+    peers_score = _finite_number(peers_score)
+    tech_score = 5.0 if tech_score is None else tech_score
+    fin_score = 5.0 if fin_score is None else fin_score
+    news_score = 5.0 if news_score is None else news_score
+    peers_score = 5.0 if peers_score is None else peers_score
     weighted = (
         fin_score * 0.35
         + tech_score * 0.25
@@ -358,9 +378,9 @@ def score_technical_details(
 ) -> tuple[float, str, list[str], list[dict[str, Any]]]:
     score, label, points = score_technical(data)
 
-    rsi = _safe_get(data, "rsi")
+    rsi = _finite_number(_safe_get(data, "rsi"))
     rsi_signal = 0.0
-    if isinstance(rsi, (int, float)) and math.isfinite(rsi):
+    if rsi is not None:
         if 30 < rsi < 70:
             rsi_signal = 1.0
         elif rsi >= 70:
@@ -372,13 +392,13 @@ def score_technical_details(
     trend_signal = 1.0 if trend in {"bullish", "uptrend"} else (-1.0 if trend in {"bearish", "downtrend"} else 0.0)
 
     momentum_signal = 0.0
-    ma20 = _safe_get(data, "ma20")
-    ma50 = _safe_get(data, "ma50")
-    macd = _safe_get(data, "macd")
-    macd_signal = _safe_get(data, "macd_signal")
-    if isinstance(ma20, (int, float)) and isinstance(ma50, (int, float)):
+    ma20 = _finite_number(_safe_get(data, "ma20"))
+    ma50 = _finite_number(_safe_get(data, "ma50"))
+    macd = _finite_number(_safe_get(data, "macd"))
+    macd_signal = _finite_number(_safe_get(data, "macd_signal"))
+    if ma20 is not None and ma50 is not None:
         momentum_signal += 1.0 if ma20 > ma50 else -0.5
-    if isinstance(macd, (int, float)) and isinstance(macd_signal, (int, float)):
+    if macd is not None and macd_signal is not None:
         momentum_signal += 0.5 if macd > macd_signal else -0.25
 
     breakdown = [
@@ -386,7 +406,7 @@ def score_technical_details(
             "factor_key": "rsi_state",
             "label": "RSI状态",
             "weight": 0.35,
-            "value": float(rsi) if isinstance(rsi, (int, float)) and math.isfinite(rsi) else 50.0,
+            "value": rsi if rsi is not None else 50.0,
             "contribution": _clip_contribution(rsi_signal * 1.8),
             "rationale": "基于 RSI 所处区间评估超买/超卖风险",
         },
@@ -415,28 +435,28 @@ def score_financial_details(
 ) -> tuple[float, str, list[str], list[dict[str, Any]]]:
     score, label, points = score_financial(data)
 
-    pe = _safe_get(data, "trailing_pe") or _safe_get(data, "valuation", "trailing_pe")
-    rg = _safe_get(data, "revenue_growth") or _safe_get(data, "financials", "revenue_growth")
-    de = _safe_get(data, "debt_to_equity") or _safe_get(data, "financials", "debt_to_equity")
-    fcf = _safe_get(data, "free_cash_flow") or _safe_get(data, "financials", "free_cash_flow")
+    pe = _finite_number(_safe_get(data, "trailing_pe") or _safe_get(data, "valuation", "trailing_pe"))
+    rg = _finite_number(_safe_get(data, "revenue_growth") or _safe_get(data, "financials", "revenue_growth"))
+    de = _finite_number(_safe_get(data, "debt_to_equity") or _safe_get(data, "financials", "debt_to_equity"))
+    fcf = _finite_number(_safe_get(data, "free_cash_flow") or _safe_get(data, "financials", "free_cash_flow"))
 
     pe_signal = 0.0
-    if isinstance(pe, (int, float)) and math.isfinite(pe):
+    if pe is not None:
         pe_signal = 1.0 if pe < 25 else (-0.6 if pe > 35 else 0.3)
     growth_signal = 0.0
-    if isinstance(rg, (int, float)) and math.isfinite(rg):
+    if rg is not None:
         growth_signal = 1.0 if rg > 0 else -0.8
     leverage_signal = 0.0
-    if isinstance(de, (int, float)) and math.isfinite(de):
+    if de is not None:
         leverage_signal = 1.0 if de < 0.8 else (-0.6 if de > 1.5 else 0.1)
-    cashflow_signal = 1.0 if isinstance(fcf, (int, float)) and fcf > 0 else -0.3
+    cashflow_signal = 1.0 if fcf is not None and fcf > 0 else -0.3
 
     breakdown = [
         {
             "factor_key": "valuation",
             "label": "估值水平",
             "weight": 0.30,
-            "value": float(pe) if isinstance(pe, (int, float)) and math.isfinite(pe) else 0.0,
+            "value": pe if pe is not None else 0.0,
             "contribution": _clip_contribution(pe_signal * 2.0),
             "rationale": "结合市盈率区间评估估值压力",
         },
@@ -444,7 +464,7 @@ def score_financial_details(
             "factor_key": "growth",
             "label": "增长质量",
             "weight": 0.30,
-            "value": float(rg) if isinstance(rg, (int, float)) and math.isfinite(rg) else 0.0,
+            "value": rg if rg is not None else 0.0,
             "contribution": _clip_contribution(growth_signal * 2.0),
             "rationale": "营收增速直接影响财务评分弹性",
         },
@@ -452,7 +472,7 @@ def score_financial_details(
             "factor_key": "balance_sheet",
             "label": "资产负债",
             "weight": 0.20,
-            "value": float(de) if isinstance(de, (int, float)) and math.isfinite(de) else 0.0,
+            "value": de if de is not None else 0.0,
             "contribution": _clip_contribution(leverage_signal * 1.4),
             "rationale": "债务杠杆水平影响财务稳健性",
         },
@@ -460,7 +480,7 @@ def score_financial_details(
             "factor_key": "cash_flow",
             "label": "现金流",
             "weight": 0.20,
-            "value": float(fcf) if isinstance(fcf, (int, float)) and math.isfinite(fcf) else 0.0,
+            "value": fcf if fcf is not None else 0.0,
             "contribution": _clip_contribution(cashflow_signal * 1.2),
             "rationale": "自由现金流体现盈利兑现质量",
         },
@@ -534,19 +554,29 @@ def score_peers_details(
     peers_list = _safe_get(data, "peers") or []
     peers_list = peers_list if isinstance(peers_list, list) else []
 
-    company_pe = _safe_get(company, "trailing_pe")
-    peer_pes = [p.get("trailing_pe") for p in peers_list if isinstance(p, dict) and isinstance(p.get("trailing_pe"), (int, float))]
+    company_pe = _finite_number(_safe_get(company, "trailing_pe"))
+    peer_pes = [
+        value
+        for p in peers_list
+        if isinstance(p, dict)
+        and (value := _finite_number(p.get("trailing_pe"))) is not None
+    ]
     avg_peer_pe = (sum(peer_pes) / len(peer_pes)) if peer_pes else 0.0
 
-    company_growth = _safe_get(company, "revenue_growth")
-    peer_growths = [p.get("revenue_growth") for p in peers_list if isinstance(p, dict) and isinstance(p.get("revenue_growth"), (int, float))]
+    company_growth = _finite_number(_safe_get(company, "revenue_growth"))
+    peer_growths = [
+        value
+        for p in peers_list
+        if isinstance(p, dict)
+        and (value := _finite_number(p.get("revenue_growth"))) is not None
+    ]
     avg_peer_growth = (sum(peer_growths) / len(peer_growths)) if peer_growths else 0.0
 
     pe_signal = 0.0
-    if isinstance(company_pe, (int, float)) and avg_peer_pe > 0:
+    if company_pe is not None and avg_peer_pe > 0:
         pe_signal = 1.0 if company_pe < avg_peer_pe else -0.5
     growth_signal = 0.0
-    if isinstance(company_growth, (int, float)) and peer_growths:
+    if company_growth is not None and peer_growths:
         growth_signal = 1.0 if company_growth > avg_peer_growth else -0.5
 
     breakdown = [
@@ -554,7 +584,7 @@ def score_peers_details(
             "factor_key": "peer_valuation_gap",
             "label": "估值相对差",
             "weight": 0.40,
-            "value": float(company_pe) if isinstance(company_pe, (int, float)) else 0.0,
+            "value": company_pe if company_pe is not None else 0.0,
             "contribution": _clip_contribution(pe_signal * 2.2),
             "rationale": "与同行估值差异影响相对性价比判断",
         },
@@ -562,7 +592,7 @@ def score_peers_details(
             "factor_key": "peer_growth_gap",
             "label": "增速相对差",
             "weight": 0.35,
-            "value": float(company_growth) if isinstance(company_growth, (int, float)) else 0.0,
+            "value": company_growth if company_growth is not None else 0.0,
             "contribution": _clip_contribution(growth_signal * 1.8),
             "rationale": "营收增速相对同行的优势或劣势",
         },
@@ -585,6 +615,14 @@ def score_overview_details(
     news_score: float = 5.0,
     peers_score: float = 5.0,
 ) -> tuple[float, str, list[str], list[dict[str, Any]]]:
+    tech_score = _finite_number(tech_score)
+    fin_score = _finite_number(fin_score)
+    news_score = _finite_number(news_score)
+    peers_score = _finite_number(peers_score)
+    tech_score = 5.0 if tech_score is None else tech_score
+    fin_score = 5.0 if fin_score is None else fin_score
+    news_score = 5.0 if news_score is None else news_score
+    peers_score = 5.0 if peers_score is None else peers_score
     score, label, points = score_overview(
         tech_score=tech_score,
         fin_score=fin_score,

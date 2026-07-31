@@ -23,6 +23,8 @@ import re
 from uuid import uuid4
 
 from backend.utils.env_config import env_int
+from backend.utils.quote import safe_int
+from backend.utils.strict_json import json_load_strict
 
 # 订阅数据存储文件
 SUBSCRIPTIONS_FILE = Path(__file__).parent.parent.parent / "data" / "subscriptions.json"
@@ -77,7 +79,7 @@ class SubscriptionService:
         if self.subscriptions_file.exists():
             try:
                 with open(self.subscriptions_file, 'r', encoding='utf-8') as f:
-                    subscriptions = json.load(f, parse_constant=_reject_non_finite_json)
+                    subscriptions = json_load_strict(f)
                 if not isinstance(subscriptions, dict):
                     raise ValueError("subscriptions payload must be a JSON object")
                 if any(
@@ -481,10 +483,7 @@ class SubscriptionService:
                             sub['disabled'] = False
                         else:
                             if not is_transient_error:
-                                try:
-                                    failure_count = max(0, int(sub.get('alert_failures', 0)))
-                                except (TypeError, ValueError):
-                                    failure_count = 0
+                                failure_count = max(0, safe_int(sub.get('alert_failures'), 0) or 0)
                                 sub['alert_failures'] = failure_count + 1
 
                             if error == "invalid_email":
@@ -660,7 +659,7 @@ class SubscriptionService:
                 events.append(item)
 
         events.sort(key=lambda item: str(item.get("triggered_at") or ""), reverse=True)
-        return events[: max(1, int(limit))]
+        return events[: max(1, safe_int(limit, 50) or 50)]
 
 
 

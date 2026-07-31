@@ -19,6 +19,7 @@ from backend.graph.json_utils import json_dumps_safe
 from backend.graph.state import GraphState
 from backend.services.llm_retry import ainvoke_with_rate_limit_retry, is_rate_limit_error
 from backend.utils.env_config import env_float
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ def _normalize_llm_section_line(line: str) -> str:
 
     if cleaned.startswith("{") and cleaned.endswith("}"):
         try:
-            obj = json.loads(cleaned)
+            obj = json_loads_strict(cleaned)
         except Exception:
             obj = None
         if isinstance(obj, dict):
@@ -549,7 +550,7 @@ async def _run_deep_report_verifier(
             on_retry=_on_retry,
         )
         content = resp.content if hasattr(resp, "content") else str(resp)
-        payload = json.loads(_extract_json_object(str(content)))
+        payload = json_loads_strict(_extract_json_object(str(content)))
         claims = _normalize_verifier_claims(payload.get("unsupported_claims"), max_items=max_issues)
         return {
             "enabled": True,
@@ -649,7 +650,7 @@ def _format_risks(candidate: Any, *, base_risks: str) -> str:
         parsed = candidate
     elif isinstance(candidate, str) and raw_text.startswith("{") and raw_text.endswith("}"):
         try:
-            obj = json.loads(raw_text)
+            obj = json_loads_strict(raw_text)
             if isinstance(obj, dict):
                 parsed = obj
         except Exception:
@@ -928,7 +929,7 @@ def _stub_render_vars(state: GraphState) -> dict[str, str]:
 
         if isinstance(out, str):
             try:
-                out = json.loads(out)
+                out = json_loads_strict(out)
             except Exception:
                 out = {"raw": out}
 
@@ -985,7 +986,7 @@ def _stub_render_vars(state: GraphState) -> dict[str, str]:
 
         if isinstance(out, str):
             try:
-                out = json.loads(out)
+                out = json_loads_strict(out)
             except Exception:
                 out = {"raw": out}
 
@@ -1271,7 +1272,7 @@ def _stub_render_vars(state: GraphState) -> dict[str, str]:
             if facts_out is not None:
                 if isinstance(facts_out, str):
                     try:
-                        facts_out = json.loads(facts_out)
+                        facts_out = json_loads_strict(facts_out)
                     except Exception:
                         text = facts_out.strip()
                         if text:
@@ -2530,7 +2531,7 @@ summary, highlights, analysis.
             }
         )
         content = resp.content if hasattr(resp, "content") else str(resp)
-        payload = json.loads(_extract_json_object(str(content)))
+        payload = json_loads_strict(_extract_json_object(str(content)))
         if not isinstance(payload, dict):
             raise ValueError("render_vars payload must be a JSON object")
 

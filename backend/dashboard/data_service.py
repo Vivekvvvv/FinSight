@@ -15,7 +15,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from backend.dashboard.cache import dashboard_cache
-from backend.utils.quote import safe_float
+from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,8 @@ _FEAR_GREED_PATTERN = re.compile(
 
 
 def _label_fear_greed(value: float) -> str:
-    score = max(0.0, min(100.0, float(value)))
+    parsed = safe_float(value)
+    score = 50.0 if parsed is None else max(0.0, min(100.0, parsed))
     if score <= 20:
         return "extreme_fear"
     if score <= 40:
@@ -418,7 +419,8 @@ def _calculate_time_decay(ts_iso: str, *, half_life_hours: float = 36.0) -> floa
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         age_hours = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600)
-        safe_half_life = max(1.0, float(half_life_hours))
+        parsed_half_life = safe_float(half_life_hours)
+        safe_half_life = max(1.0, 36.0 if parsed_half_life is None else parsed_half_life)
         return math.exp(-age_hours / safe_half_life)
     except Exception:
         return 0.5
@@ -1195,8 +1197,8 @@ def _fetch_financial_statements_from_finnhub(symbol: str, periods: int = 8) -> d
         report = item.get("report")
         if not isinstance(report, dict):
             continue
-        year = int(item.get("year") or 0)
-        quarter = int(item.get("quarter") or 0)
+        year = safe_int(item.get("year"), 0) or 0
+        quarter = safe_int(item.get("quarter"), 0) or 0
         if year <= 0:
             continue
         label = f"{year}Q{quarter}" if quarter > 0 else f"{year}FY"

@@ -10,17 +10,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 from backend.report.quality_engine import apply_quality_to_report
+from backend.utils.quote import safe_float, safe_int
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 _REPORT_INDEX_LOCK = threading.RLock()
 
 
-def _reject_non_finite_json(value: str) -> None:
-    raise ValueError(f"non-finite JSON value: {value}")
-
-
 def _json_loads_strict(value: str) -> Any:
-    return json.loads(value, parse_constant=_reject_non_finite_json)
+    return json_loads_strict(value)
 
 
 def _now_iso() -> str:
@@ -61,12 +59,7 @@ def _normalize_citation_item(item: Any) -> dict[str, Any] | None:
     if provided_source_id and provided_source_id != derived_source_id:
         normalized["source_id_original"] = provided_source_id
 
-    confidence = item.get("confidence")
-    try:
-        normalized["confidence"] = float(confidence) if confidence is not None else None
-    except Exception as exc:
-        logger.debug("report confidence normalization failed: %s", type(exc).__name__)
-        normalized["confidence"] = None
+    normalized["confidence"] = safe_float(item.get("confidence"))
 
     return normalized
 
@@ -256,11 +249,7 @@ class ReportIndexStore:
         ticker = str(report.get("ticker") or "").strip() or None
         title = str(report.get("title") or "").strip() or None
         summary = str(report.get("summary") or "").strip() or None
-        confidence = report.get("confidence_score")
-        try:
-            confidence_value = float(confidence) if confidence is not None else None
-        except Exception:
-            confidence_value = None
+        confidence_value = safe_float(report.get("confidence_score"))
 
         tags = report.get("tags")
         tags_json = json.dumps(tags, ensure_ascii=False, allow_nan=False) if isinstance(tags, list) else None
@@ -434,7 +423,7 @@ class ReportIndexStore:
         }
         order = _SORT_MAP.get(str(sort_by or ""), "generated_at DESC")
         sql += f" ORDER BY {order} LIMIT ?"
-        args.append(max(1, min(500, int(limit))))
+        args.append(max(1, min(500, safe_int(limit, 100) or 100)))
 
         with self._connect() as conn:
             rows = conn.execute(sql, args).fetchall()
@@ -634,7 +623,7 @@ class ReportIndexStore:
             args.extend([like, like, like, like])
 
         sql += " ORDER BY row_id DESC LIMIT ?"
-        args.append(max(1, min(500, int(limit))))
+        args.append(max(1, min(500, safe_int(limit, 100) or 100)))
 
         with self._connect() as conn:
             rows = conn.execute(sql, args).fetchall()

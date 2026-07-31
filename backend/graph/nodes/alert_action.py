@@ -7,6 +7,7 @@ from typing import Any
 from backend.graph.state import GraphState
 from backend.services.alert_scheduler import fetch_price_snapshot
 from backend.services.subscription_service import get_subscription_service
+from backend.utils.quote import safe_float
 
 
 def _resolve_user_email(state: GraphState) -> str | None:
@@ -82,6 +83,7 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
     direction = alert_params.get("direction")
 
     if mode == "price_target":
+        price_target = safe_float(price_target)
         if price_target is None:
             return {
                 "alert_valid": False,
@@ -91,9 +93,9 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
         if direction not in {"above", "below"}:
             # 多源外网抓取，须卸载线程池，协程体内直接调会阻塞事件循环
             snap = await asyncio.to_thread(fetch_price_snapshot, ticker)
-            current_price = snap.price if snap is not None else None
-            if isinstance(current_price, (int, float)):
-                direction = "above" if float(price_target) >= float(current_price) else "below"
+            current_price = safe_float(snap.price if snap is not None else None)
+            if current_price is not None:
+                direction = "above" if price_target >= current_price else "below"
             else:
                 direction = "above"
 

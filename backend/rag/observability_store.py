@@ -4,6 +4,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -37,6 +38,18 @@ from backend.rag.observability_runtime import (
     _utc_now,
 )
 from backend.utils.env_config import env_int
+from backend.utils.quote import safe_int
+from backend.utils.strict_json import json_loads_strict
+
+
+def _finite_optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 logger = logging.getLogger(__name__)
 _RAG_RAW_COLUMNS = {"query_text", "query_text_redacted", "content_raw", "chunk_text"}
@@ -72,7 +85,7 @@ def _json_loads(value: Any, default: Any) -> Any:
         if isinstance(value, (dict, list)):
             json.dumps(value, allow_nan=False)
             return value
-        return json.loads(value, parse_constant=_reject_json_constant)
+        return json_loads_strict(value)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         logger.warning("invalid stored RAG JSON (%s)", type(exc).__name__)
         return default
@@ -357,7 +370,7 @@ def _project_db_browser_columns(columns: list[str], *, include_raw: bool) -> lis
 
 class NoOpRAGObservabilityStore(_RuntimeNoOp):
     def browse_db_table(self, *, table_name: str, limit: int = 50, offset: int = 0, q: str | None = None, collection: str | None = None, run_id: str | None = None, source_doc_id: str | None = None, include_raw: bool = False, role: str = "reader") -> dict[str, Any]:
-        return {"table": table_name, "columns": [], "items": [], "total": 0, "limit": max(1, int(limit)), "offset": max(0, int(offset)), "has_more": False}
+        return {"table": table_name, "columns": [], "items": [], "total": 0, "limit": max(1, safe_int(limit, 50)), "offset": max(0, safe_int(offset, 0) or 0), "has_more": False}
 
     def cache_ingest_batch(self, *, docs: Iterable[RAGDocument], ingest_stats: dict[str, Any] | None, backend_requested: str, backend_actual: str) -> list[PendingIngestBatch]:
         return []
@@ -379,7 +392,7 @@ class NoOpRAGObservabilityStore(_RuntimeNoOp):
             backend_requested=backend_requested,
             backend_actual=backend_actual,
             collection=collection,
-            retrieval_k=max(1, int(top_k)),
+            retrieval_k=max(1, safe_int(top_k, 6)),
             rerank_top_n=0,
             fallback_reason=fallback_reason,
             status="running",
@@ -436,12 +449,12 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
                     "backend_requested": record.backend_requested,
                     "backend_actual": record.backend_actual,
                     "collection": record.collection,
-                    "retrieval_k": int(record.retrieval_k),
-                    "rerank_top_n": int(record.rerank_top_n),
-                    "source_doc_count": int(record.source_doc_count),
-                    "chunk_count": int(record.chunk_count),
-                    "retrieval_hit_count": int(record.retrieval_hit_count),
-                    "rerank_hit_count": int(record.rerank_hit_count),
+                    "retrieval_k": safe_int(record.retrieval_k, 0) or 0,
+                    "rerank_top_n": safe_int(record.rerank_top_n, 0) or 0,
+                    "source_doc_count": safe_int(record.source_doc_count, 0) or 0,
+                    "chunk_count": safe_int(record.chunk_count, 0) or 0,
+                    "retrieval_hit_count": safe_int(record.retrieval_hit_count, 0) or 0,
+                    "rerank_hit_count": safe_int(record.rerank_hit_count, 0) or 0,
                     "fallback_reason": record.fallback_reason,
                     "status": record.status,
                     "error_message": record.error_message,
@@ -458,19 +471,19 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
         self.ensure_schema()
         since = _utc_now() - timedelta(hours=24)
         with self._engine.connect() as conn:
-            recent = [_mapping_to_dict(row) for row in conn.execute(text("SELECT id, query_text, collection, backend_requested, backend_actual, status, fallback_reason, retrieval_hit_count, source_doc_count, chunk_count, started_at, finished_at, latency_ms FROM rag_query_runs WHERE deleted_at IS NULL AND COALESCE((metadata_json ->> 'synthetic_backfill')::boolean, false) = false ORDER BY started_at DESC, id DESC LIMIT :limit"), {"limit": max(1, int(recent_limit))}).mappings()]
-            fallback = [_mapping_to_dict(row) for row in conn.execute(text("SELECT reason_code, backend_before, backend_after, COUNT(1) AS count, MAX(created_at) AS latest_at FROM rag_fallback_events WHERE deleted_at IS NULL GROUP BY reason_code, backend_before, backend_after ORDER BY latest_at DESC LIMIT :limit"), {"limit": max(1, int(fallback_limit))}).mappings()]
+            recent = [_mapping_to_dict(row) for row in conn.execute(text("SELECT id, query_text, collection, backend_requested, backend_actual, status, fallback_reason, retrieval_hit_count, source_doc_count, chunk_count, started_at, finished_at, latency_ms FROM rag_query_runs WHERE deleted_at IS NULL AND COALESCE((metadata_json ->> 'synthetic_backfill')::boolean, false) = false ORDER BY started_at DESC, id DESC LIMIT :limit"), {"limit": max(1, safe_int(recent_limit, 20))}).mappings()]
+            fallback = [_mapping_to_dict(row) for row in conn.execute(text("SELECT reason_code, backend_before, backend_after, COUNT(1) AS count, MAX(created_at) AS latest_at FROM rag_fallback_events WHERE deleted_at IS NULL GROUP BY reason_code, backend_before, backend_after ORDER BY latest_at DESC LIMIT :limit"), {"limit": max(1, safe_int(fallback_limit, 20))}).mappings()]
             run_stats = _mapping_to_dict(conn.execute(text("SELECT SUM(CASE WHEN started_at >= :since THEN 1 ELSE 0 END) AS recent_run_count_24h, SUM(CASE WHEN started_at >= :since AND COALESCE(retrieval_hit_count, 0) = 0 THEN 1 ELSE 0 END) AS recent_empty_hit_runs, MAX(started_at) AS last_run_at FROM rag_query_runs WHERE deleted_at IS NULL AND COALESCE((metadata_json ->> 'synthetic_backfill')::boolean, false) = false"), {"since": since}).mappings().first() or {})
             fallback_stats = _mapping_to_dict(conn.execute(text("SELECT COUNT(1) AS recent_fallback_count_24h, MAX(created_at) AS last_fallback_at FROM rag_fallback_events WHERE deleted_at IS NULL AND created_at >= :since"), {"since": since}).mappings().first() or {})
-        recent_run_count_24h = int(run_stats.get("recent_run_count_24h") or 0)
-        recent_empty_hit_runs = int(run_stats.get("recent_empty_hit_runs") or 0)
+        recent_run_count_24h = safe_int(run_stats.get("recent_run_count_24h"), 0) or 0
+        recent_empty_hit_runs = safe_int(run_stats.get("recent_empty_hit_runs"), 0) or 0
         return {
             "enabled": True,
             "status": "ok",
             "recent_runs": recent,
             "fallback_summary": fallback,
             "recent_run_count_24h": recent_run_count_24h,
-            "recent_fallback_count_24h": int(fallback_stats.get("recent_fallback_count_24h") or 0),
+            "recent_fallback_count_24h": safe_int(fallback_stats.get("recent_fallback_count_24h"), 0) or 0,
             "recent_empty_hits_rate_24h": (recent_empty_hit_runs / recent_run_count_24h) if recent_run_count_24h > 0 else 0.0,
             "last_run_at": run_stats.get("last_run_at"),
             "last_fallback_at": fallback_stats.get("last_fallback_at"),
@@ -479,7 +492,7 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
 
     def list_collections(self, *, limit: int = 200) -> dict[str, Any]:
         self.ensure_schema()
-        limit_value = max(1, min(int(limit), 1000))
+        limit_value = max(1, min(safe_int(limit, 200), 1000))
         try:
             with self._engine.connect() as conn:
                 items = [
@@ -577,8 +590,8 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
         if not config:
             raise ValueError(f"unsupported table: {table_name}")
 
-        limit_value = max(1, min(int(limit), 200))
-        offset_value = max(0, int(offset))
+        limit_value = max(1, min(safe_int(limit, 50), 200))
+        offset_value = max(0, safe_int(offset, 0) or 0)
         table_sql = _quote_identifier(table_key)
 
         with self._engine.connect() as conn:
@@ -619,7 +632,7 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
             select_sql = ", ".join(_quote_identifier(column) for column in selected_columns)
 
             total_row = conn.execute(text(f"SELECT COUNT(*) AS total FROM {table_sql} WHERE {where_sql}"), params).mappings().first() or {}
-            total = int(dict(total_row).get("total") or 0)
+            total = safe_int(dict(total_row).get("total"), 0) or 0
             rows = [
                 _mapping_to_dict(row)
                 for row in conn.execute(
@@ -718,7 +731,7 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
             backend_requested=backend_requested,
             backend_actual=backend_actual,
             collection=collection,
-            retrieval_k=max(1, int(top_k)),
+            retrieval_k=max(1, safe_int(top_k, 6)),
             rerank_top_n=0,
             fallback_reason=fallback_reason,
             status='running',
@@ -727,7 +740,7 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
         self.start_query_run(run)
         pending_batch = self.claim_pending_ingest(collection=collection)
         context = SearchRunContext(run=run, pending_batch=pending_batch, started_monotonic=time.monotonic())
-        self._append_event(run.id, 'search_started', 'search', {'query_preview': _truncate(query, 160), 'collection': collection, 'backend_requested': backend_requested, 'backend_actual': backend_actual, 'top_k': max(1, int(top_k)), 'pending_batch_id': pending_batch.id if pending_batch else None})
+        self._append_event(run.id, 'search_started', 'search', {'query_preview': _truncate(query, 160), 'collection': collection, 'backend_requested': backend_requested, 'backend_actual': backend_actual, 'top_k': max(1, safe_int(top_k, 6)), 'pending_batch_id': pending_batch.id if pending_batch else None})
         if pending_batch is not None:
             self._append_event(run.id, 'pending_ingest_claimed', 'ingest', {'batch_id': pending_batch.id, 'collection': pending_batch.collection, 'doc_count': len(pending_batch.docs), 'ingest_stats': pending_batch.ingest_stats})
         return context
@@ -743,8 +756,8 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
         latency_ms = max(0.0, (time.monotonic() - context.started_monotonic) * 1000.0)
         status = 'failed' if error else 'completed'
         error_type = type(error).__name__ if error else None
-        source_doc_count = max(len(context.source_doc_map), int(context.materialized_source_doc_count or 0))
-        chunk_count = max(len(context.primary_chunk_map), int(context.materialized_chunk_count or 0))
+        source_doc_count = max(len(context.source_doc_map), safe_int(context.materialized_source_doc_count, 0) or 0)
+        chunk_count = max(len(context.primary_chunk_map), safe_int(context.materialized_chunk_count, 0) or 0)
         self.update_query_run(context.run.id, source_doc_count=source_doc_count, chunk_count=chunk_count, retrieval_hit_count=len(hit_records), rerank_hit_count=0, fallback_reason=context.run.fallback_reason, status=status, error_message=error_type, finished_at=_utc_now(), latency_ms=latency_ms)
         self._append_event(context.run.id, 'search_failed' if error else 'search_completed', 'search', {'status': status, 'hit_count': len(hit_records), 'source_doc_count': source_doc_count, 'chunk_count': chunk_count, 'latency_ms': latency_ms, 'error': error_type})
         return {'id': context.run.id, 'status': status, 'hit_count': len(hit_records)}
@@ -778,7 +791,7 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
                     chunk_metadata.update(meta)
                 chunk_metadata.setdefault('collection', batch.collection)
                 chunk_metadata.setdefault('source_id', pending_doc.source_id)
-                chunks.append(ChunkRecord(id=chunk_id, run_id=context.run.id, collection=batch.collection, source_id=pending_doc.source_id, source_doc_id=source_doc_id, chunk_index=int(meta.get('chunk_index', index) or index), total_chunks=int(meta.get('total_chunks', total_chunks) or total_chunks), chunk_text=chunk_text, chunk_length=len(chunk_text), doc_type=str(meta.get('doc_type') or doc_type), chunk_strategy=doc_type, chunk_size=chunk_size, chunk_overlap=chunk_overlap, char_start=int(meta['char_start']) if isinstance(meta, dict) and meta.get('char_start') is not None else None, char_end=int(meta['char_end']) if isinstance(meta, dict) and meta.get('char_end') is not None else None, metadata_json=chunk_metadata, created_at=pending_doc.created_at))
+                chunks.append(ChunkRecord(id=chunk_id, run_id=context.run.id, collection=batch.collection, source_id=pending_doc.source_id, source_doc_id=source_doc_id, chunk_index=safe_int(meta.get('chunk_index'), index) or index, total_chunks=safe_int(meta.get('total_chunks'), total_chunks) or total_chunks, chunk_text=chunk_text, chunk_length=len(chunk_text), doc_type=str(meta.get('doc_type') or doc_type), chunk_strategy=doc_type, chunk_size=chunk_size, chunk_overlap=chunk_overlap, char_start=safe_int(meta.get('char_start')) if isinstance(meta, dict) else None, char_end=safe_int(meta.get('char_end')) if isinstance(meta, dict) else None, metadata_json=chunk_metadata, created_at=pending_doc.created_at))
         if docs:
             self.append_source_docs(docs)
         if chunks:
@@ -792,13 +805,13 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
         for hit in hits:
             source_id = str(hit.get('source_id') or '') or None
             metadata_json = hit.get('metadata') if isinstance(hit.get('metadata'), dict) else {}
-            records.append(RetrievalHitRecord(id=_new_id('hit'), run_id=context.run.id, chunk_id=context.primary_chunk_map.get(source_id or ''), collection=hit.get('collection') or context.run.collection, source_id=source_id, source_doc_id=context.source_doc_map.get(source_id or '') if source_id else None, scope=hit.get('scope'), dense_rank=hit.get('dense_rank'), dense_score=float(hit.get('dense_score') or 0.0) if hit.get('dense_score') is not None else None, sparse_rank=hit.get('sparse_rank'), sparse_score=float(hit.get('sparse_score') or 0.0) if hit.get('sparse_score') is not None else None, rrf_score=float(hit.get('rrf_score') or 0.0) if hit.get('rrf_score') is not None else None, selected_for_rerank=False, title=hit.get('title'), url=hit.get('url'), content_preview=_truncate(hit.get('content') or hit.get('content_preview') or '', 500), metadata_json=metadata_json))
+            records.append(RetrievalHitRecord(id=_new_id('hit'), run_id=context.run.id, chunk_id=context.primary_chunk_map.get(source_id or ''), collection=hit.get('collection') or context.run.collection, source_id=source_id, source_doc_id=context.source_doc_map.get(source_id or '') if source_id else None, scope=hit.get('scope'), dense_rank=hit.get('dense_rank'), dense_score=_finite_optional_float(hit.get('dense_score')), sparse_rank=hit.get('sparse_rank'), sparse_score=_finite_optional_float(hit.get('sparse_score')), rrf_score=_finite_optional_float(hit.get('rrf_score')), selected_for_rerank=False, title=hit.get('title'), url=hit.get('url'), content_preview=_truncate(hit.get('content') or hit.get('content_preview') or '', 500), metadata_json=metadata_json))
         return records
 
     def _next_seq(self, run_id: str) -> int:
         with self._engine.connect() as conn:
             value = conn.execute(text('SELECT COALESCE(MAX(seq_no), 0) FROM rag_query_events WHERE run_id = :run_id'), {'run_id': run_id}).scalar()
-        return int(value or 0) + 1
+        return (safe_int(value, 0) or 0) + 1
 
     def _append_event(self, run_id: str, event_type: str, stage: str, payload: dict[str, Any]) -> None:
         self.append_query_events([QueryEventRecord(id=_new_id('evt'), run_id=run_id, seq_no=self._next_seq(run_id), event_type=event_type, stage=stage, payload_json=payload)])
@@ -871,7 +884,7 @@ def install_rag_observability_hooks() -> bool:
             store = get_rag_observability_store()
             context: SearchRunContext | None = None
             try:
-                context = store.begin_search_run(query=query, collection=collection, top_k=max(1, int(top_k)), backend_requested=str(os.getenv("RAG_V2_BACKEND", "auto")).strip().lower() or "auto", backend_actual=str(getattr(self, "backend_name", "unknown") or "unknown"), route_name="hybrid_search", router_decision="hybrid_search", fallback_reason=str(getattr(self, "fallback_reason", "") or "") or None, metadata_json={"embedding_model": getattr(self, "embedding_model", None), "vector_dim": getattr(self, "vector_dim", None)})
+                context = store.begin_search_run(query=query, collection=collection, top_k=max(1, safe_int(top_k, 6)), backend_requested=str(os.getenv("RAG_V2_BACKEND", "auto")).strip().lower() or "auto", backend_actual=str(getattr(self, "backend_name", "unknown") or "unknown"), route_name="hybrid_search", router_decision="hybrid_search", fallback_reason=str(getattr(self, "fallback_reason", "") or "") or None, metadata_json={"embedding_model": getattr(self, "embedding_model", None), "vector_dim": getattr(self, "vector_dim", None)})
             except Exception as exc:
                 logger.error(
                     "[RAGObservability] 创建查询运行失败 (%s)",

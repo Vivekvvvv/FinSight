@@ -14,6 +14,8 @@ from bs4 import BeautifulSoup
 from backend.security.pinned_http import safe_pinned_request
 from backend.security.ssrf import url_has_credentials
 from backend.utils.env_config import env_int
+from backend.utils.quote import safe_int
+from backend.utils.strict_json import ensure_json_finite, json_loads_strict
 
 from .http import _http_get
 
@@ -79,7 +81,11 @@ def _resolve_via_available(url: str, timeout: int) -> dict[str, Any] | None:
         )
         if getattr(resp, "status_code", 0) != 200:
             return None
-        payload = resp.json() if hasattr(resp, "json") else json.loads(resp.text)
+        payload = (
+            ensure_json_finite(resp.json())
+            if hasattr(resp, "json")
+            else json_loads_strict(resp.text)
+        )
     except Exception as exc:
         logger.debug("Wayback availability lookup failed: %s", type(exc).__name__)
         return None
@@ -127,7 +133,11 @@ def _resolve_via_cdx(url: str, timeout: int, from_ts: str | None = None, to_ts: 
         )
         if getattr(resp, "status_code", 0) != 200:
             return None
-        payload = resp.json() if hasattr(resp, "json") else json.loads(resp.text)
+        payload = (
+            ensure_json_finite(resp.json())
+            if hasattr(resp, "json")
+            else json_loads_strict(resp.text)
+        )
     except Exception as exc:
         logger.debug("Wayback CDX lookup failed: %s", type(exc).__name__)
         return None
@@ -167,7 +177,7 @@ def resolve_wayback_snapshot(
         return None
     if url_has_credentials(target):
         return None
-    timeout_s = int(timeout or _WAYBACK_TIMEOUT)
+    timeout_s = max(1, safe_int(timeout, _WAYBACK_TIMEOUT) or _WAYBACK_TIMEOUT)
 
     available = _resolve_via_available(target, timeout_s)
     if available:
@@ -187,7 +197,7 @@ def fetch_via_wayback(url: str, *, timeout: int | None = None) -> Optional[str]:
         resp = safe_pinned_request(
             "GET",
             snapshot_url,
-            timeout=int(timeout or _WAYBACK_TIMEOUT),
+        timeout=max(1, safe_int(timeout, _WAYBACK_TIMEOUT) or _WAYBACK_TIMEOUT),
             headers={"User-Agent": _WAYBACK_USER_AGENT},
         )
         if getattr(resp, "status_code", 0) != 200:

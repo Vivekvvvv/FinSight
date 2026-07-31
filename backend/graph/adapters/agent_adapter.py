@@ -192,6 +192,8 @@ def _normalize_agent_output(*, step_name: str, output: Any, query: str, ticker: 
         confidence = float(payload.get("confidence", 0.3))
     except Exception:
         confidence = 0.3
+    if not math.isfinite(confidence):
+        confidence = 0.3
     payload["confidence"] = max(0.0, min(1.0, confidence))
 
     evidence = payload.get("evidence")
@@ -257,7 +259,7 @@ def build_agent_invokers(*, allowed_agents: Iterable[str], state: Mapping[str, A
     try:  # pragma: no cover - runtime dependency path
         from backend.llm_config import create_llm
 
-        llm = create_llm(temperature=float(os.getenv("LANGGRAPH_AGENT_TEMPERATURE", "0.2")))
+        llm = create_llm(temperature=_env_float("LANGGRAPH_AGENT_TEMPERATURE", 0.2))
     except Exception:
         llm = None
 

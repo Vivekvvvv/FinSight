@@ -8,6 +8,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from backend.utils.strict_json import json_loads_strict
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,7 +101,7 @@ async def analyze_financials(
             lines = text.split("\n")
             text = "\n".join(lines[1:-1])
 
-        result = json.loads(text, parse_constant=_reject_json_constant)
+        result = json_loads_strict(text)
         result["ticker"] = ticker
         result["status"] = "success"
         return result

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import pytest
+
 from backend.report.quality_engine import (
     apply_quality_to_report,
     build_runtime_quality_reasons,
@@ -103,3 +105,19 @@ def test_runtime_quality_verifier_block_threshold_uses_configured_value():
     assert isinstance(block_reason, dict)
     assert block_reason.get("threshold") == 3
     assert block_reason.get("actual") == 3
+
+
+@pytest.mark.parametrize("grounding_rate", [float("nan"), float("inf"), float("-inf")])
+def test_runtime_quality_non_finite_grounding_rate_fails_closed(grounding_rate):
+    reasons = build_runtime_quality_reasons(
+        quality_hints={},
+        grounding_stats={"grounding_rate": grounding_rate},
+        verifier_claims=[],
+    )
+
+    block_reason = next(
+        (item for item in reasons if item.get("code") == "GROUNDING_RATE_BELOW_MIN"),
+        None,
+    )
+    assert isinstance(block_reason, dict)
+    assert block_reason.get("actual") == 0.0

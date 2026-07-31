@@ -10,6 +10,7 @@ from typing import Any, Literal, Optional
 
 from backend.services import research_notes
 from backend.services.report_index import get_report_index_store
+from backend.utils.quote import safe_int
 
 
 EventType = Literal["report", "alert", "note", "risk", "evidence", "watchlist"]
@@ -86,7 +87,7 @@ def _collect_report_events(
             "related_report_id": report["report_id"],
             "evidence": {
                 "confidence": confidence,
-                "citation_count": report.get("citation_count"),
+                "citation_count": safe_int(report.get("citation_count"), 0) or 0,
                 "freshness_status": report.get("freshness_status"),
                 "quality_state": quality_state,
             },

@@ -13,7 +13,7 @@ from backend.demo_mode import demo_financials, demo_kline, demo_quote, is_demo_m
 from backend.tools.baostock_provider import is_cn_symbol
 from backend.tools.tencent_provider import fetch_cn_quote, fetch_cn_kline, fetch_cn_intraday
 from backend.utils.market_evidence import attach_financials_evidence, attach_market_evidence
-from backend.utils.quote import parse_quote_payload, resolve_live_quote
+from backend.utils.quote import parse_quote_payload, resolve_live_quote, safe_float
 
 
 @dataclass(frozen=True)
@@ -163,10 +163,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             chart_type = detected.get("chart_type") if isinstance(detected, dict) else None
             data_dimension = detected.get("data_dimension") if isinstance(detected, dict) else None
             confidence_raw = detected.get("confidence") if isinstance(detected, dict) else 0.0
-            try:
-                confidence = float(confidence_raw)
-            except Exception:
-                confidence = 0.0
+            confidence = safe_float(confidence_raw) or 0.0
             confidence = max(0.0, min(1.0, confidence))
             reason = (
                 str(detected.get("reason") or "")

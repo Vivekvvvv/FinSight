@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -16,6 +17,8 @@ from backend.graph.adapters import (
 from backend.graph.executor import execute_plan
 from backend.graph.failure import FAILURE_STRATEGY_VERSION
 from backend.graph.json_utils import json_dumps_safe
+from backend.utils.quote import safe_int
+from backend.utils.strict_json import json_loads_strict
 from backend.graph.state import GraphState
 
 
@@ -39,6 +42,21 @@ def _env_int(name: str, default: int, *, min_value: int = 0, max_value: int = 10
     return max(min_value, min(max_value, parsed))
 
 
+def _finite_float(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _finite_optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    parsed = _finite_float(value, math.nan)
+    return parsed if math.isfinite(parsed) else None
+
+
 def _ttl_hours_for_evidence(*, subject_type: str, evidence_type: str, source: str, confidence: float = 0.0, source_reliability: float = 0.0) -> int:
     """
     RAG v2 TTL policy:
@@ -49,6 +67,9 @@ def _ttl_hours_for_evidence(*, subject_type: str, evidence_type: str, source: st
     """
     if subject_type in ("filing", "research_doc"):
         return 0
+
+    confidence = _finite_float(confidence, 0.0)
+    source_reliability = _finite_float(source_reliability, 0.0)
 
     # E4: DeepSearch high-quality results 鈫?persistent
     if confidence >= 0.7 and source_reliability >= 0.75:
@@ -374,7 +395,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
         # Some tools return JSON text (e.g. get_company_news). Try to parse.
         if isinstance(output, str):
             try:
-                parsed = json.loads(output)
+                parsed = json_loads_strict(output)
                 output = parsed
             except Exception:
                 pass
@@ -605,7 +626,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
 
         if isinstance(output, str):
             try:
-                output = json.loads(output)
+                output = json_loads_strict(output)
             except Exception:
                 output = {"summary": output}
 
@@ -625,7 +646,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
             return
 
         summary = output.get("summary")
-        confidence_base = output.get("confidence", 0.6)
+        confidence_base = _finite_float(output.get("confidence", 0.6), 0.6)
         as_of = output.get("as_of")
 
         if isinstance(summary, str) and summary.strip():
@@ -636,7 +657,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                     "snippet": summary.strip()[:800],
                     "source": agent_name,
                     "published_date": as_of,
-                    "confidence": confidence_base if isinstance(confidence_base, (int, float)) else 0.6,
+                    "confidence": confidence_base,
                     "type": "agent",
                     "id": f"{agent_name}:{step_id}:summary",
                 }
@@ -664,7 +685,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                     "snippet": str(snippet).strip()[:800],
                     "source": source,
                     "published_date": item.get("timestamp") or as_of,
-                    "confidence": item.get("confidence", confidence_base if isinstance(confidence_base, (int, float)) else 0.6),
+                    "confidence": _finite_float(item.get("confidence", confidence_base), confidence_base),
                     "type": "agent",
                     "id": item.get("id") or f"{agent_name}:{step_id}:{i+1}",
                 }
@@ -913,7 +934,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                 evidence_type = str(evidence.get("type") or "selection").strip()
                 source = str(evidence.get("source") or "selection").strip() or "selection"
                 evidence_url = str(evidence.get("url") or "").strip()
-                evidence_confidence = float(evidence.get("confidence") or 0.0)
+                evidence_confidence = _finite_float(evidence.get("confidence"), 0.0)
                 evidence_reliability = _estimate_source_reliability(evidence_url)
                 ttl_hours = _ttl_hours_for_evidence(
                     subject_type=subject_type,
@@ -999,13 +1020,13 @@ async def execute_plan_stub(state: GraphState) -> dict:
                             source_id=source_id,
                             source_doc_id=source_doc_id,
                             chunk_index=chunk_index,
-                            total_chunks=max(1, int(chunk_meta.get("total_chunks") or chunk_total or 1)),
+                            total_chunks=max(1, safe_int(chunk_meta.get("total_chunks"), chunk_total) or chunk_total or 1),
                             chunk_text=chunk_body,
                             chunk_length=len(chunk_body),
                             doc_type=str(chunk_meta.get("doc_type") or doc_type),
                             chunk_strategy=chunk_strategy,
-                            chunk_size=int(chunk_profile.get("max_chunk_size") or len(chunk_body)),
-                            chunk_overlap=int(chunk_profile.get("overlap") or 0),
+                            chunk_size=safe_int(chunk_profile.get("max_chunk_size"), len(chunk_body)) or len(chunk_body),
+                            chunk_overlap=safe_int(chunk_profile.get("overlap"), 0) or 0,
                             metadata_json={
                                 "collection": collection,
                                 "scope": scope,
@@ -1036,10 +1057,10 @@ async def execute_plan_stub(state: GraphState) -> dict:
                                 "chunk_id": chunk_record_id,
                                 "doc_type": str(chunk_meta.get("doc_type") or doc_type),
                                 "chunk_index": chunk_index,
-                                "total_chunks": max(1, int(chunk_meta.get("total_chunks") or chunk_total or 1)),
+                                "total_chunks": max(1, safe_int(chunk_meta.get("total_chunks"), chunk_total) or chunk_total or 1),
                                 "chunk_strategy": chunk_strategy,
-                                "chunk_size": int(chunk_profile.get("max_chunk_size") or len(chunk_body)),
-                                "chunk_overlap": int(chunk_profile.get("overlap") or 0),
+                                "chunk_size": safe_int(chunk_profile.get("max_chunk_size"), len(chunk_body)) or len(chunk_body),
+                                "chunk_overlap": safe_int(chunk_profile.get("overlap"), 0) or 0,
                             },
                             expires_at=expires_at,
                         )
@@ -1126,10 +1147,10 @@ async def execute_plan_stub(state: GraphState) -> dict:
                             source_doc_id=str(hit.get("source_doc_id") or metadata.get("source_doc_id") or "").strip() or None,
                             scope=hit.get("scope"),
                             dense_rank=hit.get("dense_rank"),
-                            dense_score=float(hit.get("dense_score") or 0.0),
+                            dense_score=_finite_float(hit.get("dense_score"), 0.0),
                             sparse_rank=hit.get("sparse_rank"),
-                            sparse_score=float(hit.get("sparse_score") or 0.0),
-                            rrf_score=float(hit.get("rrf_score") or 0.0),
+                            sparse_score=_finite_float(hit.get("sparse_score"), 0.0),
+                            rrf_score=_finite_float(hit.get("rrf_score"), 0.0),
                             selected_for_rerank=index <= rerank_top_n,
                             metadata_json={
                                 "title": hit.get("title"),
@@ -1162,9 +1183,9 @@ async def execute_plan_stub(state: GraphState) -> dict:
                             id=_stable_id("rrhit", rag_run_id or "unknown", output_rank, chunk_id or hit.get("source_id")),
                             run_id=rag_run_id or "unknown",
                             chunk_id=chunk_id,
-                            input_rank=int(input_rank_by_chunk_id.get(chunk_id or "") or output_rank),
+                            input_rank=safe_int(input_rank_by_chunk_id.get(chunk_id or ""), output_rank) or output_rank,
                             output_rank=output_rank,
-                            rerank_score=float(hit.get("rerank_score")) if hit.get("rerank_score") is not None else None,
+                            rerank_score=_finite_optional_float(hit.get("rerank_score")),
                             selected_for_answer=True,
                             metadata_json={
                                 "title": hit.get("title"),
@@ -1205,8 +1226,8 @@ async def execute_plan_stub(state: GraphState) -> dict:
                     "reranker_used": reranker_used,
                     "router_decision": rag_priority.value,
                     "collection": collection,
-                    "indexed": int(ingest_stats.get("indexed", 0)),
-                    "skipped": int(ingest_stats.get("skipped", 0)),
+                    "indexed": safe_int(ingest_stats.get("indexed"), 0) or 0,
+                    "skipped": safe_int(ingest_stats.get("skipped"), 0) or 0,
                     "hits": len(rag_hits),
                     "retrieval_k": retrieval_k,
                     "rerank_top_n": rerank_top_n,
@@ -1223,7 +1244,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                     "reranker_used": reranker_used,
                     "router_decision": rag_priority.value,
                     "collection": collection,
-                    "indexed": int(ingest_stats.get("indexed", 0)),
+                    "indexed": safe_int(ingest_stats.get("indexed"), 0) or 0,
                     "hits": len(rag_hits),
                     "retrieval_k": retrieval_k,
                     "rerank_top_n": rerank_top_n,

@@ -14,6 +14,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from backend.report.quality_engine import evaluate_runtime_report_quality
 from backend.report.validator import ReportValidator
+from backend.utils.strict_json import json_loads_strict
 
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ def _flatten_json_like_line(line: str) -> str:
         return text
 
     try:
-        obj = json.loads(candidate)
+        obj = json_loads_strict(candidate)
     except Exception:
         return text
     if not isinstance(obj, dict):
@@ -849,13 +850,8 @@ def _agent_status_from_steps(
             status[agent_name] = skipped_payload
             continue
 
-        confidence = None
-        if isinstance(output, dict):
-            confidence = output.get("confidence")
-        try:
-            conf = float(confidence) if confidence is not None else 0.6
-        except Exception:
-            conf = 0.6
+        confidence = output.get("confidence") if isinstance(output, dict) else None
+        conf = _safe_confidence(confidence, default=0.6)
 
         success_payload: dict[str, Any] = {"status": "success", "confidence": max(0.0, min(1.0, conf))}
         if isinstance(output, dict):
@@ -985,10 +981,7 @@ def _agent_summaries_from_steps(
         summary = _safe_str(output.get("summary") if isinstance(output, dict) else "")[:summary_max_chars]
         summary = _sanitize_deep_search_summary(summary, agent_name)
         confidence = output.get("confidence") if isinstance(output, dict) else None
-        try:
-            confidence_value = float(confidence) if confidence is not None else 0.6
-        except Exception:
-            confidence_value = 0.6
+        confidence_value = _safe_confidence(confidence, default=0.6)
         data_sources = output.get("data_sources") if isinstance(output, dict) else None
         if not isinstance(data_sources, list):
             data_sources = []
@@ -1085,11 +1078,7 @@ def _build_core_viewpoints(
         if not isinstance(data_sources, list):
             data_sources = []
 
-        try:
-            confidence = float(ag.get("confidence", 0.0))
-            confidence = max(0.0, min(1.0, confidence))
-        except (TypeError, ValueError):
-            confidence = 0.0
+        confidence = max(0.0, min(1.0, _safe_confidence(ag.get("confidence"), default=0.0)))
 
         viewpoints.append({
             "agent_name": ag.get("agent_name", ""),
@@ -2036,10 +2025,7 @@ def _build_report_payload_impl(*, state: dict[str, Any], query: str, thread_id: 
             continue
         if v.get("status") != "success":
             continue
-        try:
-            confidences.append(float(v.get("confidence", 0.0)))
-        except Exception:
-            pass
+        confidences.append(_safe_confidence(v.get("confidence"), default=0.0))
     confidence_score = sum(confidences) / len(confidences) if confidences else 0.55
     confidence_score = max(0.0, min(1.0, confidence_score))
 

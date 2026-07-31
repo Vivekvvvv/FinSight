@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from backend.utils.strict_json import json_loads_strict
+
 
 logger = logging.getLogger(__name__)
 
@@ -238,10 +240,7 @@ def get_latest_snapshot(
             return None
 
         try:
-            data = json.loads(
-                row["full_data"],
-                parse_constant=_reject_non_finite_json,
-            )
+            data = json_loads_strict(row["full_data"])
             if not isinstance(data, dict):
                 raise ValueError("snapshot payload must be an object")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.memory import WatchlistLimitExceeded
+from backend.utils.quote import safe_int
 
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
             principal.user_id,
             role=principal.role,
         )
-        limit = int((entitlements.get("limits") or {}).get("max_watchlist", 0))
+        limit = safe_int((entitlements.get("limits") or {}).get("max_watchlist"), 0) or 0
         return limit, str(entitlements.get("plan") or "free")
 
     def _raise_watchlist_quota(*, limit: int, current: int, plan: str) -> None:

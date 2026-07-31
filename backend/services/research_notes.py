@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from backend.utils.strict_json import json_loads_strict
+
 # 数据库路径
 _DB_PATH = Path("./data/research_notes.db")
 _db_lock = threading.RLock()
@@ -24,7 +26,7 @@ def _parse_tags(value: object) -> list[str]:
     if not value:
         return []
     try:
-        parsed = json.loads(value)
+        parsed = json_loads_strict(value)
         if not isinstance(parsed, list):
             raise ValueError("tags must be a list")
     except (json.JSONDecodeError, TypeError, ValueError) as exc:

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.utils.quote import safe_float
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ def _parse_stored_tags(value: object) -> list[str]:
     if not value:
         return []
     try:
-        parsed = json.loads(value, parse_constant=_reject_non_finite_json)
+        parsed = json_loads_strict(value)
         if not isinstance(parsed, list):
             raise ValueError("tags must be a list")
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
@@ -280,7 +281,7 @@ def list_suggestions(session_id: str, limit: int = 10) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for r in rows:
         try:
-            parsed = json.loads(r[1], parse_constant=_reject_non_finite_json)
+            parsed = json_loads_strict(r[1])
             if not isinstance(parsed, dict):
                 raise ValueError("suggestion payload must be an object")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:

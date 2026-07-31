@@ -32,7 +32,7 @@ def normalize_market_fallback_level(source: str, raw: Any = None, *, cached: boo
     try:
         if raw is not None:
             return max(0, int(raw))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         pass
     if source in DEMO_SOURCES or cached or source in CACHED_SOURCES:
         return 2

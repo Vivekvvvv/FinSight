@@ -20,7 +20,8 @@ from backend.graph.event_bus import emit_event
 from backend.graph.state import GraphState
 from backend.graph.nodes.planner_stub import planner_stub
 from backend.services.llm_retry import ainvoke_with_rate_limit_retry, is_rate_limit_error
-from backend.utils.env_config import env_float
+from backend.utils.env_config import env_float, env_int
+from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 
@@ -234,11 +235,7 @@ def _load_json_with_repair(json_text: str) -> tuple[Any, dict[str, Any]]:
     last_exc: BaseException | None = None
     for mode, candidate in attempts:
         try:
-            return json.loads(
-                candidate,
-                strict=False,
-                parse_constant=_reject_json_constant,
-            ), {"parse_mode": mode}
+            return json_loads_strict(candidate, strict=False), {"parse_mode": mode}
         except Exception as exc:  # noqa: PERF203
             last_exc = exc
 
@@ -348,8 +345,8 @@ def _build_budget_assertions(steps: list[dict[str, Any]], safe_budget: dict[str,
 
     max_tools = int(safe_budget.get("max_tools", 0) or 0)
     max_rounds = int(safe_budget.get("max_rounds", 0) or 0)
-    latency_per_round_ms = int(_env_str("LANGGRAPH_BUDGET_LATENCY_PER_ROUND_MS", "1400"))
-    cost_per_tool_unit = float(_env_str("LANGGRAPH_BUDGET_COST_PER_TOOL_UNIT", "1.5"))
+    latency_per_round_ms = env_int("LANGGRAPH_BUDGET_LATENCY_PER_ROUND_MS", 1400, minimum=1)
+    cost_per_tool_unit = env_float("LANGGRAPH_BUDGET_COST_PER_TOOL_UNIT", 1.5, minimum=0.0)
 
     cost_budget_units = round(max_tools * cost_per_tool_unit, 4) if max_tools > 0 else 0.0
     latency_budget_ms = max_rounds * latency_per_round_ms if max_rounds > 0 else 0
@@ -772,7 +769,9 @@ def _enforce_policy(plan_payload: dict[str, Any], state: GraphState) -> tuple[di
                 agent_inputs = {
                     **agent_inputs,
                     "__escalation_stage": "high_cost",
-                    "__run_if_min_confidence": float(_env_str("LANGGRAPH_ESCALATION_MIN_CONFIDENCE", "0.72")),
+                    "__run_if_min_confidence": env_float(
+                        "LANGGRAPH_ESCALATION_MIN_CONFIDENCE", 0.72, minimum=0.0, maximum=1.0
+                    ),
                     "__force_run": bool(force_escalation),
                 }
             sanitized_steps.insert(
@@ -791,7 +790,9 @@ def _enforce_policy(plan_payload: dict[str, Any], state: GraphState) -> tuple[di
             existing_agent_names.add(agent_name)
 
     if output_mode == "investment_report":
-        escalation_threshold = float(_env_str("LANGGRAPH_ESCALATION_MIN_CONFIDENCE", "0.72"))
+        escalation_threshold = env_float(
+            "LANGGRAPH_ESCALATION_MIN_CONFIDENCE", 0.72, minimum=0.0, maximum=1.0
+        )
         for step in sanitized_steps:
             if step.get("kind") != "agent":
                 continue

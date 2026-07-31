@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import logging
+import math
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -488,7 +489,9 @@ class MacroAgent(BaseFinancialAgent):
         overall_quality = evidence_quality.get("overall_score") if isinstance(evidence_quality, dict) else None
         try:
             confidence = float(overall_quality) if overall_quality is not None else 0.6
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            confidence = 0.6
+        if not math.isfinite(confidence):
             confidence = 0.6
         confidence = max(0.2, min(0.95, confidence))
         if fallback_used:
@@ -517,8 +520,10 @@ class MacroAgent(BaseFinancialAgent):
             value = payload.get(key)
             try:
                 if value is not None:
-                    values[key] = float(value)
-            except (TypeError, ValueError):
+                    parsed = float(value)
+                    if math.isfinite(parsed):
+                        values[key] = parsed
+            except (TypeError, ValueError, OverflowError):
                 continue
         return values
 
@@ -567,6 +572,8 @@ class MacroAgent(BaseFinancialAgent):
         secondary_source: str,
         secondary: Dict[str, float],
     ) -> Dict[str, Any]:
+        primary = self._extract_numeric_metrics(primary)
+        secondary = self._extract_numeric_metrics(secondary)
         selected: Dict[str, Optional[float]] = {}
         indicators: List[Dict[str, Any]] = []
         conflicts: List[Dict[str, Any]] = []

@@ -224,7 +224,10 @@ class RiskAgent(BaseFinancialAgent):
             bucket = [signal for signal in signals if signal.category == category]
             if not bucket:
                 continue
-            severity_sum = sum(max(0.0, min(1.0, float(signal.severity))) for signal in bucket)
+            severity_sum = sum(
+                max(0.0, min(1.0, safe_float(signal.severity) or 0.0))
+                for signal in bucket
+            )
             category_factor = min(1.0, severity_sum)
             score += weight * category_factor
         return round(min(100.0, score), 2)

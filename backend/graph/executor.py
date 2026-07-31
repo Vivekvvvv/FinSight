@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import os
 import time
 from typing import Any, Awaitable, Callable, Mapping, MutableMapping
@@ -25,6 +26,8 @@ def _env_float(name: str, default: float, *, min_value: float = 0.1, max_value: 
     try:
         parsed = float(str(raw).strip())
     except Exception:
+        return default
+    if not math.isfinite(parsed):
         return default
     return max(min_value, min(max_value, parsed))
 
@@ -172,7 +175,8 @@ async def execute_plan(
         try:
             if value is None:
                 return None
-            return float(value)
+            parsed = float(value)
+            return parsed if math.isfinite(parsed) else None
         except Exception:
             return None
 

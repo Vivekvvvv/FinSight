@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from backend.utils.env_config import env_int
+from backend.utils.quote import safe_int
 
 from .http import _http_get
 
@@ -192,7 +193,7 @@ def _parse_rss_items(feed_key: str, source_name: str, xml_text: str) -> list[dic
 
 def search_official_macro_releases(query: str, *, max_results: int = 10) -> list[dict[str, Any]]:
     """Best-effort official macro release discovery from BLS/BEA/FED feeds."""
-    limit = max(1, min(int(max_results or 10), 30))
+    limit = max(1, min(safe_int(max_results, 10) or 10, 30))
     tokens = _query_tokens(query)
     rows: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
@@ -219,7 +220,7 @@ def search_official_macro_releases(query: str, *, max_results: int = 10) -> list
 def get_official_macro_releases(query: str = "", max_results: int = 10) -> dict[str, Any]:
     """Structured wrapper for macro official source collection. Never raises."""
     query_text = str(query or "").strip()
-    limit = max(1, min(int(max_results or 10), 30))
+    limit = max(1, min(safe_int(max_results, 10) or 10, 30))
     try:
         rows = search_official_macro_releases(query_text, max_results=limit)
         sources = sorted({str(row.get("source") or "").strip() for row in rows if row.get("source")})

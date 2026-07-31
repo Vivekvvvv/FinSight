@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import math
 import os
 
 from backend.graph.capability_registry import REPORT_AGENT_CANDIDATES, select_agents_for_request
@@ -51,7 +52,10 @@ def _apply_persona_weights(
         key = (agent_name or "").lower().removesuffix("_agent")
         v = weights_raw.get(key, 1.0)
         try:
-            return max(_PERSONA_WEIGHT_FLOOR, float(v))
+            value = float(v)
+            if not math.isfinite(value):
+                return 1.0
+            return max(_PERSONA_WEIGHT_FLOOR, value)
         except (TypeError, ValueError):
             return 1.0
 
@@ -61,6 +65,8 @@ def _apply_persona_weights(
     for name, base in scores.items():
         try:
             base_f = float(base) if base is not None else 0.0
+            if not math.isfinite(base_f):
+                base_f = 0.0
         except (TypeError, ValueError):
             base_f = 0.0
         w = _w(name)
@@ -110,7 +116,7 @@ def _is_truthy(value: object) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
-        return bool(value)
+        return math.isfinite(float(value)) and bool(value)
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return False
@@ -251,7 +257,7 @@ def policy_gate(state: GraphState) -> dict:
         budget = {"max_rounds": 3, "max_tools": 4}
 
     # Apply budget_override from ui_context (validated: 1-10)
-    if isinstance(budget_override, (int, float)):
+    if isinstance(budget_override, (int, float)) and math.isfinite(float(budget_override)):
         clamped = max(1, min(10, int(budget_override)))
         budget["max_rounds"] = clamped
 

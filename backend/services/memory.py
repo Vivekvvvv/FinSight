@@ -14,6 +14,9 @@ import os
 import re
 from uuid import uuid4
 
+from backend.utils.strict_json import json_load_strict
+from backend.utils.quote import safe_int
+
 logger = logging.getLogger(__name__)
 _USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
@@ -99,7 +102,7 @@ class MemoryService:
             if os.path.exists(file_path):
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f, parse_constant=_reject_non_finite_json)
+                        data = json_load_strict(f)
                     if not isinstance(data, dict):
                         raise ValueError("profile payload must be a JSON object")
                     stored_user_id = str(data.get("user_id") or normalized_user_id).strip()
@@ -201,7 +204,7 @@ class MemoryService:
             if group is not None:
                 merged["group"] = str(group).strip()
             if priority is not None:
-                merged["priority"] = int(priority)
+                merged["priority"] = safe_int(priority, 0) or 0
             if watch_reason is not None:
                 merged["watch_reason"] = str(watch_reason).strip()
             if research_status is not None:

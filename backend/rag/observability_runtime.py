@@ -20,6 +20,8 @@ from backend.rag.observability_models import (
     RetrievalHitRecord,
     SourceDocRecord,
 )
+from backend.utils.quote import safe_int
+from backend.utils.strict_json import json_loads_strict
 
 
 logger = logging.getLogger(__name__)
@@ -31,7 +33,7 @@ def _reject_json_constant(value: str) -> None:
 
 def _strict_json_loads(value: Any) -> Any:
     if isinstance(value, str):
-        return json.loads(value, parse_constant=_reject_json_constant)
+        return json_loads_strict(value)
     json.dumps(value, allow_nan=False, default=str)
     return value
 
@@ -122,7 +124,7 @@ class SQLRAGObservabilityStore:
     def start_query_run(self, record: QueryRunRecord) -> str:
         self.ensure_schema()
         with self._engine.begin() as conn:
-            conn.execute(text("INSERT INTO rag_query_runs (id, user_id, session_id, thread_id, query_text, query_text_redacted, query_hash, route_name, router_decision, backend_requested, backend_actual, collection, retrieval_k, rerank_top_n, source_doc_count, chunk_count, retrieval_hit_count, rerank_hit_count, fallback_reason, status, error_message, started_at, finished_at, latency_ms, updated_at) VALUES (:id, :user_id, :session_id, :thread_id, :query_text, :query_text_redacted, :query_hash, :route_name, :router_decision, :backend_requested, :backend_actual, :collection, :retrieval_k, :rerank_top_n, :source_doc_count, :chunk_count, :retrieval_hit_count, :rerank_hit_count, :fallback_reason, :status, :error_message, :started_at, :finished_at, :latency_ms, :updated_at) ON CONFLICT (id) DO UPDATE SET updated_at = EXCLUDED.updated_at"), {'id': record.id, 'user_id': record.user_id, 'session_id': record.session_id, 'thread_id': record.thread_id, 'query_text': record.query_text, 'query_text_redacted': record.query_text_redacted, 'query_hash': record.query_hash, 'route_name': record.route_name, 'router_decision': record.router_decision, 'backend_requested': record.backend_requested, 'backend_actual': record.backend_actual, 'collection': record.collection, 'retrieval_k': int(record.retrieval_k), 'rerank_top_n': int(record.rerank_top_n), 'source_doc_count': int(record.source_doc_count), 'chunk_count': int(record.chunk_count), 'retrieval_hit_count': int(record.retrieval_hit_count), 'rerank_hit_count': int(record.rerank_hit_count), 'fallback_reason': record.fallback_reason, 'status': record.status, 'error_message': record.error_message, 'started_at': record.started_at, 'finished_at': record.finished_at, 'latency_ms': record.latency_ms, 'updated_at': _utc_now()})
+            conn.execute(text("INSERT INTO rag_query_runs (id, user_id, session_id, thread_id, query_text, query_text_redacted, query_hash, route_name, router_decision, backend_requested, backend_actual, collection, retrieval_k, rerank_top_n, source_doc_count, chunk_count, retrieval_hit_count, rerank_hit_count, fallback_reason, status, error_message, started_at, finished_at, latency_ms, updated_at) VALUES (:id, :user_id, :session_id, :thread_id, :query_text, :query_text_redacted, :query_hash, :route_name, :router_decision, :backend_requested, :backend_actual, :collection, :retrieval_k, :rerank_top_n, :source_doc_count, :chunk_count, :retrieval_hit_count, :rerank_hit_count, :fallback_reason, :status, :error_message, :started_at, :finished_at, :latency_ms, :updated_at) ON CONFLICT (id) DO UPDATE SET updated_at = EXCLUDED.updated_at"), {'id': record.id, 'user_id': record.user_id, 'session_id': record.session_id, 'thread_id': record.thread_id, 'query_text': record.query_text, 'query_text_redacted': record.query_text_redacted, 'query_hash': record.query_hash, 'route_name': record.route_name, 'router_decision': record.router_decision, 'backend_requested': record.backend_requested, 'backend_actual': record.backend_actual, 'collection': record.collection, 'retrieval_k': safe_int(record.retrieval_k, 0) or 0, 'rerank_top_n': safe_int(record.rerank_top_n, 0) or 0, 'source_doc_count': safe_int(record.source_doc_count, 0) or 0, 'chunk_count': safe_int(record.chunk_count, 0) or 0, 'retrieval_hit_count': safe_int(record.retrieval_hit_count, 0) or 0, 'rerank_hit_count': safe_int(record.rerank_hit_count, 0) or 0, 'fallback_reason': record.fallback_reason, 'status': record.status, 'error_message': record.error_message, 'started_at': record.started_at, 'finished_at': record.finished_at, 'latency_ms': record.latency_ms, 'updated_at': _utc_now()})
         return record.id
     def update_query_run(self, run_id: str, **fields: Any) -> int:
         self.ensure_schema()
@@ -139,19 +141,19 @@ class SQLRAGObservabilityStore:
         assignments.append('updated_at = :updated_at')
         with self._engine.begin() as conn:
             result = conn.execute(text(f"UPDATE rag_query_runs SET {', '.join(assignments)} WHERE id = :id"), params)
-        return int(result.rowcount or 0)
+        return safe_int(result.rowcount, 0) or 0
 
     def append_query_events(self, records: Iterable[QueryEventRecord]) -> int:
         sql = text("INSERT INTO rag_query_events (id, run_id, seq_no, event_type, stage, payload_json, created_at) VALUES (:id, :run_id, :seq_no, :event_type, :stage, CAST(:payload_json AS jsonb), :created_at) ON CONFLICT (run_id, seq_no) DO UPDATE SET payload_json = EXCLUDED.payload_json")
-        return self._bulk_insert(sql, ({'id': r.id, 'run_id': r.run_id, 'seq_no': int(r.seq_no), 'event_type': r.event_type, 'stage': r.stage, 'payload_json': _json_dumps(r.payload_json), 'created_at': r.created_at} for r in records))
+        return self._bulk_insert(sql, ({'id': r.id, 'run_id': r.run_id, 'seq_no': safe_int(r.seq_no, 0) or 0, 'event_type': r.event_type, 'stage': r.stage, 'payload_json': _json_dumps(r.payload_json), 'created_at': r.created_at} for r in records))
 
     def append_source_docs(self, records: Iterable[SourceDocRecord]) -> int:
         sql = text("INSERT INTO rag_source_docs (id, run_id, source_id, source_type, source_name, url, title, published_at, content_raw, content_preview, content_length, metadata_json, created_at) VALUES (:id, :run_id, :source_id, :source_type, :source_name, :url, :title, :published_at, :content_raw, :content_preview, :content_length, CAST(:metadata_json AS jsonb), :created_at) ON CONFLICT (run_id, source_id) DO UPDATE SET content_raw = EXCLUDED.content_raw, content_preview = EXCLUDED.content_preview, content_length = EXCLUDED.content_length, metadata_json = EXCLUDED.metadata_json, updated_at = now()")
-        return self._bulk_insert(sql, ({'id': r.id, 'run_id': r.run_id, 'source_id': r.source_id, 'source_type': r.source_type, 'source_name': r.source_name, 'url': r.url, 'title': r.title, 'published_at': r.published_at, 'content_raw': r.content_raw, 'content_preview': r.content_preview, 'content_length': int(r.content_length), 'metadata_json': _json_dumps(r.metadata_json), 'created_at': r.created_at} for r in records))
+        return self._bulk_insert(sql, ({'id': r.id, 'run_id': r.run_id, 'source_id': r.source_id, 'source_type': r.source_type, 'source_name': r.source_name, 'url': r.url, 'title': r.title, 'published_at': r.published_at, 'content_raw': r.content_raw, 'content_preview': r.content_preview, 'content_length': safe_int(r.content_length, 0) or 0, 'metadata_json': _json_dumps(r.metadata_json), 'created_at': r.created_at} for r in records))
 
     def append_chunks(self, records: Iterable[ChunkRecord]) -> int:
         sql = text("INSERT INTO rag_chunks (id, run_id, source_doc_id, chunk_index, total_chunks, chunk_text, chunk_length, doc_type, chunk_strategy, chunk_size, chunk_overlap, char_start, char_end, metadata_json, created_at) VALUES (:id, :run_id, :source_doc_id, :chunk_index, :total_chunks, :chunk_text, :chunk_length, :doc_type, :chunk_strategy, :chunk_size, :chunk_overlap, :char_start, :char_end, CAST(:metadata_json AS jsonb), :created_at) ON CONFLICT (source_doc_id, chunk_index) DO UPDATE SET chunk_text = EXCLUDED.chunk_text, metadata_json = EXCLUDED.metadata_json, updated_at = now()")
-        return self._bulk_insert(sql, ({'id': r.id, 'run_id': r.run_id, 'source_doc_id': r.source_doc_id, 'chunk_index': int(r.chunk_index), 'total_chunks': int(r.total_chunks), 'chunk_text': r.chunk_text, 'chunk_length': int(r.chunk_length), 'doc_type': r.doc_type, 'chunk_strategy': r.chunk_strategy, 'chunk_size': int(r.chunk_size), 'chunk_overlap': int(r.chunk_overlap), 'char_start': r.char_start, 'char_end': r.char_end, 'metadata_json': _json_dumps(r.metadata_json), 'created_at': r.created_at} for r in records))
+        return self._bulk_insert(sql, ({'id': r.id, 'run_id': r.run_id, 'source_doc_id': r.source_doc_id, 'chunk_index': safe_int(r.chunk_index, 0) or 0, 'total_chunks': safe_int(r.total_chunks, 0) or 0, 'chunk_text': r.chunk_text, 'chunk_length': safe_int(r.chunk_length, 0) or 0, 'doc_type': r.doc_type, 'chunk_strategy': r.chunk_strategy, 'chunk_size': safe_int(r.chunk_size, 0) or 0, 'chunk_overlap': safe_int(r.chunk_overlap, 0) or 0, 'char_start': r.char_start, 'char_end': r.char_end, 'metadata_json': _json_dumps(r.metadata_json), 'created_at': r.created_at} for r in records))
 
     def append_retrieval_hits(self, records: Iterable[RetrievalHitRecord]) -> int:
         sql = text("INSERT INTO rag_retrieval_hits (id, run_id, chunk_id, collection, source_id, source_doc_id, scope, dense_rank, dense_score, sparse_rank, sparse_score, rrf_score, selected_for_rerank, metadata_json, created_at) VALUES (:id, :run_id, :chunk_id, :collection, :source_id, :source_doc_id, :scope, :dense_rank, :dense_score, :sparse_rank, :sparse_score, :rrf_score, :selected_for_rerank, CAST(:metadata_json AS jsonb), :created_at) ON CONFLICT (id) DO NOTHING")
@@ -159,7 +161,7 @@ class SQLRAGObservabilityStore:
 
     def append_rerank_hits(self, records: Iterable[RerankHitRecord]) -> int:
         sql = text("INSERT INTO rag_rerank_hits (id, run_id, chunk_id, input_rank, output_rank, rerank_score, selected_for_answer, metadata_json, created_at) VALUES (:id, :run_id, :chunk_id, :input_rank, :output_rank, :rerank_score, :selected_for_answer, CAST(:metadata_json AS jsonb), :created_at) ON CONFLICT (id) DO NOTHING")
-        return self._bulk_insert(sql, ({'id': r.id, 'run_id': r.run_id, 'chunk_id': r.chunk_id, 'input_rank': int(r.input_rank), 'output_rank': int(r.output_rank), 'rerank_score': r.rerank_score, 'selected_for_answer': bool(r.selected_for_answer), 'metadata_json': _json_dumps(r.metadata_json), 'created_at': r.created_at} for r in records))
+        return self._bulk_insert(sql, ({'id': r.id, 'run_id': r.run_id, 'chunk_id': r.chunk_id, 'input_rank': safe_int(r.input_rank, 0) or 0, 'output_rank': safe_int(r.output_rank, 0) or 0, 'rerank_score': r.rerank_score, 'selected_for_answer': bool(r.selected_for_answer), 'metadata_json': _json_dumps(r.metadata_json), 'created_at': r.created_at} for r in records))
 
     def append_fallback_event(self, record: FallbackEventRecord) -> str:
         self.ensure_schema()
@@ -172,8 +174,8 @@ class SQLRAGObservabilityStore:
         threshold = _utc_now() - timedelta(days=_env_int("RAG_OBSERVABILITY_RETENTION_DAYS", 30))
         total = 0
         with self._engine.begin() as conn:
-            total += int(conn.execute(text("DELETE FROM rag_query_runs WHERE started_at < :threshold"), {'threshold': threshold}).rowcount or 0)
-            total += int(conn.execute(text("DELETE FROM rag_fallback_events WHERE run_id IS NULL AND created_at < :threshold"), {'threshold': threshold}).rowcount or 0)
+            total += safe_int(conn.execute(text("DELETE FROM rag_query_runs WHERE started_at < :threshold"), {'threshold': threshold}).rowcount, 0) or 0
+            total += safe_int(conn.execute(text("DELETE FROM rag_fallback_events WHERE run_id IS NULL AND created_at < :threshold"), {'threshold': threshold}).rowcount, 0) or 0
         return total
 
     def _bulk_insert(self, sql: Any, rows: Iterable[dict[str, Any]]) -> int:
@@ -263,11 +265,11 @@ def _sql_health_summary(self: SQLRAGObservabilityStore, recent_limit: int = 3, f
     since = _utc_now() - timedelta(hours=24)
     stats = _runtime_fetch_one(self, "SELECT COUNT(*) AS total_runs, SUM(CASE WHEN started_at >= :since THEN 1 ELSE 0 END) AS recent_run_count_24h, SUM(CASE WHEN started_at >= :since AND COALESCE(retrieval_hit_count, 0) = 0 THEN 1 ELSE 0 END) AS recent_empty_hit_runs, MAX(started_at) AS last_run_at FROM rag_query_runs WHERE deleted_at IS NULL", {'since': since}) or {}
     fallback = _runtime_fetch_one(self, "SELECT COUNT(*) AS recent_fallback_count_24h, MAX(created_at) AS last_fallback_at FROM rag_fallback_events WHERE deleted_at IS NULL AND created_at >= :since", {'since': since}) or {}
-    recent_runs = _runtime_fetch_all(self, "SELECT * FROM rag_query_runs WHERE deleted_at IS NULL ORDER BY started_at DESC LIMIT :limit", {'limit': max(1, int(recent_limit))})
-    fallback_summary = _runtime_fetch_all(self, "SELECT * FROM rag_fallback_events WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT :limit", {'limit': max(1, int(fallback_limit))})
-    total_recent = int(stats.get('recent_run_count_24h') or 0)
-    empty_recent = int(stats.get('recent_empty_hit_runs') or 0)
-    return {'enabled': True, 'status': 'ok', 'recent_runs': recent_runs, 'fallback_summary': fallback_summary, 'recent_run_count_24h': total_recent, 'recent_fallback_count_24h': int(fallback.get('recent_fallback_count_24h') or 0), 'recent_empty_hits_rate_24h': (empty_recent / total_recent) if total_recent > 0 else 0.0, 'last_run_at': stats.get('last_run_at'), 'last_fallback_at': fallback.get('last_fallback_at')}
+    recent_runs = _runtime_fetch_all(self, "SELECT * FROM rag_query_runs WHERE deleted_at IS NULL ORDER BY started_at DESC LIMIT :limit", {'limit': max(1, safe_int(recent_limit, 20))})
+    fallback_summary = _runtime_fetch_all(self, "SELECT * FROM rag_fallback_events WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT :limit", {'limit': max(1, safe_int(fallback_limit, 20))})
+    total_recent = safe_int(stats.get('recent_run_count_24h'), 0) or 0
+    empty_recent = safe_int(stats.get('recent_empty_hit_runs'), 0) or 0
+    return {'enabled': True, 'status': 'ok', 'recent_runs': recent_runs, 'fallback_summary': fallback_summary, 'recent_run_count_24h': total_recent, 'recent_fallback_count_24h': safe_int(fallback.get('recent_fallback_count_24h'), 0) or 0, 'recent_empty_hits_rate_24h': (empty_recent / total_recent) if total_recent > 0 else 0.0, 'last_run_at': stats.get('last_run_at'), 'last_fallback_at': fallback.get('last_fallback_at')}
 
 
 def _noop_list_runs(self: NoOpRAGObservabilityStore, *, limit: int = 20, cursor: str | None = None, q: str | None = None, fallback_only: bool = False) -> dict[str, Any]:
@@ -276,7 +278,7 @@ def _noop_list_runs(self: NoOpRAGObservabilityStore, *, limit: int = 20, cursor:
 
 def _sql_list_runs(self: SQLRAGObservabilityStore, *, limit: int = 20, cursor: str | None = None, q: str | None = None, fallback_only: bool = False) -> dict[str, Any]:
     where = ["deleted_at IS NULL"]
-    params: dict[str, Any] = {'limit': max(1, min(int(limit), 200))}
+    params: dict[str, Any] = {'limit': max(1, min(safe_int(limit, 20), 200))}
     if cursor:
         where.append("started_at < :cursor")
         params['cursor'] = cursor
@@ -302,7 +304,7 @@ def _noop_list_events(self: NoOpRAGObservabilityStore, *, run_id: str, limit: in
 
 
 def _sql_list_events(self: SQLRAGObservabilityStore, *, run_id: str, limit: int = 500) -> dict[str, Any]:
-    return {'items': _runtime_fetch_all(self, "SELECT * FROM rag_query_events WHERE run_id = :run_id AND deleted_at IS NULL ORDER BY seq_no ASC LIMIT :limit", {'run_id': run_id, 'limit': max(1, min(int(limit), 2000))})}
+    return {'items': _runtime_fetch_all(self, "SELECT * FROM rag_query_events WHERE run_id = :run_id AND deleted_at IS NULL ORDER BY seq_no ASC LIMIT :limit", {'run_id': run_id, 'limit': max(1, min(safe_int(limit, 500), 2000))})}
 
 
 def _noop_list_documents(self: NoOpRAGObservabilityStore, *, run_id: str | None = None, collection: str | None = None, include_deleted: bool = False, limit: int = 200) -> dict[str, Any]:
@@ -311,7 +313,7 @@ def _noop_list_documents(self: NoOpRAGObservabilityStore, *, run_id: str | None 
 
 def _sql_list_documents(self: SQLRAGObservabilityStore, *, run_id: str | None = None, collection: str | None = None, include_deleted: bool = False, limit: int = 200) -> dict[str, Any]:
     where = ["1=1"]
-    params: dict[str, Any] = {'limit': max(1, min(int(limit), 1000))}
+    params: dict[str, Any] = {'limit': max(1, min(safe_int(limit, 200), 1000))}
     if not include_deleted:
         where.append("deleted_at IS NULL")
     if run_id:
@@ -329,7 +331,7 @@ def _noop_list_chunks(self: NoOpRAGObservabilityStore, *, run_id: str | None = N
 
 def _sql_list_chunks(self: SQLRAGObservabilityStore, *, run_id: str | None = None, collection: str | None = None, source_doc_id: str | None = None, include_deleted: bool = False, limit: int = 500) -> dict[str, Any]:
     where = ["1=1"]
-    params: dict[str, Any] = {'limit': max(1, min(int(limit), 2000))}
+    params: dict[str, Any] = {'limit': max(1, min(safe_int(limit, 500), 2000))}
     if not include_deleted:
         where.append("deleted_at IS NULL")
     if run_id:
@@ -350,7 +352,7 @@ def _noop_list_hits(self: NoOpRAGObservabilityStore, *, run_id: str | None = Non
 
 def _sql_list_hits(self: SQLRAGObservabilityStore, *, run_id: str | None = None, collection: str | None = None, include_deleted: bool = False, limit: int = 500) -> dict[str, Any]:
     where = ["1=1"]
-    params: dict[str, Any] = {'limit': max(1, min(int(limit), 2000))}
+    params: dict[str, Any] = {'limit': max(1, min(safe_int(limit, 500), 2000))}
     if not include_deleted:
         where.append("rh.deleted_at IS NULL")
     if run_id:
@@ -370,7 +372,7 @@ def _noop_list_collections(self: NoOpRAGObservabilityStore, *, limit: int = 200)
 
 def _sql_list_collections(self: SQLRAGObservabilityStore, *, limit: int = 200) -> dict[str, Any]:
     try:
-        items = _runtime_fetch_all(self, "SELECT collection, COUNT(*) AS row_count, MAX(created_at) AS last_created_at FROM rag_documents_v2 GROUP BY collection ORDER BY MAX(created_at) DESC LIMIT :limit", {'limit': max(1, min(int(limit), 1000))})
+        items = _runtime_fetch_all(self, "SELECT collection, COUNT(*) AS row_count, MAX(created_at) AS last_created_at FROM rag_documents_v2 GROUP BY collection ORDER BY MAX(created_at) DESC LIMIT :limit", {'limit': max(1, min(safe_int(limit, 200), 1000))})
     except Exception:
         items = []
     return {'items': items}
@@ -384,7 +386,7 @@ def _sql_search_preview(self: SQLRAGObservabilityStore, *, query: str, collectio
     from backend.rag.hybrid_service import get_rag_service
     if not query.strip() or not collection.strip():
         return []
-    return list(get_rag_service().hybrid_search(query, collection=collection, top_k=max(1, int(top_k))))
+    return list(get_rag_service().hybrid_search(query, collection=collection, top_k=max(1, safe_int(top_k, 10))))
 
 
 def _noop_soft_delete_run(self: NoOpRAGObservabilityStore, run_id: str, deleted_by: str = 'system', reason: str | None = None) -> dict[str, Any] | None:

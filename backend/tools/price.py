@@ -24,6 +24,7 @@ from .env import (
 )
 from .http import _http_get
 from .search import search
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,12 @@ def _fetch_with_alpha_vantage(ticker: str):
         
         if 'Global Quote' in data and data['Global Quote']:
             quote = data['Global Quote']
-            price = float(quote.get('05. price', 0))
-            change = float(quote.get('09. change', 0))
+            price = _safe_float_value(quote.get('05. price'))
+            change = _safe_float_value(quote.get('09. change'))
             change_percent_str = quote.get('10. change percent', '0%').replace('%', '')
             
-            if price > 0 and change_percent_str:
-                change_percent = float(change_percent_str)
+            change_percent = _safe_float_value(change_percent_str)
+            if price is not None and price > 0 and change is not None and change_percent is not None:
                 return f"{ticker} Current Price: ${price:.2f} | Change: ${change:.2f} ({change_percent:+.2f}%)"
         
         if 'Note' in data or 'Information' in data:
@@ -69,10 +70,12 @@ def _fetch_with_finnhub(ticker: str):
     logger.info(f"  - Attempting Finnhub API for {ticker}...")
     try:
         quote = finnhub_client.quote(ticker)
-        if quote and quote.get('c') is not None and quote.get('c') != 0:
-            price = quote['c']
-            change = quote.get('d', 0.0)
-            change_percent = quote.get('dp', 0.0)
+        if quote:
+            price = _safe_float_value(quote.get('c'))
+            change = _safe_float_value(quote.get('d')) or 0.0
+            change_percent = _safe_float_value(quote.get('dp')) or 0.0
+            if price is None or price <= 0:
+                return None
             return f"{ticker} Current Price: ${price:.2f} | Change: ${change:.2f} ({change_percent:+.2f}%)"
         return None
     except Exception as e:
@@ -89,12 +92,16 @@ def _fetch_with_yfinance(ticker: str):
         if hist.empty or len(hist) < 2:
             return None
         
-        current_price = hist['Close'].iloc[-1]
-        prev_close = hist['Close'].iloc[-2]
-        change = current_price - prev_close
-        change_percent = (change / prev_close) * 100
-        
-        return f"{ticker} Current Price: ${current_price:.2f} | Change: ${change:.2f} ({change_percent:+.2f}%)"
+        current_price = _safe_float_value(hist['Close'].iloc[-1])
+        prev_close = _safe_float_value(hist['Close'].iloc[-2])
+        if current_price is None or current_price <= 0:
+            return None
+        msg = f"{ticker} Current Price: ${current_price:.2f}"
+        if prev_close is not None and prev_close > 0:
+            change = current_price - prev_close
+            change_percent = (change / prev_close) * 100
+            msg += f" | Change: ${change:.2f} ({change_percent:+.2f}%)"
+        return msg
     except Exception as e:
         logger.info("  - yfinance exception: %s", type(e).__name__)
         return None
@@ -128,13 +135,13 @@ def _fetch_with_twelve_data_price(ticker: str):
         if not latest:
             return None
 
-        price = float(latest.get("close", 0) or 0)
-        if price <= 0:
+        price = _safe_float_value(latest.get("close"))
+        if price is None or price <= 0:
             return None
 
         prev_close = None
         if len(values) > 1 and values[1].get("close"):
-            prev_close = float(values[1]["close"])
+            prev_close = _safe_float_value(values[1]["close"])
 
         change = None
         change_percent = None
@@ -168,10 +175,10 @@ def _fetch_yahoo_api_v8(ticker: str):
             return None
 
         meta = result[0].get('meta', {})
-        price = meta.get('regularMarketPrice')
-        prev_close = meta.get('previousClose') or meta.get('chartPreviousClose')
+        price = _safe_float_value(meta.get('regularMarketPrice'))
+        prev_close = _safe_float_value(meta.get('previousClose') or meta.get('chartPreviousClose'))
 
-        if not price:
+        if price is None or price <= 0:
             return None
 
         change = None
@@ -270,12 +277,15 @@ def _fetch_with_pandas_datareader(ticker: str):
         # 尝试 stooq 数据源（免费）
         df = pdr.get_data_stooq(ticker, start, end)
         if not df.empty:
-            price = df['Close'].iloc[0]
+            price = _safe_float_value(df['Close'].iloc[0])
+            if price is None or price <= 0:
+                return None
             if len(df) > 1:
-                prev = df['Close'].iloc[1]
-                change = price - prev
-                pct = (change / prev) * 100
-                return f"{ticker} Current Price: ${price:.2f} | Change: {change:+.2f} ({pct:+.2f}%)"
+                prev = _safe_float_value(df['Close'].iloc[1])
+                if prev is not None and prev > 0:
+                    change = price - prev
+                    pct = (change / prev) * 100
+                    return f"{ticker} Current Price: ${price:.2f} | Change: {change:+.2f} ({pct:+.2f}%)"
             return f"{ticker} Current Price: ${price:.2f}"
         return None
     except ImportError:
@@ -303,12 +313,15 @@ def _scrape_yahoo_finance(ticker: str):
         change_percent_elem = soup.find('fin-streamer', {'data-symbol': ticker, 'data-field': 'regularMarketChangePercent'})
         
         if price_elem and change_elem and change_percent_elem:
-            price = price_elem.get('value')
-            change = change_elem.get('value')
-            change_percent = change_percent_elem.get('value')
+            price = _safe_float_value(price_elem.get('value'))
+            change = _safe_float_value(change_elem.get('value'))
+            change_percent = _safe_float_value(change_percent_elem.get('value'))
             
-            if price and change and change_percent:
-                return f"{ticker} Current Price: ${float(price):.2f} | Change: ${float(change):.2f} ({float(change_percent)*100:+.2f}%)"
+            if price is not None and price > 0:
+                msg = f"{ticker} Current Price: ${price:.2f}"
+                if change is not None and change_percent is not None:
+                    msg += f" | Change: ${change:.2f} ({change_percent * 100:+.2f}%)"
+                return msg
         
         return None
     except Exception as e:
@@ -329,8 +342,10 @@ def _fetch_index_price(ticker: str):
         if not hist.empty and len(hist) > 0:
             closes = hist['Close'].dropna().tolist()
             if closes:
-                current_price = closes[-1]
-                prev_close = closes[-2] if len(closes) > 1 else None
+                current_price = _safe_float_value(closes[-1])
+                prev_close = _safe_float_value(closes[-2]) if len(closes) > 1 else None
+                if current_price is None or current_price <= 0:
+                    return None
                 change = current_price - prev_close if prev_close else None
                 change_pct = (change / prev_close) * 100 if prev_close else None
                 msg = f"{ticker} Current Price: ${current_price:.2f}"
@@ -398,7 +413,9 @@ def _fetch_with_stooq_price(ticker: str):
         close = item.get("close")
         if close in (None, "N/D"):
             return None
-        price = float(close)
+        price = _safe_float_value(close)
+        if price is None or price <= 0:
+            return None
         # stooq 该接口无昨收字段。此前用当日开盘价当基准算 "Change"，与兄弟源
         # （yfinance/yahoo 等一律相对昨收）量纲不同却共用同一标签，静默输出错值；
         # 宁缺毋错，只报价格。
@@ -599,11 +616,11 @@ def _fetch_with_yahoo_scrape_historical(ticker: str, period: str = "1y") -> dict
                                 continue
                             kline_data.append({
                                 "time": row['Date'],
-                                "open": float(row['Open']),
-                                "high": float(row['High']),
-                                "low": float(row['Low']),
-                                "close": float(row['Close']),
-                                "volume": float(row.get('Volume', 0)) if row.get('Volume') else 0,
+                                "open": _safe_float_value(row['Open']),
+                                "high": _safe_float_value(row['High']),
+                                "low": _safe_float_value(row['Low']),
+                                "close": _safe_float_value(row['Close']),
+                                "volume": _safe_float_value(row.get('Volume')) or 0.0,
                             })
                         except (ValueError, KeyError) as e:
                             continue  # 跳过无效行
@@ -681,11 +698,11 @@ def _fetch_with_iex_cloud(ticker: str, period: str = "1y") -> dict:
                 for item in data:
                     kline_data.append({
                         "time": item.get('date', item.get('label', '')),
-                        "open": float(item.get('open', 0)),
-                        "high": float(item.get('high', 0)),
-                        "low": float(item.get('low', 0)),
-                        "close": float(item.get('close', 0)),
-                        "volume": float(item.get('volume', 0)),
+                        "open": _safe_float_value(item.get('open')),
+                        "high": _safe_float_value(item.get('high')),
+                        "low": _safe_float_value(item.get('low')),
+                        "close": _safe_float_value(item.get('close')),
+                        "volume": _safe_float_value(item.get('volume')),
                     })
                 
                 if kline_data:
@@ -746,11 +763,11 @@ def _fetch_with_tiingo(ticker: str, period: str = "1y") -> dict:
                 for item in data:
                     kline_data.append({
                         "time": item.get('date', '')[:10],  # 只取日期部分
-                        "open": float(item.get('open', 0)),
-                        "high": float(item.get('high', 0)),
-                        "low": float(item.get('low', 0)),
-                        "close": float(item.get('close', 0)),
-                        "volume": float(item.get('volume', 0)),
+                        "open": _safe_float_value(item.get('open')),
+                        "high": _safe_float_value(item.get('high')),
+                        "low": _safe_float_value(item.get('low')),
+                        "close": _safe_float_value(item.get('close')),
+                        "volume": _safe_float_value(item.get('volume')),
                     })
                 
                 if kline_data:
@@ -818,11 +835,11 @@ def _fetch_with_twelve_data(ticker: str, period: str = "1y") -> dict:
         for item in values:
             kline_data.append({
                 "time": item.get("datetime", "")[:10],
-                "open": float(item.get("open", 0)),
-                "high": float(item.get("high", 0)),
-                "low": float(item.get("low", 0)),
-                "close": float(item.get("close", 0)),
-                "volume": float(item.get("volume", 0)),
+                "open": _safe_float_value(item.get("open")),
+                "high": _safe_float_value(item.get("high")),
+                "low": _safe_float_value(item.get("low")),
+                "close": _safe_float_value(item.get("close")),
+                "volume": _safe_float_value(item.get("volume")),
             })
 
         if kline_data:
@@ -889,11 +906,11 @@ def _fetch_with_marketstack(ticker: str, period: str = "1y") -> dict:
                 for item in data["data"]:
                     kline_data.append({
                         "time": item.get('date', '')[:10],  # 只取日期部分
-                        "open": float(item.get('open', 0)),
-                        "high": float(item.get('high', 0)),
-                        "low": float(item.get('low', 0)),
-                        "close": float(item.get('close', 0)),
-                        "volume": float(item.get('volume', 0)),
+                        "open": _safe_float_value(item.get('open')),
+                        "high": _safe_float_value(item.get('high')),
+                        "low": _safe_float_value(item.get('low')),
+                        "close": _safe_float_value(item.get('close')),
+                        "volume": _safe_float_value(item.get('volume')),
                     })
                 
                 if kline_data:
@@ -962,11 +979,11 @@ def _fetch_with_massive_io(ticker: str, period: str = "1y") -> dict:
                         date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
                         kline_data.append({
                             "time": date_str,
-                            "open": item['o'],
-                            "high": item['h'],
-                            "low": item['l'],
-                            "close": item['c'],
-                            "volume": item.get('v', 0),
+                            "open": _safe_float_value(item.get('o')),
+                            "high": _safe_float_value(item.get('h')),
+                            "low": _safe_float_value(item.get('l')),
+                            "close": _safe_float_value(item.get('c')),
+                            "volume": _safe_float_value(item.get('v')),
                         })
                     
                     if kline_data:
@@ -1056,17 +1073,17 @@ def _fetch_with_stooq_history(ticker: str, period: str = "1y", interval: str = "
                 volume_key = "Volume" if "Volume" in row else ("Wolumen" if "Wolumen" in row else None)
                 if not all([date_key, open_key, high_key, low_key, close_key]):
                     continue
-                close_val = float(row[close_key])
-                if close_val <= 0 or close_val > 1e8:
+                close_val = _safe_float_value(row[close_key])
+                if close_val is None or close_val <= 0 or close_val > 1e8:
                     continue
                 data.append(
                     {
                         "time": f"{row[date_key]} 00:00",
-                        "open": float(row[open_key]),
-                        "high": float(row[high_key]),
-                        "low": float(row[low_key]),
+                        "open": _safe_float_value(row[open_key]),
+                        "high": _safe_float_value(row[high_key]),
+                        "low": _safe_float_value(row[low_key]),
                         "close": close_val,
-                        "volume": float(row.get(volume_key) or 0),
+                        "volume": _safe_float_value(row.get(volume_key)) or 0.0,
                     }
                 )
             except Exception:
@@ -1101,7 +1118,7 @@ def _fallback_price_value(ticker: str) -> Optional[float]:
                 if data:
                     close = data[0].get("close")
                     if close not in (None, "N/D"):
-                        return float(close)
+                        return _safe_float_value(close)
     except Exception as exc:
         logger.debug("stooq fallback price failed for %s: %s", ticker, type(exc).__name__)
 
@@ -1110,7 +1127,9 @@ def _fallback_price_value(ticker: str) -> Optional[float]:
         search_result = search(f"{ticker} index level today")
         m = re.search(r"(\\d{3,6}(?:,\\d{3})*(?:\\.\\d+)?)", search_result or "")
         if m:
-            val = float(m.group(1).replace(",", ""))
+            val = _safe_float_value(m.group(1).replace(",", ""))
+            if val is None:
+                return None
             if val <= 0 or val > 1e8:
                 return None
             return val
@@ -1176,11 +1195,11 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                     time_value = time_str if include_time else f"{time_str} 00:00"
                     data.append({
                         "time": time_value,
-                        "open": float(row['Open']),
-                        "high": float(row['High']),
-                        "low": float(row['Low']),
-                        "close": float(row['Close']),
-                        "volume": float(row.get('Volume', 0)) if 'Volume' in row else 0,
+                    "open": _safe_float_value(row['Open']),
+                    "high": _safe_float_value(row['High']),
+                    "low": _safe_float_value(row['Low']),
+                    "close": _safe_float_value(row['Close']),
+                    "volume": _safe_float_value(row.get('Volume')),
                     })
                 
                 if data:
@@ -1247,11 +1266,11 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                     day_data = time_series[date_str]
                     kline_data.append({
                         "time": date_str,
-                        "open": float(day_data["1. open"]),
-                        "high": float(day_data["2. high"]),
-                        "low": float(day_data["3. low"]),
-                        "close": float(day_data["4. close"]),
-                        "volume": float(day_data.get("5. volume", 0)),
+                        "open": _safe_float_value(day_data["1. open"]),
+                        "high": _safe_float_value(day_data["2. high"]),
+                        "low": _safe_float_value(day_data["3. low"]),
+                        "close": _safe_float_value(day_data["4. close"]),
+                        "volume": _safe_float_value(day_data.get("5. volume")) or 0.0,
                     })
                 
                 # 按时间正序排列
@@ -1281,6 +1300,16 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                     logger.info(f"[get_stock_historical_data] yfinance 返回空数据，重试 {attempt + 1}/{max_retries}...")
                     time.sleep(2 ** attempt)  # 指数退避
                     continue
+                configured_fallback = any((
+                    FINNHUB_API_KEY,
+                    IEX_CLOUD_API_KEY,
+                    TIINGO_API_KEY,
+                    TWELVE_DATA_API_KEY,
+                    MARKETSTACK_API_KEY,
+                    MASSIVE_API_KEY,
+                ))
+                if configured_fallback:
+                    break
                 return {"error": f"No historical data for {ticker}"}
 
             # 转换格式以匹配 ECharts 的要求
@@ -1299,11 +1328,11 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                 time_value = time_str if include_time else f"{time_str} 00:00"
                 data.append({
                     "time": time_value,
-                    "open": float(row['Open']),
-                    "high": float(row['High']),
-                    "low": float(row['Low']),
-                    "close": float(row['Close']),
-                    "volume": float(row.get('Volume', 0)) if 'Volume' in row else 0,
+                    "open": _safe_float_value(row['Open']),
+                    "high": _safe_float_value(row['High']),
+                    "low": _safe_float_value(row['Low']),
+                    "close": _safe_float_value(row['Close']),
+                    "volume": _safe_float_value(row.get('Volume')),
                 })
 
             logger.info(f"[get_stock_historical_data] yfinance success with {len(data)} rows")
@@ -1346,11 +1375,11 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                     date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
                     kline_data.append({
                         "time": date_str,
-                        "open": res['o'][i],
-                        "high": res['h'][i],
-                        "low": res['l'][i],
-                        "close": res['c'][i],
-                        "volume": res.get('v', [0] * len(res['t']))[i] if 'v' in res else 0,
+                        "open": _safe_float_value(res['o'][i]),
+                        "high": _safe_float_value(res['h'][i]),
+                        "low": _safe_float_value(res['l'][i]),
+                        "close": _safe_float_value(res['c'][i]),
+                        "volume": _safe_float_value(res.get('v', [0] * len(res['t']))[i]) if 'v' in res else 0.0,
                     })
                 logger.info(f"[get_stock_historical_data] Finnhub 成功获取 {len(kline_data)} 条数据")
                 return {"kline_data": kline_data, "period": period, "interval": interval}
@@ -1389,11 +1418,11 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                     time_value = time_str if include_time else f"{time_str} 00:00"
                     data.append({
                         "time": time_value,
-                        "open": float(row['Open']),
-                        "high": float(row['High']),
-                        "low": float(row['Low']),
-                        "close": float(row['Close']),
-                        "volume": float(row.get('Volume', 0)),
+                        "open": _safe_float_value(row['Open']),
+                        "high": _safe_float_value(row['High']),
+                        "low": _safe_float_value(row['Low']),
+                        "close": _safe_float_value(row['Close']),
+                        "volume": _safe_float_value(row.get('Volume')),
                     })
                 
                 if data:
@@ -1494,11 +1523,11 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                 time_value = time_str if include_time else f"{time_str} 00:00"
                 data.append({
                     "time": time_value,
-                    "open": float(row['Open']),
-                    "high": float(row['High']),
-                    "low": float(row['Low']),
-                    "close": float(row['Close']),
-                    "volume": float(row.get('Volume', 0)) if 'Volume' in row else 0,
+                    "open": _safe_float_value(row['Open']),
+                    "high": _safe_float_value(row['High']),
+                    "low": _safe_float_value(row['Low']),
+                    "close": _safe_float_value(row['Close']),
+                    "volume": _safe_float_value(row.get('Volume')),
                 })
             
             if data:
@@ -1518,12 +1547,7 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
 
 
 def _safe_float_value(value: Any) -> Optional[float]:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except Exception:
-        return None
+    return safe_float(value)
 
 
 def _nearest_strike_iv(option_df: Any, target_strike: float) -> Optional[float]:
@@ -1539,7 +1563,7 @@ def _nearest_strike_iv(option_df: Any, target_strike: float) -> Optional[float]:
         value = _safe_float_value(subset.loc[idx, "impliedVolatility"])
         if value is None or value <= 0:
             return None
-        return float(value)
+        return safe_float(value)
     except Exception:
         return None
 
@@ -1776,7 +1800,7 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
         symbol = position["ticker"]
         if symbol not in returns.columns:
             continue
-        weight = float(position.get("weight") or 0.0)
+        weight = safe_float(position.get("weight")) or 0.0
         weighted_series.append(returns[symbol] * weight)
 
     if not weighted_series:
@@ -1945,20 +1969,22 @@ def get_performance_comparison(tickers: Union[dict, list]) -> str:
             hist.index = hist.index.tz_localize(None)
         except Exception:
             pass
-        end_price = float(hist['Close'].iloc[-1])
+        end_price = _safe_float_value(hist['Close'].iloc[-1])
+        if end_price is None or end_price <= 0:
+            return None
         start_of_year = datetime(now.year, 1, 1)
         ytd_hist = hist[hist.index >= start_of_year]
         perf_ytd = None
         if not ytd_hist.empty:
-            start_price_ytd = float(ytd_hist['Close'].iloc[0])
-            if start_price_ytd:
+            start_price_ytd = _safe_float_value(ytd_hist['Close'].iloc[0])
+            if start_price_ytd is not None and start_price_ytd > 0:
                 perf_ytd = ((end_price - start_price_ytd) / start_price_ytd) * 100
         one_year_ago = now - timedelta(days=365)
         one_year_hist = hist[hist.index >= one_year_ago]
         perf_1y = None
         if not one_year_hist.empty:
-            start_price_1y = float(one_year_hist['Close'].iloc[0])
-            if start_price_1y:
+            start_price_1y = _safe_float_value(one_year_hist['Close'].iloc[0])
+            if start_price_1y is not None and start_price_1y > 0:
                 perf_1y = ((end_price - start_price_1y) / start_price_1y) * 100
         coverage_start = hist.index.min() if not hist.empty else None
         return end_price, perf_ytd, perf_1y, coverage_start
@@ -1973,20 +1999,22 @@ def get_performance_comparison(tickers: Union[dict, list]) -> str:
         df = df.dropna(subset=['time']).sort_values('time')
         if df.empty:
             return None
-        end_price = float(df['close'].iloc[-1])
+        end_price = _safe_float_value(df['close'].iloc[-1])
+        if end_price is None or end_price <= 0:
+            return None
         start_of_year = datetime(now.year, 1, 1)
         ytd_df = df[df['time'] >= start_of_year]
         perf_ytd = None
         if not ytd_df.empty:
-            start_price_ytd = float(ytd_df['close'].iloc[0])
-            if start_price_ytd:
+            start_price_ytd = _safe_float_value(ytd_df['close'].iloc[0])
+            if start_price_ytd is not None and start_price_ytd > 0:
                 perf_ytd = ((end_price - start_price_ytd) / start_price_ytd) * 100
         one_year_ago = now - timedelta(days=365)
         one_year_df = df[df['time'] >= one_year_ago]
         perf_1y = None
         if not one_year_df.empty:
-            start_price_1y = float(one_year_df['close'].iloc[0])
-            if start_price_1y:
+            start_price_1y = _safe_float_value(one_year_df['close'].iloc[0])
+            if start_price_1y is not None and start_price_1y > 0:
                 perf_1y = ((end_price - start_price_1y) / start_price_1y) * 100
         coverage_start = df['time'].iloc[0]
         return end_price, perf_ytd, perf_1y, coverage_start

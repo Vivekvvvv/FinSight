@@ -11,6 +11,7 @@ import yfinance as yf
 from .env import ALPHA_VANTAGE_API_KEY, OPENFIGI_API_KEY, EODHD_API_KEY, finnhub_client
 from .http import _http_get, _http_post
 from .search import search
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def _build_table_payload(columns: List[str], row_series: List[tuple[str, List[An
         for i, col in enumerate(columns):
             value = normalized_values[i]
             if isinstance(value, (int, float)):
-                row[col] = float(value)
+                row[col] = safe_float(value)
             else:
                 row[col] = value
         index.append(row_name)
@@ -347,7 +348,7 @@ def get_company_info(ticker: str) -> str:
                 return f"""Company Profile ({ticker}):
 - Name: {profile.get('name', 'Unknown')}
 - Sector: {profile.get('finnhubIndustry', 'Unknown')}
-- Market Cap: ${int(profile.get('marketCapitalization', 0) * 1_000_000):,}
+- Market Cap: ${int((safe_float(profile.get('marketCapitalization')) or 0.0) * 1_000_000):,}
 - Website: {profile.get('weburl', 'N/A')}
 - Description: Search online for more details.""" # Finnhub profile doesn't include a long description
         except Exception as e:
@@ -366,7 +367,7 @@ def get_company_info(ticker: str) -> str:
 - Name: {data.get('Name', 'Unknown')}
 - Sector: {data.get('Sector', 'Unknown')}
 - Industry: {data.get('Industry', 'Unknown')}
-- Market Cap: ${int(data.get('MarketCapitalization', 0)):,}
+- Market Cap: ${int(safe_float(data.get('MarketCapitalization')) or 0.0):,}
 - Description: {description}"""
     except Exception as e:
             logger.info("Alpha Vantage overview fetch failed: %s", type(e).__name__)
@@ -408,7 +409,7 @@ def _serialize_table_records(table: Any, *, max_rows: int = 8) -> List[Dict[str,
                 continue
             try:
                 if isinstance(value, (int, float)):
-                    item[str(column)] = float(value)
+                    item[str(column)] = safe_float(value)
                 else:
                     item[str(column)] = str(value)
             except Exception:
@@ -445,7 +446,7 @@ def _serialize_calendar_payload(calendar_payload: Any) -> Dict[str, Any]:
                 pass
 
         if isinstance(value, (int, float)):
-            result[key_text] = float(value)
+            result[key_text] = safe_float(value)
         elif value is None:
             result[key_text] = None
         else:
@@ -461,10 +462,10 @@ def _infer_revision_signal(eps_revisions: List[Dict[str, Any]]) -> str:
     for row in eps_revisions:
         if not isinstance(row, dict):
             continue
-        up_7 = float(row.get("upLast7days") or 0.0)
-        up_30 = float(row.get("upLast30days") or 0.0)
-        down_7 = float(row.get("downLast7Days") or 0.0)
-        down_30 = float(row.get("downLast30days") or 0.0)
+        up_7 = safe_float(row.get("upLast7days")) or 0.0
+        up_30 = safe_float(row.get("upLast30days")) or 0.0
+        down_7 = safe_float(row.get("downLast7Days")) or 0.0
+        down_30 = safe_float(row.get("downLast30days")) or 0.0
         score += up_7 + up_30 - down_7 - down_30
 
     if score >= 6:

@@ -2,6 +2,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 import pandas as pd
 
+from backend.utils.quote import safe_float
+
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, ConflictClaim, EvidenceItem
 from backend.services.circuit_breaker import CircuitBreaker
 
@@ -277,9 +279,10 @@ class TechnicalAgent(BaseFinancialAgent):
         last_time = None
         for item in kline_data:
             close = item.get("close")
-            if close is None:
+            parsed_close = safe_float(close)
+            if parsed_close is None:
                 continue
-            closes.append(float(close))
+            closes.append(parsed_close)
             last_time = item.get("time") or last_time
 
         if not closes:

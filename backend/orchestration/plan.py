@@ -12,6 +12,8 @@ import time
 import uuid
 import json
 import os
+
+from backend.utils.strict_json import json_load_strict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Callable, Awaitable
@@ -96,7 +98,7 @@ class PlanBuilder:
             config_path = os.path.join(root_dir, "user_config.json")
             if os.path.exists(config_path):
                 with open(config_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                    data = json_load_strict(f)
                     user_timeouts = data.get("agent_timeouts", {})
                 if user_timeouts:
                     timeouts.update(user_timeouts)

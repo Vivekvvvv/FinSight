@@ -12,6 +12,7 @@ from backend.api.schemas import (
     UnsubscribeRequest,
 )
 from backend.security.auth import Principal, get_current_user, require_admin_principal, require_matching_identity
+from backend.utils.quote import safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def create_subscription_router() -> APIRouter:
                 current_user.user_id,
                 role=current_user.role,
             )
-            max_alerts = int((entitlements.get("limits") or {}).get("max_alerts", 0))
+            max_alerts = safe_int((entitlements.get("limits") or {}).get("max_alerts"), 0) or 0
 
             try:
                 success = subscription_service.subscribe(

@@ -47,6 +47,8 @@ from backend.dashboard.insights_scorer import (
     score_technical,
     score_technical_details,
 )
+from backend.utils.quote import safe_float
+from backend.utils.strict_json import json_loads_strict
 from backend.dashboard.schemas import InsightCard
 from backend.utils.env_config import env_float
 
@@ -206,13 +208,14 @@ class DashboardScorer(ABC):
             text = "\n".join(lines).strip()
 
         try:
-            parsed = json.loads(text, parse_constant=_reject_json_constant)
+            parsed = json_loads_strict(text)
         except (json.JSONDecodeError, ValueError):
             logger.warning("[Insights] %s JSON parse failed, using fallback", self.AGENT_NAME)
             return self._make_fallback_card(data, now_iso)
 
         # Validate and clamp
-        score = clamp_score(float(parsed.get("score", 5.0)))
+        parsed_score = safe_float(parsed.get("score"))
+        score = clamp_score(parsed_score if parsed_score is not None else 5.0)
         fallback_score, fallback_label, fallback_points, fallback_breakdown = self._deterministic_fallback_details(data)
 
         # If LLM score diverges too much from deterministic, average them
