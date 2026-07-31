@@ -12,24 +12,38 @@ from typing import Any
 
 import numpy as np
 
+from backend.utils.quote import safe_float
+
 logger = logging.getLogger(__name__)
 
 _MARKET_TICKER = "000300.SS"   # 沪深300作为市场基准
 
 
+def _market_value(position: dict[str, Any]) -> float:
+    value = safe_float(position.get("market_value"))
+    return value if value is not None and value > 0 else 0.0
+
+
 def _fetch_returns(ticker: str, period: str = "1y") -> list[float] | None:
+    ticker = str(ticker or "").strip().upper()
+    if not ticker or len(ticker) > 32:
+        return None
     try:
         from backend.tools import get_stock_historical_data
         payload = get_stock_historical_data(ticker, period=period, interval="1d")
         if not isinstance(payload, dict):
             return None
         kline: list = payload.get("kline_data") or []
-        closes = [float(p["close"]) for p in kline if p.get("close") is not None]
+        closes = []
+        for point in kline:
+            close = safe_float(point.get("close")) if isinstance(point, dict) else None
+            if close is not None and close > 0:
+                closes.append(close)
         if len(closes) < 30:
             return None
         return [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
     except Exception as e:
-        logger.debug("_fetch_returns %s: %s", ticker, e)
+        logger.debug("_fetch_returns %s: %s", ticker, type(e).__name__)
         return None
 
 
@@ -65,7 +79,7 @@ def calculate_risk_attribution(
     if not positions:
         return _empty_result()
 
-    total_val = sum(float(p.get("market_value") or 0) for p in positions)
+    total_val = sum(_market_value(p) for p in positions)
     if total_val <= 0:
         return _empty_result()
 
@@ -78,7 +92,7 @@ def calculate_risk_attribution(
 
     for p in positions:
         ticker = str(p.get("ticker") or "").upper()
-        mv = float(p.get("market_value") or 0)
+        mv = _market_value(p)
         weight = mv / total_val if total_val > 0 else 0.0
         sector = str(p.get("sector") or "其他")
 

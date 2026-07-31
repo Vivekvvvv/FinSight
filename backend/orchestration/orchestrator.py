@@ -7,6 +7,7 @@ fallback handling, caching, validation, and trace metadata.
 import sys
 import os
 import logging
+import math
 from typing import Dict, List, Optional, Any, Callable, Union
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -30,6 +31,14 @@ from backend.metrics import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _positive_env_int(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, default))
+    except Exception:
+        return default
+    return value if value > 0 else default
 
 
 @dataclass
@@ -101,9 +110,9 @@ class ToolOrchestrator:
         self.sources: Dict[str, List[DataSource]] = {}
         self.tools_module = tools_module
         self.circuit_breaker = circuit_breaker or CircuitBreaker(
-            failure_threshold=int(os.getenv("CB_FAILURE_THRESHOLD", "3")),
-            recovery_timeout=int(os.getenv("CB_RECOVERY_TIMEOUT", "120")),
-            half_open_success_threshold=int(os.getenv("CB_HALF_OPEN_SUCCESS", "1")),
+            failure_threshold=_positive_env_int("CB_FAILURE_THRESHOLD", 3),
+            recovery_timeout=_positive_env_int("CB_RECOVERY_TIMEOUT", 120),
+            half_open_success_threshold=_positive_env_int("CB_HALF_OPEN_SUCCESS", 1),
         )
         self._stats = {
             'total_requests': 0,
@@ -115,7 +124,7 @@ class ToolOrchestrator:
         self.health_fail_rate_threshold = 0.6
         self.health_min_calls = 3
         self.health_skip_seconds = 300
-        self.health_latency_threshold_ms = int(os.getenv("PRICE_HEALTH_LATENCY_MS", "5000"))
+        self.health_latency_threshold_ms = _positive_env_int("PRICE_HEALTH_LATENCY_MS", 5000)
         
         # 如果提供了工具模块，立即初始化数据源
         if tools_module:
@@ -126,9 +135,17 @@ class ToolOrchestrator:
         if not self.tools_module:
             return
         
-        self.health_fail_rate_threshold = float(os.getenv("PRICE_HEALTH_FAIL_RATE", "0.6"))
-        self.health_min_calls = int(os.getenv("PRICE_HEALTH_MIN_CALLS", "3"))
-        self.health_skip_seconds = int(os.getenv("PRICE_HEALTH_SKIP_SECONDS", "300"))
+        try:
+            fail_rate_threshold = float(os.getenv("PRICE_HEALTH_FAIL_RATE", "0.6"))
+        except Exception:
+            fail_rate_threshold = 0.6
+        self.health_fail_rate_threshold = (
+            fail_rate_threshold
+            if math.isfinite(fail_rate_threshold) and 0.0 <= fail_rate_threshold <= 1.0
+            else 0.6
+        )
+        self.health_min_calls = _positive_env_int("PRICE_HEALTH_MIN_CALLS", 3)
+        self.health_skip_seconds = _positive_env_int("PRICE_HEALTH_SKIP_SECONDS", 300)
         
         def _cfg_int(name: str, default: int) -> int:
             try:
@@ -420,7 +437,7 @@ class ToolOrchestrator:
                 source_duration_ms = int((time.time() - source_start_time) * 1000)
                 source.consecutive_failures += 1
                 source.last_fail = datetime.now()
-                last_error = str(e)
+                last_error = type(e).__name__
                 self._stats['total_failures'] += 1
                 self._stats['sources'][source.name]['fail'] += 1
                 if self.circuit_breaker:
@@ -429,9 +446,9 @@ class ToolOrchestrator:
                 trace_emitter.emit_data_source_query(
                     source.name, data_type, ticker=ticker,
                     success=False, duration_ms=source_duration_ms,
-                    error=str(e), fallback=(i > 0), tried_sources=list(tried_sources)
+                    error=type(e).__name__, fallback=(i > 0), tried_sources=list(tried_sources)
                 )
-                logger.info(f"[Orchestrator] {source.name} 失败: {e}")
+                logger.info("[Orchestrator] %s failed: %s", source.name, type(e).__name__)
                 continue
             
             time.sleep(0.3)
@@ -616,7 +633,7 @@ class ToolOrchestrator:
             observe_orch_latency(data_type, duration)
             return FetchResult(
                 success=False,
-                error=str(e),
+                error="direct_tool_error",
                 source=f"direct:{func_name}",
                 duration_ms=duration,
                 as_of=fallback_as_of,
@@ -625,7 +642,7 @@ class ToolOrchestrator:
                 data_context=None,
                 fallback_used=False,
                 tried_sources=[f"direct:{func_name}"],
-                trace={'error': str(e), 'tried_sources': [f"direct:{func_name}"]},
+                trace={'error': 'direct_tool_error', 'tried_sources': [f"direct:{func_name}"]},
             )
 
     def get_stats(self) -> Dict[str, Any]:
@@ -692,6 +709,3 @@ class ToolOrchestrator:
                 source.total_calls = 0
                 source.total_successes = 0
                 source.consecutive_failures = 0
-
-
-

@@ -18,6 +18,7 @@ from backend.graph.failure import append_failure, build_runtime, utc_now_iso
 from backend.graph.json_utils import json_dumps_safe
 from backend.graph.state import GraphState
 from backend.services.llm_retry import ainvoke_with_rate_limit_retry, is_rate_limit_error
+from backend.utils.env_config import env_float
 
 logger = logging.getLogger(__name__)
 
@@ -490,8 +491,8 @@ async def _run_deep_report_verifier(
     try:
         from backend.llm_config import create_llm
     except Exception as exc:
-        logger.warning("[Synthesize/verifier] create_llm unavailable: %s", exc)
-        return {"enabled": True, "checked": False, "unsupported_claims": [], "error": str(exc)}
+        logger.warning("[Synthesize/verifier] create_llm unavailable: %s", type(exc).__name__)
+        return {"enabled": True, "checked": False, "unsupported_claims": [], "error": type(exc).__name__}
 
     def _new_verifier_llm():
         try:
@@ -557,13 +558,13 @@ async def _run_deep_report_verifier(
             "unsupported_claims": claims,
         }
     except Exception as exc:
-        logger.warning("[Synthesize/verifier] verification failed: %s", exc)
+        logger.warning("[Synthesize/verifier] verification failed: %s", type(exc).__name__)
         return {
             "enabled": True,
             "checked": False,
             "retry_attempts": retry_attempts,
             "unsupported_claims": [],
-            "error": str(exc)[:300],
+            "error": type(exc).__name__,
         }
 
 
@@ -1729,11 +1730,13 @@ async def _generate_narrative_draft(
     try:
         from backend.llm_config import create_llm
 
-        _synth_temp = float(os.getenv("LANGGRAPH_SYNTHESIZE_TEMPERATURE", "0.3"))
+        _synth_temp = env_float(
+            "LANGGRAPH_SYNTHESIZE_TEMPERATURE", 0.3, minimum=0.0, maximum=2.0
+        )
         llm = create_llm(temperature=_synth_temp)
         llm_factory = lambda: create_llm(temperature=_synth_temp)  # noqa: E731
     except Exception as exc:
-        logger.warning("[Synthesize/narrative] LLM init failed: %s", exc)
+        logger.warning("[Synthesize/narrative] LLM init failed: %s", type(exc).__name__)
         return "", None
 
     artifacts = state.get("artifacts") or {}
@@ -2018,13 +2021,13 @@ async def _generate_narrative_draft(
         retryable = is_rate_limit_error(exc)
         logger.warning(
             "[Synthesize/narrative] LLM call FAILED (retryable=%s, attempts=%d): %s — will use template fallback",
-            retryable, retry_attempts, exc,
+            retryable, retry_attempts, type(exc).__name__,
         )
         append_failure(
             trace,
             node="synthesize",
             stage="narrative_llm_call",
-            error=str(exc),
+            error=type(exc).__name__,
             fallback="template_draft",
             retryable=retryable,
             retry_attempts=retry_attempts,
@@ -2364,7 +2367,9 @@ async def synthesize(state: GraphState) -> dict:
     try:
         from backend.llm_config import create_llm
 
-        _synth_temp = float(os.getenv("LANGGRAPH_SYNTHESIZE_TEMPERATURE", "0.2"))
+        _synth_temp = env_float(
+            "LANGGRAPH_SYNTHESIZE_TEMPERATURE", 0.2, minimum=0.0, maximum=2.0
+        )
         llm = create_llm(temperature=_synth_temp)
         llm_factory = lambda: create_llm(temperature=_synth_temp)  # noqa: E731
     except Exception as exc:
@@ -2373,7 +2378,7 @@ async def synthesize(state: GraphState) -> dict:
             trace,
             node="synthesize",
             stage="llm_init",
-            error=str(exc),
+            error=type(exc).__name__,
             fallback="synthesize_stub",
             retryable=False,
         )
@@ -2382,7 +2387,7 @@ async def synthesize(state: GraphState) -> dict:
                 "synthesize_runtime": build_runtime(
                     mode="llm",
                     fallback=True,
-                    reason=f"llm_unavailable: {exc}",
+                    reason=f"llm_unavailable: {type(exc).__name__}",
                     retry_attempts=0,
                 )
             }
@@ -2390,7 +2395,7 @@ async def synthesize(state: GraphState) -> dict:
         await _emit_synth_stage_done(
             status="error",
             message="Synthesize LLM unavailable, fallback emitted",
-            error=str(exc),
+            error=type(exc).__name__,
         )
         return {"artifacts": {**(state.get("artifacts") or {}), "render_vars": render_vars}, "trace": trace}
 
@@ -2682,13 +2687,13 @@ summary, highlights, analysis.
         retryable = is_rate_limit_error(exc)
         logger.warning(
             "[Synthesize] LLM call FAILED (retryable=%s, attempts=%d): %s — falling back to stub",
-            retryable, retry_attempts, exc,
+            retryable, retry_attempts, type(exc).__name__,
         )
         append_failure(
             trace,
             node="synthesize",
             stage="llm_call",
-            error=str(exc),
+            error=type(exc).__name__,
             fallback="synthesize_stub",
             retryable=retryable,
             retry_attempts=retry_attempts,
@@ -2715,7 +2720,7 @@ summary, highlights, analysis.
         await _emit_synth_stage_done(
             status="error",
             message="Synthesize failed, fallback to stub",
-            error=str(exc),
+            error=type(exc).__name__,
         )
         return {"artifacts": {**(state.get("artifacts") or {}), "render_vars": render_vars}, "trace": trace}
 

@@ -171,8 +171,8 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
             "modelGenerated": False,
         }
     except Exception as exc:
-        logger.info("[Tencent] 获取失败 %s: %s", symbol, exc)
-        monitor.record_failure("tencent", str(exc))
+        logger.info("[Tencent] 获取失败 %s: %s", symbol, type(exc).__name__)
+        monitor.record_failure("tencent", type(exc).__name__)
         return None
 
 
@@ -289,7 +289,7 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
             "fallback_level": 1,
         }
     except Exception as exc:
-        logger.info("[Tencent] K线获取失败 %s: %s", symbol, exc)
+        logger.info("[Tencent] K线获取失败 %s: %s", symbol, type(exc).__name__)
         return None
 
 
@@ -391,7 +391,7 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
             "fallback_level": 1,
         }
     except Exception as exc:
-        logger.info("[Tencent] 分时获取失败 %s: %s", symbol, exc)
+        logger.info("[Tencent] 分时获取失败 %s: %s", symbol, type(exc).__name__)
         return None
 
 
@@ -489,7 +489,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
                         result["sell_seats"] = seats.get("sell_seats", [])
                 return result
     except Exception as exc:
-        logger.info("[Eastmoney] new top list lookup failed %s: %s", symbol, exc)
+        logger.info("[Eastmoney] new top list lookup failed %s: %s", symbol, type(exc).__name__)
 
     # 提取纯数字代码（如sh600519 → 600519）
     stock_code = code[2:] if len(code) > 2 else code
@@ -562,7 +562,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
         return result
 
     except Exception as exc:
-        logger.info("[东方财富] 龙虎榜获取失败 %s: %s", symbol, exc)
+        logger.info("[东方财富] 龙虎榜获取失败 %s: %s", symbol, type(exc).__name__)
         return None
 
 
@@ -650,7 +650,7 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
         }
 
     except Exception as exc:
-        logger.debug("[东方财富] 席位明细获取失败 %s: %s", stock_code, exc)
+        logger.debug("[东方财富] 席位明细获取失败 %s: %s", stock_code, type(exc).__name__)
         return None
 
 
@@ -743,7 +743,7 @@ def fetch_cn_top_list_history(
             if results:
                 return sorted(results, key=lambda x: x["date"], reverse=True)
     except Exception as exc:
-        logger.info("[Eastmoney] new top list history lookup failed %s: %s", symbol, exc)
+        logger.info("[Eastmoney] new top list history lookup failed %s: %s", symbol, type(exc).__name__)
 
     # 东方财富历史龙虎榜API
     url = f"http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=200,page=1,sortRule=-1,sortType=,startDate={start_date},endDate={end_date},gpfw=0,code={stock_code},js=var%20data_tab_1.html"
@@ -800,7 +800,7 @@ def fetch_cn_top_list_history(
         return results
 
     except Exception as exc:
-        logger.info("[东方财富] 龙虎榜历史获取失败 %s: %s", symbol, exc)
+        logger.info("[东方财富] 龙虎榜历史获取失败 %s: %s", symbol, type(exc).__name__)
         return []
 
 
@@ -913,7 +913,7 @@ def fetch_north_flow(date: str | None = None) -> dict[str, Any] | None:
             "unit": "元"
         }
     except Exception as exc:
-        logger.info("[东方财富] 北向资金获取失败: %s", exc)
+        logger.info("[东方财富] 北向资金获取失败: %s", type(exc).__name__)
         return None
 
 
@@ -994,7 +994,7 @@ def fetch_north_flow_history(days: int = 30) -> list[dict[str, Any]]:
         return results
 
     except Exception as exc:
-        logger.info("[东方财富] 北向资金历史获取失败: %s", exc)
+        logger.info("[东方财富] 北向资金历史获取失败: %s", type(exc).__name__)
         return []
 
 
@@ -1077,7 +1077,7 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
                     "unit": "融资单位=元，融券单位=股",
                 }
     except Exception as exc:
-        logger.info("[Eastmoney] new margin trading lookup failed %s: %s", symbol, exc)
+        logger.info("[Eastmoney] new margin trading lookup failed %s: %s", symbol, type(exc).__name__)
 
     # 提取纯数字代码
     stock_code = code[2:] if len(code) > 2 else code
@@ -1157,7 +1157,7 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
             "unit": "融资单位=元，融券单位=股"
         }
     except Exception as exc:
-        logger.info("[东方财富] 融资融券获取失败 %s: %s", symbol, exc)
+        logger.info("[东方财富] 融资融券获取失败 %s: %s", symbol, type(exc).__name__)
         return None
 
 
@@ -1229,7 +1229,7 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
             if results:
                 return sorted(results, key=lambda x: x["date"], reverse=True)
     except Exception as exc:
-        logger.info("[Eastmoney] new margin trading history lookup failed %s: %s", symbol, exc)
+        logger.info("[Eastmoney] new margin trading history lookup failed %s: %s", symbol, type(exc).__name__)
 
     # 东方财富融资融券历史API
     url = "http://datacenter-web.eastmoney.com/api/data/v1/get"
@@ -1285,7 +1285,7 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
         return results
 
     except Exception as exc:
-        logger.info("[东方财富] 融资融券历史获取失败 %s: %s", symbol, exc)
+        logger.info("[东方财富] 融资融券历史获取失败 %s: %s", symbol, type(exc).__name__)
         return []
 
 

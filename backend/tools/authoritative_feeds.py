@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -8,7 +9,11 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import quote_plus, urlparse
 
+from backend.utils.env_config import env_int
+
 from .http import _http_get
+
+logger = logging.getLogger(__name__)
 
 _AUTHORITATIVE_DOMAINS = frozenset({
     "reuters.com",
@@ -26,8 +31,8 @@ _GLOBAL_FEEDS = (
     ("ft", "https://www.ft.com/?format=rss"),
 )
 
-_REQUEST_TIMEOUT = int(os.getenv("AUTHORITATIVE_FEED_TIMEOUT", "10"))
-_MAX_SOURCES = int(os.getenv("AUTHORITATIVE_FEED_MAX_SOURCES", "3"))
+_REQUEST_TIMEOUT = env_int("AUTHORITATIVE_FEED_TIMEOUT", 10, minimum=1)
+_MAX_SOURCES = env_int("AUTHORITATIVE_FEED_MAX_SOURCES", 3, minimum=1)
 
 
 def _safe_iso8601(value: str) -> str | None:
@@ -55,8 +60,9 @@ def _normalize_domain(url: str) -> str:
         # removeprefix 而非 lstrip：lstrip("www.") 剥的是字符集合 {w,.}，
         # "www.wsj.com" 会被剥成 "sj.com"（连 wsj 的首字母 w 一起吃掉），
         # 导致 wsj.com 权威匹配失败、WSJ 全量文章被丢（R20 同类，R48）。
-        return urlparse(str(url or "").strip().lower()).netloc.removeprefix("www.")
-    except Exception:
+        return (urlparse(str(url or "").strip()).hostname or "").lower().removeprefix("www.")
+    except Exception as exc:
+        logger.debug("authoritative domain normalization failed: %s", type(exc).__name__)
         return ""
 
 
@@ -110,7 +116,8 @@ def _parse_feed_items(feed_name: str, xml_text: str) -> list[dict[str, Any]]:
         return []
     try:
         root = ET.fromstring(xml_text)
-    except Exception:
+    except Exception as exc:
+        logger.debug("authoritative feed XML parse failed: %s", type(exc).__name__)
         return []
 
     rows: list[dict[str, Any]] = []
@@ -143,7 +150,12 @@ def _fetch_feed(url: str) -> str:
         if getattr(resp, "status_code", 0) != 200:
             return ""
         return str(getattr(resp, "text", "") or "")
-    except Exception:
+    except Exception as exc:
+        logger.debug(
+            "authoritative feed request failed for host=%s: %s",
+            _normalize_domain(url) or "<invalid>",
+            type(exc).__name__,
+        )
         return ""
 
 

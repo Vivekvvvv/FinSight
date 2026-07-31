@@ -6,7 +6,9 @@ import secrets
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from backend.security.auth import is_dev_mode, secure_secret_matches
 
 router = APIRouter(tags=["Auth"])
 
@@ -26,8 +28,8 @@ MOCK_USERS = {
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(..., min_length=3, max_length=320)
+    password: str = Field(..., min_length=1, max_length=128)
 
 
 class LoginResponse(BaseModel):
@@ -40,13 +42,16 @@ class LoginResponse(BaseModel):
 
 @router.post("/api/auth/login", response_model=LoginResponse)
 async def login(req: LoginRequest) -> dict[str, Any]:
+    if not is_dev_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+
     email = req.email.strip().lower()
     user = MOCK_USERS.get(email)
     if not user:
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
 
     password_hash = hashlib.sha256(req.password.encode()).hexdigest()
-    if password_hash != user["password_hash"]:
+    if not secure_secret_matches(password_hash, user["password_hash"]):
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
 
     # 生成 JWT-like token（Mock，实际应用应使用 JWT 库）

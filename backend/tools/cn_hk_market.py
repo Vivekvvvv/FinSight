@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+
+from backend.utils.env_config import env_int
 import re
 from datetime import datetime
 from typing import Any, Optional
@@ -13,7 +15,7 @@ from .http import _http_get
 logger = logging.getLogger(__name__)
 
 _EASTMONEY_USER_AGENT = os.getenv("EASTMONEY_USER_AGENT", "Mozilla/5.0 (FinSight)")
-_EASTMONEY_TIMEOUT = int(os.getenv("EASTMONEY_TIMEOUT", "12"))
+_EASTMONEY_TIMEOUT = env_int("EASTMONEY_TIMEOUT", 12, minimum=1)
 _EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/stock/get"
 _EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 _EASTMONEY_FINANCIAL_URL = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
@@ -97,7 +99,7 @@ def _eastmoney_get_json(url: str, params: dict[str, Any], timeout: int | None = 
         payload = resp.json()
         return payload if isinstance(payload, dict) else None
     except Exception as exc:
-        logger.info("[CNHK] eastmoney request failed for %s: %s", url, exc)
+        logger.info("[CNHK] eastmoney request failed for %s: %s", url, type(exc).__name__)
         return None
 
 
@@ -111,7 +113,7 @@ def _http_get_text(url: str, *, timeout: int | None = None, referer: str | None 
             return None
         return str(getattr(resp, "text", "") or "")
     except Exception as exc:
-        logger.info("[CNHK] quote text request failed for %s: %s", url, exc)
+        logger.info("[CNHK] quote text request failed for %s: %s", url, type(exc).__name__)
         return None
 
 

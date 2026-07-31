@@ -179,13 +179,13 @@ class ReportValidator:
             )
 
         except Exception as e:
-            logger.info(f"[ReportValidator] Validation failed: {e}")
+            logger.info("[ReportValidator] Validation failed: %s", type(e).__name__)
             return ReportIR(
                 report_id="error",
                 ticker="ERROR",
                 company_name="Error",
                 title="Report Generation Failed",
-                summary=f"Data validation failed: {str(e)}",
+                summary="Data validation failed",
                 sentiment=Sentiment.NEUTRAL,
                 confidence_score=0.0,
                 sections=[],

@@ -7,7 +7,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Any
+
+from backend.utils.quote import safe_float
+
+
+_TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^=-]{0,19}$")
 
 # 风险规则配置（可参数化）
 RISK_RULES = {
@@ -38,7 +44,28 @@ def calculate_portfolio_risk_lens(
     if not positions:
         return _empty_risk_lens()
 
-    reports = reports or []
+    reports = [report for report in (reports or []) if isinstance(report, dict)]
+    normalized_positions = []
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+        item = dict(position)
+        ticker = item.get("ticker")
+        if not isinstance(ticker, str):
+            continue
+        ticker = ticker.strip().upper()
+        if not _TICKER_PATTERN.fullmatch(ticker):
+            continue
+        item["ticker"] = ticker
+        market_value = safe_float(item.get("market_value"))
+        cost_basis = safe_float(item.get("cost_basis"))
+        item["market_value"] = market_value if market_value is not None and market_value > 0 else 0.0
+        item["cost_basis"] = cost_basis if cost_basis is not None and cost_basis > 0 else 0.0
+        item["unrealized_pnl"] = safe_float(item.get("unrealized_pnl"))
+        normalized_positions.append(item)
+    positions = normalized_positions
+    if not positions:
+        return _empty_risk_lens()
 
     # 计算总市值和成本
     total_value = sum(p.get("market_value") or 0 for p in positions)

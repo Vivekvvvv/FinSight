@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from datetime import date as date_type
 from typing import Any, Callable
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
-from backend.api.schemas import KlineResponse
+from backend.api.schemas import ChartDetectRequest, KlineResponse
 from backend.demo_mode import demo_financials, demo_kline, demo_quote, is_demo_mode
 from backend.tools.baostock_provider import is_cn_symbol
 from backend.tools.tencent_provider import fetch_cn_quote, fetch_cn_kline, fetch_cn_intraday
@@ -27,6 +29,10 @@ class MarketRouterDeps:
 
 
 _TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^=-]{0,19}$")
+_ISO_DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+_MAX_PDF_MESSAGES = 500
+_MAX_PDF_CHARTS = 100
+_MAX_PDF_PAYLOAD_BYTES = 1024 * 1024
 
 
 def _normalize_ticker(raw_ticker: str) -> str:
@@ -40,6 +46,16 @@ def _validate_ticker_or_400(raw_ticker: str) -> str:
     if not _TICKER_PATTERN.fullmatch(ticker):
         raise HTTPException(status_code=400, detail=f"ticker 格式非法: {raw_ticker}")
     return ticker
+
+
+def _validate_iso_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        date_type.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid date") from exc
+    return value
 
 
 def _extract_ticker_candidates(query: str, provided_ticker: str | None = None) -> list[str]:
@@ -111,9 +127,9 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             pass
 
     @router.post("/api/chart/detect")
-    def detect_chart(payload: dict[str, Any]):
-        query = str(payload.get("query") or "").strip()
-        ticker = payload.get("ticker")
+    def detect_chart(payload: ChartDetectRequest):
+        query = payload.query.strip()
+        ticker = payload.ticker
         ticker_value = str(ticker).strip() if ticker is not None else None
         ticker_candidates = _extract_ticker_candidates(query, ticker_value)
         resolved_ticker = ticker_candidates[0] if ticker_candidates else None
@@ -288,7 +304,11 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 财务摘要") from exc
 
     @router.get("/api/stock/kline/{ticker}", response_model=KlineResponse)
-    def get_kline_data(ticker: str, period: str = "1y", interval: str = "1d"):
+    def get_kline_data(
+        ticker: str,
+        period: str = Query("1y", min_length=1, max_length=16),
+        interval: str = Query("1d", min_length=1, max_length=16),
+    ):
         normalized_ticker = _validate_ticker_or_400(ticker)
         try:
             orchestrator = deps.get_orchestrator_safe()
@@ -336,7 +356,11 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             raise HTTPException(status_code=502, detail="Kline data unavailable") from exc
 
     @router.get("/api/kline/{ticker}")
-    def get_kline_alias(ticker: str, period: str = "1mo", interval: str = "1d"):
+    def get_kline_alias(
+        ticker: str,
+        period: str = Query("1mo", min_length=1, max_length=16),
+        interval: str = Query("1d", min_length=1, max_length=16),
+    ):
         """别名：与 /api/stock/kline 相同，返回 K 线数据"""
         return get_kline_data(ticker, period, interval)
 
@@ -395,6 +419,11 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             from backend.services.entitlements import enforce_feature
 
             enforce_feature(getattr(http_request.state, "principal", None), "export_pdf")
+            payload_size = len(
+                json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            )
+            if payload_size > _MAX_PDF_PAYLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="PDF export payload is too large")
 
             pdf_service = get_pdf_service()
             if not pdf_service:
@@ -404,11 +433,25 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             charts = request.get("charts", [])
             title = request.get("title", "FinSight 对话记录")
 
+            if not isinstance(messages, list):
+                raise HTTPException(status_code=400, detail="messages must be a list")
             if not messages:
                 raise HTTPException(status_code=400, detail="messages 不能为空")
+            if len(messages) > _MAX_PDF_MESSAGES:
+                raise HTTPException(status_code=400, detail="Too many messages")
+            if not isinstance(charts, list):
+                raise HTTPException(status_code=400, detail="charts must be a list")
+            if len(charts) > _MAX_PDF_CHARTS:
+                raise HTTPException(status_code=400, detail="Too many charts")
 
             if charts:
-                pdf_bytes = pdf_service.export_with_charts(messages, charts, title=title)
+                safe_charts = [
+                    {key: value for key, value in chart.items() if key != "image_path"}
+                    if isinstance(chart, dict)
+                    else chart
+                    for chart in charts
+                ]
+                pdf_bytes = pdf_service.export_with_charts(messages, safe_charts, title=title)
             else:
                 pdf_bytes = pdf_service.export_conversation(messages, title=title)
 
@@ -440,7 +483,10 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         return monitor.get_health_report()
 
     @router.get("/api/system/health/trend")
-    def get_health_trend(source: str | None = None, days: int = 7):
+    def get_health_trend(
+        source: str | None = Query(None, max_length=128),
+        days: int = 7,
+    ):
         """
         查询历史健康趋势
 
@@ -533,8 +579,12 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
     @router.get("/api/stock/top-list/{ticker}/history")
     def get_top_list_history(
         ticker: str,
-        start_date: str | None = None,
-        end_date: str | None = None,
+        start_date: str | None = Query(
+            None, min_length=10, max_length=10, pattern=_ISO_DATE_PATTERN,
+        ),
+        end_date: str | None = Query(
+            None, min_length=10, max_length=10, pattern=_ISO_DATE_PATTERN,
+        ),
         days: int = 7
     ):
         """
@@ -568,6 +618,10 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             }
         """
         ticker = _validate_ticker_or_400(ticker)
+        start_date = _validate_iso_date(start_date)
+        end_date = _validate_iso_date(end_date)
+        if start_date and end_date and start_date > end_date:
+            raise HTTPException(status_code=422, detail="start_date must not be after end_date")
 
         if not is_cn_symbol(ticker):
             raise HTTPException(
@@ -596,7 +650,11 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         }
 
     @router.get("/api/market/north-flow")
-    def get_north_flow(date: str | None = None):
+    def get_north_flow(
+        date: str | None = Query(
+            None, min_length=10, max_length=10, pattern=_ISO_DATE_PATTERN,
+        ),
+    ):
         """
         获取北向资金实时流向
 
@@ -619,6 +677,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         """
         from backend.tools.tencent_provider import fetch_north_flow
 
+        date = _validate_iso_date(date)
         data = fetch_north_flow(date=date)
 
         if data is None:
@@ -761,8 +820,12 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
     @router.get("/api/market/historical/{ticker}")
     def get_historical_kline(
         ticker: str,
-        start: str = "2020-01-01",
-        end: str | None = None,
+        start: str = Query(
+            "2020-01-01", min_length=10, max_length=10, pattern=_ISO_DATE_PATTERN,
+        ),
+        end: str | None = Query(
+            None, min_length=10, max_length=10, pattern=_ISO_DATE_PATTERN,
+        ),
         adjust: str = "qfq",
     ):
         # def 而非 async def：缓存未命中时 baostock 同步网络拉取可达数秒，
@@ -775,6 +838,10 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         - 结果缓存到 SQLite 避免重复请求
         """
         clean_ticker = _validate_ticker_or_400(ticker)
+        start = _validate_iso_date(start)
+        end = _validate_iso_date(end)
+        if end and start > end:
+            raise HTTPException(status_code=422, detail="start must not be after end")
         valid_adjust = adjust.lower() if adjust.lower() in ("qfq", "hfq", "none") else "qfq"
         try:
             from backend.services.historical_data_store import fetch_and_cache_kline

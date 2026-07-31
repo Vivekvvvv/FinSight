@@ -29,7 +29,7 @@ def _get_storage():
             from backend.services.monitoring_storage import get_storage
             _storage = get_storage()
         except Exception as e:
-            logger.warning(f"监控存储初始化失败: {e}")
+            logger.warning("监控存储初始化失败: %s", type(e).__name__)
             _storage = False  # 标记为失败，避免重复尝试
     return _storage if _storage is not False else None
 
@@ -188,7 +188,7 @@ class DataSourceMonitor:
             if storage:
                 storage.save_health_snapshot(report["sources"])
         except Exception as e:
-            logger.debug(f"监控数据持久化失败（非致命）: {e}")
+            logger.debug("监控数据持久化失败（非致命）: %s", type(e).__name__)
 
         return report
 

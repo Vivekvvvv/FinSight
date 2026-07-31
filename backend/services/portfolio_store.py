@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.utils.quote import safe_float
+
 logger = logging.getLogger(__name__)
 
 _DB_DIR = Path(os.getenv("FINSIGHT_DATA_DIR", "data"))
@@ -76,6 +78,40 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
 _db_lock = threading.RLock()
 
 
+def _finite_number(value: object, *, field: str, allow_none: bool = False) -> float | None:
+    if value is None and allow_none:
+        return None
+    number = safe_float(value)
+    if number is None:
+        raise ValueError(f"{field} must be finite")
+    return number
+
+
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def _normalize_tags(value: object) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return None
+    return [tag.strip()[:64] for tag in value[:20] if isinstance(tag, str) and tag.strip()]
+
+
+def _parse_stored_tags(value: object) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value, parse_constant=_reject_non_finite_json)
+        if not isinstance(parsed, list):
+            raise ValueError("tags must be a list")
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("stored portfolio tags parse failed (%s)", type(exc).__name__)
+        return []
+    return _normalize_tags(parsed) or []
+
+
 def _connect() -> sqlite3.Connection:
     conn = _get_conn()
     _ensure_tables(conn)
@@ -95,20 +131,22 @@ def get_positions(session_id: str) -> list[dict[str, Any]]:
         ).fetchall()
     result: list[dict[str, Any]] = []
     for r in rows:
-        tags: list[str] = []
-        raw_tags = r[5]
-        if raw_tags:
-            try:
-                parsed = json.loads(raw_tags)
-                if isinstance(parsed, list):
-                    tags = [str(t) for t in parsed if str(t).strip()]
-            except json.JSONDecodeError:
-                tags = []
+        try:
+            shares = _finite_number(r[1], field="shares")
+            avg_cost = _finite_number(r[2], field="avg_cost", allow_none=True)
+        except ValueError as exc:
+            logger.warning(
+                "Skipping invalid stored portfolio position for ticker=%s (%s)",
+                r[0],
+                type(exc).__name__,
+            )
+            continue
+        tags = _parse_stored_tags(r[5])
         result.append(
             {
                 "ticker": r[0],
-                "shares": r[1],
-                "avg_cost": r[2],
+                "shares": shares,
+                "avg_cost": avg_cost,
                 "updated_at": r[3],
                 "name": r[4],
                 "tags": tags,
@@ -143,16 +181,18 @@ def sync_positions(session_id: str, positions: list[dict[str, Any]]) -> int:
             ticker = str(pos.get("ticker", "")).strip().upper()
             if not ticker:
                 continue
+            shares = _finite_number(pos.get("shares", 0), field="shares")
+            avg_cost = _finite_number(pos.get("avg_cost"), field="avg_cost", allow_none=True)
             name = str(pos.get("name") or "").strip() or None
             note = str(pos.get("note") or "").strip() or None
-            tags = pos.get("tags")
-            tags_json = json.dumps(tags, ensure_ascii=False) if isinstance(tags, list) else None
+            tags = _normalize_tags(pos.get("tags"))
+            tags_json = json.dumps(tags, ensure_ascii=False) if tags is not None else None
             prev_sector, prev_currency, prev_opened_at = preserved.get(ticker, (None, None, None))
             db.execute(
                 "INSERT INTO portfolio_positions (session_id, ticker, shares, avg_cost, updated_at, name, tags_json, note, sector, currency, opened_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    session_id, ticker, float(pos.get("shares", 0)), pos.get("avg_cost"), now, name, tags_json, note,
+                    session_id, ticker, shares, avg_cost, now, name, tags_json, note,
                     pos.get("sector") or prev_sector,
                     pos.get("currency") or prev_currency or "USD",
                     pos.get("opened_at") or prev_opened_at,
@@ -176,8 +216,11 @@ def update_position(
     currency: str | None = None,
     opened_at: str | None = None,
 ) -> None:
+    shares = _finite_number(shares, field="shares")
+    avg_cost = _finite_number(avg_cost, field="avg_cost", allow_none=True)
     now = datetime.now(timezone.utc).isoformat()
-    tags_json = json.dumps(tags, ensure_ascii=False) if isinstance(tags, list) else None
+    normalized_tags = _normalize_tags(tags)
+    tags_json = json.dumps(normalized_tags, ensure_ascii=False) if normalized_tags is not None else None
     with _db_lock, _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
@@ -217,7 +260,13 @@ def save_suggestion(suggestion_id: str, session_id: str, data: dict[str, Any]) -
             """INSERT INTO rebalance_suggestions (suggestion_id, session_id, data, status, created_at, updated_at)
                VALUES (?, ?, ?, 'draft', ?, ?)
                ON CONFLICT(suggestion_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at""",
-            (suggestion_id, session_id, json.dumps(data, ensure_ascii=False), now, now),
+            (
+                suggestion_id,
+                session_id,
+                json.dumps(data, ensure_ascii=False, allow_nan=False),
+                now,
+                now,
+            ),
         )
         db.commit()
 
@@ -231,8 +280,15 @@ def list_suggestions(session_id: str, limit: int = 10) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for r in rows:
         try:
-            parsed = json.loads(r[1])
-        except json.JSONDecodeError:
+            parsed = json.loads(r[1], parse_constant=_reject_non_finite_json)
+            if not isinstance(parsed, dict):
+                raise ValueError("suggestion payload must be an object")
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning(
+                "stored rebalance suggestion parse failed for suggestion_id=%s: %s",
+                r[0],
+                type(exc).__name__,
+            )
             parsed = {}
         result.append({
             "suggestion_id": r[0],

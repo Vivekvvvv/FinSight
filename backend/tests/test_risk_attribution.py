@@ -40,6 +40,33 @@ def test_ols_beta_double_return():
     assert idio < 1e-9
 
 
+def test_fetch_returns_filters_non_finite_closes():
+    from backend.services.risk_attribution import _fetch_returns
+
+    rows = [
+        {"close": value}
+        for value in ([100 + index for index in range(31)] + ["nan", "inf"])
+    ]
+    with patch(
+        "backend.tools.get_stock_historical_data",
+        return_value={"kline_data": rows},
+    ):
+        returns = _fetch_returns("AAPL")
+
+    assert returns is not None
+    assert len(returns) == 30
+    assert all(np.isfinite(value) for value in returns)
+
+
+def test_fetch_returns_rejects_oversized_ticker_before_provider():
+    from backend.services.risk_attribution import _fetch_returns
+
+    with patch("backend.tools.get_stock_historical_data") as provider:
+        assert _fetch_returns("A" * 33) is None
+
+    provider.assert_not_called()
+
+
 # ── calculate_risk_attribution 测试 ──────────────────────────────────────────
 
 def test_risk_attribution_empty_positions():
@@ -55,6 +82,25 @@ def test_risk_attribution_zero_market_value():
     from backend.services.risk_attribution import calculate_risk_attribution
     result = calculate_risk_attribution([{"ticker": "AAPL", "market_value": 0}])
     assert result["method"] == "no_data"
+
+
+def test_risk_attribution_handles_invalid_and_non_finite_market_values():
+    from backend.services.risk_attribution import calculate_risk_attribution
+
+    positions = [
+        {"ticker": "VALID", "market_value": 1000},
+        {"ticker": "TEXT", "market_value": "bad"},
+        {"ticker": "NAN", "market_value": "nan"},
+        {"ticker": "INF", "market_value": "inf"},
+        {"ticker": "NEGATIVE", "market_value": -100},
+    ]
+    with patch("backend.services.risk_attribution._fetch_returns", return_value=None):
+        result = calculate_risk_attribution(positions)
+
+    weights = {item["ticker"]: item["weight"] for item in result["positions"]}
+    assert weights["VALID"] == 1.0
+    assert all(np.isfinite(item["weight"]) for item in result["positions"])
+    assert all(weights[ticker] == 0.0 for ticker in ("TEXT", "NAN", "INF", "NEGATIVE"))
 
 
 def test_risk_attribution_simplified_when_no_market_data():

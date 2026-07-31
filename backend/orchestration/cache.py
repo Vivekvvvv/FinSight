@@ -8,6 +8,7 @@ from typing import Any, Optional, Dict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import threading
+import math
 import os
 import random
 
@@ -58,7 +59,12 @@ class DataCache:
             'negative_hits': 0,
         }
         try:
-            self._jitter_ratio = float(os.getenv("CACHE_JITTER_RATIO", "0.1"))
+            jitter_ratio = float(os.getenv("CACHE_JITTER_RATIO", "0.1"))
+            self._jitter_ratio = (
+                jitter_ratio
+                if math.isfinite(jitter_ratio) and 0.0 <= jitter_ratio <= 1.0
+                else 0.1
+            )
         except Exception:
             self._jitter_ratio = 0.1
     
@@ -193,4 +199,3 @@ class DataCache:
     def __len__(self) -> int:
         """返回缓存大小"""
         return len(self._cache)
-

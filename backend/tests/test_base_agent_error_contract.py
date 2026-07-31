@@ -73,6 +73,34 @@ async def test_identify_gaps_redacts_provider_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_identify_gaps_sanitizes_structured_llm_fields(monkeypatch):
+    trace = _TraceRecorder()
+
+    async def allow_token(**_kwargs):
+        return True
+
+    async def return_gaps(*_args, **_kwargs):
+        return SimpleNamespace(
+            content=(
+                '{"complete":NaN}\n'
+                '{"tool":"search","query":"AAPL filing","confidence":NaN}'
+            )
+        )
+
+    monkeypatch.setattr(base_agent_module, "get_trace_emitter", lambda: trace)
+    monkeypatch.setattr("backend.services.rate_limiter.acquire_llm_token", allow_token)
+    monkeypatch.setattr(
+        "backend.services.llm_retry.ainvoke_with_rate_limit_retry",
+        return_gaps,
+    )
+    agent = BaseFinancialAgent(llm=SimpleNamespace(model_name="test"), cache=None)
+
+    result = await agent._identify_gaps("summary")
+
+    assert result == [{"tool": "search", "query": "AAPL filing"}]
+
+
+@pytest.mark.asyncio
 async def test_targeted_search_redacts_tool_error(monkeypatch, caplog):
     secret = "PRIVATE_TOOL_ERROR_SENTINEL"
     trace = _TraceRecorder()

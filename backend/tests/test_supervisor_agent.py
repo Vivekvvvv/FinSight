@@ -5,6 +5,8 @@ IntentClassifier 测试
 """
 
 import pytest
+import sys
+from types import SimpleNamespace
 from backend.orchestration.intent_classifier import IntentClassifier, AgentIntent, ClassificationResult
 
 
@@ -40,8 +42,46 @@ class TestIntentClassifierRules:
 class TestIntentClassifierEmbedding:
     """测试 Embedding 分类（需要 sentence-transformers）"""
 
+    def test_embedding_load_error_log_is_redacted(self, monkeypatch, caplog):
+        from backend.orchestration.intent_classifier import EmbeddingClassifier
+
+        secret = "PRIVATE postgres://embedding:secret@db/model"
+
+        def _fail_model(_name):
+            raise RuntimeError(secret)
+
+        monkeypatch.setitem(
+            sys.modules,
+            "sentence_transformers",
+            SimpleNamespace(SentenceTransformer=_fail_model),
+        )
+        classifier = EmbeddingClassifier()
+        monkeypatch.setattr(classifier, "_model", None)
+        monkeypatch.setattr(classifier, "_intent_embeddings", None)
+
+        assert classifier._load_model() is False
+        assert secret not in caplog.text
+        assert "RuntimeError" in caplog.text
+
     def setup_method(self):
         self.classifier = IntentClassifier(llm=None)
+
+    def test_embedding_classifier_ignores_non_finite_scores(self, monkeypatch):
+        monkeypatch.setattr(
+            self.classifier._embedding_classifier,
+            "compute_similarity",
+            lambda _query: {
+                AgentIntent.PRICE: float("nan"),
+                AgentIntent.NEWS: 0.4,
+            },
+        )
+
+        result = self.classifier._embedding_classify("update", "update", [])
+
+        assert result is not None
+        assert result.intent == AgentIntent.NEWS
+        assert result.confidence == 0.4
+        assert "price" not in result.scores
 
     @pytest.mark.skipif(
         not _embedding_available(),
@@ -178,6 +218,26 @@ class TestIntentClassifierCostSaving:
         for query, tickers in simple_queries:
             result = self.classifier.classify(query, tickers)
             assert result.method != "llm", f"Should not use LLM for: {query}"
+
+
+def test_llm_classification_error_is_redacted(monkeypatch, caplog):
+    secret = "PRIVATE postgres://intent:secret@db/classify"
+
+    class _FailingLLM:
+        async def ainvoke(self, _messages):
+            raise RuntimeError(secret)
+
+    monkeypatch.setenv("INTENT_LLM_MAX_ATTEMPTS", "1")
+    classifier = IntentClassifier(llm=_FailingLLM())
+
+    result = classifier._llm_classify("ambiguous request", ["AAPL"], {})
+
+    assert result.intent == AgentIntent.SEARCH
+    assert result.method == "fallback"
+    assert result.reasoning == "LLM classification unavailable"
+    assert secret not in str(result)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 class TestClassificationResult:

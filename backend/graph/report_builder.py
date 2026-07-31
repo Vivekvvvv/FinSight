@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import uuid
@@ -57,8 +58,12 @@ def _safe_str(value: Any) -> str:
 
 def _to_json_compatible(value: Any) -> Any:
     try:
-        return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+        return json.loads(
+            json.dumps(value, ensure_ascii=False, default=str, allow_nan=False)
+        )
     except Exception:
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
         if isinstance(value, list):
@@ -610,7 +615,8 @@ def _safe_confidence(value: Any, default: float = 0.7) -> float:
         if label in label_map:
             return label_map[label]
     try:
-        return float(value)
+        parsed = float(value)
+        return parsed if math.isfinite(parsed) else default
     except (ValueError, TypeError):
         return default
 
@@ -625,6 +631,8 @@ def _canonicalize_url_for_citation_match(raw_url: str) -> str:
         return url
     if not parsed.scheme or not parsed.netloc:
         return url
+    if parsed.username is not None or parsed.password is not None:
+        return ""
 
     scheme = parsed.scheme.lower()
     netloc = parsed.netloc.lower()
@@ -657,8 +665,13 @@ def _is_suspicious_citation_item(item: dict[str, Any]) -> bool:
     snippet = _safe_str(item.get("snippet") or "").strip().lower()
     if not url.startswith(("http://", "https://")):
         return True
-    parsed = urlparse(url)
-    domain = (parsed.netloc or "").lower().removeprefix("www.")  # lstrip 按字符集合剥除，会吃掉 wsj.com 的首字母
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return True
+    if parsed.username is not None or parsed.password is not None:
+        return True
+    domain = (parsed.hostname or "").lower().removeprefix("www.")  # lstrip 按字符集合剥除，会吃掉 wsj.com 的首字母
     path = (parsed.path or "").lower()
 
     if domain == "finnhub.io" and path.startswith("/api/news"):
@@ -1426,7 +1439,7 @@ def _build_report_quality_hints(
         title = _safe_str(item.get("title") or "").strip().lower()
         snippet = _safe_str(item.get("snippet") or "").strip()
         parsed = urlparse(url)
-        domain = (parsed.netloc or "").lower().removeprefix("www.")  # lstrip 按字符集合剥除，会吃掉 wsj.com 的首字母
+        domain = (parsed.hostname or "").lower().removeprefix("www.")  # lstrip 按字符集合剥除，会吃掉 wsj.com 的首字母
         joined = f"{url} {title} {snippet.lower()}"
 
         if domain.endswith("sec.gov") or "sec.gov/" in url:

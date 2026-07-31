@@ -12,9 +12,9 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import StreamingResponse
 
 from backend.api.rebalance_schemas import (
@@ -200,8 +200,8 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
 
     @router.get("/api/rebalance/suggestions")
     async def list_suggestions_endpoint(
-        session_id: str,
-        limit: int = 10,
+        session_id: str = Query(..., max_length=256),
+        limit: int = Query(10, ge=1, le=50),
         current_user: Principal = Depends(get_current_user),
     ):
         """List recent rebalance suggestions for a session."""
@@ -216,7 +216,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
             field_name="session_id",
         )
 
-        results = list_suggestions(session_id, limit=min(limit, 50))
+        results = list_suggestions(session_id, limit=limit)
         return {
             "success": True,
             "session_id": session_id,
@@ -226,7 +226,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
 
     @router.patch("/api/rebalance/suggestions/{suggestion_id}")
     async def patch_suggestion_endpoint(
-        suggestion_id: str,
+        suggestion_id: Annotated[str, Path(min_length=1, max_length=128)],
         request: PatchSuggestionRequest,
         current_user: Principal = Depends(get_current_user),
     ):

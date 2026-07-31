@@ -96,7 +96,7 @@ _URL_RE = re.compile(r"https?://[^\s\]\)\"'>]+", flags=re.IGNORECASE)
 
 def _normalize_domain(url: str) -> str:
     try:
-        return urlparse(str(url or "").strip().lower()).netloc.lstrip("www.")
+        return (urlparse(str(url or "").strip()).hostname or "").lower().removeprefix("www.")
     except Exception:
         return ""
 
@@ -268,7 +268,7 @@ def get_earnings_call_transcripts(ticker: str, limit: int = 6) -> dict[str, Any]
         try:
             raw = search(query)
         except Exception as exc:
-            logger.info("[Transcript] Search failed for %s: %s", query, exc)
+            logger.info("[Transcript] Search failed for %s: %s", query, type(exc).__name__)
             continue
 
         parsed = _parse_search_text(raw)

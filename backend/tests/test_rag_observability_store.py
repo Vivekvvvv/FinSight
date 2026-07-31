@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import time
+import math
 from datetime import datetime, timezone
 
+import pytest
+
 from backend.rag.observability_models import PendingIngestBatch, QueryRunRecord, SearchRunContext
-from backend.rag.observability_store import SQLRAGObservabilityStore
+from backend.rag.observability_store import SQLRAGObservabilityStore, _json_loads
+from backend.rag.observability_runtime import _json_dumps, _strict_json_loads
 
 
 class _FakeResult:
@@ -76,6 +80,24 @@ class _ProbeStore(SQLRAGObservabilityStore):
 
     def _append_event(self, run_id: str, event_type: str, stage: str, payload):
         self.events.append((run_id, event_type, stage, payload))
+
+
+def test_json_loads_rejects_non_finite_stored_metadata(caplog):
+    assert _json_loads('{"score":NaN}', {}) == {}
+    assert _json_loads({"score": math.inf}, {}) == {}
+    assert caplog.text.count("invalid stored RAG JSON (ValueError)") == 2
+
+
+def test_runtime_json_loader_rejects_non_finite_values():
+    with pytest.raises(ValueError):
+        _strict_json_loads('{"score":Infinity}')
+    with pytest.raises(ValueError):
+        _strict_json_loads({"score": math.nan})
+
+
+def test_runtime_json_writer_rejects_non_finite_values():
+    with pytest.raises(ValueError):
+        _json_dumps({"score": math.nan})
 
 
 def test_health_summary_returns_24h_counters_and_recent_lists():
@@ -269,3 +291,28 @@ def test_complete_search_run_uses_materialized_chunk_count_for_summary():
     assert store.events[-1][1] == 'search_completed'
     assert store.events[-1][3]['chunk_count'] == 7
 
+
+def test_complete_search_run_redacts_persisted_error_details():
+    store = _ProbeStore()
+    context = SearchRunContext(
+        run=QueryRunRecord(
+            id='run-failed',
+            user_id='user-test',
+            session_id='session-test',
+            thread_id=None,
+            query_text='AAPL deepsearch',
+            query_hash='hash-test',
+        ),
+        started_monotonic=time.monotonic(),
+    )
+    sentinel = 'PRIVATE_RAG_SEARCH_ERROR_DETAIL'
+
+    result = store.complete_search_run(context, hits=[], error=RuntimeError(sentinel))
+
+    assert result['status'] == 'failed'
+    _, fields = store.updated[-1]
+    assert fields['error_message'] == 'RuntimeError'
+    assert store.events[-1][1] == 'search_failed'
+    assert store.events[-1][3]['error'] == 'RuntimeError'
+    assert sentinel not in repr(store.updated)
+    assert sentinel not in repr(store.events)

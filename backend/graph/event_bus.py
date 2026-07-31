@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import logging
 from contextvars import ContextVar
 from typing import Any, Awaitable, Callable, Optional
 
 EventEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+logger = logging.getLogger(__name__)
 
 _EVENT_EMITTER: ContextVar[Optional[EventEmitter]] = ContextVar("langgraph_event_emitter", default=None)
 
@@ -30,10 +32,10 @@ async def emit_event(payload: dict[str, Any]) -> None:
         return
     try:
         await emitter(payload)
-    except Exception:
+    except Exception as exc:
         # Never let tracing break the main flow.
+        logger.debug("graph event emission failed: %s", type(exc).__name__)
         return
 
 
 __all__ = ["EventEmitter", "emit_event", "set_event_emitter", "reset_event_emitter"]
-

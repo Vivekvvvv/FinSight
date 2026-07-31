@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
 import threading
 from pathlib import Path
@@ -20,6 +21,10 @@ logger = logging.getLogger(__name__)
 # _vector_search / vectorize_all_notes 会跨 notes_vectors 与 research_notes 两表 JOIN。
 _DB_PATH = Path("./data/research_notes.db")
 _lock = threading.RLock()
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
 
 
 def _conn() -> sqlite3.Connection:
@@ -55,7 +60,8 @@ def _get_embedder():
     try:
         from backend.rag.embedder import get_embedding_service
         return get_embedding_service()
-    except Exception:
+    except Exception as exc:
+        logger.debug("embedding service unavailable: %s", type(exc).__name__)
         return None
 
 
@@ -67,14 +73,18 @@ def _embed(text: str) -> list[float] | None:
         result = embedder.embed_texts([text])
         vecs = result.dense
         if vecs and vecs[0]:
-            return vecs[0]
+            vector = [float(value) for value in vecs[0]]
+            if vector and all(math.isfinite(value) for value in vector):
+                return vector
+            logger.warning("embedding service returned a non-finite vector")
     except Exception as e:
-        logger.debug("embed failed: %s", e)
+        logger.debug("embed failed: %s", type(e).__name__)
     return None
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
-    import math
+    if not a or len(a) != len(b):
+        return 0.0
     dot = sum(x * y for x, y in zip(a, b))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
@@ -100,7 +110,7 @@ def vectorize_note(note_id: str, title: str, content: str) -> bool:
             )
         return True
     except Exception as e:
-        logger.warning("vectorize_note failed %s: %s", note_id, e)
+        logger.warning("vectorize_note failed %s: %s", note_id, type(e).__name__)
         return False
 
 
@@ -149,16 +159,26 @@ def _vector_search(
     for row in rows:
         note_id, vec_json, title, content, ticker, tags_json, created_at, updated_at = row
         try:
-            doc_vec = json.loads(vec_json)
+            doc_vec = json.loads(vec_json, parse_constant=_reject_json_constant)
             score = _cosine(q_vec, doc_vec)
-        except Exception:
+            if not math.isfinite(score):
+                raise ValueError("non-finite similarity")
+        except Exception as exc:
+            logger.warning("invalid stored note vector (%s)", type(exc).__name__)
             score = 0.0
+        try:
+            tags = json.loads(tags_json or "[]", parse_constant=_reject_json_constant)
+            if not isinstance(tags, list):
+                raise ValueError("tags must be a list")
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("invalid stored note tags (%s)", type(exc).__name__)
+            tags = []
         scored.append((score, {
             "note_id": note_id,
             "title": title,
             "content": content,
             "ticker": ticker,
-            "tags": json.loads(tags_json or "[]"),
+            "tags": tags,
             "created_at": created_at,
             "updated_at": updated_at,
             "similarity": round(score, 4),

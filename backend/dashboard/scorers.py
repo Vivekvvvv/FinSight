@@ -48,11 +48,16 @@ from backend.dashboard.insights_scorer import (
     score_technical_details,
 )
 from backend.dashboard.schemas import InsightCard
+from backend.utils.env_config import env_float
 
 logger = logging.getLogger(__name__)
 
 
-_DIGEST_TIMEOUT_SECONDS = float(os.getenv("INSIGHTS_DIGEST_TIMEOUT", "5"))
+_DIGEST_TIMEOUT_SECONDS = env_float("INSIGHTS_DIGEST_TIMEOUT", 5.0, minimum=0.1)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +87,7 @@ def _get_llm():
         logger.info("[Insights] LLM initialized for dashboard scorers")
         return _llm_instance
     except Exception as exc:
-        logger.warning("[Insights] LLM init failed, dashboard scorers will use fallback: %s", exc)
+        logger.warning("[Insights] LLM init failed, dashboard scorers will use fallback: %s", type(exc).__name__)
         return None
 
 
@@ -178,7 +183,7 @@ class DashboardScorer(ABC):
             logger.warning("[Insights] %s timed out for %s", self.AGENT_NAME, ticker)
             return self._make_fallback_card(data, now_iso)
         except Exception as exc:
-            logger.warning("[Insights] %s failed for %s: %s", self.AGENT_NAME, ticker, exc)
+            logger.warning("[Insights] %s failed for %s: %s", self.AGENT_NAME, ticker, type(exc).__name__)
             return self._make_fallback_card(data, now_iso)
 
     async def _call_llm(self, llm: Any, prompt: str) -> str:
@@ -201,8 +206,8 @@ class DashboardScorer(ABC):
             text = "\n".join(lines).strip()
 
         try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
+            parsed = json.loads(text, parse_constant=_reject_json_constant)
+        except (json.JSONDecodeError, ValueError):
             logger.warning("[Insights] %s JSON parse failed, using fallback", self.AGENT_NAME)
             return self._make_fallback_card(data, now_iso)
 

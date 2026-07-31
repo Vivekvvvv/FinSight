@@ -18,6 +18,8 @@ import os
 import threading
 from typing import Any, Sequence
 
+from backend.utils.env_config import env_int
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TOP_N = 8
@@ -51,7 +53,7 @@ class _CrossEncoderWrapper:
     def __init__(self) -> None:
         self._model: Any = None
         self._lock = threading.Lock()
-        self._max_length = int(os.getenv("RAG_RERANKER_MAX_LENGTH", "512"))
+        self._max_length = env_int("RAG_RERANKER_MAX_LENGTH", 512, minimum=1)
 
     def _load(self) -> Any:
         if self._model is not None:
@@ -121,7 +123,7 @@ class RerankerService:
         except ImportError as exc:
             _log_reranker_degraded(
                 reason="sentence_transformers_unavailable",
-                detail=str(exc),
+                detail=type(exc).__name__,
                 requested_backend=self._requested_backend,
             )
             self._available = False
@@ -151,7 +153,7 @@ class RerankerService:
         except Exception as exc:
             _log_reranker_degraded(
                 reason="rerank_inference_error",
-                detail=str(exc),
+                detail=type(exc).__name__,
                 requested_backend=self._requested_backend,
             )
             return doc_list[:top_n]

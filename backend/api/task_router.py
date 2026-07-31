@@ -15,6 +15,13 @@ from backend.utils.quote import parse_quote_payload, safe_float
 logger = logging.getLogger(__name__)
 
 _task_generator = TaskGenerator()
+_MAX_WATCHLIST_TICKERS = 50
+_MAX_TICKER_LENGTH = 32
+
+
+def _normalize_ticker(value: Any) -> str | None:
+    ticker = str(value or "").strip().upper()
+    return ticker if ticker and len(ticker) <= _MAX_TICKER_LENGTH else None
 
 
 @dataclass(frozen=True)
@@ -33,7 +40,7 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
         session_id: str,
         risk_preference: str = "balanced",
         news_count: int = 0,  # reserved for future weighting
-        watchlist: str = Query("", description="Comma-separated ticker list"),
+        watchlist: str = Query("", max_length=1024, description="Comma-separated ticker list"),
         current_user: Principal = Depends(get_current_user),
     ):
         require_matching_identity(
@@ -45,18 +52,26 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         store = deps.get_report_index_store()
         reports = store.list_reports(session_id=normalized_session, limit=20)
 
-        report_tickers = {str(item["ticker"]).strip().upper() for item in reports if item.get("ticker")}
+        report_tickers = {
+            ticker
+            for item in reports
+            if (ticker := _normalize_ticker(item.get("ticker"))) is not None
+        }
         extra_tickers = {value.strip().upper() for value in (watchlist or "").split(",") if value.strip()}
+        if len(extra_tickers) > _MAX_WATCHLIST_TICKERS:
+            raise HTTPException(status_code=422, detail="Too many watchlist tickers")
+        if any(len(ticker) > _MAX_TICKER_LENGTH for ticker in extra_tickers):
+            raise HTTPException(status_code=422, detail="Invalid watchlist ticker")
         merged_watchlist = sorted(report_tickers | extra_tickers)
 
         recent_reports: dict[str, dict[str, Any]] = {}
         for report in reports:
-            ticker = str(report.get("ticker", "")).strip().upper()
+            ticker = _normalize_ticker(report.get("ticker"))
             if not ticker:
                 continue
 
@@ -83,7 +98,7 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
 
         positions_by_ticker: dict[str, dict[str, Any]] = {}
         for position in stored_positions:
-            ticker = str(position.get("ticker", "")).strip().upper()
+            ticker = _normalize_ticker(position.get("ticker"))
             shares = safe_float(position.get("shares")) or 0.0
             avg_cost = safe_float(position.get("avg_cost"))
             if not ticker:

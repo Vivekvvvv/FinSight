@@ -4,17 +4,25 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Annotated, Any, Callable, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.demo_mode import demo_notes, is_demo_mode
 from backend.services import note_images, research_notes
 
 logger = logging.getLogger(__name__)
+
+_IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
 
 
 @dataclass(frozen=True)
@@ -32,20 +40,26 @@ def _provided_user_id(value: str | None) -> str | None:
 # ── Pydantic Models ──
 
 
+NoteTag = Annotated[str, Field(max_length=64)]
+NoteIdPath = Annotated[str, Path(min_length=1, max_length=128)]
+UserIdPath = Annotated[str, Path(min_length=1, max_length=64)]
+ImageFilenamePath = Annotated[str, Path(min_length=1, max_length=255)]
+
+
 class CreateNoteRequest(BaseModel):
-    session_id: str
-    user_id: str = "default_user"
-    title: str
-    content: str = ""
-    ticker: Optional[str] = None
-    tags: list[str] = []
+    session_id: str = Field(..., max_length=256)
+    user_id: str = Field("default_user", max_length=64)
+    title: str = Field(..., min_length=1, max_length=512)
+    content: str = Field("", max_length=100_000)
+    ticker: Optional[str] = Field(None, max_length=32)
+    tags: list[NoteTag] = Field(default_factory=list, max_length=20)
 
 
 class UpdateNoteRequest(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    ticker: Optional[str] = None
-    tags: Optional[list[str]] = None
+    title: Optional[str] = Field(None, min_length=1, max_length=512)
+    content: Optional[str] = Field(None, max_length=100_000)
+    ticker: Optional[str] = Field(None, max_length=32)
+    tags: Optional[list[NoteTag]] = Field(None, max_length=20)
 
 
 def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
@@ -94,11 +108,11 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
     async def list_notes(
         session_id: str,
         user_id: str = "default_user",
-        ticker: Optional[str] = None,
-        q: Optional[str] = None,
+        ticker: Optional[str] = Query(None, max_length=32),
+        q: Optional[str] = Query(None, max_length=2048),
         # 夹紧分页参数，负 offset / 超大 limit 不透传存储层（审计 E4）
         limit: int = Query(50, ge=1, le=200),
-        offset: int = Query(0, ge=0),
+        offset: int = Query(0, ge=0, le=100000),
         current_user: Principal = Depends(get_current_user),
     ):
         """列出研究笔记"""
@@ -151,8 +165,8 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
     async def semantic_search(
         session_id: str,
         user_id: str = "default_user",
-        q: str = "",
-        limit: int = 10,
+        q: str = Query("", max_length=2048),
+        limit: int = Query(10, ge=1, le=20),
         current_user: Principal = Depends(get_current_user),
     ):
         """
@@ -179,7 +193,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
                 session_id=normalized_session,
                 user_id=effective_user_id,
                 query=q,
-                limit=min(limit, 20),
+                limit=limit,
             )
             return {"results": results, "query": q, "total": len(results)}
         except HTTPException:
@@ -190,7 +204,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
     @router.get("/api/research-notes/{note_id}")
     async def get_note(
-        note_id: str,
+        note_id: NoteIdPath,
         current_user: Principal = Depends(get_current_user),
     ):
         """获取单条笔记"""
@@ -217,7 +231,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
     @router.put("/api/research-notes/{note_id}")
     async def update_note(
-        note_id: str,
+        note_id: NoteIdPath,
         req: UpdateNoteRequest,
         current_user: Principal = Depends(get_current_user),
     ):
@@ -252,7 +266,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
     @router.delete("/api/research-notes/{note_id}")
     async def delete_note(
-        note_id: str,
+        note_id: NoteIdPath,
         current_user: Principal = Depends(get_current_user),
     ):
         """删除笔记"""
@@ -286,7 +300,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
     @router.post("/api/research-notes/{note_id}/images")
     async def upload_image(
-        note_id: str,
+        note_id: NoteIdPath,
         file: UploadFile = File(...),
         current_user: Principal = Depends(get_current_user),
     ):
@@ -313,7 +327,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             }
 
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail="Invalid image upload") from e
         except HTTPException:
             raise
         except Exception as exc:
@@ -322,9 +336,9 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
     @router.get("/api/notes/images/{user_id}/{note_id}/{filename}")
     async def get_image(
-        user_id: str,
-        note_id: str,
-        filename: str,
+        user_id: UserIdPath,
+        note_id: NoteIdPath,
+        filename: ImageFilenamePath,
         current_user: Principal = Depends(get_current_user),
     ):
         """获取笔记图片（静态文件）"""
@@ -342,7 +356,8 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             # 返回静态文件
             return FileResponse(
                 path=file_path,
-                media_type="image/png",  # 浏览器会根据实际内容自动识别
+                media_type=_IMAGE_MEDIA_TYPES.get(file_path.suffix.lower(), "application/octet-stream"),
+                headers={"X-Content-Type-Options": "nosniff"},
             )
 
         except HTTPException:
@@ -353,7 +368,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
     @router.get("/api/research-notes/{note_id}/images")
     async def list_note_images(
-        note_id: str,
+        note_id: NoteIdPath,
         current_user: Principal = Depends(get_current_user),
     ):
         """列出笔记的所有图片"""
@@ -383,8 +398,8 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
     @router.delete("/api/research-notes/{note_id}/images/{filename}")
     async def delete_image(
-        note_id: str,
-        filename: str,
+        note_id: NoteIdPath,
+        filename: ImageFilenamePath,
         current_user: Principal = Depends(get_current_user),
     ):
         """删除笔记图片"""

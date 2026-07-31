@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -16,6 +17,16 @@ from typing import Any, Callable, Dict, List, Optional
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_trace_value(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _sanitize_trace_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_trace_value(item) for item in value]
+    return value
 
 
 class TraceLevel(str, Enum):
@@ -51,7 +62,7 @@ class TraceEvent:
 
     def to_sse_dict(self) -> Dict[str, Any]:
         """转换为 SSE 事件格式"""
-        return {
+        return _sanitize_trace_value({
             "type": self.event_type,
             "category": self.category.value,
             "message": self.message,
@@ -60,7 +71,7 @@ class TraceEvent:
             "duration_ms": self.duration_ms,
             "agent": self.agent,
             **self.metadata
-        }
+        })
 
 
 class TraceEmitter:
@@ -133,7 +144,7 @@ class TraceEmitter:
             try:
                 listener(event)
             except Exception as e:
-                logger.debug(f"[TraceEmitter] Listener error: {e}")
+                logger.debug("[TraceEmitter] Listener error: %s", type(e).__name__)
 
         # 放入异步队列
         if self._async_queue:
@@ -184,7 +195,7 @@ class TraceEmitter:
             self.emit_tool_end(tool_name, success=True, duration_ms=duration_ms, agent=agent)
         except Exception as e:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            self.emit_tool_end(tool_name, success=False, duration_ms=duration_ms, error=str(e), agent=agent)
+            self.emit_tool_end(tool_name, success=False, duration_ms=duration_ms, error=type(e).__name__, agent=agent)
             raise
 
     # ==================== LLM 追踪 ====================
@@ -247,7 +258,7 @@ class TraceEmitter:
             self.emit_llm_end(model=model, duration_ms=duration_ms, success=True, agent=agent)
         except Exception as e:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            self.emit_llm_end(model=model, duration_ms=duration_ms, success=False, error=str(e), agent=agent)
+            self.emit_llm_end(model=model, duration_ms=duration_ms, success=False, error=type(e).__name__, agent=agent)
             raise
 
     # ==================== 缓存追踪 ====================

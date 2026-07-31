@@ -10,6 +10,7 @@ A股历史K线数据下载与缓存服务
 from __future__ import annotations
 
 import logging
+import math
 import os
 import sqlite3
 import threading
@@ -117,19 +118,27 @@ def _fetch_baostock(ticker: str, start: str, end: str, adjust: str) -> list[dict
         logger.warning("baostock 未安装")
         return []
     except Exception as e:
-        logger.warning("baostock 拉取失败 %s: %s", ticker, e)
+        logger.warning("baostock 拉取失败 %s: %s", ticker, type(e).__name__)
         try:
             import baostock as bs
             bs.logout()
-        except Exception:
-            pass
+        except Exception as logout_exc:
+            logger.debug("baostock logout failed: %s", type(logout_exc).__name__)
         return []
 
 
 def _clean(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """数据清洗：去异常行，ffill缺失，标记涨跌幅>22%的行"""
-    # 过滤 close 为空或为0
-    valid = [r for r in rows if r.get("close") and float(r["close"]) > 0]
+    # 过滤 close 为空、不可解析、非有限或非正的行。
+    valid = []
+    for row in rows:
+        try:
+            close = float(row.get("close"))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(close) and close > 0:
+            row["close"] = close
+            valid.append(row)
     if not valid:
         return []
 
@@ -138,12 +147,20 @@ def _clean(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     # ffill：用前一天 close 填充缺失的 open/high/low
     for i, r in enumerate(valid):
-        if r.get("open") is None or r.get("open", 0) <= 0:
-            r["open"] = valid[i - 1]["close"] if i > 0 else r["close"]
-        if r.get("high") is None or r.get("high", 0) <= 0:
-            r["high"] = r["close"]
-        if r.get("low") is None or r.get("low", 0) <= 0:
-            r["low"] = r["close"]
+        for field in ("open", "high", "low"):
+            try:
+                value = float(r.get(field))
+            except (TypeError, ValueError):
+                value = 0.0
+            if not math.isfinite(value) or value <= 0:
+                value = valid[i - 1]["close"] if field == "open" and i > 0 else r["close"]
+            r[field] = value
+
+        try:
+            volume = float(r.get("volume"))
+        except (TypeError, ValueError):
+            volume = 0.0
+        r["volume"] = volume if math.isfinite(volume) and volume >= 0 else 0.0
 
     # 标记异常（涨跌幅 > 22%）
     for i, r in enumerate(valid):
@@ -317,7 +334,8 @@ def fetch_and_cache_kline(
                  "close": p.get("close"), "volume": p.get("volume")}
                 for p in kdata if p.get("close")
             ]
-        except Exception:
+        except Exception as exc:
+            logger.warning("historical fallback failed for %s: %s", ticker, type(exc).__name__)
             return []
 
     cleaned = _clean(rows)

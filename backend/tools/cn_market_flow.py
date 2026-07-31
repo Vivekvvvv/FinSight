@@ -2,6 +2,8 @@
 
 import logging
 import os
+
+from backend.utils.env_config import env_int
 from typing import Any
 
 from backend.tools.http import _http_get
@@ -10,7 +12,7 @@ from backend.utils.quote import safe_float
 logger = logging.getLogger(__name__)
 
 _EASTMONEY_USER_AGENT = os.getenv("EASTMONEY_USER_AGENT", "Mozilla/5.0 (FinSight)")
-_EASTMONEY_TIMEOUT = int(os.getenv("EASTMONEY_TIMEOUT", "12"))
+_EASTMONEY_TIMEOUT = env_int("EASTMONEY_TIMEOUT", 12, minimum=1)
 _EASTMONEY_LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 
 
@@ -42,7 +44,7 @@ def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, 
         rows = data.get("diff") if isinstance(data, dict) else None
         return rows if isinstance(rows, list) else []
     except Exception as exc:
-        logger.info("cn market eastmoney list failed: %s", exc)
+        logger.info("cn market eastmoney list failed: %s", type(exc).__name__)
         return None
 
 

@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,6 +57,20 @@ def api_key_fingerprint(api_key: str) -> str:
     return f"api_{digest}"
 
 
+def secure_secret_matches(candidate: str, expected: str) -> bool:
+    return hmac.compare_digest(
+        str(candidate or "").encode("utf-8"),
+        str(expected or "").encode("utf-8"),
+    )
+
+
+def secure_secret_in(candidate: str, expected_values: Iterable[str]) -> bool:
+    matched = 0
+    for expected in expected_values:
+        matched |= int(secure_secret_matches(candidate, expected))
+    return bool(matched)
+
+
 def principal_from_api_key(api_key: str) -> Principal:
     """把内部 API key 映射为最小认证主体。
 
@@ -83,7 +99,7 @@ def principal_from_api_key(api_key: str) -> Principal:
     # consumer 发的 key 会意外获得 admin，可访问 config/entitlements/subscription
     # 管理端点。需要 admin 的部署须显式配 API_AUTH_ADMIN_KEYS 或
     # API_AUTH_PRINCIPALS（R68）。
-    role = "admin" if api_key in admin_keys else "user"
+    role = "admin" if secure_secret_in(api_key, admin_keys) else "user"
     return Principal(
         user_id=os.getenv("API_AUTH_DEFAULT_USER_ID") or api_key_fingerprint(api_key),
         email=os.getenv("API_AUTH_DEFAULT_EMAIL") or "api-user@example.invalid",

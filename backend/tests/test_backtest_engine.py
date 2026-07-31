@@ -112,6 +112,35 @@ def test_backtest_engine_filters_zero_price_bars(monkeypatch):
     assert len(result["equity_curve"]) > 0
 
 
+def test_backtest_engine_filters_non_finite_price_bars(monkeypatch):
+    series = _build_series()
+    series[3]["close"] = "nan"
+    series[4]["close"] = "inf"
+
+    monkeypatch.setattr(
+        backtest_engine_module,
+        "get_stock_historical_data",
+        lambda ticker, period="5y", interval="1d": {
+            "kline_data": series,
+            "source": "unit_test_hist",
+        },
+    )
+    monkeypatch.setattr(
+        backtest_engine_module,
+        "fetch_cn_hk_kline",
+        lambda ticker, limit=1200: [],
+    )
+
+    result = backtest_engine_module.BacktestEngine().run(
+        ticker="AAPL",
+        strategy="ma_cross",
+        t_plus_one=True,
+    )
+
+    assert result["success"] is True
+    assert result["period"]["bars"] == len(series) - 2
+
+
 def test_backtest_engine_cost_and_slippage_reduce_final_equity(monkeypatch):
     series = _build_series(days=120)
 

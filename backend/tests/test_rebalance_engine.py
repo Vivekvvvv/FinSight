@@ -1,6 +1,9 @@
 import pytest
+from types import SimpleNamespace
 
-from backend.api.rebalance_schemas import RebalanceConstraints, RiskTier
+from backend.services.rebalance_llm_enhancer import AgentBackedEnhancer
+
+from backend.api.rebalance_schemas import ActionType, RebalanceAction, RebalanceConstraints, RiskTier
 from backend.services.rebalance_engine import RebalanceContext, RebalanceEngine
 
 
@@ -40,8 +43,10 @@ async def test_rebalance_actions_include_evidence_snapshots():
 
 @pytest.mark.asyncio
 async def test_llm_enhancer_failure_falls_back_to_deterministic(caplog):
+    secret = "PRIVATE postgres://rebalance:secret@db/enhancer"
+
     async def failing_enhancer(*_args, **_kwargs):
-        raise RuntimeError("llm offline")
+        raise RuntimeError(secret)
 
     engine = RebalanceEngine(llm_enhancer=failing_enhancer)
     caplog.set_level("WARNING")
@@ -49,6 +54,87 @@ async def test_llm_enhancer_failure_falls_back_to_deterministic(caplog):
 
     assert len(suggestion.actions) >= 1
     assert any("fallback to deterministic" in rec.message for rec in caplog.records)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_rebalance_llm_initialization_error_log_is_redacted(caplog):
+    secret = "PRIVATE postgres://rebalance:secret@db/llm"
+
+    def _fail_llm(**_kwargs):
+        raise RuntimeError(secret)
+
+    enhancer = AgentBackedEnhancer(create_llm_fn=_fail_llm)
+    candidates = [object()]
+
+    result = await enhancer._llm_enhance(candidates, None, None, {})
+
+    assert result is candidates
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_rebalance_llm_call_error_log_is_redacted(caplog):
+    secret = "PRIVATE postgres://rebalance:secret@db/invoke"
+
+    class _FailingLLM:
+        async def ainvoke(self, _messages):
+            raise RuntimeError(secret)
+
+    enhancer = AgentBackedEnhancer(create_llm_fn=lambda **_kwargs: _FailingLLM())
+    candidates = [
+        RebalanceAction(
+            ticker="AAPL",
+            action=ActionType.REDUCE,
+            current_weight=60,
+            target_weight=50,
+            delta_weight=-10,
+            reason="concentration",
+        )
+    ]
+    diag = SimpleNamespace(weights={"AAPL": 60.0}, risk_flags=[])
+
+    result = await enhancer._llm_enhance(candidates, diag, _base_context(), {})
+
+    assert result is candidates
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_rebalance_news_fetch_error_log_is_redacted(caplog):
+    secret = "PRIVATE postgres://rebalance:secret@db/news"
+
+    def _fail_news(_ticker, _limit):
+        raise RuntimeError(secret)
+
+    caplog.set_level("DEBUG")
+    enhancer = AgentBackedEnhancer(get_company_news=_fail_news)
+
+    result = await enhancer._gather_agent_data(["AAPL"])
+
+    assert result == {"AAPL": {}}
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_rebalance_company_info_error_log_is_redacted(caplog):
+    secret = "PRIVATE postgres://rebalance:secret@db/company"
+
+    def _fail_info(_ticker):
+        raise RuntimeError(secret)
+
+    caplog.set_level("DEBUG")
+    enhancer = AgentBackedEnhancer(get_company_info=_fail_info)
+
+    result = await enhancer._gather_agent_data(["AAPL"])
+
+    assert result == {"AAPL": {}}
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -64,3 +150,10 @@ async def test_llm_enhancer_switch_is_respected():
 
     assert calls["count"] == 1
     assert suggestion.actions == []
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_rebalance_llm_parser_rejects_non_finite_priority(constant):
+    content = '[{"ticker":"AAPL","adjusted_priority":' + constant + "}]"
+
+    assert AgentBackedEnhancer._parse_llm_response(content) == []

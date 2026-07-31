@@ -3,6 +3,28 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
+def test_secure_secret_in_checks_every_candidate(monkeypatch):
+    from backend.security import auth
+
+    calls = []
+
+    def compare(candidate, expected):
+        calls.append((candidate, expected))
+        return candidate == expected
+
+    monkeypatch.setattr(auth, "secure_secret_matches", compare)
+
+    assert auth.secure_secret_in("match", ["match", "other"]) is True
+    assert calls == [("match", "match"), ("match", "other")]
+
+
+def test_secure_secret_matches_supports_unicode_values():
+    from backend.security.auth import secure_secret_matches
+
+    assert secure_secret_matches("密钥", "密钥") is True
+    assert secure_secret_matches("密钥", "其他") is False
+
+
 def _set_prod_env(monkeypatch):
     monkeypatch.setenv("DEV_MODE", "0")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")

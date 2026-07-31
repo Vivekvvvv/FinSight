@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+import math
 import os
 import time
 
@@ -24,7 +25,8 @@ def _env_int(name: str, default: int) -> int:
 
 def _env_float(name: str, default: float) -> float:
     try:
-        return float(os.getenv(name, default))
+        value = float(os.getenv(name, default))
+        return value if math.isfinite(value) else default
     except Exception:
         return default
 

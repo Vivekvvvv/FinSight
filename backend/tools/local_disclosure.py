@@ -31,7 +31,7 @@ def _detect_market(ticker: str) -> str:
 
 def _normalize_domain(url: str) -> str:
     try:
-        return urlparse(str(url or "").strip().lower()).netloc.lstrip("www.")
+        return (urlparse(str(url or "").strip()).hostname or "").lower().removeprefix("www.")
     except Exception:
         return ""
 
@@ -189,7 +189,7 @@ def get_local_market_filings(ticker: str, limit: int = 8) -> dict[str, Any]:
         try:
             raw = search(query)
         except Exception as exc:
-            logger.info("[LocalDisclosure] Search failed for %s: %s", query, exc)
+            logger.info("[LocalDisclosure] Search failed for %s: %s", query, type(exc).__name__)
             continue
 
         parsed = _parse_search_text(raw)

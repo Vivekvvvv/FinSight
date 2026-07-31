@@ -146,8 +146,8 @@ class SimpleRateLimiter:
     @classmethod
     def from_env(cls) -> "SimpleRateLimiter":
         enabled = (not is_dev_mode()) and env_bool("RATE_LIMIT_ENABLED", "true")
-        limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
-        window_seconds = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
+        limit = env_int("RATE_LIMIT_PER_MINUTE", 120)
+        window_seconds = env_int("RATE_LIMIT_WINDOW_SECONDS", 60)
         return cls(limit_per_window=limit, window_seconds=window_seconds, enabled=enabled)
 
     def allow(self, key: str) -> tuple[bool, Optional[int]]:

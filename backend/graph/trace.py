@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -15,6 +17,7 @@ from backend.services.langfuse_tracer import langfuse_span
 # Older spans are dropped (FIFO) when the limit is exceeded.
 # A typical turn produces ~6-8 spans, so 200 covers ~25-30 turns.
 MAX_TRACE_SPANS = 200
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +64,8 @@ def _safe_preview(value: Any, *, limit: int = 240) -> Any:
     try:
         if value is None:
             return None
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
         if isinstance(value, (int, float, bool)):
             return value
         if isinstance(value, str):
@@ -70,7 +75,8 @@ def _safe_preview(value: Any, *, limit: int = 240) -> Any:
         if isinstance(value, dict):
             return {k: _safe_preview(v, limit=limit) for k, v in list(value.items())[:12]}
         return str(value)[:limit]
-    except Exception:
+    except Exception as exc:
+        logger.debug("trace preview serialization failed: %s", type(exc).__name__)
         return None
 
 
@@ -324,7 +330,8 @@ def _span_data(node_name: str, state: GraphState, updates: dict[str, Any]) -> di
                 return {"draft_markdown_len": len(md), "draft_markdown_preview": _safe_preview(md, limit=140)}
             return {}
 
-    except Exception:
+    except Exception as exc:
+        logger.debug("trace span data extraction failed for %s: %s", node_name, type(exc).__name__)
         return {}
 
     return {}
@@ -376,8 +383,8 @@ def with_node_trace(node_name: str, fn: Callable[[GraphState], Any]) -> Callable
                         output=data,
                         metadata={"duration_ms": duration_ms},
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("LangFuse span update failed for %s: %s", node_name, type(exc).__name__)
 
         # ========== 内部 Trace 收集（SSE 推送用） ==========
         span: dict[str, Any] = {

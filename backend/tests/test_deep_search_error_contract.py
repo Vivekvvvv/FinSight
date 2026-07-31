@@ -4,7 +4,16 @@ import logging
 import sys
 import types
 
+import pytest
+
 from backend.agents.deep_search_agent import DeepSearchAgent
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_deep_search_json_parser_rejects_non_finite_constants(constant):
+    agent = DeepSearchAgent(llm=None, cache=None, tools_module=None)
+
+    assert agent._extract_json('{"needs_more":' + constant + "}") == {}
 
 
 def test_rag_observability_recording_error_is_redacted(monkeypatch, caplog):
@@ -174,3 +183,36 @@ def test_document_fetch_error_log_is_redacted(monkeypatch, caplog):
     assert result is None
     assert "private document fetch detail" not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+def test_document_url_query_is_redacted_from_logs(monkeypatch, caplog):
+    from backend.agents import deep_search_agent as deep_search_module
+
+    secret = "PRIVATE_QUERY_TOKEN_456"
+    monkeypatch.setattr(deep_search_module, "safe_pinned_request", lambda *_args, **_kwargs: None)
+    agent = DeepSearchAgent(llm=None, cache=None, tools_module=None)
+
+    with caplog.at_level(logging.INFO, logger="backend.agents.deep_search_agent"):
+        result = agent._fetch_document(
+            {"url": f"https://example.invalid/doc?access_token={secret}"}
+        )
+
+    assert result is None
+    assert secret not in caplog.text
+    assert "access_token" not in caplog.text
+    assert "example.invalid" in caplog.text
+
+
+def test_document_inventory_logs_only_url_host(caplog):
+    secret = "PRIVATE_QUERY_TOKEN_789"
+    agent = DeepSearchAgent(llm=None, cache=None, tools_module=None)
+
+    with caplog.at_level(logging.INFO, logger="backend.agents.deep_search_agent"):
+        agent._log_documents(
+            [{"title": "Example", "url": f"https://example.invalid/doc?token={secret}"}],
+            "search",
+        )
+
+    assert secret not in caplog.text
+    assert "token=" not in caplog.text
+    assert "example.invalid" in caplog.text

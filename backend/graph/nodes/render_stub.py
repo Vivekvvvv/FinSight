@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage
 
 from backend.graph.nodes.compare_gate import should_render_compare, is_compare_operation
 from backend.graph.state import GraphState
+from backend.utils.env_config import env_int
 
 
 def _build_ai_reply_message(artifacts: dict) -> AIMessage:
@@ -105,7 +106,7 @@ def render_stub(state: GraphState) -> dict:
             return {"artifacts": artifacts, "messages": [_build_ai_reply_message(artifacts)]}
 
     # ── Early-return: honour existing narrative draft ──────────────
-    _NARRATIVE_MIN_CHARS = int(os.getenv("RENDER_NARRATIVE_MIN_CHARS", "500"))
+    _NARRATIVE_MIN_CHARS = env_int("RENDER_NARRATIVE_MIN_CHARS", 500, minimum=0)
     output_mode = state.get("output_mode", "brief")
     existing_draft = artifacts.get("draft_markdown") if isinstance(artifacts, dict) else None
     if isinstance(existing_draft, str) and len(existing_draft.strip()) >= _NARRATIVE_MIN_CHARS:

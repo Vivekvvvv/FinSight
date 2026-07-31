@@ -10,6 +10,10 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
+
 # 财报分析prompt模板
 _FINANCIALS_PROMPT = """你是一位专业的A股财报分析师。请根据以下财报数据，生成结构化的财报解读报告。
 
@@ -95,7 +99,7 @@ async def analyze_financials(
             lines = text.split("\n")
             text = "\n".join(lines[1:-1])
 
-        result = json.loads(text)
+        result = json.loads(text, parse_constant=_reject_json_constant)
         result["ticker"] = ticker
         result["status"] = "success"
         return result

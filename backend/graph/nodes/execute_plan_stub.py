@@ -793,7 +793,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                 try:
                     return method(*args, **kwargs)
                 except Exception as exc:
-                    logger.warning("RAG 鍙娴嬪啓鍏ュけ璐?method=%s error=%s", method_name, exc)
+                    logger.warning("RAG 鍙娴嬪啓鍏ュけ璐?method=%s error=%s", method_name, type(exc).__name__)
                     return None
 
             await asyncio.to_thread(_store_call, "ensure_schema")
@@ -1105,7 +1105,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                             )]
                             reranker_used = True
                 except Exception as rerank_exc:
-                    logger.debug("Reranker unavailable, using RRF order: %s", rerank_exc)
+                    logger.debug("Reranker unavailable, using RRF order: %s", type(rerank_exc).__name__)
                     rag_hits = pre_rerank_hits[:rerank_top_n]
 
                 cleaned = await asyncio.to_thread(rag.cleanup_expired)
@@ -1297,14 +1297,15 @@ async def execute_plan_stub(state: GraphState) -> dict:
         else:
             rag_trace = {"enabled": False, "reason": "empty_query", "router_decision": rag_priority.value}
     except Exception as exc:
-        rag_trace = {"enabled": False, "error": str(exc), "run_id": rag_run_id}
+        logger.error("RAG pipeline failed: %s", type(exc).__name__)
+        rag_trace = {"enabled": False, "error": "rag_pipeline_error", "run_id": rag_run_id}
         if rag_run_id:
             rag_fallback_records.append(
                 FallbackEventRecord(
-                    id=_stable_id("fallback", rag_run_id, "rag_pipeline_error", str(exc)),
+                    id=_stable_id("fallback", rag_run_id, "rag_pipeline_error"),
                     run_id=rag_run_id,
                     reason_code="rag_pipeline_error",
-                    reason_text=str(exc),
+                    reason_text="rag_pipeline_error",
                     backend_before=None,
                     backend_after="memory",
                     payload_json={"thread_id": str(state.get("thread_id") or "")},
@@ -1313,7 +1314,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
             finished_at = datetime.now(timezone.utc)
             rag_final_update = {
                 "status": "failed",
-                "error_message": str(exc),
+                "error_message": "rag_pipeline_error",
                 "finished_at": finished_at,
                 "latency_ms": (finished_at - (rag_started_at or finished_at)).total_seconds() * 1000.0,
             }
@@ -1338,4 +1339,3 @@ async def execute_plan_stub(state: GraphState) -> dict:
     )
     trace["rag"] = rag_trace
     return {"artifacts": artifacts, "trace": trace}
-

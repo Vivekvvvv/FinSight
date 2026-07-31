@@ -9,10 +9,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any
+import re
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from backend.services.portfolio_store import (
     get_positions,
@@ -24,18 +25,25 @@ from backend.demo_mode import demo_portfolio_summary, is_demo_mode
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.tools import get_stock_price
 from backend.utils.quote import resolve_live_quote, safe_float
+from backend.utils.env_config import env_float
 
 logger = logging.getLogger(__name__)
 
 portfolio_router = APIRouter(tags=["Portfolio"])
+_PORTFOLIO_TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^=-]{0,19}$")
+PortfolioTag = Annotated[str, Field(max_length=64)]
+
+
+def _normalize_portfolio_ticker(value: str) -> str:
+    ticker = str(value or "").strip().upper()
+    if not _PORTFOLIO_TICKER_PATTERN.fullmatch(ticker):
+        raise ValueError("invalid ticker")
+    return ticker
 
 
 def _portfolio_quote_timeout_seconds() -> float:
     """组合页行情单标的超时，避免一个慢源拖死整个页面。"""
-    try:
-        return max(0.1, float(os.getenv("FINSIGHT_PORTFOLIO_QUOTE_TIMEOUT_SECONDS", "2.5")))
-    except ValueError:
-        return 2.5
+    return env_float("FINSIGHT_PORTFOLIO_QUOTE_TIMEOUT_SECONDS", 2.5, minimum=0.001)
 
 
 async def _resolve_quote_for_portfolio(ticker: str) -> tuple[dict[str, Any] | None, Any]:
@@ -53,38 +61,51 @@ async def _resolve_quote_for_portfolio(ticker: str) -> tuple[dict[str, Any] | No
         return None, None
 
 
+async def _resolve_quote_for_stored_position(position: dict[str, Any]) -> tuple[dict[str, Any] | None, Any]:
+    try:
+        ticker = _normalize_portfolio_ticker(position.get("ticker", ""))
+    except ValueError:
+        return None, None
+    return await _resolve_quote_for_portfolio(ticker)
+
+
 class PortfolioPositionPayload(BaseModel):
     """Single portfolio position payload used by update and CSV/bulk sync."""
 
-    ticker: str = Field(..., min_length=1, max_length=32)
-    shares: float = Field(..., ge=0)
-    avg_cost: float | None = Field(default=None, ge=0)
+    ticker: str = Field(..., min_length=1, max_length=20)
+    shares: float = Field(..., ge=0, allow_inf_nan=False)
+    avg_cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     name: str | None = Field(default=None, max_length=128)
-    tags: list[str] | None = Field(default=None, max_length=20)
+    tags: list[PortfolioTag] | None = Field(default=None, max_length=20)
     note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("ticker")
+    @classmethod
+    def normalize_ticker(cls, value: str) -> str:
+        return _normalize_portfolio_ticker(value)
 
 
 class SyncPositionsRequest(BaseModel):
     """Bulk-replace all positions for a session."""
 
     session_id: str
-    positions: list[PortfolioPositionPayload] = Field(default_factory=list)
+    positions: list[PortfolioPositionPayload] = Field(default_factory=list, max_length=200)
 
 
 class BulkImportRequest(BaseModel):
     """Merge-import positions (upsert by ticker, existing positions not in list are preserved)."""
 
     session_id: str
-    positions: list[PortfolioPositionPayload] = Field(default_factory=list)
+    positions: list[PortfolioPositionPayload] = Field(default_factory=list, max_length=200)
 
 
 class UpdatePositionRequest(BaseModel):
     """Upsert a single position."""
 
-    shares: float = Field(..., ge=0)
-    avg_cost: float | None = Field(default=None, ge=0)
+    shares: float = Field(..., ge=0, allow_inf_nan=False)
+    avg_cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     name: str | None = Field(default=None, max_length=128)
-    tags: list[str] | None = Field(default=None, max_length=20)
+    tags: list[PortfolioTag] | None = Field(default=None, max_length=20)
     note: str | None = Field(default=None, max_length=2000)
 
 
@@ -107,16 +128,22 @@ async def get_portfolio_summary(session_id: str, current_user: Principal = Depen
     enriched: list[dict[str, Any]] = []
 
     quote_tasks = [
-        _resolve_quote_for_portfolio(str(pos.get("ticker", "")).strip().upper())
+        _resolve_quote_for_stored_position(pos)
         for pos in positions
     ]
     live_quotes = await asyncio.gather(*quote_tasks) if quote_tasks else []
 
     for pos, quote_result in zip(positions, live_quotes):
         quote = quote_result[0] if isinstance(quote_result, tuple) else None
-        shares = float(pos.get("shares", 0))
+        shares = safe_float(pos.get("shares"))
+        if shares is None or shares < 0:
+            shares = 0.0
         avg_cost = safe_float(pos.get("avg_cost"))
+        if avg_cost is not None and avg_cost < 0:
+            avg_cost = None
         live_price = safe_float((quote or {}).get("price")) if quote else None
+        if live_price is not None and live_price <= 0:
+            live_price = None
         live_change = safe_float((quote or {}).get("change")) if quote else None
         live_change_pct = safe_float((quote or {}).get("change_percent")) if quote else None
 
@@ -230,9 +257,10 @@ async def update_position_endpoint(
     require_matching_identity(principal=current_user, provided=session_id, expected=current_user.session_id, field_name="session_id")
     resolved_session_id = session_id if current_user.auth_type == "dev" else current_user.session_id
 
-    clean_ticker = ticker.strip().upper()
-    if not clean_ticker:
-        raise HTTPException(status_code=422, detail="ticker is required")
+    try:
+        clean_ticker = _normalize_portfolio_ticker(ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid ticker") from exc
 
     update_position(
         session_id=resolved_session_id,
@@ -263,9 +291,10 @@ async def remove_position_endpoint(ticker: str, session_id: str, current_user: P
     require_matching_identity(principal=current_user, provided=session_id, expected=current_user.session_id, field_name="session_id")
     resolved_session_id = session_id if current_user.auth_type == "dev" else current_user.session_id
 
-    clean_ticker = ticker.strip().upper()
-    if not clean_ticker:
-        raise HTTPException(status_code=422, detail="ticker is required")
+    try:
+        clean_ticker = _normalize_portfolio_ticker(ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid ticker") from exc
 
     remove_position(session_id=resolved_session_id, ticker=clean_ticker)
     return {
@@ -297,10 +326,22 @@ async def get_risk_attribution(session_id: str, current_user: Principal = Depend
 # ── 组合优化 ─────────────────────────────────────────────────────────────────
 
 class PortfolioOptimizeRequest(BaseModel):
-    tickers: list[str]
-    risk_free_rate: float = 0.02
+    tickers: list[Annotated[str, Field(min_length=1, max_length=32)]] = Field(
+        ..., min_length=2, max_length=10,
+    )
+    risk_free_rate: float = Field(0.02, allow_inf_nan=False)
     # 上限防蒙特卡洛 DoS（审计 E1）：模拟次数与 CPU/内存线性相关
     n_simulations: int = Field(2000, ge=100, le=20000)
+
+    @field_validator("tickers")
+    @classmethod
+    def normalize_unique_tickers(cls, value: list[str]) -> list[str]:
+        normalized = [ticker.strip().upper() for ticker in value]
+        if any(not ticker for ticker in normalized):
+            raise ValueError("ticker is required")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("duplicate tickers are not allowed")
+        return normalized
 
 
 @portfolio_router.post("/api/portfolio/optimize")
@@ -332,7 +373,11 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
             kline: list = []
             if isinstance(payload, dict):
                 kline = payload.get("kline_data") or []
-            closes = [float(p["close"]) for p in kline if p.get("close") is not None]
+            closes = []
+            for point in kline:
+                close = safe_float(point.get("close")) if isinstance(point, dict) else None
+                if close is not None and close > 0:
+                    closes.append(close)
             if len(closes) < 20:
                 failed.append(t)
                 continue

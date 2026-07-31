@@ -8,11 +8,24 @@ import sys
 import os
 import time
 
+import pytest
+
 # 添加项目根目录到路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 
 from backend.orchestration.cache import DataCache, CacheEntry
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-1", "2"])
+def test_cache_rejects_invalid_jitter_ratio(monkeypatch, value):
+    monkeypatch.setenv("CACHE_JITTER_RATIO", value)
+    cache = DataCache()
+
+    cache.set("key", "value", ttl=60)
+
+    assert cache.get("key") == "value"
+    assert cache._jitter_ratio == 0.1
 
 
 def test_basic_set_get():
@@ -303,4 +316,3 @@ def run_all_tests():
 if __name__ == "__main__":
     success = run_all_tests()
     sys.exit(0 if success else 1)
-

@@ -24,7 +24,13 @@ def _safe_get(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
 
 def clamp_score(value: float) -> float:
     """Clamp score to [1, 10] range, rounded to 1 decimal."""
-    return round(max(1.0, min(10.0, value)), 1)
+    try:
+        score = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 5.0
+    if not math.isfinite(score):
+        return 5.0
+    return round(max(1.0, min(10.0, score)), 1)
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +344,13 @@ def score_overview(
 # ---------------------------------------------------------------------------
 
 def _clip_contribution(value: float, low: float = -5.0, high: float = 5.0) -> float:
-    return max(low, min(high, float(value)))
+    try:
+        contribution = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not math.isfinite(contribution):
+        return 0.0
+    return max(low, min(high, contribution))
 
 
 def score_technical_details(

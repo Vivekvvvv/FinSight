@@ -11,6 +11,7 @@ States:
 from __future__ import annotations
 
 import time
+import math
 import os
 from dataclasses import dataclass
 from threading import RLock
@@ -49,7 +50,15 @@ class CircuitBreaker:
         source_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
         self.failure_threshold = max(1, failure_threshold)
-        self.recovery_timeout = max(0.1, float(recovery_timeout))
+        try:
+            parsed_recovery_timeout = float(recovery_timeout)
+        except Exception:
+            parsed_recovery_timeout = 300.0
+        self.recovery_timeout = (
+            max(0.1, parsed_recovery_timeout)
+            if math.isfinite(parsed_recovery_timeout)
+            else 300.0
+        )
         self.half_open_success_threshold = max(1, half_open_success_threshold)
         self._states: Dict[str, _CircuitState] = {}
         self._lock = RLock()
@@ -200,14 +209,18 @@ class CircuitBreaker:
         override = self._get_override(source, "recovery_timeout")
         if override is not None:
             try:
-                return max(0.1, float(override))
+                parsed = float(override)
+                if math.isfinite(parsed):
+                    return max(0.1, parsed)
             except Exception:
                 pass
         env_key = f"CB_{self._normalize_source(source)}_RECOVERY_TIMEOUT"
         env_val = os.getenv(env_key)
         if env_val:
             try:
-                return max(0.1, float(env_val))
+                parsed = float(env_val)
+                if math.isfinite(parsed):
+                    return max(0.1, parsed)
             except Exception:
                 pass
         return self.recovery_timeout

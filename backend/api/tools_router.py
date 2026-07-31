@@ -13,10 +13,10 @@ def create_tools_router() -> APIRouter:
 
     @router.get("/api/tools/capabilities")
     async def list_tool_capabilities(
-        market: str = Query("US", description="Market scope"),
-        operation: str = Query("qa", description="Operation name"),
-        analysis_depth: str = Query("report", description="Analysis depth"),
-        output_mode: str = Query("brief", description="Output mode"),
+        market: str = Query("US", max_length=64, description="Market scope"),
+        operation: str = Query("qa", max_length=64, description="Operation name"),
+        analysis_depth: str = Query("report", max_length=64, description="Analysis depth"),
+        output_mode: str = Query("brief", max_length=64, description="Output mode"),
     ):
         market_norm = str(market or "US").strip().upper() or "US"
         operation_norm = str(operation or "qa").strip().lower() or "qa"

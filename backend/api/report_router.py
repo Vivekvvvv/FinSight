@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.demo_mode import demo_reports, is_demo_mode
 from backend.security.auth import Principal, get_current_user, require_matching_identity
@@ -20,6 +21,17 @@ def _validate_report_id(report_id: str) -> str:
     return report_id
 
 
+def _validate_iso_filter(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid date filter") from exc
+    return text
+
+
 @dataclass(frozen=True)
 class ReportRouterDeps:
     resolve_thread_id: Callable[[Optional[str]], str]
@@ -32,18 +44,18 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
     @router.get("/api/reports/index")
     async def list_report_index(
         session_id: str,
-        ticker: Optional[str] = None,
-        query: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        tag: Optional[str] = None,
-        source_type: Optional[str] = None,
-        review_status: Optional[str] = None,
-        quality_state_filter: Optional[str] = None,
-        sort_by: str = "generated_at_desc",
+        ticker: Optional[str] = Query(None, max_length=32),
+        query: Optional[str] = Query(None, max_length=2048),
+        date_from: Optional[str] = Query(None, max_length=32),
+        date_to: Optional[str] = Query(None, max_length=32),
+        tag: Optional[str] = Query(None, max_length=128),
+        source_type: Optional[str] = Query(None, max_length=64),
+        review_status: Optional[str] = Query(None, max_length=64),
+        quality_state_filter: Optional[str] = Query(None, max_length=32),
+        sort_by: str = Query("generated_at_desc", max_length=64),
         favorite_only: bool = False,
         include_blocked: bool = False,
-        limit: int = 50,
+        limit: int = Query(50, ge=1, le=500),
         current_user: Principal = Depends(get_current_user),
     ):
         require_matching_identity(
@@ -55,7 +67,9 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
+        date_from = _validate_iso_filter(date_from)
+        date_to = _validate_iso_filter(date_to)
 
         store = deps.get_report_index_store()
         rows = store.list_reports(
@@ -111,7 +125,7 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         store = deps.get_report_index_store()
         replay = store.get_report_replay(
@@ -126,12 +140,12 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
     @router.get("/api/reports/citations")
     async def list_report_citations(
         session_id: str,
-        report_id: Optional[str] = None,
-        query: Optional[str] = None,
-        source_id: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        limit: int = 100,
+        report_id: Optional[str] = Query(None, max_length=128),
+        query: Optional[str] = Query(None, max_length=2048),
+        source_id: Optional[str] = Query(None, max_length=256),
+        date_from: Optional[str] = Query(None, max_length=32),
+        date_to: Optional[str] = Query(None, max_length=32),
+        limit: int = Query(100, ge=1, le=500),
         current_user: Principal = Depends(get_current_user),
     ):
         require_matching_identity(
@@ -143,7 +157,11 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
+        date_from = _validate_iso_filter(date_from)
+        date_to = _validate_iso_filter(date_to)
+        if report_id is not None:
+            report_id = _validate_report_id(report_id)
 
         store = deps.get_report_index_store()
         rows = store.list_citations(
@@ -179,9 +197,12 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
-        is_favorite = bool(request.get("is_favorite", True))
+        raw_favorite = request.get("is_favorite", True)
+        if not isinstance(raw_favorite, bool):
+            raise HTTPException(status_code=422, detail="is_favorite must be a boolean")
+        is_favorite = raw_favorite
         store = deps.get_report_index_store()
         ok = store.set_favorite(
             session_id=normalized_session,
@@ -215,7 +236,7 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         raw_note = request.get("user_note", request.get("note", ""))
         note_text = str(raw_note or "").strip()
@@ -263,7 +284,7 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         store = deps.get_report_index_store()
         report_a = store.get_report_replay(
@@ -357,9 +378,14 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
-        status = str(request.get("review_status") or "new").strip()
+        raw_status = request.get("review_status", "new")
+        if not isinstance(raw_status, str):
+            raise HTTPException(status_code=422, detail="invalid review_status")
+        status = raw_status.strip().lower()
+        if status not in {"new", "reviewed", "watch", "archived"}:
+            raise HTTPException(status_code=422, detail="invalid review_status")
         store = deps.get_report_index_store()
         ok = store.set_review_status(session_id=normalized_session, report_id=report_id, review_status=status)
         if not ok:
@@ -383,11 +409,15 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         tags = request.get("tags") or []
         if not isinstance(tags, list):
             raise HTTPException(status_code=422, detail="tags must be a list")
+        if len(tags) > 20:
+            raise HTTPException(status_code=422, detail="too many tags")
+        if any(not isinstance(tag, str) or len(tag.strip()) > 64 for tag in tags):
+            raise HTTPException(status_code=422, detail="invalid tag")
         store = deps.get_report_index_store()
         ok = store.set_tags(session_id=normalized_session, report_id=report_id, tags=tags)
         if not ok:
@@ -411,7 +441,7 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
         store = deps.get_report_index_store()
         store.mark_viewed(session_id=normalized_session, report_id=report_id)
         return {"success": True}

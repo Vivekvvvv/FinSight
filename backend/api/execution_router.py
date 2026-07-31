@@ -12,18 +12,21 @@ import json as _json
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time
-from typing import Any, Awaitable, Callable, Literal, Optional
+from typing import Annotated, Any, Awaitable, Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from backend.graph.confirmation_policy import parse_confirmation_mode
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.execution_service import ExecutionDeps, run_graph_pipeline, resume_graph_pipeline
 
 logger = logging.getLogger("execution_router")
+
+_MAX_RESUME_VALUE_BYTES = 64 * 1024
+_MAX_AGENT_PREFERENCES_BYTES = 64 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -33,10 +36,12 @@ logger = logging.getLogger("execution_router")
 class ExecuteRequest(BaseModel):
     """Body for ``POST /api/execute``."""
 
-    query: str = Field(..., min_length=1, description="Analysis query")
-    tickers: list[str] | None = Field(None, description="Explicit ticker list")
+    query: str = Field(..., min_length=1, max_length=16_384, description="Analysis query")
+    tickers: list[Annotated[str, Field(min_length=1, max_length=32)]] | None = Field(
+        None, max_length=50, description="Explicit ticker list",
+    )
     output_mode: str | None = Field(
-        None, description="chat / brief / investment_report",
+        None, max_length=64, description="chat / brief / investment_report",
     )
     confirmation_mode: Literal["auto", "required", "skip"] | None = Field(
         None,
@@ -50,36 +55,67 @@ class ExecuteRequest(BaseModel):
         None,
         description="Force report orchestration to keep all report agents enabled",
     )
-    agents: list[str] | None = Field(
-        None, description="Override: only run these agents",
+    agents: list[Annotated[str, Field(min_length=1, max_length=64)]] | None = Field(
+        None, max_length=20, description="Override: only run these agents",
     )
     budget: int | None = Field(
         None, ge=1, le=10, description="Max LangGraph rounds",
     )
     source: str | None = Field(
-        None, description="Trigger origin (dashboard / workbench / …)",
+        None, max_length=256, description="Trigger origin (dashboard / workbench / …)",
     )
-    session_id: str | None = Field(None, description="Session ID")
-    run_id: str | None = Field(None, description="Client-provided run id for event correlation")
+    session_id: str | None = Field(None, max_length=256, description="Session ID")
+    run_id: str | None = Field(
+        None, max_length=256, description="Client-provided run id for event correlation",
+    )
     trace_raw: bool | None = Field(
         None,
         description="Whether to include full raw trace events in SSE stream",
     )
     agent_preferences: dict | None = Field(
-        None,
+        None, max_length=20,
         description="Per-agent depth + budget preferences from frontend UI",
     )
+
+    @field_validator("agent_preferences")
+    @classmethod
+    def validate_agent_preferences_size(cls, value: dict | None) -> dict | None:
+        if value is None:
+            return None
+        encoded = _json.dumps(
+            value, ensure_ascii=False, separators=(",", ":"),
+        ).encode("utf-8")
+        if len(encoded) > _MAX_AGENT_PREFERENCES_BYTES:
+            raise ValueError("agent_preferences is too large")
+        return value
 
 
 class ResumeRequest(BaseModel):
     """Body for ``POST /api/execute/resume``."""
 
-    thread_id: str = Field(..., min_length=1, description="Thread / session ID to resume")
+    thread_id: str = Field(
+        ..., min_length=1, max_length=256, description="Thread / session ID to resume",
+    )
     resume_value: Any = Field(..., description="User response to the interrupt prompt")
-    session_id: str | None = Field(None, description="Session ID")
-    run_id: str | None = Field(None, description="Client-provided run id for event correlation")
-    source: str | None = Field(None, description="Trigger origin")
+    session_id: str | None = Field(None, max_length=256, description="Session ID")
+    run_id: str | None = Field(
+        None, max_length=256, description="Client-provided run id for event correlation",
+    )
+    source: str | None = Field(None, max_length=256, description="Trigger origin")
     trace_raw: bool | None = Field(None)
+
+    @field_validator("resume_value")
+    @classmethod
+    def validate_resume_value_size(cls, value: Any) -> Any:
+        try:
+            encoded = _json.dumps(
+                value, ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("resume_value must be JSON serializable") from exc
+        if len(encoded) > _MAX_RESUME_VALUE_BYTES:
+            raise ValueError("resume_value is too large")
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +160,7 @@ def create_execution_router(deps: ExecutionRouterDeps) -> APIRouter:
         try:
             thread_id = deps.resolve_thread_id(resolved_session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         # Build ui_context from execution-specific fields
         ui_context: dict[str, Any] = {}

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import time
 from collections import defaultdict
@@ -35,6 +36,22 @@ def _env_float(name: str, default: float) -> float:
         return float(os.getenv(name, default))
     except Exception:
         return default
+
+
+def _nonnegative_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        return default
+    return parsed if parsed >= 0 else default
+
+
+def _positive_finite_float(value: object, default: float) -> float:
+    try:
+        parsed = float(value)
+    except Exception:
+        return default
+    return parsed if math.isfinite(parsed) and parsed > 0 else default
 
 
 class LLMRateLimiter:
@@ -65,25 +82,32 @@ class LLMRateLimiter:
             if enabled is not None
             else os.getenv("LLM_RATE_LIMIT_ENABLED", "true").lower() == "true"
         )
-        self.requests_per_minute = (
+        requests_per_minute_value = (
             requests_per_minute
             if requests_per_minute is not None
             else _env_int("LLM_RATE_LIMIT_RPM", 60)
         )
-        self.burst_capacity = (
+        self.requests_per_minute = _nonnegative_int(requests_per_minute_value, 60)
+        burst_capacity_value = (
             burst_capacity
             if burst_capacity is not None
             else _env_int("LLM_RATE_LIMIT_BURST", 15)
         )
-        self.min_tokens_per_agent = (
+        self.burst_capacity = _nonnegative_int(burst_capacity_value, 15)
+        min_tokens_per_agent_value = (
             min_tokens_per_agent
             if min_tokens_per_agent is not None
             else _env_int("LLM_RATE_LIMIT_MIN_TOKENS_PER_AGENT", 8)
         )
-        self.agent_window_seconds = (
+        self.min_tokens_per_agent = _nonnegative_int(min_tokens_per_agent_value, 8)
+        agent_window_seconds_value = (
             agent_window_seconds
             if agent_window_seconds is not None
             else _env_float("LLM_RATE_LIMIT_AGENT_WINDOW_SECONDS", 60.0)
+        )
+        self.agent_window_seconds = _positive_finite_float(
+            agent_window_seconds_value,
+            60.0,
         )
 
         # --- 全局令牌桶状态 ---

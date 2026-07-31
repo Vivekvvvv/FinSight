@@ -64,7 +64,12 @@ def take_daily_risk_snapshot() -> None:
                 success_count += 1
 
             except Exception as e:
-                logger.error(f"Failed to snapshot {session_id}/{user_id}: {e}")
+                logger.error(
+                    "Failed to snapshot %s/%s: %s",
+                    session_id,
+                    user_id,
+                    type(e).__name__,
+                )
                 error_count += 1
 
         logger.info(
@@ -72,7 +77,7 @@ def take_daily_risk_snapshot() -> None:
         )
 
     except Exception as e:
-        logger.error(f"Daily risk snapshot job failed: {e}", exc_info=True)
+        logger.error("Daily risk snapshot job failed: %s", type(e).__name__)
 
 
 def start_risk_snapshot_scheduler() -> BackgroundScheduler:

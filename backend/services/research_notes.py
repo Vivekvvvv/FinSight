@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import uuid
@@ -16,6 +17,20 @@ from typing import Any, Optional
 # 数据库路径
 _DB_PATH = Path("./data/research_notes.db")
 _db_lock = threading.RLock()
+logger = logging.getLogger(__name__)
+
+
+def _parse_tags(value: object) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        if not isinstance(parsed, list):
+            raise ValueError("tags must be a list")
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("invalid stored research note tags (%s)", type(exc).__name__)
+        return []
+    return [tag.strip()[:64] for tag in parsed[:20] if isinstance(tag, str) and tag.strip()]
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -109,8 +124,8 @@ def create_note(
     try:
         from backend.services.notes_rag import vectorize_note as _vn
         _vn(note_id, title, content or "")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("note vectorization failed for %s: %s", note_id, type(exc).__name__)
 
     return note_id
 
@@ -177,8 +192,8 @@ def update_note(
             if note:
                 from backend.services.notes_rag import vectorize_note as _vn
                 _vn(note_id, note.get("title", ""), note.get("content", ""))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("note re-vectorization failed for %s: %s", note_id, type(exc).__name__)
 
     return updated
 
@@ -232,7 +247,7 @@ def get_note(note_id: str) -> Optional[dict[str, Any]]:
             "ticker": row[3],
             "title": row[4],
             "content": row[5],
-            "tags": json.loads(row[6]) if row[6] else [],
+            "tags": _parse_tags(row[6]),
             "created_at": row[7],
             "updated_at": row[8],
         }
@@ -288,7 +303,7 @@ def list_notes(
                 "ticker": row[3],
                 "title": row[4],
                 "content": row[5],
-                "tags": json.loads(row[6]) if row[6] else [],
+                "tags": _parse_tags(row[6]),
                 "created_at": row[7],
                 "updated_at": row[8],
             })
@@ -337,7 +352,7 @@ def search_notes(
                 "ticker": row[3],
                 "title": row[4],
                 "content": row[5],
-                "tags": json.loads(row[6]) if row[6] else [],
+                "tags": _parse_tags(row[6]),
                 "created_at": row[7],
                 "updated_at": row[8],
             })

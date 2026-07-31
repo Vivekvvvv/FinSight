@@ -6,7 +6,9 @@
 """
 from __future__ import annotations
 
-from backend.graph.report_builder import _safe_confidence
+import pytest
+
+from backend.graph.report_builder import _safe_confidence, _to_json_compatible
 
 
 def test_string_labels_mapped():
@@ -29,3 +31,17 @@ def test_none_and_garbage_fall_back_to_default():
     assert _safe_confidence("garbage") == 0.7
     assert _safe_confidence(None, default=0.5) == 0.5
     assert _safe_confidence([], default=0.4) == 0.4
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_confidence_falls_back_to_default(value):
+    assert _safe_confidence(value) == 0.7
+    assert _safe_confidence(value, default=0.4) == 0.4
+
+
+def test_to_json_compatible_replaces_non_finite_numbers():
+    result = _to_json_compatible(
+        {"score": float("nan"), "values": [1.0, float("inf")]}
+    )
+
+    assert result == {"score": None, "values": [1.0, None]}

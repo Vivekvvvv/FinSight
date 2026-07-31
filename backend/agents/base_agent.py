@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from backend.services.circuit_breaker import CircuitBreaker
+from backend.utils.env_config import env_float, env_int
 from backend.orchestration.trace_schema import create_trace_event
 from backend.orchestration.trace_emitter import get_trace_emitter
 
@@ -66,27 +67,22 @@ class BaseFinancialAgent:
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
         self._current_query: Optional[str] = None
         self._current_ticker: Optional[str] = None
-        try:
-            self.max_reflections = max(
-                0,
-                int(os.getenv("BASE_AGENT_MAX_REFLECTIONS", str(self.MAX_REFLECTIONS))),
-            )
-        except Exception:
-            self.max_reflections = max(0, self.MAX_REFLECTIONS)
+        self.max_reflections = env_int(
+            "BASE_AGENT_MAX_REFLECTIONS", max(0, self.MAX_REFLECTIONS), minimum=0
+        )
 
     def _reflection_token_timeout(self) -> float:
-        try:
-            return max(3.0, float(os.getenv("BASE_AGENT_REFLECTION_TOKEN_TIMEOUT_SECONDS", "12")))
-        except Exception:
-            return 12.0
+        return env_float(
+            "BASE_AGENT_REFLECTION_TOKEN_TIMEOUT_SECONDS", 12.0, minimum=3.0
+        )
 
     def _llm_analyze_timeout(self) -> float:
         """Timeout (seconds) for the LLM analysis call in _llm_analyze."""
         env_key = f"{self.AGENT_NAME.upper()}_LLM_ANALYZE_TIMEOUT_SECONDS"
-        try:
-            return max(5.0, float(os.getenv(env_key, os.getenv("AGENT_LLM_ANALYZE_TIMEOUT_SECONDS", "30"))))
-        except Exception:
-            return 30.0
+        default_timeout = env_float(
+            "AGENT_LLM_ANALYZE_TIMEOUT_SECONDS", 30.0, minimum=5.0
+        )
+        return env_float(env_key, default_timeout, minimum=5.0)
 
     def _get_tool_registry(self) -> dict:
         """Return available tools for this agent's reflection loop.
@@ -222,8 +218,8 @@ class BaseFinancialAgent:
                     error=type(exc).__name__,
                     agent=self.AGENT_NAME,
                 )
-            except Exception:
-                pass
+            except Exception as trace_exc:
+                logger.debug("[%s] LLM trace emission failed: %s", self.AGENT_NAME, type(trace_exc).__name__)
             return None
 
     async def research(self, query: str, ticker: str, on_event: Optional[Callable[[Dict[str, Any]], None]] = None) -> AgentOutput:
@@ -266,7 +262,7 @@ class BaseFinancialAgent:
                         "timestamp": datetime.now().isoformat()
                     })
                 except Exception:
-                    logger.debug("[%s] on_event callback failed", self.AGENT_NAME, exc_info=True)
+                    logger.debug("[%s] on_event callback failed", self.AGENT_NAME)
 
         _log_event("agent_start", {"query": query, "ticker": ticker})
 
@@ -278,7 +274,7 @@ class BaseFinancialAgent:
                     "agent": self.AGENT_NAME, 
                     "details": {"message": f"正在搜索: {query[:30]}..."}
                 })
-            except: logger.debug("[%s] on_event callback error in search notification", self.AGENT_NAME, exc_info=True)
+            except: logger.debug("[%s] on_event callback error in search notification", self.AGENT_NAME)
             
         results = await self._initial_search(query, ticker)
         result_count = None
@@ -304,7 +300,7 @@ class BaseFinancialAgent:
             
             if on_event:
                 try: on_event({"event": "agent_action", "agent": self.AGENT_NAME, "details": {"message": f"发现信息缺口，进行第 {i+1} 轮补充搜索..."}})
-                except: logger.debug("[%s] on_event callback error in search notification", self.AGENT_NAME, exc_info=True)
+                except: logger.debug("[%s] on_event callback error in search notification", self.AGENT_NAME)
 
             _log_event("reflection_gap", {"round": i + 1, "gaps": gaps})
             new_data = await self._targeted_search(gaps, ticker)
@@ -449,10 +445,15 @@ class BaseFinancialAgent:
             try:
                 obj = json.loads(cleaned)
                 if isinstance(obj, dict):
-                    if obj.get("complete"):
+                    if obj.get("complete") is True:
                         return []  # LLM says info is sufficient
-                    if obj.get("gap") or obj.get("query"):
-                        gaps.append(obj)
+                    structured_gap = {
+                        key: value.strip()
+                        for key in ("tool", "gap", "query")
+                        if isinstance((value := obj.get(key)), str) and value.strip()
+                    }
+                    if structured_gap.get("gap") or structured_gap.get("query"):
+                        gaps.append(structured_gap)
                     continue
             except (json.JSONDecodeError, ValueError):
                 pass
@@ -551,8 +552,12 @@ class BaseFinancialAgent:
                             if fb_result and isinstance(fb_result, str) and len(fb_result) > 30:
                                 results.append(fb_result)
                                 logger.info("[%s] Fallback search success for: %s", self.AGENT_NAME, gap_desc[:40])
-                        except Exception:
-                            pass
+                        except Exception as fallback_exc:
+                            logger.debug(
+                                "[%s] fallback search failed: %s",
+                                self.AGENT_NAME,
+                                type(fallback_exc).__name__,
+                            )
                 continue
         return "\n\n---\n\n".join(results) if results else None
 

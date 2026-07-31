@@ -118,8 +118,8 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                     # 尝试从 memory_service 获取 email（假设存储在 user_profile 中）
                     email = resolved_user_id if "@" in resolved_user_id else f"{resolved_user_id}@example.com"
                     alert_events = await asyncio.to_thread(deps.subscription_service.list_alert_events, email, limit=10)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("today alert events unavailable: %s", type(exc).__name__)
 
             # 计算待复查报告
             watchlist_tickers = [w.get("ticker", "") for w in watchlist_items if w.get("ticker")]

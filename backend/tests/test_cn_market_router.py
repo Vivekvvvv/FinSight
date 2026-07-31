@@ -36,3 +36,18 @@ def test_cn_market_router_endpoints(monkeypatch):
     payload = concept_resp.json()
     assert payload["success"] is True
     assert payload["count"] == 1
+
+
+def test_cn_market_concept_rejects_oversized_keyword_before_fetch(monkeypatch):
+    calls = []
+
+    def _fetch_concept_map(*, keyword="", limit=20):
+        calls.append((keyword, limit))
+        return {"success": True, "keyword": keyword, "items": [], "count": 0}
+
+    monkeypatch.setattr(cn_market_router_module, "fetch_concept_map", _fetch_concept_map)
+    client = _build_client()
+    response = client.get("/api/cn/market/concept", params={"keyword": "x" * 129})
+
+    assert response.status_code == 422
+    assert calls == []

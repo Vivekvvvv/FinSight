@@ -55,14 +55,15 @@ from backend.dashboard.schemas import (
     WatchItem,
 )
 from backend.dashboard.widget_selector import select_capabilities
+from backend.utils.env_config import env_float, env_int
 
 logger = logging.getLogger(__name__)
 
 dashboard_router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 _DASHBOARD_FETCH_TIMEOUT_SECONDS = 15.0
-_DASHBOARD_NEWS_FETCH_TIMEOUT_SECONDS = float(os.getenv("FINSIGHT_DASHBOARD_NEWS_TIMEOUT", "45"))
-_DASHBOARD_FAILURE_TTL_SECONDS = max(5, int(os.getenv("FINSIGHT_DASHBOARD_FAILURE_TTL", "30")))
+_DASHBOARD_NEWS_FETCH_TIMEOUT_SECONDS = env_float("FINSIGHT_DASHBOARD_NEWS_TIMEOUT", 45.0, minimum=0.1)
+_DASHBOARD_FAILURE_TTL_SECONDS = env_int("FINSIGHT_DASHBOARD_FAILURE_TTL", 30, minimum=5)
 _DASHBOARD_FAILURE_MARKER = "__dashboard_failure__"
 _DASHBOARD_FAILURE_REASON_KEY = "reason"
 _singleflight_tasks: dict[str, asyncio.Task[Any]] = {}

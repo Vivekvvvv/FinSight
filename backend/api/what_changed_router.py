@@ -22,9 +22,9 @@ def create_what_changed_router() -> APIRouter:
 
     @router.get("/api/what-changed")
     async def get_what_changed_endpoint(
-        session_id: str = Query(..., description="会话 ID"),
-        user_id: str = Query("default_user", description="用户 ID"),
-        symbol: str | None = Query(None, description="可选：只看某个标的的变化"),
+        session_id: str = Query(..., max_length=256, description="会话 ID"),
+        user_id: str = Query("default_user", max_length=128, description="用户 ID"),
+        symbol: str | None = Query(None, max_length=32, description="可选：只看某个标的的变化"),
         limit: int = Query(5, ge=1, le=20, description="返回数量，默认 5，最多 20"),
         current_user: Principal = Depends(get_current_user),
     ) -> dict[str, Any]:

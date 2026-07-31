@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from collections.abc import Iterable
@@ -19,6 +20,20 @@ from backend.rag.observability_models import (
     RetrievalHitRecord,
     SourceDocRecord,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
+def _strict_json_loads(value: Any) -> Any:
+    if isinstance(value, str):
+        return json.loads(value, parse_constant=_reject_json_constant)
+    json.dumps(value, allow_nan=False, default=str)
+    return value
 
 
 def _utc_now() -> datetime:
@@ -46,7 +61,7 @@ def _env_int(name: str, default: int, *, min_value: int = 1, max_value: int = 36
 
 
 def _json_dumps(value: dict[str, Any] | None) -> str:
-    return json.dumps(value or {}, ensure_ascii=False, default=str)
+    return json.dumps(value or {}, ensure_ascii=False, default=str, allow_nan=False)
 
 
 class NoOpRAGObservabilityStore:
@@ -216,18 +231,21 @@ def _runtime_fetch_all(store: SQLRAGObservabilityStore, sql: str, params: dict[s
     for item in items:
         if 'payload_json' in item:
             try:
-                item['payload_json'] = json.loads(item['payload_json']) if isinstance(item['payload_json'], str) else item['payload_json']
-            except Exception:
+                item['payload_json'] = _strict_json_loads(item['payload_json'])
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                logger.warning("invalid stored RAG payload_json (%s)", type(exc).__name__)
                 item['payload_json'] = {}
         if 'metadata_json' in item:
             try:
-                item['metadata_json'] = json.loads(item['metadata_json']) if isinstance(item['metadata_json'], str) else item['metadata_json']
-            except Exception:
+                item['metadata_json'] = _strict_json_loads(item['metadata_json'])
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                logger.warning("invalid stored RAG metadata_json (%s)", type(exc).__name__)
                 item['metadata_json'] = {}
         if 'metadata' in item:
             try:
-                item['metadata'] = json.loads(item['metadata']) if isinstance(item['metadata'], str) else item['metadata']
-            except Exception:
+                item['metadata'] = _strict_json_loads(item['metadata'])
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                logger.warning("invalid stored RAG metadata (%s)", type(exc).__name__)
                 item['metadata'] = {}
     return items
 

@@ -248,8 +248,8 @@ async def run_graph_pipeline(
         try:
             loop = asyncio.get_running_loop()
             loop.call_soon_threadsafe(queue.put_nowait, outgoing)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[execution_service] event queue enqueue failed: %s", type(exc).__name__)
 
     # -- producer coroutine ------------------------------------------------
 
@@ -289,10 +289,10 @@ async def run_graph_pipeline(
                 )
             except asyncio.TimeoutError:
                 logger.error(
-                    "[execution_service] graph timeout thread_id=%s timeout=%ss query=%s",
+                    "[execution_service] graph timeout thread_id=%s timeout=%ss query_chars=%s",
                     thread_id,
                     timeout_seconds,
-                    (query or "")[:120],
+                    len(query or ""),
                 )
                 await _queue_event(
                     {
@@ -345,8 +345,7 @@ async def run_graph_pipeline(
             except Exception as exc:
                 logger.warning(
                     "[execution_service] report build failed: %s",
-                    exc,
-                    exc_info=True,
+                    type(exc).__name__,
                 )
             report_quality, quality_blocked = _apply_quality_gate(
                 report=report,
@@ -398,7 +397,7 @@ async def run_graph_pipeline(
                         assistant_content=response_markdown,
                     )
                 except Exception as exc:
-                    logger.warning("[execution_service] record chat turn failed: %s", exc)
+                    logger.warning("[execution_service] record chat turn failed: %s", type(exc).__name__)
 
             # 5b. Persist lightweight long-term memory snapshot (best-effort)
             if not quality_blocked or soft_blocked:
@@ -411,7 +410,10 @@ async def run_graph_pipeline(
                         report=report,
                     )
                 except Exception as exc:
-                    logger.warning("[execution_service] persist memory snapshot failed: %s", exc)
+                    logger.warning(
+                        "[execution_service] persist memory snapshot failed: %s",
+                        type(exc).__name__,
+                    )
 
             if not quality_blocked or soft_blocked:
                 # 6. Stream markdown in chunks
@@ -491,9 +493,7 @@ async def run_graph_pipeline(
                 }
             )
         except Exception as exc:
-            logger.error(
-                "[execution_service] unhandled: %s", exc, exc_info=True,
-            )
+            logger.error("[execution_service] unhandled: %s", type(exc).__name__)
             await _queue_event(
                 {
                     "schema_version": deps.sse_event_schema_version,
@@ -527,8 +527,8 @@ async def run_graph_pipeline(
             producer_task.cancel()
             try:
                 await producer_task
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[execution_service] cancelled producer cleanup failed: %s", type(exc).__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -596,8 +596,8 @@ async def resume_graph_pipeline(
         try:
             loop = asyncio.get_running_loop()
             loop.call_soon_threadsafe(queue.put_nowait, outgoing)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[resume_pipeline] event queue enqueue failed: %s", type(exc).__name__)
 
     # -- producer coroutine ------------------------------------------------
 
@@ -649,7 +649,7 @@ async def resume_graph_pipeline(
                 )
                 report = _annotate_report_source(report, source)
             except Exception as exc:
-                logger.warning("[resume_pipeline] report build failed: %s", exc)
+                logger.warning("[resume_pipeline] report build failed: %s", type(exc).__name__)
             report_quality, quality_blocked = _apply_quality_gate(
                 report=report,
                 source="execute_resume",
@@ -692,7 +692,7 @@ async def resume_graph_pipeline(
                         assistant_content=response_markdown,
                     )
                 except Exception as exc:
-                    logger.warning("[resume_pipeline] record chat turn failed: %s", exc)
+                    logger.warning("[resume_pipeline] record chat turn failed: %s", type(exc).__name__)
 
             # Persist lightweight long-term memory snapshot (best-effort)
             if not quality_blocked or soft_blocked:
@@ -705,7 +705,10 @@ async def resume_graph_pipeline(
                         report=report,
                     )
                 except Exception as exc:
-                    logger.warning("[resume_pipeline] persist memory snapshot failed: %s", exc)
+                    logger.warning(
+                        "[resume_pipeline] persist memory snapshot failed: %s",
+                        type(exc).__name__,
+                    )
 
             if not quality_blocked or soft_blocked:
                 # Stream markdown
@@ -767,7 +770,7 @@ async def resume_graph_pipeline(
                 }
             )
         except Exception as exc:
-            logger.error("[resume_pipeline] unhandled: %s", exc, exc_info=True)
+            logger.error("[resume_pipeline] unhandled: %s", type(exc).__name__)
             await _queue_event(
                 {
                     "schema_version": deps.sse_event_schema_version,
@@ -799,5 +802,5 @@ async def resume_graph_pipeline(
             producer_task.cancel()
             try:
                 await producer_task
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[resume_pipeline] cancelled producer cleanup failed: %s", type(exc).__name__)

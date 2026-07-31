@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import logging
 
 
 def _run(coro):
@@ -102,3 +103,37 @@ def test_build_agent_invoker_retries_and_fallbacks_on_runtime_error(monkeypatch)
     assert out.get("fallback_used") is True
     assert "RuntimeError" in "\n".join(out.get("risks") or [])
 
+
+def test_agent_invoker_redacts_runtime_error_from_events_fallback_and_logs(monkeypatch, caplog):
+    import backend.agents.news_agent as news_agent_module
+    import backend.graph.adapters.agent_adapter as adapter
+
+    sentinel = "PRIVATE_AGENT_PROVIDER_TOKEN"
+    events = []
+
+    class _FailingNewsAgent:
+        def __init__(self, *_args):
+            pass
+
+        async def research(self, **_kwargs):
+            raise RuntimeError(sentinel)
+
+    async def _capture_event(event):
+        events.append(event)
+
+    monkeypatch.setenv("LANGGRAPH_AGENT_INVOKER_RETRY_ATTEMPTS", "2")
+    monkeypatch.setattr(news_agent_module, "NewsAgent", _FailingNewsAgent)
+    monkeypatch.setattr(adapter, "emit_event", _capture_event)
+    caplog.set_level(logging.INFO, logger=adapter.__name__)
+
+    invokers = adapter.build_agent_invokers(
+        allowed_agents=["news_agent"],
+        state={"query": "news", "subject": {"tickers": ["AAPL"]}},
+    )
+    out = _run(invokers["news_agent"]({"query": "news", "ticker": "AAPL"}))
+
+    serialized = str({"events": events, "output": out})
+    assert sentinel not in serialized
+    assert sentinel not in caplog.text
+    assert "RuntimeError" in serialized
+    assert out["fallback_used"] is True

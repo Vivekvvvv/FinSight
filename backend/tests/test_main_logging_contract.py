@@ -3,6 +3,8 @@ import json
 import logging
 from pathlib import Path
 
+import pytest
+
 from backend.api import main
 
 
@@ -30,6 +32,45 @@ def _configure_minimal_lifespan(monkeypatch):
         "RAG_OBSERVABILITY_RETENTION_ENABLED",
     ):
         monkeypatch.setenv(name, "false")
+
+
+@pytest.mark.parametrize(
+    ("enabled_name", "interval_name", "expected"),
+    [
+        ("PRICE_ALERT_SCHEDULER_ENABLED", "PRICE_ALERT_INTERVAL_MINUTES", 15.0),
+        ("NEWS_ALERT_SCHEDULER_ENABLED", "NEWS_ALERT_INTERVAL_MINUTES", 30.0),
+        ("RISK_ALERT_SCHEDULER_ENABLED", "RISK_ALERT_INTERVAL_MINUTES", 60.0),
+        ("HEALTH_PROBE_ENABLED", "HEALTH_PROBE_INTERVAL_MINUTES", 30.0),
+        (
+            "RAG_OBSERVABILITY_RETENTION_ENABLED",
+            "RAG_OBSERVABILITY_RETENTION_INTERVAL_MINUTES",
+            360.0,
+        ),
+    ],
+)
+def test_lifespan_scheduler_invalid_interval_uses_default(
+    monkeypatch, enabled_name, interval_name, expected
+):
+    from backend.services import scheduler_runner
+
+    captured: list[float] = []
+
+    def capture_scheduler(*_args, interval_minutes, **_kwargs):
+        captured.append(interval_minutes)
+        return None
+
+    _configure_minimal_lifespan(monkeypatch)
+    monkeypatch.setenv(enabled_name, "true")
+    monkeypatch.setenv(interval_name, "NaN")
+    monkeypatch.setattr(scheduler_runner, "start_price_change_scheduler", capture_scheduler)
+    monkeypatch.setattr(scheduler_runner, "start_interval_scheduler", capture_scheduler)
+
+    async def run_lifespan():
+        async with main.lifespan(main.app):
+            pass
+
+    asyncio.run(run_lifespan())
+    assert captured == [expected]
 
 
 def test_report_index_async_error_log_is_redacted(monkeypatch, caplog):

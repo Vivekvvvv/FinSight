@@ -6,11 +6,13 @@ Alert scheduler tests:
 - price_target one-shot mode
 """
 
+from types import SimpleNamespace
 from typing import List
 
 import pytest
 
 from backend.services import subscription_service as subs
+from backend.services import alert_scheduler as alert_scheduler_module
 from backend.services.alert_scheduler import PriceChangeScheduler, PriceSnapshot
 from backend.services.subscription_service import SubscriptionService
 
@@ -56,6 +58,27 @@ class FakeEmailService:
             }
         )
         return True, "none", None
+
+
+class FailingEmailService(FakeEmailService):
+    def send_stock_alert(self, *args, **kwargs) -> tuple[bool, str, str | None]:
+        super().send_stock_alert(*args, **kwargs)
+        return False, "transient", "PRIVATE provider failure"
+
+
+@pytest.mark.parametrize("value", [None, "", " ", ".AAPL", "BAD TICKER", "A" * 21])
+def test_subscription_ticker_rejects_invalid_stored_values(value):
+    assert alert_scheduler_module._subscription_ticker({"ticker": value}) is None
+
+
+def test_subscription_ticker_normalizes_valid_stored_value():
+    assert alert_scheduler_module._subscription_ticker({"ticker": " aapl "}) == "AAPL"
+
+
+@pytest.mark.parametrize("value", ["", "bad", "1.5"])
+def test_invalid_cooldown_environment_uses_default(monkeypatch, value):
+    monkeypatch.setenv("PRICE_ALERT_COOLDOWN_MINUTES", value)
+    assert alert_scheduler_module._positive_env_int("PRICE_ALERT_COOLDOWN_MINUTES", 60) == 60
 
 
 def test_price_change_scheduler_triggers_when_threshold_met(subscription_service_tmp):
@@ -109,6 +132,196 @@ def test_price_change_scheduler_skips_when_below_threshold(subscription_service_
 
     subs_list = service.get_subscriptions("user@example.com")
     assert subs_list[0].get("last_alert_at") is None
+
+
+@pytest.mark.parametrize("threshold", ["nan", "inf", "-inf", 0, -1])
+def test_price_change_scheduler_rejects_invalid_stored_threshold(
+    subscription_service_tmp,
+    threshold,
+):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=5.0,
+    )
+    service.subscriptions["user@example.com"][0]["price_threshold"] = threshold
+    service._save_subscriptions()
+
+    scheduler = PriceChangeScheduler(
+        service,
+        email,
+        lambda ticker: PriceSnapshot(ticker=ticker, price=105.0, change_percent=6.0),
+    )
+
+    assert scheduler.run_once() == []
+    assert email.sent == []
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        PriceSnapshot(ticker="AAPL", price=float("nan"), change_percent=1.0),
+        PriceSnapshot(ticker="AAPL", price=100.0, change_percent=float("inf")),
+    ],
+)
+def test_price_change_scheduler_rejects_non_finite_snapshot(subscription_service_tmp, snapshot):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=1.0,
+    )
+    scheduler = PriceChangeScheduler(service, email, lambda _ticker: snapshot)
+
+    assert scheduler.run_once() == []
+    assert email.sent == []
+
+
+def test_price_scheduler_isolates_fetch_failure_per_subscription(subscription_service_tmp, monkeypatch):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    messages = []
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: messages.append(message % args),
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    for ticker in ("AAPL", "MSFT"):
+        service.subscribe(
+            email="user@example.com",
+            ticker=ticker,
+            alert_types=["price_change"],
+            price_threshold=1.0,
+        )
+    secret = "PRIVATE price provider failure"
+
+    def fetcher(ticker):
+        if ticker == "AAPL":
+            raise RuntimeError(secret)
+        return PriceSnapshot(ticker=ticker, price=105.0, change_percent=5.0)
+
+    sent = PriceChangeScheduler(service, email, fetcher).run_once()
+
+    assert [item["ticker"] for item in sent] == ["MSFT"]
+    log_text = "\n".join(messages)
+    assert secret not in log_text
+    assert "RuntimeError" in log_text
+
+
+def test_price_scheduler_isolates_email_exception(subscription_service_tmp, monkeypatch):
+    class _RaisingEmailService(FakeEmailService):
+        def send_stock_alert(self, *args, **kwargs):
+            if kwargs["ticker"] == "AAPL":
+                raise RuntimeError("PRIVATE email failure")
+            return super().send_stock_alert(*args, **kwargs)
+
+    service = subscription_service_tmp
+    email = _RaisingEmailService()
+    messages = []
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: messages.append(message % args),
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    for ticker in ("AAPL", "MSFT"):
+        service.subscribe(
+            email="user@example.com",
+            ticker=ticker,
+            alert_types=["price_change"],
+            price_threshold=1.0,
+        )
+
+    sent = PriceChangeScheduler(
+        service,
+        email,
+        lambda ticker: PriceSnapshot(ticker=ticker, price=105.0, change_percent=5.0),
+    ).run_once()
+
+    assert [item["ticker"] for item in sent] == ["MSFT"]
+    aapl = next(item for item in service.get_subscriptions("user@example.com") if item["ticker"] == "AAPL")
+    assert aapl["last_alert_error"] == "delivery_error"
+    log_text = "\n".join(messages)
+    assert "PRIVATE email failure" not in log_text
+    assert "RuntimeError" in log_text
+
+
+def test_alert_failure_log_omits_email_and_error_message(subscription_service_tmp, monkeypatch):
+    service = subscription_service_tmp
+    private_email = "private-alert-recipient@example.com"
+    messages = []
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: messages.append(message % args),
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    service.subscribe(
+        email=private_email,
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=1.0,
+    )
+    scheduler = PriceChangeScheduler(
+        service,
+        FailingEmailService(),
+        lambda ticker: PriceSnapshot(ticker=ticker, price=105.0, change_percent=5.0),
+    )
+    scheduler.run_once()
+
+    log_text = "\n".join(messages)
+    assert private_email not in log_text
+    assert "PRIVATE provider failure" not in log_text
+    assert "ticker=AAPL (transient)" in log_text
+
+
+def test_alert_failure_normalizes_untrusted_error_fields(subscription_service_tmp, monkeypatch):
+    class _UntrustedErrorEmailService(FakeEmailService):
+        def send_stock_alert(self, *args, **kwargs):
+            super().send_stock_alert(*args, **kwargs)
+            return False, "PRIVATE provider category", "PRIVATE provider detail"
+
+    service = subscription_service_tmp
+    messages = []
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: messages.append(message % args),
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=1.0,
+    )
+    scheduler = PriceChangeScheduler(
+        service,
+        _UntrustedErrorEmailService(),
+        lambda ticker: PriceSnapshot(ticker=ticker, price=105.0, change_percent=5.0),
+    )
+
+    scheduler.run_once()
+
+    log_text = "\n".join(messages)
+    stored = service.get_subscriptions("user@example.com")[0]
+    assert "PRIVATE" not in log_text
+    assert "ticker=AAPL (unknown)" in log_text
+    assert stored["last_alert_error"] == "delivery_error"
 
 
 def test_price_change_scheduler_respects_cooldown(subscription_service_tmp, monkeypatch):
@@ -255,6 +468,145 @@ def test_c3_aware_published_at_string_normalized(subscription_service_tmp):
     assert len(sent) == 1
 
 
+def test_news_scheduler_ignores_invalid_stored_last_news_at(subscription_service_tmp):
+    from datetime import timedelta
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(email="user@example.com", ticker="AAPL", alert_types=["news"])
+    service.subscriptions["user@example.com"][0]["last_news_at"] = "not-a-date"
+    service._save_subscriptions()
+
+    sent = NewsAlertScheduler(
+        service,
+        email,
+        lambda _ticker: [{
+            "title": "AAPL fresh news",
+            "url": "u",
+            "source": "s",
+            "published_at": _utcnow_naive() - timedelta(minutes=30),
+            "related_tickers": ["AAPL"],
+        }],
+    ).run_once()
+
+    assert len(sent) == 1
+    assert len(email.sent) == 1
+
+
+def test_news_scheduler_filters_malformed_and_bounds_article_fields(subscription_service_tmp):
+    from datetime import timedelta
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(email="user@example.com", ticker="AAPL", alert_types=["news"])
+    now = _utcnow_naive()
+    long_title = "AAPL " + "t" * 1000
+
+    sent = NewsAlertScheduler(
+        service,
+        email,
+        lambda _ticker: [
+            None,
+            "bad",
+            {"title": 123, "published_at": now},
+            {"title": "AAPL bad date", "published_at": 123},
+            {
+                "title": long_title,
+                "source": "s" * 1000,
+                "url": "u" * 5000,
+                "published_at": now - timedelta(minutes=30),
+                "related_tickers": "AAPL",
+            },
+        ],
+    ).run_once()
+
+    assert len(sent) == 1
+    message = email.sent[0]["message"]
+    assert long_title not in message
+    assert "t" * 507 in message
+    assert "s" * 129 not in message
+    assert "u" * 2049 not in message
+
+
+def test_news_scheduler_isolates_fetch_failure_per_subscription(subscription_service_tmp, monkeypatch):
+    from datetime import timedelta
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    messages = []
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: messages.append(message % args),
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(email="first@example.com", ticker="AAPL", alert_types=["news"])
+    service.subscribe(email="second@example.com", ticker="MSFT", alert_types=["news"])
+    secret = "PRIVATE provider failure"
+
+    def fetcher(ticker):
+        if ticker == "AAPL":
+            raise RuntimeError(secret)
+        return [{
+            "title": "MSFT fresh news",
+            "published_at": _utcnow_naive() - timedelta(minutes=30),
+            "related_tickers": ["MSFT"],
+        }]
+
+    sent = NewsAlertScheduler(service, email, fetcher).run_once()
+
+    assert [item["ticker"] for item in sent] == ["MSFT"]
+    log_text = "\n".join(messages)
+    assert secret not in log_text
+    assert "RuntimeError" in log_text
+
+
+def test_news_scheduler_isolates_email_exception(subscription_service_tmp, monkeypatch):
+    from datetime import timedelta
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    class _RaisingEmailService(FakeEmailService):
+        def send_stock_alert(self, *args, **kwargs):
+            if kwargs["ticker"] == "AAPL":
+                raise RuntimeError("PRIVATE news email failure")
+            return super().send_stock_alert(*args, **kwargs)
+
+    service = subscription_service_tmp
+    email = _RaisingEmailService()
+    messages = []
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: messages.append(message % args),
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    for ticker in ("AAPL", "MSFT"):
+        service.subscribe(email="user@example.com", ticker=ticker, alert_types=["news"])
+
+    def fetcher(ticker):
+        return [{
+            "title": f"{ticker} fresh news",
+            "published_at": _utcnow_naive() - timedelta(minutes=30),
+            "related_tickers": [ticker],
+        }]
+
+    sent = NewsAlertScheduler(service, email, fetcher).run_once()
+
+    assert [item["ticker"] for item in sent] == ["MSFT"]
+    aapl = next(item for item in service.get_subscriptions("user@example.com") if item["ticker"] == "AAPL")
+    assert aapl["last_alert_error"] == "delivery_error"
+    log_text = "\n".join(messages)
+    assert "PRIVATE news email failure" not in log_text
+    assert "RuntimeError" in log_text
+
+
 def test_c3_yfinance_epoch_converted_to_utc(monkeypatch):
     """fetch_news_articles 的 epoch→datetime 须按 UTC 基准转换；
     东八区机器上旧代码（裸 fromtimestamp）会偏 8h 导致断言失败。"""
@@ -396,3 +748,38 @@ def test_fetch_news_parses_new_yfinance_content_structure(monkeypatch):
     assert art["source"] == "Reuters"
     delta = abs(art["published_at"] - (_utcnow_naive() - timedelta(hours=1)))
     assert delta < timedelta(minutes=5)
+
+
+def test_fetch_news_skips_malformed_items_and_bounds_fields(monkeypatch):
+    import sys
+    import types
+    from datetime import timedelta
+
+    from backend.services.alert_scheduler import fetch_news_articles
+
+    pub_iso = (_utcnow_naive() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    class _FakeTicker:
+        def __init__(self, _symbol):
+            self.news = [
+                None,
+                "bad",
+                {"content": {"canonicalUrl": "bad", "provider": "bad"}},
+                {
+                    "title": "AAPL " + "t" * 1000,
+                    "link": "u" * 5000,
+                    "publisher": "s" * 1000,
+                    "pubDate": pub_iso,
+                    "relatedTickers": ["AAPL"] * 100,
+                },
+            ]
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=_FakeTicker))
+
+    articles = fetch_news_articles("AAPL")
+
+    assert len(articles) == 1
+    assert len(articles[0]["title"]) == 512
+    assert len(articles[0]["url"]) == 2048
+    assert len(articles[0]["source"]) == 128
+    assert len(articles[0]["related_tickers"]) == 50

@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import pytest
+
 
 def test_subscription_store_backs_up_corrupt_file(tmp_path, monkeypatch):
     from backend.services import subscription_service as mod
@@ -29,13 +31,17 @@ def test_subscription_store_backs_up_corrupt_file(tmp_path, monkeypatch):
     assert svc.get_subscriptions("user@example.com")
 
 
-def test_entitlements_store_backs_up_corrupt_file(tmp_path):
+@pytest.mark.parametrize(
+    "corrupt_payload",
+    ["[[[ broken", '{"alice":{"plan":"pro","weight":NaN}}'],
+)
+def test_entitlements_store_backs_up_corrupt_file(tmp_path, corrupt_payload):
     from backend.services import entitlements as ent
 
     original_path = ent.PLANS_FILE
     try:
         corrupt_file = tmp_path / "user_plans_test.json"
-        corrupt_file.write_text("[[[ broken", encoding="utf-8")
+        corrupt_file.write_text(corrupt_payload, encoding="utf-8")
         ent.PLANS_FILE = corrupt_file
         ent.reset_entitlements_service_for_tests()
 
@@ -45,11 +51,11 @@ def test_entitlements_store_backs_up_corrupt_file(tmp_path):
         backups = list(tmp_path.glob("user_plans_test.json.*.corrupt"))
         assert len(backups) == 1
         backup = backups[0]
-        assert backup.read_text(encoding="utf-8") == "[[[ broken"
+        assert backup.read_text(encoding="utf-8") == corrupt_payload
 
         # 写入新 plan 不触碰备份
         svc.set_plan("alice", "pro", source="test")
-        assert backup.read_text(encoding="utf-8") == "[[[ broken"
+        assert backup.read_text(encoding="utf-8") == corrupt_payload
         assert svc.get_plan("alice") == "pro"
     finally:
         ent.PLANS_FILE = original_path

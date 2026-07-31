@@ -10,6 +10,10 @@ from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
+
 # 情绪分析prompt
 _SENTIMENT_PROMPT = """你是一位专业的金融新闻分析师，请分析以下股票相关新闻列表并输出情绪标签。
 
@@ -76,7 +80,10 @@ async def analyze_news_sentiment(
             lines = text.split("\n")
             text = "\n".join(lines[1:-1])
 
-        sentiments: List[Dict[str, Any]] = json.loads(text)
+        sentiments: List[Dict[str, Any]] = json.loads(
+            text,
+            parse_constant=_reject_json_constant,
+        )
 
         # 合并回原新闻
         result = []

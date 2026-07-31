@@ -25,6 +25,10 @@ from uuid import uuid4
 logger = logging.getLogger(__name__)
 _PLANS_LOCK = threading.RLock()
 
+
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON value: {value}")
+
 # ── 配置 ───────────────────────────────────────────────────────────
 
 _DATA_DIR = Path(os.getenv("FINSIGHT_DATA_DIR", "data"))
@@ -154,7 +158,7 @@ class EntitlementsService:
             return
         try:
             with open(self._path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+                data = json.load(f, parse_constant=_reject_non_finite_json)
             if not isinstance(data, dict):
                 raise ValueError("user plans payload must be a JSON object")
             if any(not isinstance(record, dict) for record in data.values()):
@@ -181,7 +185,13 @@ class EntitlementsService:
             )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(self._plans, f, indent=2, ensure_ascii=False)
+                    json.dump(
+                        self._plans,
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                    )
                     f.flush()
                     os.fsync(f.fileno())
                 os.replace(tmp_path, self._path)

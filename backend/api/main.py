@@ -1,6 +1,7 @@
 import logging
 import json
 import asyncio
+import hashlib
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -65,11 +66,21 @@ from backend.graph import aget_graph_runner, get_graph_checkpointer_info, graph_
 from backend.orchestration.tools_bridge import get_global_orchestrator
 from backend.graph.nodes.planner import get_planner_ab_metrics
 from backend.rag import get_rag_observability_store, install_rag_observability_hooks
-from backend.security.auth import dev_principal, env_bool as _auth_env_bool, is_dev_mode, principal_from_api_key, guest_principal
+from backend.security.auth import (
+    api_key_fingerprint,
+    dev_principal,
+    env_bool as _auth_env_bool,
+    guest_principal,
+    is_dev_mode,
+    principal_from_api_key,
+    secure_secret_in,
+    secure_secret_matches,
+)
 from backend.services.langfuse_tracer import flush_langfuse, shutdown_langfuse
 from backend.services.chat_history import ChatHistoryStore
 from backend.services.portfolio_store import get_positions as get_portfolio_positions
 from backend.services.report_index import get_report_index_store
+from backend.utils.env_config import env_float as _env_float
 
 logger = logging.getLogger(__name__)
 _DEFAULT_CONFIG_LOCK = Lock()
@@ -464,7 +475,7 @@ def _resolve_rag_observability_dev_user_identity(token: str) -> Optional[Dict[st
         return None
 
     dev_token, user_id, email = _resolve_rag_observability_dev_auth_config()
-    if normalized != dev_token:
+    if not secure_secret_matches(normalized, dev_token):
         return None
 
     return {
@@ -477,7 +488,7 @@ def _resolve_rag_observability_dev_user_identity(token: str) -> Optional[Dict[st
 
 def _is_internal_api_key_authorized(request: Request) -> bool:
     api_key = _extract_api_key(request)
-    return bool(api_key and api_key in _parse_api_keys())
+    return bool(api_key and secure_secret_in(api_key, _parse_api_keys()))
 
 
 def _auth_identity_cache_ttl_seconds() -> int:
@@ -489,15 +500,42 @@ def _auth_identity_cache_ttl_seconds() -> int:
     return max(5, min(600, value))
 
 
+def _auth_identity_cache_max_entries() -> int:
+    raw = str(os.getenv("RAG_OBSERVABILITY_AUTH_CACHE_MAX_ENTRIES", "1000") or "1000").strip()
+    try:
+        value = int(raw)
+    except Exception:
+        value = 1000
+    return max(1, min(10000, value))
+
+
+def _auth_token_cache_key(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _prune_auth_identity_cache(now: float, *, incoming_key: str | None = None) -> None:
+    expired = [key for key, (expires_at, _) in _auth_identity_cache.items() if expires_at <= now]
+    for key in expired:
+        _auth_identity_cache.pop(key, None)
+
+    max_entries = _auth_identity_cache_max_entries()
+    if incoming_key in _auth_identity_cache or len(_auth_identity_cache) < max_entries:
+        return
+    oldest_key = min(_auth_identity_cache, key=lambda key: _auth_identity_cache[key][0])
+    _auth_identity_cache.pop(oldest_key, None)
+
+
 def _fetch_supabase_user_identity(token: str) -> Optional[Dict[str, Any]]:
     normalized = str(token or "").strip()
     if not normalized:
         return None
 
     now = time.time()
+    cache_key = _auth_token_cache_key(normalized)
     with _auth_identity_lock:
-        cached = _auth_identity_cache.get(normalized)
-        if cached and cached[0] > now:
+        _prune_auth_identity_cache(now, incoming_key=cache_key)
+        cached = _auth_identity_cache.get(cache_key)
+        if cached:
             return cached[1]
 
     supabase_url, publishable_key = _resolve_supabase_auth_config()
@@ -534,7 +572,8 @@ def _fetch_supabase_user_identity(token: str) -> Optional[Dict[str, Any]]:
         raise RuntimeError(f"Supabase auth lookup failed: {exc.reason}") from exc
 
     with _auth_identity_lock:
-        _auth_identity_cache[normalized] = (now + _auth_identity_cache_ttl_seconds(), user_identity)
+        _prune_auth_identity_cache(now, incoming_key=cache_key)
+        _auth_identity_cache[cache_key] = (now + _auth_identity_cache_ttl_seconds(), user_identity)
     return user_identity
 
 
@@ -586,6 +625,7 @@ def _require_rag_mutation_access(request: Request) -> Dict[str, Any]:
 
 
 _rate_limiter = SimpleRateLimiter.from_env()
+_rag_auth_rate_limiter = SimpleRateLimiter.from_env()
 
 def _init_default_user_config() -> None:
     """Write LLM config from explicit env on first boot if user_config.json does not exist."""
@@ -659,7 +699,7 @@ async def lifespan(app: FastAPI):
 
     enabled = _env_bool("PRICE_ALERT_SCHEDULER_ENABLED", "false")
     if enabled:
-        interval = float(os.getenv("PRICE_ALERT_INTERVAL_MINUTES", "15"))
+        interval = _env_float("PRICE_ALERT_INTERVAL_MINUTES", 15.0, minimum=0.1)
         sched = start_price_change_scheduler(
             run_price_change_cycle,
             interval_minutes=interval,
@@ -674,7 +714,7 @@ async def lifespan(app: FastAPI):
     from backend.services.alert_scheduler import run_news_alert_cycle
     news_enabled = _env_bool("NEWS_ALERT_SCHEDULER_ENABLED", "false")
     if news_enabled:
-        news_interval = float(os.getenv("NEWS_ALERT_INTERVAL_MINUTES", "30"))
+        news_interval = _env_float("NEWS_ALERT_INTERVAL_MINUTES", 30.0, minimum=0.1)
         sched = start_price_change_scheduler(
             run_news_alert_cycle,
             interval_minutes=news_interval,
@@ -689,7 +729,7 @@ async def lifespan(app: FastAPI):
     from backend.services.alert_scheduler import run_risk_alert_cycle
     risk_enabled = _env_bool("RISK_ALERT_SCHEDULER_ENABLED", "false")
     if risk_enabled:
-        risk_interval = float(os.getenv("RISK_ALERT_INTERVAL_MINUTES", "60"))
+        risk_interval = _env_float("RISK_ALERT_INTERVAL_MINUTES", 60.0, minimum=0.1)
         sched = start_price_change_scheduler(
             run_risk_alert_cycle,
             interval_minutes=risk_interval,
@@ -704,7 +744,7 @@ async def lifespan(app: FastAPI):
     from backend.services.health_probe import run_health_probe_cycle
     health_enabled = _env_bool("HEALTH_PROBE_ENABLED", "false")
     if health_enabled:
-        health_interval = float(os.getenv("HEALTH_PROBE_INTERVAL_MINUTES", "30"))
+        health_interval = _env_float("HEALTH_PROBE_INTERVAL_MINUTES", 30.0, minimum=0.1)
         sched = start_price_change_scheduler(
             run_health_probe_cycle,
             interval_minutes=health_interval,
@@ -727,7 +767,9 @@ async def lifespan(app: FastAPI):
 
     rag_retention_enabled = _env_bool("RAG_OBSERVABILITY_RETENTION_ENABLED", "true")
     if rag_retention_enabled:
-        rag_retention_interval = float(os.getenv("RAG_OBSERVABILITY_RETENTION_INTERVAL_MINUTES", "360"))
+        rag_retention_interval = _env_float(
+            "RAG_OBSERVABILITY_RETENTION_INTERVAL_MINUTES", 360.0, minimum=0.1
+        )
 
         def _run_rag_observability_retention_cycle() -> None:
             try:
@@ -810,6 +852,15 @@ async def security_gate(request: Request, call_next):
         "/diagnostics/planner-ab",
         "/diagnostics/planner_ab",
     }:
+        if _rag_auth_rate_limiter.enabled:
+            client_host = request.client.host if request.client else "anonymous"
+            allowed, retry_after = _rag_auth_rate_limiter.allow(f"rag-auth:{client_host}")
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded"},
+                    headers={"Retry-After": str(retry_after)},
+                )
         try:
             # 内部经 _fetch_supabase_user_identity 做同步 urlopen(timeout=5)：
             # 缓存未命中时会把整个事件循环阻塞最长 5 秒，必须卸载线程池（R34）
@@ -849,7 +900,7 @@ async def security_gate(request: Request, call_next):
     if not keys:
         return JSONResponse(status_code=503, content={"detail": "API auth enabled but no keys configured"})
     api_key = _extract_api_key(request)
-    if not api_key or api_key not in keys:
+    if not api_key or not secure_secret_in(api_key, keys):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     else:
         request.state.principal = principal_from_api_key(api_key)
@@ -857,7 +908,7 @@ async def security_gate(request: Request, call_next):
     if _rate_limiter.enabled:
         # rag_authenticated_user 只在上方 rag 分支赋值且该分支已 return，
         # 此处恒为 api key 维度
-        client_id = api_key or (request.client.host if request.client else "anonymous")
+        client_id = api_key_fingerprint(api_key) if api_key else (request.client.host if request.client else "anonymous")
         allowed, retry_after = _rate_limiter.allow(client_id)
         if not allowed:
             headers = {"Retry-After": str(retry_after)}

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import random
 import re
@@ -42,6 +43,22 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() in ("true", "1", "yes", "on")
+
+
+def _positive_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _nonnegative_finite_float(value: object, default: float) -> float:
+    try:
+        parsed = float(value)
+    except Exception:
+        return default
+    return parsed if math.isfinite(parsed) and parsed >= 0 else default
 
 
 def is_rate_limit_error(exc: BaseException) -> bool:
@@ -151,6 +168,14 @@ async def ainvoke_with_rate_limit_retry(
     if acquire_timeout_seconds is None:
         acquire_timeout_seconds = _env_float("LLM_RATE_LIMIT_RETRY_ACQUIRE_TIMEOUT_SECONDS", 3600.0)
 
+    max_attempts = _positive_int(max_attempts, 6)
+    sleep_seconds = _nonnegative_finite_float(sleep_seconds, 5.0)
+    jitter_seconds = _nonnegative_finite_float(jitter_seconds, 2.0)
+    acquire_timeout_seconds = _nonnegative_finite_float(
+        acquire_timeout_seconds,
+        3600.0,
+    )
+
     enabled = _env_bool("LLM_RATE_LIMIT_RETRY_ENABLED", True)
     if not enabled or max_attempts <= 1:
         result = await llm.ainvoke(messages)
@@ -182,7 +207,7 @@ async def ainvoke_with_rate_limit_retry(
                 wait = float(sleep_seconds) + random.uniform(0, float(jitter_seconds))
                 logger.info(
                     "[LLM] Rate limit token acquire retry %d/%d (agent=%s): %s",
-                    attempt, max_attempts, agent_name or "unknown", exc,
+                    attempt, max_attempts, agent_name or "unknown", type(exc).__name__,
                 )
                 if on_retry:
                     on_retry(attempt, exc)
@@ -210,12 +235,12 @@ async def ainvoke_with_rate_limit_retry(
             if is_rate_limit_error(exc):
                 logger.info(
                     "[LLM] Rate limit retry %d/%d (agent=%s): %s",
-                    attempt, max_attempts, agent_name or "unknown", exc,
+                    attempt, max_attempts, agent_name or "unknown", type(exc).__name__,
                 )
             else:
                 logger.warning(
                     "[LLM] Execution error retry %d/%d (agent=%s): %s",
-                    attempt, max_attempts, agent_name or "unknown", exc,
+                    attempt, max_attempts, agent_name or "unknown", type(exc).__name__,
                 )
 
             # Rotate to next endpoint when factory is available

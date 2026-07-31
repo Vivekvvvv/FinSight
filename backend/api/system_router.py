@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict
+from typing import Annotated, Any, Callable, Dict
 import os
 
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import APIRouter, Body, HTTPException, Path, Query, Request
 from fastapi.responses import Response
 
 
@@ -77,6 +77,15 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         if isinstance(value, list):
             return [_redact_rag_payload(item, include_raw=include_raw) for item in value]
         return value
+
+    def _soft_delete_metadata(payload: Dict[str, Any]) -> tuple[str, str | None]:
+        deleted_by = payload.get('deleted_by') or 'system'
+        reason = payload.get('reason') or ''
+        if not isinstance(deleted_by, str) or len(deleted_by) > 128:
+            raise HTTPException(status_code=422, detail="Invalid deleted_by")
+        if not isinstance(reason, str) or len(reason) > 1000:
+            raise HTTPException(status_code=422, detail="Invalid reason")
+        return deleted_by, reason or None
 
     def _project_rag_observability(raw: Any) -> Dict[str, Any]:
         source = raw if isinstance(raw, dict) else {}
@@ -257,13 +266,13 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         return {"status": "ok", "data": _redact_rag_payload(payload, include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/runs")
-    def diagnostics_rag_runs(request: Request, limit: int = Query(default=20, ge=1, le=200), cursor: str | None = None, q: str | None = None, fallback_only: bool = False, include: str | None = None):
+    def diagnostics_rag_runs(request: Request, limit: int = Query(default=20, ge=1, le=200), cursor: str | None = Query(None, max_length=512), q: str | None = Query(None, max_length=2048), fallback_only: bool = False, include: str | None = Query(None, max_length=32)):
         principal = _require_rag_read_access(request)
         include_raw = _include_raw_allowed(include, principal)
         return {"status": "ok", "data": _redact_rag_payload(_rag_store().list_runs(limit=limit, cursor=cursor, q=q, fallback_only=fallback_only), include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/runs/{run_id}")
-    def diagnostics_rag_run_detail(run_id: str, request: Request, include: str | None = None):
+    def diagnostics_rag_run_detail(run_id: Annotated[str, Path(min_length=1, max_length=256)], request: Request, include: str | None = None):
         principal = _require_rag_read_access(request)
         include_raw = _include_raw_allowed(include, principal)
         item = _rag_store().get_run_detail(run_id)
@@ -272,24 +281,24 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         return {"status": "ok", "data": _redact_rag_payload(item, include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/runs/{run_id}/events")
-    def diagnostics_rag_run_events(run_id: str, request: Request, limit: int = Query(default=500, ge=1, le=2000)):
+    def diagnostics_rag_run_events(run_id: Annotated[str, Path(min_length=1, max_length=256)], request: Request, limit: int = Query(default=500, ge=1, le=2000)):
         _require_rag_read_access(request)
         return {"status": "ok", "data": _rag_store().list_events(run_id=run_id, limit=limit), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/documents")
-    def diagnostics_rag_documents(request: Request, run_id: str | None = None, collection: str | None = None, include_deleted: bool = False, limit: int = Query(default=200, ge=1, le=1000), include: str | None = None):
+    def diagnostics_rag_documents(request: Request, run_id: str | None = Query(None, max_length=256), collection: str | None = Query(None, max_length=256), include_deleted: bool = False, limit: int = Query(default=200, ge=1, le=1000), include: str | None = Query(None, max_length=32)):
         principal = _require_rag_read_access(request)
         include_raw = _include_raw_allowed(include, principal)
         return {"status": "ok", "data": _redact_rag_payload(_rag_store().list_documents(run_id=run_id, collection=collection, include_deleted=include_deleted, limit=limit), include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/chunks")
-    def diagnostics_rag_chunks(request: Request, run_id: str | None = None, collection: str | None = None, source_doc_id: str | None = None, include_deleted: bool = False, limit: int = Query(default=500, ge=1, le=2000), include: str | None = None):
+    def diagnostics_rag_chunks(request: Request, run_id: str | None = Query(None, max_length=256), collection: str | None = Query(None, max_length=256), source_doc_id: str | None = Query(None, max_length=256), include_deleted: bool = False, limit: int = Query(default=500, ge=1, le=2000), include: str | None = Query(None, max_length=32)):
         principal = _require_rag_read_access(request)
         include_raw = _include_raw_allowed(include, principal)
         return {"status": "ok", "data": _redact_rag_payload(_rag_store().list_chunks(run_id=run_id, collection=collection, source_doc_id=source_doc_id, include_deleted=include_deleted, limit=limit), include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/hits")
-    def diagnostics_rag_hits(request: Request, run_id: str | None = None, collection: str | None = None, include_deleted: bool = False, limit: int = Query(default=500, ge=1, le=2000)):
+    def diagnostics_rag_hits(request: Request, run_id: str | None = Query(None, max_length=256), collection: str | None = Query(None, max_length=256), include_deleted: bool = False, limit: int = Query(default=500, ge=1, le=2000)):
         _require_rag_read_access(request)
         return {"status": "ok", "data": _rag_store().list_hits(run_id=run_id, collection=collection, include_deleted=include_deleted, limit=limit), "timestamp": _now()}
 
@@ -299,19 +308,19 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         return {"status": "ok", "data": _rag_store().list_collections(limit=limit), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/collections/{collection}/documents")
-    def diagnostics_rag_collection_documents(collection: str, request: Request, include_deleted: bool = False, limit: int = Query(default=200, ge=1, le=1000), include: str | None = None):
+    def diagnostics_rag_collection_documents(collection: Annotated[str, Path(min_length=1, max_length=256)], request: Request, include_deleted: bool = False, limit: int = Query(default=200, ge=1, le=1000), include: str | None = None):
         principal = _require_rag_read_access(request)
         include_raw = _include_raw_allowed(include, principal)
         return {"status": "ok", "data": _redact_rag_payload(_rag_store().list_documents(collection=collection, include_deleted=include_deleted, limit=limit), include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/collections/{collection}/chunks")
-    def diagnostics_rag_collection_chunks(collection: str, request: Request, include_deleted: bool = False, limit: int = Query(default=500, ge=1, le=2000), include: str | None = None):
+    def diagnostics_rag_collection_chunks(collection: Annotated[str, Path(min_length=1, max_length=256)], request: Request, include_deleted: bool = False, limit: int = Query(default=500, ge=1, le=2000), include: str | None = None):
         principal = _require_rag_read_access(request)
         include_raw = _include_raw_allowed(include, principal)
         return {"status": "ok", "data": _redact_rag_payload(_rag_store().list_chunks(collection=collection, include_deleted=include_deleted, limit=limit), include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/db-browser/{table_name}")
-    def diagnostics_rag_db_browser(table_name: str, request: Request, limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0, le=100000), q: str | None = None, collection: str | None = None, run_id: str | None = None, source_doc_id: str | None = None, include: str | None = None):
+    def diagnostics_rag_db_browser(table_name: Annotated[str, Path(min_length=1, max_length=128)], request: Request, limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0, le=100000), q: str | None = Query(None, max_length=2048), collection: str | None = Query(None, max_length=256), run_id: str | None = Query(None, max_length=256), source_doc_id: str | None = Query(None, max_length=256), include: str | None = Query(None, max_length=32)):
         principal = _require_rag_read_access(request)
         include_raw = _include_raw_allowed(include, principal)
         try:
@@ -320,29 +329,40 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
             except TypeError:
                 payload = _rag_store().browse_db_table(table_name=table_name, limit=limit, offset=offset, q=q, collection=collection, run_id=run_id, source_doc_id=source_doc_id)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail="Invalid RAG diagnostics request") from exc
         return {"status": "ok", "data": _redact_rag_payload(payload, include_raw=include_raw), "timestamp": _now()}
 
     @router.post("/diagnostics/rag/search-preview")
     def diagnostics_rag_search_preview(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)):
         _require_rag_read_access(request)
         try:
-            return {"status": "ok", "data": _rag_store().search_preview(query=str(payload.get('query') or ''), collection=str(payload.get('collection') or ''), top_k=int(payload.get('top_k') or 10)), "timestamp": _now()}
+            query = payload.get('query') or ''
+            collection = payload.get('collection') or ''
+            if not isinstance(query, str) or len(query) > 2048:
+                raise ValueError("invalid query")
+            if not isinstance(collection, str) or len(collection) > 256:
+                raise ValueError("invalid collection")
+            top_k = int(payload.get('top_k') or 10)
+            if not 1 <= top_k <= 100:
+                raise ValueError("invalid top_k")
+            return {"status": "ok", "data": _rag_store().search_preview(query=query, collection=collection, top_k=top_k), "timestamp": _now()}
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail="Invalid RAG diagnostics request") from exc
 
     @router.post("/diagnostics/rag/runs/{run_id}/soft-delete")
-    def diagnostics_rag_soft_delete_run(run_id: str, request: Request, payload: Dict[str, Any] = Body(default_factory=dict)):
+    def diagnostics_rag_soft_delete_run(run_id: Annotated[str, Path(min_length=1, max_length=256)], request: Request, payload: Dict[str, Any] = Body(default_factory=dict)):
         _require_rag_mutation_access(request)
-        item = _rag_store().soft_delete_run(run_id, deleted_by=str(payload.get('deleted_by') or 'system'), reason=str(payload.get('reason') or '') or None)
+        deleted_by, reason = _soft_delete_metadata(payload)
+        item = _rag_store().soft_delete_run(run_id, deleted_by=deleted_by, reason=reason)
         if not item:
             raise HTTPException(status_code=404, detail='run not found')
         return {'status': 'ok', 'data': item, 'timestamp': _now()}
 
     @router.post("/diagnostics/rag/documents/{source_doc_id}/soft-delete")
-    def diagnostics_rag_soft_delete_source_doc(source_doc_id: str, request: Request, payload: Dict[str, Any] = Body(default_factory=dict)):
+    def diagnostics_rag_soft_delete_source_doc(source_doc_id: Annotated[str, Path(min_length=1, max_length=256)], request: Request, payload: Dict[str, Any] = Body(default_factory=dict)):
         _require_rag_mutation_access(request)
-        item = _rag_store().soft_delete_source_doc(source_doc_id, deleted_by=str(payload.get('deleted_by') or 'system'), reason=str(payload.get('reason') or '') or None)
+        deleted_by, reason = _soft_delete_metadata(payload)
+        item = _rag_store().soft_delete_source_doc(source_doc_id, deleted_by=deleted_by, reason=reason)
         if not item:
             raise HTTPException(status_code=404, detail='source document not found')
         return {'status': 'ok', 'data': item, 'timestamp': _now()}

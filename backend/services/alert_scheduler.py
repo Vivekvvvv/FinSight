@@ -13,6 +13,7 @@ APScheduler/Celery/async cron as needed.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 import time
@@ -26,6 +27,35 @@ from backend.services.subscription_service import SubscriptionService
 from backend.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
+
+_DELIVERY_ERROR_TYPES = {"transient", "permanent", "unknown"}
+_TICKER_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.^=-")
+
+
+def _normalize_delivery_error_type(value: object) -> str:
+    normalized = str(value or "unknown").strip().lower()
+    return normalized if normalized in _DELIVERY_ERROR_TYPES else "unknown"
+
+
+def _subscription_ticker(subscription: object) -> Optional[str]:
+    if not isinstance(subscription, dict):
+        return None
+    raw = subscription.get("ticker")
+    if not isinstance(raw, str):
+        return None
+    ticker = raw.strip().upper()
+    if not ticker or len(ticker) > 20:
+        return None
+    if ticker[0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789^":
+        return None
+    return ticker if all(char in _TICKER_CHARS for char in ticker) else None
+
+
+def _positive_env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
 
 
 
@@ -67,7 +97,7 @@ class PriceChangeScheduler:
             return None
 
     def _is_cooling_down(self, sub: dict) -> bool:
-        cooldown_minutes = max(1, int(os.getenv("PRICE_ALERT_COOLDOWN_MINUTES", "60")))
+        cooldown_minutes = _positive_env_int("PRICE_ALERT_COOLDOWN_MINUTES", 60)
         last_alert_at = self._parse_dt(sub.get("last_alert_at"))
         if last_alert_at is None:
             return False
@@ -79,6 +109,11 @@ class PriceChangeScheduler:
         checked = 0
 
         for sub in subscriptions:
+            ticker = _subscription_ticker(sub)
+            if ticker is None:
+                continue
+            if ticker != sub.get("ticker"):
+                sub = {**sub, "ticker": ticker}
             if sub.get("disabled"):
                 continue
             alert_types = sub.get("alert_types") or []
@@ -87,9 +122,24 @@ class PriceChangeScheduler:
             checked += 1
 
             alert_mode = str(sub.get("alert_mode") or "price_change_pct").strip().lower()
-            snapshot = self.price_fetcher(sub["ticker"])
+            try:
+                snapshot = self.price_fetcher(sub["ticker"])
+            except Exception as exc:
+                logger.warning(
+                    "Price fetch failed for ticker=%s (%s)",
+                    sub["ticker"],
+                    type(exc).__name__,
+                )
+                continue
             if snapshot is None:
                 continue
+            try:
+                snapshot_price = float(snapshot.price)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(snapshot_price) or snapshot_price <= 0:
+                continue
+            snapshot.price = snapshot_price
 
             threshold_payload: Optional[float] = None
             price_target_payload: Optional[float] = None
@@ -104,6 +154,8 @@ class PriceChangeScheduler:
                 try:
                     price_target_payload = float(price_target)
                 except Exception:
+                    continue
+                if not math.isfinite(price_target_payload) or price_target_payload <= 0:
                     continue
                 direction_payload = str(sub.get("direction") or "").strip().lower()
                 if direction_payload == "below":
@@ -125,10 +177,19 @@ class PriceChangeScheduler:
                     threshold_payload = float(threshold)
                 except Exception:
                     continue
+                if not math.isfinite(threshold_payload) or threshold_payload <= 0:
+                    continue
                 if self._is_cooling_down(sub):
                     continue
                 if snapshot.change_percent is None:
                     continue
+                try:
+                    change_percent = float(snapshot.change_percent)
+                except (TypeError, ValueError):
+                    continue
+                if not math.isfinite(change_percent):
+                    continue
+                snapshot.change_percent = change_percent
                 if abs(snapshot.change_percent) < threshold_payload:
                     continue
                 message = (
@@ -146,21 +207,36 @@ class PriceChangeScheduler:
                 )
                 continue
 
-            result = self.email_service.send_stock_alert(
-                to_email=sub["email"],
-                ticker=sub["ticker"],
-                alert_type="price_target" if alert_mode == "price_target" else "price_change",
-                message=message,
-                current_price=snapshot.price,
-                change_percent=snapshot.change_percent,
-            )
+            try:
+                result = self.email_service.send_stock_alert(
+                    to_email=sub["email"],
+                    ticker=sub["ticker"],
+                    alert_type="price_target" if alert_mode == "price_target" else "price_change",
+                    message=message,
+                    current_price=snapshot.price,
+                    change_percent=snapshot.change_percent,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Email send raised for ticker=%s (%s)",
+                    sub["ticker"],
+                    type(exc).__name__,
+                )
+                self.subscription_service.record_alert_attempt(
+                    sub["email"],
+                    sub["ticker"],
+                    success=False,
+                    error="send_failed",
+                )
+                continue
             if isinstance(result, tuple):
                 success, error_type, error_msg = result
             else:
                 success, error_type, error_msg = result, "unknown", None
+            error_type = _normalize_delivery_error_type(error_type)
 
             if not success:
-                logger.warning("Email send failed for %s -> %s: %s (%s)", sub["ticker"], sub["email"], error_msg, error_type)
+                logger.warning("Email send failed for ticker=%s (%s)", sub["ticker"], error_type)
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -242,6 +318,11 @@ class NewsAlertScheduler:
         checked = 0
 
         for sub in subs:
+            ticker = _subscription_ticker(sub)
+            if ticker is None:
+                continue
+            if ticker != sub.get("ticker"):
+                sub = {**sub, "ticker": ticker}
             if sub.get("disabled"):
                 continue
             alert_types = sub.get("alert_types") or []
@@ -250,36 +331,61 @@ class NewsAlertScheduler:
             checked += 1
 
             last_news_at = sub.get("last_news_at")
-            last_dt = datetime.fromisoformat(last_news_at) if last_news_at else None
+            try:
+                last_dt = datetime.fromisoformat(str(last_news_at)) if last_news_at else None
+            except (TypeError, ValueError):
+                last_dt = None
             # 统一 naive-UTC 基准（审计 C3）：与 lookback / 文章 published_at 同基准比较
             if last_dt is not None and last_dt.tzinfo is not None:
                 last_dt = last_dt.astimezone(timezone.utc).replace(tzinfo=None)
 
-            articles = self.news_fetcher(sub["ticker"])
+            try:
+                articles = self.news_fetcher(sub["ticker"])
+            except Exception as exc:
+                logger.warning(
+                    "News fetch failed for ticker=%s (%s)",
+                    sub["ticker"],
+                    type(exc).__name__,
+                )
+                continue
             if not articles:
                 continue
 
             # 鐩稿叧鎬э細浼樺厛 related_tickers 鍛戒腑锛屽叾娆℃爣棰樺寘鍚?TICKER
             related: List[Dict] = []
             for art in articles:
+                if not isinstance(art, dict):
+                    continue
                 pub_dt = art.get("published_at")
                 if isinstance(pub_dt, str):
                     try:
                         pub_dt = datetime.fromisoformat(pub_dt)
                     except Exception:
                         pub_dt = None
+                if not isinstance(pub_dt, datetime):
+                    continue
                 # 带时区的 aware 值归一到 naive-UTC，避免与 naive 的 lookback 比较抛 TypeError
-                if pub_dt is not None and pub_dt.tzinfo is not None:
+                if pub_dt.tzinfo is not None:
                     pub_dt = pub_dt.astimezone(timezone.utc).replace(tzinfo=None)
-                if not pub_dt or pub_dt < lookback:
+                if pub_dt < lookback:
                     continue
                 if last_dt and pub_dt <= last_dt:
                     continue
 
-                rel = art.get("related_tickers") or []
-                title = art.get("title", "")
+                raw_related = art.get("related_tickers") or []
+                rel = {
+                    str(value).strip().upper()
+                    for value in raw_related
+                    if isinstance(value, str) and value.strip()
+                } if isinstance(raw_related, (list, tuple, set)) else set()
+                title = str(art.get("title") or "")[:512]
                 if sub["ticker"].upper() in rel or sub["ticker"].upper() in title.upper():
-                    related.append({**art, "published_at": pub_dt})
+                    related.append({
+                        "title": title,
+                        "source": str(art.get("source") or "")[:128],
+                        "url": str(art.get("url") or "")[:2048],
+                        "published_at": pub_dt,
+                    })
 
             if not related:
                 continue
@@ -292,23 +398,38 @@ class NewsAlertScheduler:
                 lines.append(f"[{ts}] {art.get('title','')} ({art.get('source','')}) {art.get('url','')}")
             message = "\n".join(lines)
 
-            result = self.email_service.send_stock_alert(
-                to_email=sub["email"],
-                ticker=sub["ticker"],
-                alert_type="news",
-                message=message,
-                current_price=None,
-                change_percent=None,
-            )
+            try:
+                result = self.email_service.send_stock_alert(
+                    to_email=sub["email"],
+                    ticker=sub["ticker"],
+                    alert_type="news",
+                    message=message,
+                    current_price=None,
+                    change_percent=None,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "News email send raised for ticker=%s (%s)",
+                    sub["ticker"],
+                    type(exc).__name__,
+                )
+                self.subscription_service.record_alert_attempt(
+                    sub["email"],
+                    sub["ticker"],
+                    success=False,
+                    error="send_failed",
+                )
+                continue
             
             if isinstance(result, tuple):
                 success, error_type, error_msg = result
             else:
                 success, error_type, error_msg = result, 'unknown', None
+            error_type = _normalize_delivery_error_type(error_type)
 
             # Only update last_news_at if email was actually sent
             if not success:
-                logger.warning("News email send failed for %s -> %s: %s", sub["ticker"], sub["email"], error_msg)
+                logger.warning("News email send failed for ticker=%s (%s)", sub["ticker"], error_type)
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -389,7 +510,7 @@ class RiskAlertScheduler:
         return cls._RISK_LEVEL_ORDER[actual] >= cls._RISK_LEVEL_ORDER[threshold]
 
     def _is_cooling_down(self, sub: dict) -> bool:
-        cooldown_minutes = max(1, int(os.getenv("RISK_ALERT_COOLDOWN_MINUTES", "180")))
+        cooldown_minutes = _positive_env_int("RISK_ALERT_COOLDOWN_MINUTES", 180)
         last_risk_at = self._parse_dt(sub.get("last_risk_at"))
         if last_risk_at is None:
             return False
@@ -401,6 +522,11 @@ class RiskAlertScheduler:
         checked = 0
 
         for sub in subscriptions:
+            ticker = _subscription_ticker(sub)
+            if ticker is None:
+                continue
+            if ticker != sub.get("ticker"):
+                sub = {**sub, "ticker": ticker}
             if sub.get("disabled"):
                 continue
 
@@ -412,7 +538,15 @@ class RiskAlertScheduler:
             if self._is_cooling_down(sub):
                 continue
 
-            snapshot = self.price_fetcher(sub["ticker"])
+            try:
+                snapshot = self.price_fetcher(sub["ticker"])
+            except Exception as exc:
+                logger.warning(
+                    "Risk price fetch failed for ticker=%s (%s)",
+                    sub["ticker"],
+                    type(exc).__name__,
+                )
+                continue
             if snapshot is None:
                 continue
 
@@ -440,28 +574,37 @@ class RiskAlertScheduler:
                 )
                 continue
 
-            result = self.email_service.send_stock_alert(
-                to_email=sub["email"],
-                ticker=sub["ticker"],
-                alert_type="risk",
-                message=message,
-                current_price=snapshot.price,
-                change_percent=snapshot.change_percent,
-            )
+            try:
+                result = self.email_service.send_stock_alert(
+                    to_email=sub["email"],
+                    ticker=sub["ticker"],
+                    alert_type="risk",
+                    message=message,
+                    current_price=snapshot.price,
+                    change_percent=snapshot.change_percent,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Risk email send raised for ticker=%s (%s)",
+                    sub["ticker"],
+                    type(exc).__name__,
+                )
+                self.subscription_service.record_alert_attempt(
+                    sub["email"],
+                    sub["ticker"],
+                    success=False,
+                    error="send_failed",
+                )
+                continue
 
             if isinstance(result, tuple):
                 success, error_type, error_msg = result
             else:
                 success, error_type, error_msg = result, "unknown", None
+            error_type = _normalize_delivery_error_type(error_type)
 
             if not success:
-                logger.warning(
-                    "Risk email send failed for %s -> %s: %s (%s)",
-                    sub["ticker"],
-                    sub["email"],
-                    error_msg,
-                    error_type,
-                )
+                logger.warning("Risk email send failed for ticker=%s (%s)", sub["ticker"], error_type)
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -558,15 +701,19 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
     ticker_up = ticker.upper()
 
     def _add_article(title: str, url: str, source: str, published_at: datetime, related: List[str] | None = None):
-        if not published_at or published_at < cutoff:
+        if not isinstance(published_at, datetime) or published_at < cutoff:
             return
         articles.append(
             {
-                "title": title,
-                "url": url,
-                "source": source,
+                "title": str(title or "")[:512],
+                "url": str(url or "")[:2048],
+                "source": str(source or "")[:128],
                 "published_at": published_at,
-                "related_tickers": [r.upper() for r in (related or []) if isinstance(r, str)],
+                "related_tickers": [
+                    r.strip().upper()[:20]
+                    for r in (related or [])[:50]
+                    if isinstance(r, str) and r.strip()
+                ],
             }
         )
 
@@ -576,16 +723,21 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
         t = yf.Ticker(ticker)
         news = getattr(t, "news", []) or []
         for item in news:
+            if not isinstance(item, dict):
+                continue
             # yfinance >=0.2.5x 返回 Yahoo ncp 流结构：title/pubDate/url 嵌在
             # item["content"] 下，顶层旧字段全部为空 → 旧解析逐条丢弃、主路径
             # 静默失效。兼容新旧两种结构。
             content = item.get("content") if isinstance(item.get("content"), dict) else {}
+            canonical_url = content.get("canonicalUrl") if isinstance(content.get("canonicalUrl"), dict) else {}
+            click_url = content.get("clickThroughUrl") if isinstance(content.get("clickThroughUrl"), dict) else {}
+            provider = content.get("provider") if isinstance(content.get("provider"), dict) else {}
             title = item.get("title") or content.get("title") or ""
             link = (
                 item.get("link")
                 or item.get("url")
-                or (content.get("canonicalUrl") or {}).get("url")
-                or (content.get("clickThroughUrl") or {}).get("url")
+                or canonical_url.get("url")
+                or click_url.get("url")
             )
             pub_ts = (
                 item.get("providerPublishTime")
@@ -599,12 +751,12 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
             source = (
                 item.get("publisher")
                 or item.get("source")
-                or (content.get("provider") or {}).get("displayName")
+                or provider.get("displayName")
                 or ""
             )
             _add_article(title, link, source, pub_dt, related)
     except Exception as e:
-        logger.info(f"[NewsFetcher] yfinance news failed for {ticker}: {e}")
+        logger.info("[NewsFetcher] yfinance news failed for %s: %s", ticker, type(e).__name__)
 
     # Finnhub fallback
     if not articles:
@@ -625,6 +777,8 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                 resp = requests.get(url, params=params, timeout=8)
                 if resp.status_code == 200:
                     for item in resp.json() or []:
+                        if not isinstance(item, dict):
+                            continue
                         title = item.get("headline", "")
                         link = item.get("url", "")
                         source = item.get("source", "")
@@ -636,7 +790,7 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                         related = item.get("related", "").split(",") if item.get("related") else [ticker_up]
                         _add_article(title, link, source, pub_dt, related)
             except Exception as e:
-                logger.info(f"[NewsFetcher] finnhub news failed for {ticker}: {e}")
+                logger.info("[NewsFetcher] finnhub news failed for %s: %s", ticker, type(e).__name__)
 
     # Alpha Vantage fallback
     if not articles:
@@ -651,6 +805,8 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                 data = resp.json()
                 feed = data.get("feed") or []
                 for item in feed:
+                    if not isinstance(item, dict):
+                        continue
                     title = item.get("title", "")
                     link = item.get("url") or item.get("link", "")
                     source = item.get("source", "")
@@ -665,7 +821,7 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                     rel_codes = [r.get("ticker") for r in related if isinstance(r, dict) and r.get("ticker")]
                     _add_article(title, link, source, pub_dt, rel_codes or [ticker_up])
             except Exception as e:
-                logger.info(f"[NewsFetcher] alpha vantage news failed for {ticker}: {e}")
+                logger.info("[NewsFetcher] alpha vantage news failed for %s: %s", ticker, type(e).__name__)
 
     return articles
 
@@ -684,7 +840,8 @@ def _fetch_with_yfinance(ticker: str) -> Optional[PriceSnapshot]:
             change_percent = (price - prev_close) / prev_close * 100.0
 
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
-    except Exception:
+    except Exception as exc:
+        logger.debug("yfinance quote fetch failed for %s: %s", ticker, type(exc).__name__)
         return None
 
 
@@ -710,7 +867,8 @@ def _fetch_with_yahoo_quote(ticker: str) -> Optional[PriceSnapshot]:
         if price is not None and prev_close not in (None, 0):
             change_percent = (price - prev_close) / prev_close * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Yahoo quote fetch failed for %s: %s", ticker, type(exc).__name__)
         return None
 
 
@@ -762,14 +920,16 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
                         closes.append(value)
                 if closes:
                     prev = closes[-1]
-        except Exception:
+        except Exception as exc:
+            logger.debug("Stooq history fetch failed for %s: %s", ticker, type(exc).__name__)
             prev = None
 
         change_percent = None
         if prev:
             change_percent = (price - prev) / prev * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Stooq quote fetch failed for %s: %s", ticker, type(exc).__name__)
         return None
 
 
@@ -794,7 +954,8 @@ def _fetch_with_yahoo_chart(ticker: str) -> Optional[PriceSnapshot]:
             return None
         change_percent = (price - prev_close) / prev_close * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Yahoo chart fetch failed for %s: %s", ticker, type(exc).__name__)
         return None
 
 

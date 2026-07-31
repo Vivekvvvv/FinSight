@@ -7,6 +7,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -17,6 +18,9 @@ from backend.security.auth import Principal, require_admin_principal
 
 # 全局配置是单文件，save_config 为读-改-写，多请求并发时须持模块级锁（项目规则1）。
 _CONFIG_WRITE_LOCK = threading.RLock()
+_MAX_CONFIG_INPUT_BYTES = 256 * 1024
+_MAX_LLM_ENDPOINTS = 20
+_MAX_CONFIG_WATCHLIST_ITEMS = 200
 
 _SENSITIVE_FRAGMENTS = ("api_key", "apikey", "token", "secret", "password")
 
@@ -33,6 +37,10 @@ _CONFIG_ALLOWED_KEYS = frozenset({
     "language",
     "watchlist",
 })
+
+
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON value: {value}")
 
 
 def _mask_value(value: str) -> str:
@@ -133,33 +141,54 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
         except Exception:
             pass
 
+    def _backup_corrupt_config(config_file: str, exc: BaseException) -> None:
+        backup_path = f"{config_file}.{uuid4().hex}.corrupt"
+        os.replace(config_file, backup_path)
+        warning = getattr(getattr(deps, "logger", None), "warning", None)
+        if not callable(warning):
+            return
+        try:
+            warning("Config file was corrupt and moved to a backup (%s)", type(exc).__name__)
+        except Exception:
+            pass
+
     @router.get("/api/config", response_model=ConfigResponse)
     async def get_config():
         try:
             config_file = USER_CONFIG_PATH
 
-            try:
-                with open(config_file, "r", encoding="utf-8") as file_obj:
-                    saved_config = json.load(file_obj)
-                return {"success": True, "config": _redact_config(saved_config)}
-            except FileNotFoundError:
-                return {
-                    "success": True,
-                    "config": {
-                        "llm_provider": None,
-                        "llm_model": None,
-                        "llm_api_key": None,
-                        "llm_api_base": None,
-                        "llm_endpoints": [],
-                        "layout_mode": "centered",
-                        "trace_raw_enabled": True,
-                        "trace_raw_show_raw_json": True,
-                    },
-                }
+            with _CONFIG_WRITE_LOCK:
+                try:
+                    with open(config_file, "r", encoding="utf-8") as file_obj:
+                        saved_config = json.load(
+                            file_obj,
+                            parse_constant=_reject_non_finite_json,
+                        )
+                    if not isinstance(saved_config, dict):
+                        raise ValueError("config payload must be a JSON object")
+                    return {"success": True, "config": _redact_config(saved_config)}
+                except FileNotFoundError:
+                    pass
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+                    _backup_corrupt_config(config_file, exc)
+
+            return {
+                "success": True,
+                "config": {
+                    "llm_provider": None,
+                    "llm_model": None,
+                    "llm_api_key": None,
+                    "llm_api_base": None,
+                    "llm_endpoints": [],
+                    "layout_mode": "centered",
+                    "trace_raw_enabled": True,
+                    "trace_raw_show_raw_json": True,
+                },
+            }
         except Exception as exc:
             _log_error("config load failed", exc)
             return JSONResponse(
-                status_code=200,
+                status_code=500,
                 content={"success": False, "error": "Internal server error"},
             )
 
@@ -171,19 +200,43 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
     ):
         try:
             config_file = USER_CONFIG_PATH
+            filtered = _filter_allowed_keys(request)
+            try:
+                encoded = json.dumps(
+                    filtered,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                ).encode("utf-8")
+            except (TypeError, ValueError):
+                return JSONResponse(status_code=422, content={"detail": "Invalid config payload"})
+            if len(encoded) > _MAX_CONFIG_INPUT_BYTES:
+                return JSONResponse(status_code=413, content={"detail": "Config payload too large"})
+
+            for key, limit in (
+                ("llm_endpoints", _MAX_LLM_ENDPOINTS),
+                ("watchlist", _MAX_CONFIG_WATCHLIST_ITEMS),
+            ):
+                value = filtered.get(key)
+                if value is not None and (not isinstance(value, list) or len(value) > limit):
+                    return JSONResponse(status_code=422, content={"detail": f"Invalid {key}"})
 
             with _CONFIG_WRITE_LOCK:
                 # Load existing config to merge (preserve keys not in whitelist)
                 existing: dict = {}
                 try:
                     with open(config_file, "r", encoding="utf-8") as file_obj:
-                        existing = json.load(file_obj)
-                except (FileNotFoundError, json.JSONDecodeError):
+                        existing = json.load(
+                            file_obj,
+                            parse_constant=_reject_non_finite_json,
+                        )
+                    if not isinstance(existing, dict):
+                        raise ValueError("config payload must be a JSON object")
+                except FileNotFoundError:
                     pass
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+                    _backup_corrupt_config(config_file, exc)
 
                 # Only allow whitelisted keys from user input
-                filtered = _filter_allowed_keys(request)
-
                 if "llm_api_key" in filtered:
                     filtered["llm_api_key"] = _preserve_secret_if_masked(
                         filtered.get("llm_api_key"),
@@ -203,7 +256,13 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
                 fd, tmp_path = tempfile.mkstemp(dir=dir_name, prefix=".config_", suffix=".tmp")
                 try:
                     with os.fdopen(fd, "w", encoding="utf-8") as file_obj:
-                        json.dump(merged, file_obj, indent=2, ensure_ascii=False)
+                        json.dump(
+                            merged,
+                            file_obj,
+                            indent=2,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                        )
                         file_obj.flush()
                         os.fsync(file_obj.fileno())
                     os.replace(tmp_path, config_file)
@@ -223,7 +282,10 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
             return {"success": True, "message": "配置已保存"}
         except Exception as exc:
             _log_error("config save failed", exc)
-            return {"success": False, "error": "Internal server error"}
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "Internal server error"},
+            )
 
     @router.get("/api/personas")
     async def list_personas_endpoint():
@@ -254,6 +316,9 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
             }
         except Exception as exc:
             _log_error("personas list failed", exc)
-            return {"success": False, "error": "Internal server error", "personas": []}
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "Internal server error", "personas": []},
+            )
 
     return router

@@ -13,7 +13,7 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Annotated, Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -32,8 +32,10 @@ _BRIEF_CACHE_TTL = 1800
 class MorningBriefRequest(BaseModel):
     """晨报生成请求"""
 
-    session_id: str
-    tickers: list[str] = Field(default_factory=list, max_length=50)
+    session_id: str = Field(..., max_length=256)
+    tickers: list[Annotated[str, Field(max_length=32)]] = Field(
+        default_factory=list, max_length=50,
+    )
 
 
 @dataclass(frozen=True)
@@ -203,7 +205,7 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
         try:
             normalized_session = deps.resolve_thread_id(request.session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         # 合并 tickers：请求参数 + 持仓中的 tickers
         request_tickers = {t.strip().upper() for t in request.tickers if t.strip()}

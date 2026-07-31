@@ -18,6 +18,7 @@ YAML 配置位于 backend/personas/*.yaml，启动时自动加载。
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
@@ -61,7 +62,10 @@ class AgentWeights(BaseModel):
         # Upper bound 3.0 → prevents pathological domination
         if v is None:
             return 1.0
-        return max(0.2, min(3.0, float(v)))
+        value = float(v)
+        if not math.isfinite(value):
+            return 1.0
+        return max(0.2, min(3.0, value))
 
     def get(self, agent_name: str, default: float = 1.0) -> float:
         """Look up weight by agent_name (with or without `_agent` suffix)."""
@@ -111,7 +115,7 @@ def _load_yaml_file(path: Path) -> Optional[Persona]:
             return None
         return Persona(**raw)
     except Exception as exc:
-        logger.warning("[personas] failed to parse %s: %s", path.name, exc)
+        logger.warning("[personas] failed to parse %s: %s", path.name, type(exc).__name__)
         return None
 
 

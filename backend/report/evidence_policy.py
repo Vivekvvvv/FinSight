@@ -6,6 +6,7 @@ Evidence policy and canonical report quality helpers.
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Literal, TypedDict
@@ -75,9 +76,10 @@ def _env_float(name: str, default: float) -> float:
     if raw is None:
         return default
     try:
-        return float(str(raw).strip())
+        value = float(str(raw).strip())
     except Exception:
         return default
+    return value if math.isfinite(value) else default
 
 
 def _env_int(name: str, default: int) -> int:

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import logging
 import os
+
+from backend.utils.env_config import env_int
 from typing import Any
 
 from backend.tools.http import _http_get
@@ -21,7 +23,7 @@ from backend.utils.quote import safe_float
 logger = logging.getLogger(__name__)
 
 _EASTMONEY_USER_AGENT = os.getenv("EASTMONEY_USER_AGENT", "Mozilla/5.0 (FinSight)")
-_EASTMONEY_TIMEOUT = int(os.getenv("EASTMONEY_TIMEOUT", "12"))
+_EASTMONEY_TIMEOUT = env_int("EASTMONEY_TIMEOUT", 12, minimum=1)
 _EASTMONEY_LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 
 # 市场 → Eastmoney fs 板块过滤：沪主板+科创板 / 深主板+创业板；港股主板
@@ -81,7 +83,7 @@ def _fetch_page(*, fs: str, fid: str, po: int, page: int) -> list[dict[str, Any]
             return [row for row in diff if isinstance(row, dict)]
         return []
     except Exception as exc:
-        logger.info("eastmoney screener page %s failed: %s", page, exc)
+        logger.info("eastmoney screener page %s failed: %s", page, type(exc).__name__)
         return None
 
 

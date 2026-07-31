@@ -16,10 +16,11 @@ async def _collect_events(generator):
     return items
 
 
-def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch):
+def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch, caplog):
     execution_service = importlib.import_module("backend.services.execution_service")
     runner_module = importlib.import_module("backend.graph.runner")
     report_builder_module = importlib.import_module("backend.graph.report_builder")
+    graph_store_module = importlib.import_module("backend.graph.store")
 
     async def _fake_run_graph_traced(
         _runner,
@@ -70,6 +71,17 @@ def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch):
 
     indexed: list[dict] = []
     updated_context: list[dict] = []
+    secret = "PRIVATE postgres://execution:secret@db/chat-turn"
+
+    def _fail_record_chat_turn(**_kwargs):
+        raise RuntimeError(secret)
+
+    memory_secret = "PRIVATE postgres://execution:secret@db/memory"
+
+    def _fail_memory_snapshot(**_kwargs):
+        raise RuntimeError(memory_secret)
+
+    monkeypatch.setattr(graph_store_module, "persist_memory_snapshot", _fail_memory_snapshot)
 
     async def _fake_get_graph_runner():
         return object()
@@ -78,7 +90,7 @@ def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch):
         get_graph_runner=_fake_get_graph_runner,
         schedule_report_index=lambda **kwargs: indexed.append(kwargs),
         update_session_context=lambda **kwargs: updated_context.append(kwargs),
-        record_chat_turn=None,
+        record_chat_turn=_fail_record_chat_turn,
         redact_sensitive_payload=lambda payload: payload,
         is_raw_trace_event=lambda payload: False,
         contract_info=lambda: {"chat_response": "chat.response.v1"},
@@ -121,11 +133,15 @@ def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch):
     assert isinstance(done.get("report"), dict), "soft-blocked should preserve report"
     assert isinstance(done.get("blocked_report"), dict)
     assert done.get("allow_continue_when_blocked") is True
+    assert secret not in caplog.text
+    assert memory_secret not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
-def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch):
+def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch, caplog):
     execution_service = importlib.import_module("backend.services.execution_service")
     report_builder_module = importlib.import_module("backend.graph.report_builder")
+    graph_store_module = importlib.import_module("backend.graph.store")
 
     class _Runner:
         async def resume(self, *, thread_id: str, resume_value):
@@ -172,6 +188,17 @@ def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch
 
     indexed: list[dict] = []
     updated_context: list[dict] = []
+    secret = "PRIVATE postgres://execution:secret@db/resume-chat"
+
+    def _fail_record_chat_turn(**_kwargs):
+        raise RuntimeError(secret)
+
+    memory_secret = "PRIVATE postgres://execution:secret@db/resume-memory"
+
+    def _fail_memory_snapshot(**_kwargs):
+        raise RuntimeError(memory_secret)
+
+    monkeypatch.setattr(graph_store_module, "persist_memory_snapshot", _fail_memory_snapshot)
 
     async def _fake_get_graph_runner():
         return _Runner()
@@ -180,7 +207,7 @@ def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch
         get_graph_runner=_fake_get_graph_runner,
         schedule_report_index=lambda **kwargs: indexed.append(kwargs),
         update_session_context=lambda **kwargs: updated_context.append(kwargs),
-        record_chat_turn=None,
+        record_chat_turn=_fail_record_chat_turn,
         redact_sensitive_payload=lambda payload: payload,
         is_raw_trace_event=lambda payload: False,
         contract_info=lambda: {"chat_response": "chat.response.v1"},
@@ -220,3 +247,140 @@ def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch
     assert isinstance(done.get("report"), dict), "soft-blocked should preserve report"
     assert isinstance(done.get("blocked_report"), dict)
     assert done.get("allow_continue_when_blocked") is True
+    assert secret not in caplog.text
+    assert memory_secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_resume_graph_pipeline_unhandled_error_is_redacted(caplog):
+    execution_service = importlib.import_module("backend.services.execution_service")
+    secret = "PRIVATE postgres://execution:secret@db/resume"
+
+    class _FailingRunner:
+        async def resume(self, *, thread_id: str, resume_value):
+            raise RuntimeError(secret)
+            yield
+
+    async def _fake_get_graph_runner():
+        return _FailingRunner()
+
+    deps = execution_service.ExecutionDeps(
+        get_graph_runner=_fake_get_graph_runner,
+        schedule_report_index=lambda **_kwargs: None,
+        update_session_context=lambda **_kwargs: None,
+        record_chat_turn=None,
+        redact_sensitive_payload=lambda payload: payload,
+        is_raw_trace_event=lambda _payload: False,
+        contract_info=lambda: {},
+        sse_event_schema_version="chat.sse.v1",
+    )
+
+    events = _run(
+        _collect_events(
+            execution_service.resume_graph_pipeline(
+                deps=deps,
+                thread_id="tenant:user:thread",
+                resume_value="confirm",
+            )
+        )
+    )
+
+    error_events = [event for event in events if event.get("type") == "error"]
+    assert len(error_events) == 1
+    assert error_events[0]["schema_version"] == "chat.sse.v1"
+    assert error_events[0]["message"] == "Resume execution failed"
+    assert secret not in str(events)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_resume_report_build_error_log_is_redacted(monkeypatch, caplog):
+    execution_service = importlib.import_module("backend.services.execution_service")
+    report_builder_module = importlib.import_module("backend.graph.report_builder")
+    secret = "PRIVATE postgres://execution:secret@db/report"
+
+    class _Runner:
+        async def resume(self, *, thread_id: str, resume_value):
+            yield {
+                "event": "on_chain_end",
+                "data": {
+                    "output": {
+                        "thread_id": thread_id,
+                        "query": "resume query",
+                        "artifacts": {"draft_markdown": "draft"},
+                    }
+                },
+            }
+
+    async def _fake_get_graph_runner():
+        return _Runner()
+
+    def _fail_report(**_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(report_builder_module, "build_report_payload", _fail_report)
+    deps = execution_service.ExecutionDeps(
+        get_graph_runner=_fake_get_graph_runner,
+        schedule_report_index=lambda **_kwargs: None,
+        update_session_context=lambda **_kwargs: None,
+        record_chat_turn=None,
+        redact_sensitive_payload=lambda payload: payload,
+        is_raw_trace_event=lambda _payload: False,
+        contract_info=lambda: {},
+        sse_event_schema_version="chat.sse.v1",
+    )
+
+    events = _run(
+        _collect_events(
+            execution_service.resume_graph_pipeline(
+                deps=deps,
+                thread_id="tenant:user:thread",
+                resume_value="confirm",
+            )
+        )
+    )
+
+    assert any(event.get("type") == "done" for event in events)
+    assert secret not in str(events)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_run_graph_timeout_does_not_log_query(monkeypatch, caplog):
+    execution_service = importlib.import_module("backend.services.execution_service")
+    runner_module = importlib.import_module("backend.graph.runner")
+    secret = "PRIVATE timeout query token"
+
+    async def _slow_run_graph(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return {}
+
+    async def _fake_get_graph_runner():
+        return object()
+
+    monkeypatch.setattr(runner_module, "run_graph_traced", _slow_run_graph)
+    monkeypatch.setattr(execution_service, "_execution_timeout_seconds", lambda _mode: 0.001)
+    deps = execution_service.ExecutionDeps(
+        get_graph_runner=_fake_get_graph_runner,
+        schedule_report_index=lambda **_kwargs: None,
+        update_session_context=lambda **_kwargs: None,
+        record_chat_turn=None,
+        redact_sensitive_payload=lambda payload: payload,
+        is_raw_trace_event=lambda _payload: False,
+        contract_info=lambda: {},
+        sse_event_schema_version="chat.sse.v1",
+    )
+
+    events = _run(
+        _collect_events(
+            execution_service.run_graph_pipeline(
+                deps=deps,
+                query=secret,
+                thread_id="tenant:user:thread",
+            )
+        )
+    )
+
+    assert any(event.get("type") == "error" for event in events)
+    assert secret not in caplog.text
+    assert f"query_chars={len(secret)}" in caplog.text

@@ -376,7 +376,7 @@ async def execute_plan(
                 "step_id": step_id,
                 "kind": kind,
                 "name": name,
-                "error": str(exc),
+                "error": "step_failed",
                 "error_type": exc.__class__.__name__,
                 "optional": optional,
                 "retryable": False,
@@ -387,10 +387,10 @@ async def execute_plan(
                 "[Executor] step %s (%s:%s) FAILED%s: %s",
                 step_id, kind, name,
                 " (optional, continuing)" if optional else " (REQUIRED, aborting)",
-                exc,
+                type(exc).__name__,
             )
             exec_events.append(
-                {"event": "executor.step_failed", "step_id": step_id, "duration_ms": int((time.perf_counter() - start) * 1000), "error": str(exc), "optional": optional}
+                {"event": "executor.step_failed", "step_id": step_id, "duration_ms": int((time.perf_counter() - start) * 1000), "error": "step_failed", "optional": optional}
             )
             await emit_event(
                 {
@@ -398,7 +398,7 @@ async def execute_plan(
                     "step_id": step_id,
                     "kind": kind,
                     "name": name,
-                    "error": str(exc)[:300],
+                    "error": "step_failed",
                     "error_type": exc.__class__.__name__,
                     "optional": optional,
                     "parallel_group": parallel_group,
@@ -423,7 +423,7 @@ async def execute_plan(
                     "stage": "executing",
                     "status": "error",
                     "message": "Executor aborted by required step failure",
-                    "error": str(exc)[:300],
+                    "error": "step_failed",
                     "duration_ms": int((time.perf_counter() - execution_started_at) * 1000),
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }

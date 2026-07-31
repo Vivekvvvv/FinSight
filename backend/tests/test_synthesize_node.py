@@ -1,10 +1,181 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import builtins
+import logging
 from datetime import datetime, timezone
 
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def _deep_verifier_state():
+    return {
+        "query": "investment report",
+        "output_mode": "investment_report",
+        "ui_context": {"analysis_depth": "deep_research"},
+        "operation": {"name": "investment_report", "confidence": 0.8, "params": {}},
+        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+        "artifacts": {"step_results": {}, "evidence_pool": []},
+        "trace": {},
+    }
+
+
+def test_deep_verifier_import_error_is_redacted(monkeypatch, caplog):
+    import importlib
+
+    synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+
+    sentinel = "PRIVATE_VERIFIER_IMPORT_DETAIL"
+    real_import = builtins.__import__
+
+    def _import(name, *args, **kwargs):
+        if name == "backend.llm_config":
+            raise ImportError(sentinel)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _import)
+    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+
+    result = _run(
+        synth_mod._run_deep_report_verifier(
+            state=_deep_verifier_state(),
+            generated_text="report content",
+            grounding_text="evidence",
+        )
+    )
+
+    assert result["error"] == "ImportError"
+    assert sentinel not in str(result)
+    assert sentinel not in caplog.text
+
+
+def test_deep_verifier_runtime_error_is_redacted(monkeypatch, caplog):
+    import importlib
+    import backend.llm_config as llm_config
+
+    synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+
+    sentinel = "PRIVATE_VERIFIER_RUNTIME_DETAIL"
+
+    async def _fail_verification(*_args, **_kwargs):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: object())
+    monkeypatch.setattr(synth_mod, "ainvoke_with_rate_limit_retry", _fail_verification)
+    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+
+    result = _run(
+        synth_mod._run_deep_report_verifier(
+            state=_deep_verifier_state(),
+            generated_text="report content",
+            grounding_text="evidence",
+        )
+    )
+
+    assert result["error"] == "RuntimeError"
+    assert sentinel not in str(result)
+    assert sentinel not in caplog.text
+
+
+def test_narrative_llm_init_error_log_is_redacted(monkeypatch, caplog):
+    import importlib
+    import backend.llm_config as llm_config
+
+    synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+    sentinel = "PRIVATE_NARRATIVE_INIT_DETAIL"
+
+    def _fail_create_llm(**_kwargs):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(llm_config, "create_llm", _fail_create_llm)
+    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+
+    result = _run(synth_mod._generate_narrative_draft(_deep_verifier_state(), {}, {}))
+
+    assert result == ("", None)
+    assert sentinel not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_narrative_llm_call_error_trace_and_log_are_redacted(monkeypatch, caplog):
+    import importlib
+    import backend.llm_config as llm_config
+
+    synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+    sentinel = "PRIVATE_NARRATIVE_CALL_DETAIL"
+    trace = {}
+
+    async def _fail_call(*_args, **_kwargs):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: object())
+    monkeypatch.setattr(synth_mod, "ainvoke_with_rate_limit_retry", _fail_call)
+    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+
+    result = _run(synth_mod._generate_narrative_draft(_deep_verifier_state(), {}, trace))
+
+    assert result == ("", None)
+    assert sentinel not in str(trace)
+    assert sentinel not in caplog.text
+    assert (trace.get("failures") or [])[-1]["error"] == "RuntimeError"
+
+
+def test_synthesize_llm_init_error_trace_and_event_are_redacted(monkeypatch, caplog):
+    import importlib
+    import backend.llm_config as llm_config
+
+    synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+    sentinel = "PRIVATE_SYNTH_INIT_DETAIL"
+    events = []
+
+    def _fail_create_llm(**_kwargs):
+        raise RuntimeError(sentinel)
+
+    async def _capture_event(event):
+        events.append(event)
+
+    monkeypatch.setenv("LANGGRAPH_SYNTHESIZE_MODE", "llm")
+    monkeypatch.setattr(llm_config, "create_llm", _fail_create_llm)
+    monkeypatch.setattr(synth_mod, "emit_event", _capture_event)
+    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+
+    result = _run(synth_mod.synthesize(_deep_verifier_state()))
+
+    serialized = str({"result": result, "events": events})
+    assert sentinel not in serialized
+    assert sentinel not in caplog.text
+    assert (result["trace"].get("failures") or [])[-1]["error"] == "RuntimeError"
+    assert events[-1]["error"] == "RuntimeError"
+
+
+def test_synthesize_llm_call_error_trace_event_and_log_are_redacted(monkeypatch, caplog):
+    import importlib
+    import backend.llm_config as llm_config
+
+    synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+    sentinel = "PRIVATE_SYNTH_CALL_DETAIL"
+    events = []
+
+    async def _fail_call(*_args, **_kwargs):
+        raise RuntimeError(sentinel)
+
+    async def _capture_event(event):
+        events.append(event)
+
+    monkeypatch.setenv("LANGGRAPH_SYNTHESIZE_MODE", "llm")
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: object())
+    monkeypatch.setattr(synth_mod, "ainvoke_with_rate_limit_retry", _fail_call)
+    monkeypatch.setattr(synth_mod, "emit_event", _capture_event)
+    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+
+    result = _run(synth_mod.synthesize(_deep_verifier_state()))
+
+    serialized = str({"result": result, "events": events})
+    assert sentinel not in serialized
+    assert sentinel not in caplog.text
+    assert (result["trace"].get("failures") or [])[-1]["error"] == "RuntimeError"
+    assert events[-1]["error"] == "RuntimeError"
 
 
 def test_synthesize_llm_mode_handles_datetime_in_inputs(monkeypatch):

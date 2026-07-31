@@ -393,3 +393,47 @@ def test_internal_health_projects_stable_redacted_rag_observability(monkeypatch)
     assert payload['components']['rag']['recent_runs'] == observability['recent_runs']
     assert payload['components']['rag']['fallback_summary'] == observability['fallback_summary']
     assert secret not in response.text
+
+
+def test_rag_diagnostics_reject_oversized_search_filters():
+    client = _build_client(_FakeRagStore())
+
+    runs_response = client.get('/diagnostics/rag/runs', params={'q': 'x' * 2049})
+    browser_response = client.get(
+        '/diagnostics/rag/db-browser/rag_documents_v2',
+        params={'collection': 'x' * 257},
+    )
+    preview_response = client.post(
+        '/diagnostics/rag/search-preview',
+        json={'query': 'x' * 2049, 'collection': 'finance-news', 'top_k': 10},
+    )
+    top_k_response = client.post(
+        '/diagnostics/rag/search-preview',
+        json={'query': 'AAPL', 'collection': 'finance-news', 'top_k': 101},
+    )
+
+    assert runs_response.status_code == 422
+    assert browser_response.status_code == 422
+    assert preview_response.status_code == 400
+    assert top_k_response.status_code == 400
+
+
+def test_rag_diagnostics_reject_oversized_soft_delete_metadata():
+    client = _build_client(_FakeRagStore())
+
+    run_id_response = client.post(
+        f"/diagnostics/rag/runs/{'x' * 257}/soft-delete",
+        json={"reason": "cleanup"},
+    )
+    reason_response = client.post(
+        "/diagnostics/rag/runs/run-1/soft-delete",
+        json={"reason": "x" * 1001},
+    )
+    actor_response = client.post(
+        "/diagnostics/rag/documents/doc-1/soft-delete",
+        json={"deleted_by": "x" * 129},
+    )
+
+    assert run_id_response.status_code == 422
+    assert reason_response.status_code == 422
+    assert actor_response.status_code == 422

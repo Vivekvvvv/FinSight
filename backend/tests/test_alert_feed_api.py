@@ -76,3 +76,35 @@ def test_alert_feed_respects_since_filter(tmp_path):
         payload = response.json()
         assert payload["count"] == 1
         assert payload["events"][0]["title"] == "MSFT new event"
+
+
+def test_alert_feed_rejects_invalid_since_before_service(monkeypatch):
+    from backend.api import alerts_router
+
+    def _unexpected_service():
+        raise AssertionError("invalid since must be rejected before service access")
+
+    monkeypatch.setattr(alerts_router, "get_subscription_service", _unexpected_service)
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/alerts/feed",
+            params={"email": "user@example.com", "since": "not-an-iso-date"},
+        )
+
+    assert response.status_code == 422
+
+
+def test_alert_feed_rejects_oversized_email_before_service(monkeypatch):
+    from backend.api import alerts_router
+
+    def _unexpected_service():
+        raise AssertionError("oversized email must be rejected before service access")
+
+    monkeypatch.setattr(alerts_router, "get_subscription_service", _unexpected_service)
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/alerts/feed",
+            params={"email": f"{'a' * 309}@example.com"},
+        )
+
+    assert response.status_code == 422

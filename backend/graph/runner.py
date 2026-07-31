@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -9,6 +10,8 @@ from typing import Any, Optional
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
+
+logger = logging.getLogger(__name__)
 
 from backend.graph.checkpointer import aget_graph_checkpointer, get_graph_checkpointer_info
 from backend.graph.nodes import (
@@ -274,8 +277,8 @@ def _update_langfuse_trace(*, thread_id: str, query: str, output_mode: str | Non
                 input={"query": query, "output_mode": output_mode or "auto"},
                 metadata={"thread_id": thread_id},
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("graph trace metadata update failed: %s", type(exc).__name__)
 
 
 @langfuse_observe(name="graph_pipeline")

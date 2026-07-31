@@ -65,13 +65,13 @@ def _fmp_request(endpoint: str, params: Optional[dict] = None) -> Optional[Any]:
         logger.info(f"[FMP] Request timeout for {endpoint}")
         return None
     except requests.exceptions.HTTPError as e:
-        logger.info(f"[FMP] HTTP error for {endpoint}: {e}")
+        logger.info("[FMP] HTTP error for %s: %s", endpoint, type(e).__name__)
         return None
     except requests.exceptions.RequestException as e:
-        logger.info(f"[FMP] Request error for {endpoint}: {e}")
+        logger.info("[FMP] Request error for %s: %s", endpoint, type(e).__name__)
         return None
     except ValueError as e:
-        logger.info(f"[FMP] JSON parse error for {endpoint}: {e}")
+        logger.info("[FMP] JSON parse error for %s: %s", endpoint, type(e).__name__)
         return None
 
 

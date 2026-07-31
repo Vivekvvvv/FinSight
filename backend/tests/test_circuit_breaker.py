@@ -8,12 +8,28 @@ import os
 import sys
 import time
 
+
 # 添加项目根目录到路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from backend.services import CircuitBreaker
+
+
+def test_non_finite_recovery_timeout_falls_back(monkeypatch):
+    direct = CircuitBreaker(recovery_timeout=float("inf"))
+    assert direct.recovery_timeout == 300.0
+
+    overridden = CircuitBreaker(
+        recovery_timeout=12,
+        source_overrides={"alpha": {"recovery_timeout": float("inf")}},
+    )
+    assert overridden._get_recovery_timeout("alpha") == 12
+
+    monkeypatch.setenv("CB_ALPHA_RECOVERY_TIMEOUT", "Infinity")
+    configured = CircuitBreaker(recovery_timeout=15)
+    assert configured._get_recovery_timeout("alpha") == 15
 
 
 def test_open_after_threshold():

@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 import json
+import math
 import os
 import tempfile
 import threading
@@ -21,16 +22,44 @@ from pathlib import Path
 import re
 from uuid import uuid4
 
+from backend.utils.env_config import env_int
+
 # 订阅数据存储文件
 SUBSCRIPTIONS_FILE = Path(__file__).parent.parent.parent / "data" / "subscriptions.json"
-ALERT_FAILURE_LIMIT = int(os.getenv("ALERT_FAILURE_LIMIT", "3"))
-ALERT_EVENTS_PER_SUB = int(os.getenv("ALERT_EVENTS_PER_SUB", "30"))
-ALERT_EVENTS_TTL_DAYS = int(os.getenv("ALERT_EVENTS_TTL_DAYS", "7"))
+ALERT_FAILURE_LIMIT = env_int("ALERT_FAILURE_LIMIT", 3, minimum=1)
+ALERT_EVENTS_PER_SUB = env_int("ALERT_EVENTS_PER_SUB", 30, minimum=1)
+ALERT_EVENTS_TTL_DAYS = env_int("ALERT_EVENTS_TTL_DAYS", 7, minimum=1)
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 RISK_THRESHOLD_ALLOWED = {"low", "medium", "high", "critical"}
 ALERT_MODE_ALLOWED = {"price_change_pct", "price_target"}
 DIRECTION_ALLOWED = {"above", "below"}
 _SUBSCRIPTIONS_LOCK = threading.RLock()
+_MAX_ALERT_EVENT_TITLE_LENGTH = 512
+_MAX_ALERT_EVENT_MESSAGE_LENGTH = 4096
+_MAX_ALERT_EVENT_METADATA_BYTES = 16 * 1024
+
+
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON value: {value}")
+
+
+def _finite_optional_number(value: object, *, field: str) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be finite") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{field} must be finite")
+    return number
+
+
+class SubscriptionLimitExceeded(Exception):
+    def __init__(self, *, limit: int, current: int) -> None:
+        super().__init__("subscription limit exceeded")
+        self.limit = limit
+        self.current = current
 
 
 class SubscriptionService:
@@ -48,7 +77,7 @@ class SubscriptionService:
         if self.subscriptions_file.exists():
             try:
                 with open(self.subscriptions_file, 'r', encoding='utf-8') as f:
-                    subscriptions = json.load(f)
+                    subscriptions = json.load(f, parse_constant=_reject_non_finite_json)
                 if not isinstance(subscriptions, dict):
                     raise ValueError("subscriptions payload must be a JSON object")
                 if any(
@@ -102,12 +131,15 @@ class SubscriptionService:
             self.subscriptions = {}
             return
 
-        for _, subs in self.subscriptions.items():
+        for email, subs in self.subscriptions.items():
             if not isinstance(subs, list):
                 continue
             for sub in subs:
                 if not isinstance(sub, dict):
                     continue
+                if sub.get("email") != email:
+                    sub["email"] = email
+                    changed = True
                 normalized_threshold = self._normalize_risk_threshold(sub.get("risk_threshold"))
                 if sub.get("risk_threshold") != normalized_threshold:
                     sub["risk_threshold"] = normalized_threshold
@@ -153,7 +185,13 @@ class SubscriptionService:
                 )
                 try:
                     with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                        json.dump(self.subscriptions, f, indent=2, ensure_ascii=False)
+                        json.dump(
+                            self.subscriptions,
+                            f,
+                            indent=2,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                        )
                         f.flush()
                         os.fsync(f.fileno())
                     os.replace(temp_path, self.subscriptions_file)
@@ -186,6 +224,22 @@ class SubscriptionService:
             return value
         return value.astimezone(timezone.utc).replace(tzinfo=None)
 
+    @staticmethod
+    def _normalize_event_metadata(value: object) -> Dict:
+        metadata = value if isinstance(value, dict) else {}
+        try:
+            size = len(
+                json.dumps(
+                    metadata,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            )
+        except (TypeError, ValueError):
+            return {}
+        return metadata if size <= _MAX_ALERT_EVENT_METADATA_BYTES else {}
+
     def _prune_recent_events(self, events: List[Dict]) -> List[Dict]:
         if not isinstance(events, list):
             return []
@@ -199,7 +253,17 @@ class SubscriptionService:
                 continue
             if triggered_at < cutoff:
                 continue
-            keep.append(item)
+            keep.append({
+                "id": str(item.get("id") or "")[:64],
+                "email": str(item.get("email") or "")[:320],
+                "ticker": str(item.get("ticker") or "").strip().upper()[:20],
+                "event_type": str(item.get("event_type") or "unknown")[:64],
+                "severity": str(item.get("severity") or "medium")[:32],
+                "title": str(item.get("title") or "")[:_MAX_ALERT_EVENT_TITLE_LENGTH],
+                "message": str(item.get("message") or "")[:_MAX_ALERT_EVENT_MESSAGE_LENGTH],
+                "triggered_at": str(item.get("triggered_at") or "")[:64],
+                "metadata": self._normalize_event_metadata(item.get("metadata")),
+            })
         keep.sort(key=lambda item: str(item.get("triggered_at") or ""), reverse=True)
         return keep[: max(1, ALERT_EVENTS_PER_SUB)]
     
@@ -213,6 +277,7 @@ class SubscriptionService:
         price_target: Optional[float] = None,
         direction: Optional[str] = None,
         risk_threshold: Optional[str] = "high",
+        max_subscriptions: Optional[int] = None,
     ) -> bool:
         """
         订阅股票提醒
@@ -228,12 +293,17 @@ class SubscriptionService:
         """
         if alert_types is None:
             alert_types = ["price_change", "news"]
+        price_threshold = _finite_optional_number(
+            price_threshold,
+            field="price_threshold",
+        )
+        price_target = _finite_optional_number(price_target, field="price_target")
         normalized_risk_threshold = self._normalize_risk_threshold(risk_threshold)
         normalized_alert_mode = self._normalize_alert_mode(alert_mode)
         normalized_direction = self._normalize_direction(direction)
 
         if not self.is_valid_email(email):
-            logger.info(f"❌ Invalid email address: {email}")
+            logger.info("Invalid email address rejected")
             return False
 
         with self._lock:
@@ -263,6 +333,14 @@ class SubscriptionService:
                     self._save_subscriptions()
                     return True
 
+            if max_subscriptions is not None and max_subscriptions >= 0:
+                current = len(self.subscriptions[email])
+                if current >= max_subscriptions:
+                    raise SubscriptionLimitExceeded(
+                        limit=max_subscriptions,
+                        current=current,
+                    )
+
             # 添加新订阅
             subscription = {
                 "email": email,
@@ -289,7 +367,7 @@ class SubscriptionService:
 
             self.subscriptions[email].append(subscription)
             self._save_subscriptions()
-            logger.info(f"✅ 用户 {email} 已订阅 {ticker}")
+            logger.info("Subscription created for ticker=%s", ticker)
             return True
 
     def is_valid_email(self, email: str) -> bool:
@@ -328,7 +406,7 @@ class SubscriptionService:
                     del self.subscriptions[email]
 
             self._save_subscriptions()
-            logger.info(f"✅ 用户 {email} 已取消订阅 {ticker or '所有股票'}")
+            logger.info("Subscription removed for ticker=%s", ticker or "all")
             return True
     
     def get_subscriptions(self, email: Optional[str] = None, *, allow_all: bool = False) -> List[Dict]:
@@ -403,9 +481,19 @@ class SubscriptionService:
                             sub['disabled'] = False
                         else:
                             if not is_transient_error:
-                                sub['alert_failures'] = int(sub.get('alert_failures', 0)) + 1
+                                try:
+                                    failure_count = max(0, int(sub.get('alert_failures', 0)))
+                                except (TypeError, ValueError):
+                                    failure_count = 0
+                                sub['alert_failures'] = failure_count + 1
 
-                            sub['last_alert_error'] = error
+                            if error == "invalid_email":
+                                stored_error = "invalid_email"
+                            elif is_transient_error:
+                                stored_error = "transient_delivery_error"
+                            else:
+                                stored_error = "delivery_error"
+                            sub['last_alert_error'] = stored_error
                             sub['last_alert_error_at'] = now
 
                             # Only disable if explicitly requested OR failure limit reached (for non-transient errors)
@@ -485,7 +573,7 @@ class SubscriptionService:
                         sub['last_alert_error_at'] = None
                     sub['updated_at'] = datetime.now().isoformat()
                     self._save_subscriptions()
-                    logger.info(f"{'Enabled' if enabled else 'Disabled'} subscription: {email} -> {ticker}")
+                    logger.info("Subscription %s for ticker=%s", "enabled" if enabled else "disabled", ticker)
                     return True
 
             return False
@@ -520,16 +608,22 @@ class SubscriptionService:
                 if not isinstance(events, list):
                     events = []
 
+                event_type_text = str(event_type or "unknown")[:64]
+                severity_text = str(severity or "medium")[:32]
+                title_text = str(title or "").strip() or f"{normalized_ticker} {event_type_text}"
+                message_text = str(message or "").strip()
+                event_metadata = self._normalize_event_metadata(metadata)
+
                 payload = {
                     "id": f"ae_{uuid4().hex[:12]}",
                     "email": email,
                     "ticker": normalized_ticker,
-                    "event_type": str(event_type or "unknown"),
-                    "severity": str(severity or "medium"),
-                    "title": str(title or "").strip() or f"{normalized_ticker} {event_type}",
-                    "message": str(message or "").strip(),
-                    "triggered_at": now_iso,
-                    "metadata": metadata if isinstance(metadata, dict) else {},
+                    "event_type": event_type_text,
+                    "severity": severity_text,
+                    "title": title_text[:_MAX_ALERT_EVENT_TITLE_LENGTH],
+                    "message": message_text[:_MAX_ALERT_EVENT_MESSAGE_LENGTH],
+                    "triggered_at": str(now_iso)[:64],
+                    "metadata": event_metadata,
                 }
                 events.insert(0, payload)
                 sub["recent_events"] = self._prune_recent_events(events)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -36,8 +37,8 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
         session_id: str = Query(..., description="会话 ID"),
         user_id: str = Query("default_user", description="用户 ID"),
         event_type: Optional[str] = Query(None, description="事件类型过滤"),
-        from_date: Optional[str] = Query(None, alias="from", description="开始日期 ISO"),
-        to_date: Optional[str] = Query(None, alias="to", description="结束日期 ISO"),
+        from_date: Optional[datetime] = Query(None, alias="from", description="开始日期 ISO"),
+        to_date: Optional[datetime] = Query(None, alias="to", description="结束日期 ISO"),
         limit: int = Query(50, ge=1, le=200, description="返回数量限制"),
         current_user: Principal = Depends(get_current_user),
     ):
@@ -83,8 +84,8 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
                 session_id=normalized_session,
                 user_id=effective_user_id,
                 event_type=event_type,  # type: ignore
-                from_date=from_date,
-                to_date=to_date,
+                from_date=from_date.isoformat() if from_date else None,
+                to_date=to_date.isoformat() if to_date else None,
                 limit=limit,
             )
             if is_demo_mode() and not events and event_type in {None, "report", "note"}:

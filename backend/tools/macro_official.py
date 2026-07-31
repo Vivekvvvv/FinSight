@@ -9,12 +9,14 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlparse
 
+from backend.utils.env_config import env_int
+
 from .http import _http_get
 
 logger = logging.getLogger(__name__)
 
-_REQUEST_TIMEOUT = int(os.getenv("MACRO_OFFICIAL_TIMEOUT", "12"))
-_MAX_SOURCES = int(os.getenv("MACRO_OFFICIAL_MAX_SOURCES", "5"))
+_REQUEST_TIMEOUT = env_int("MACRO_OFFICIAL_TIMEOUT", 12, minimum=1)
+_MAX_SOURCES = env_int("MACRO_OFFICIAL_MAX_SOURCES", 5, minimum=1)
 _USER_AGENT = os.getenv("MACRO_OFFICIAL_USER_AGENT", "FinSight/1.0")
 
 _OFFICIAL_FEEDS: tuple[tuple[str, str, str], ...] = (
@@ -58,13 +60,14 @@ def _safe_iso8601(value: str) -> str | None:
 
 def _normalize_domain(url: str) -> str:
     try:
-        return urlparse(str(url or "").strip().lower()).netloc.lstrip("www.")
-    except Exception:
+        return (urlparse(str(url or "").strip()).hostname or "").lower().removeprefix("www.")
+    except Exception as exc:
+        logger.debug("official domain normalization failed: %s", type(exc).__name__)
         return ""
 
 
 def _is_official_domain(domain: str) -> bool:
-    host = str(domain or "").strip().lower().lstrip("www.")
+    host = str(domain or "").strip().lower().removeprefix("www.")
     if not host:
         return False
     return any(host == allowed or host.endswith(f".{allowed}") for allowed in _OFFICIAL_DOMAINS)
@@ -118,7 +121,12 @@ def _fetch_feed(url: str) -> str:
         if getattr(resp, "status_code", 0) != 200:
             return ""
         return str(getattr(resp, "text", "") or "")
-    except Exception:
+    except Exception as exc:
+        logger.debug(
+            "official feed request failed for host=%s: %s",
+            _normalize_domain(url) or "<invalid>",
+            type(exc).__name__,
+        )
         return ""
 
 
@@ -127,7 +135,8 @@ def _parse_rss_items(feed_key: str, source_name: str, xml_text: str) -> list[dic
         return []
     try:
         root = ET.fromstring(xml_text)
-    except Exception:
+    except Exception as exc:
+        logger.debug("official feed XML parse failed for %s: %s", feed_key, type(exc).__name__)
         return []
 
     rows: list[dict[str, Any]] = []
@@ -223,7 +232,7 @@ def get_official_macro_releases(query: str = "", max_results: int = 10) -> dict[
             "error": None,
         }
     except Exception as exc:  # pragma: no cover - best effort
-        logger.info("[MacroOfficial] fetch failed: %s", exc)
+        logger.info("[MacroOfficial] fetch failed: %s", type(exc).__name__)
         return {
             "query": query_text,
             "source": "macro_official_feeds",

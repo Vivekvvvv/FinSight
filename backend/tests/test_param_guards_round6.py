@@ -7,6 +7,8 @@ E3 admin 门与 A5/A10 越权拒绝需要非 admin 的生产主体，
 """
 from __future__ import annotations
 
+import math
+
 from fastapi.testclient import TestClient
 
 
@@ -59,6 +61,75 @@ def test_e1_optimize_rejects_nonpositive_n_simulations(monkeypatch):
             json={"tickers": ["AAPL", "MSFT"], "n_simulations": 0},
         )
     assert resp.status_code == 422
+
+
+def test_e1_optimize_rejects_oversized_or_duplicate_tickers(monkeypatch):
+    from backend import tools
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        tools,
+        "get_stock_historical_data",
+        lambda ticker, **_kwargs: calls.append(ticker),
+    )
+    with _client(monkeypatch, prod=False) as client:
+        oversized = client.post(
+            "/api/portfolio/optimize",
+            json={"tickers": ["A" * 33, "MSFT"]},
+        )
+        duplicate = client.post(
+            "/api/portfolio/optimize",
+            json={"tickers": ["AAPL", " aapl "]},
+        )
+
+    assert oversized.status_code == 422
+    assert duplicate.status_code == 422
+    assert calls == []
+
+
+def test_e1_optimize_rejects_non_finite_risk_free_rate(monkeypatch):
+    with _client(monkeypatch, prod=False) as client:
+        response = client.post(
+            "/api/portfolio/optimize",
+            json={"tickers": ["AAPL", "MSFT"], "risk_free_rate": "inf"},
+        )
+
+    assert response.status_code == 422
+
+
+def test_e1_optimize_filters_non_finite_historical_closes(monkeypatch):
+    from backend import tools
+    from backend.services import portfolio_optimizer
+
+    captured: dict = {}
+    rows = [
+        {"close": value}
+        for value in ([100 + index for index in range(20)] + ["nan", "inf", 0])
+    ]
+    monkeypatch.setattr(
+        tools,
+        "get_stock_historical_data",
+        lambda _ticker, **_kwargs: {"kline_data": rows},
+    )
+
+    def _optimize_portfolio(**kwargs):
+        captured.update(kwargs)
+        return {"success": True}
+
+    monkeypatch.setattr(portfolio_optimizer, "optimize_portfolio", _optimize_portfolio)
+    with _client(monkeypatch, prod=False) as client:
+        response = client.post(
+            "/api/portfolio/optimize",
+            json={"tickers": ["AAPL", "MSFT"], "n_simulations": 100},
+        )
+
+    assert response.status_code == 200
+    assert len(captured["returns_matrix"]) == 2
+    assert all(
+        math.isfinite(value)
+        for series in captured["returns_matrix"]
+        for value in series
+    )
 
 
 # ── E2: 风险历史 days 夹紧到 [1, 90] ───────────────────────────

@@ -2,6 +2,8 @@
 """Tests for backend.rag.chunker — document chunking strategies."""
 from __future__ import annotations
 
+import logging
+
 from backend.rag.chunker import ChunkResult, chunk_document
 
 
@@ -105,3 +107,22 @@ def test_auto_detect_table():
     result = chunk_document(content, "web_page")
     assert len(result.chunks) == 1
     assert result.metadata[0]["doc_type"] == "table"
+
+
+def test_chunking_fallback_error_log_is_redacted(monkeypatch, caplog):
+    import backend.rag.chunker as chunker
+
+    sentinel = "PRIVATE_DOCUMENT_STORAGE_PATH"
+    content = "long research content " * 150
+
+    def _fail_chunk(*_args, **_kwargs):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(chunker, "_chunk_long_text", _fail_chunk)
+    caplog.set_level(logging.ERROR, logger=chunker.__name__)
+
+    result = chunker.chunk_document(content, "research")
+
+    assert result.chunks == [content.strip()]
+    assert sentinel not in caplog.text
+    assert "RuntimeError" in caplog.text

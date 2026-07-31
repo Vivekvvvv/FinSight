@@ -63,6 +63,101 @@ def test_chat_empty_query_validation(client):
     assert resp.status_code == 422
 
 
+@pytest.mark.parametrize("path", ["/chat/supervisor", "/api/execute"])
+def test_graph_entrypoints_reject_oversized_queries(client, path):
+    resp = client.post(path, json={"query": "x" * 16_385})
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"query": "AAPL", "history": [{"role": "user", "content": "x"}] * 101},
+        {
+            "query": "AAPL",
+            "context": {
+                "selections": [
+                    {"type": "news", "id": str(index), "title": "Title"}
+                    for index in range(21)
+                ]
+            },
+        },
+        {
+            "query": "AAPL",
+            "context": {
+                "selection": {
+                    "type": "news",
+                    "id": "news-1",
+                    "title": "Title",
+                    "snippet": "x" * 8193,
+                }
+            },
+        },
+    ],
+)
+def test_chat_rejects_oversized_context_payloads(client, payload):
+    resp = client.post("/chat/supervisor", json=payload)
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/api/research/qa", {"question": "x" * 16_385}),
+        (
+            "/api/research/report/generate",
+            {"ticker": "AAPL", "report_type": "unknown"},
+        ),
+        (
+            "/api/research/news/sentiment",
+            {"ticker": "AAPL", "news": [{"title": "News"}] * 101},
+        ),
+        (
+            "/api/research/news/sentiment",
+            {"ticker": "AAPL", "news": [{"title": "x" * 513}]},
+        ),
+        (
+            "/api/research/news/sentiment",
+            {
+                "ticker": "AAPL",
+                "news": [{"title": "News", "extra": "x" * (256 * 1024)}],
+            },
+        ),
+    ],
+)
+def test_research_endpoints_reject_oversized_prompt_inputs(client, path, payload):
+    resp = client.post(path, json=payload)
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"query": "AAPL", "tickers": ["AAPL"] * 51},
+        {"query": "AAPL", "agents": ["price_agent"] * 21},
+    ],
+)
+def test_execute_rejects_oversized_override_lists(client, payload):
+    resp = client.post("/api/execute", json=payload)
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("path", ["/api/reports/index", "/api/reports/citations"])
+@pytest.mark.parametrize("parameter", ["date_from", "date_to"])
+def test_report_queries_reject_invalid_date_filters(client, path, parameter):
+    resp = client.get(
+        path,
+        params={"session_id": "pytest-report-filter", parameter: "not-an-iso-date"},
+    )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "Invalid date filter"
+
+
 def test_add_chart_data_response_preserves_session_id(client):
     resp = client.post(
         "/api/chat/add-chart-data",
@@ -87,6 +182,22 @@ def test_add_chart_data_error_matches_response_model(client):
     assert resp.json()["detail"] == "Missing ticker or summary"
 
 
+@pytest.mark.parametrize(
+    ("payload", "detail"),
+    [
+        ({"ticker": "A" * 65, "summary": "Chart context"}, "Invalid ticker"),
+        ({"ticker": "AAPL", "summary": "x" * 16_385}, "Invalid summary"),
+        ({"ticker": ["AAPL"], "summary": "Chart context"}, "Invalid ticker"),
+        ({"ticker": "AAPL", "summary": {"text": "Chart context"}}, "Invalid summary"),
+    ],
+)
+def test_add_chart_data_rejects_invalid_or_oversized_context(client, payload, detail):
+    resp = client.post("/api/chat/add-chart-data", json=payload)
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == detail
+
+
 def test_add_chart_data_invalid_session_returns_422(client):
     resp = client.post(
         "/api/chat/add-chart-data",
@@ -98,7 +209,7 @@ def test_add_chart_data_invalid_session_returns_422(client):
     )
 
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "session_id format invalid, expected tenant:user:thread"
+    assert resp.json()["detail"] == "Invalid session_id"
 
 
 def test_add_chart_data_internal_error_returns_500(client, monkeypatch, caplog, capsys):

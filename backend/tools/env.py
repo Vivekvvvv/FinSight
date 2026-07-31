@@ -34,5 +34,5 @@ FMP_API_KEY = os.getenv("FMP_API_KEY", "").strip('"')  # Financial Modeling Prep
 try:
     finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
 except Exception as e:
-    logger.info(f"Failed to initialize Finnhub client: {e}")
+    logger.info("Failed to initialize Finnhub client: %s", type(e).__name__)
     finnhub_client = None

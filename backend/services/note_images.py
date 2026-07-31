@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import secrets
+import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -26,11 +27,26 @@ ALLOWED_CONTENT_TYPES = {
     "image/webp",
 }
 
-ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+_CONTENT_TYPE_EXTENSIONS = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+_IMAGE_SIGNATURES = {
+    "image/png": lambda data: data.startswith(b"\x89PNG\r\n\x1a\n"),
+    "image/jpeg": lambda data: data.startswith(b"\xff\xd8\xff"),
+    "image/gif": lambda data: data.startswith((b"GIF87a", b"GIF89a")),
+    "image/webp": lambda data: (
+        len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP"
+    ),
+}
 
 # 限制
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 MAX_IMAGES_PER_NOTE = 20
+_IMAGE_STORE_LOCK = threading.RLock()
 
 
 def _get_image_dir(user_id: str, note_id: str) -> Path:
@@ -44,14 +60,12 @@ def _get_image_dir(user_id: str, note_id: str) -> Path:
     return _IMAGES_ROOT / user_id / note_id
 
 
-def _generate_filename(original_filename: str) -> str:
+def _generate_filename(content_type: str) -> str:
     """生成安全的文件名
 
     格式: image_{timestamp}_{random}.{ext}
     """
-    ext = Path(original_filename).suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        ext = ".png"
+    ext = _CONTENT_TYPE_EXTENSIONS[content_type]
 
     timestamp = int(datetime.now().timestamp() * 1000)
     random_suffix = secrets.token_hex(4)
@@ -96,21 +110,37 @@ async def save_image(
         chunks.append(chunk)
     content = b"".join(chunks)
 
+    signature_matches = _IMAGE_SIGNATURES[file.content_type]
+    if not signature_matches(content):
+        raise ValueError("File content does not match its declared image type")
+
     # 获取存储目录 / 生成文件名
     image_dir = _get_image_dir(user_id, note_id)
-    filename = _generate_filename(file.filename or "image.png")
+    filename = _generate_filename(file.content_type)
 
     # mkdir / glob 计数 / 写盘（最多 5MB）都是同步阻塞 FS 调用，在 async
     # 上传处理器里会阻塞整个事件循环，卸载到线程池执行（R11 同类，R50）。
     def _persist() -> None:
-        image_dir.mkdir(parents=True, exist_ok=True)
-        # 检查图片数量限制
-        existing_images = list(image_dir.glob("image_*"))
-        if len(existing_images) >= MAX_IMAGES_PER_NOTE:
-            raise ValueError(f"Maximum {MAX_IMAGES_PER_NOTE} images per note")
-        file_path = image_dir / filename
-        with open(file_path, "wb") as f:
-            f.write(content)
+        with _IMAGE_STORE_LOCK:
+            image_dir.mkdir(parents=True, exist_ok=True)
+            existing_images = list(image_dir.glob("image_*"))
+            if len(existing_images) >= MAX_IMAGES_PER_NOTE:
+                raise ValueError(f"Maximum {MAX_IMAGES_PER_NOTE} images per note")
+            file_path = image_dir / filename
+            fd, tmp_path = tempfile.mkstemp(
+                prefix=f".{filename}.",
+                suffix=".tmp",
+                dir=str(image_dir),
+            )
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(content)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(tmp_path, file_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
     await asyncio.to_thread(_persist)
 

@@ -10,6 +10,21 @@ import ipaddress
 import socket
 
 
+def _parsed_url_has_credentials(parsed) -> bool:
+    try:
+        return parsed.username is not None or parsed.password is not None
+    except (TypeError, ValueError):
+        return True
+
+
+def url_has_credentials(url: str) -> bool:
+    """Return True for embedded URL credentials or malformed URLs."""
+    try:
+        return _parsed_url_has_credentials(urlparse(url))
+    except (TypeError, ValueError):
+        return True
+
+
 def _ip_is_blocked(ip: ipaddress._BaseAddress) -> bool:
     """内网/环回/链路本地/保留/组播地址一律拦截。"""
     return bool(
@@ -36,6 +51,8 @@ def is_safe_url(url: str) -> bool:
     except Exception:
         return False
     if parsed.scheme not in ("http", "https"):
+        return False
+    if _parsed_url_has_credentials(parsed):
         return False
     host = parsed.hostname
     if not host:
@@ -76,6 +93,8 @@ def resolve_safe_target(url: str) -> tuple[str, int, str] | None:
         return None
     if parsed.scheme not in ("http", "https"):
         return None
+    if _parsed_url_has_credentials(parsed):
+        return None
     host = parsed.hostname
     if not host:
         return None
@@ -83,7 +102,10 @@ def resolve_safe_target(url: str) -> tuple[str, int, str] | None:
     if _host_is_blocked_literal(lowered):
         return None
 
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return None
 
     # 静态 IP 字面量
     try:

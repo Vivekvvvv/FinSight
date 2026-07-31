@@ -128,6 +128,26 @@ def test_timeline_value_error_returns_fixed_400(client, monkeypatch, caplog):
     assert "ValueError" in caplog.text
 
 
+@pytest.mark.parametrize("parameter", ["from", "to"])
+def test_timeline_rejects_invalid_date_filter_before_service(client, monkeypatch, parameter):
+    from backend.api import timeline_router
+
+    calls = []
+
+    def _get_timeline(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(timeline_router.timeline_service, "get_timeline", _get_timeline)
+    response = client.get(
+        "/api/timeline/AAPL",
+        params={"session_id": "test-session", parameter: "not-an-iso-date"},
+    )
+
+    assert response.status_code == 422
+    assert calls == []
+
+
 def test_portfolio_optimize_internal_error_is_redacted(client, monkeypatch):
     from backend import tools
     from backend.services import portfolio_optimizer
@@ -234,6 +254,64 @@ def test_diagnostics_planner_ab_internal_error_is_redacted(path, caplog):
     # 服务端日志只保留异常类型，不落异常原文
     assert secret not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+def test_rag_db_browser_value_error_is_redacted():
+    secret = "PRIVATE C:/secret/rag-observability.db"
+
+    class _Store:
+        def browse_db_table(self, **_kwargs):
+            raise ValueError(secret)
+
+    with _system_client(get_rag_observability_store=lambda: _Store()) as client:
+        response = client.get("/diagnostics/rag/db-browser/runs")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid RAG diagnostics request"
+    assert secret not in response.text
+
+
+def test_rag_search_preview_value_error_is_redacted():
+    secret = "PRIVATE C:/secret/rag-search-index.json"
+
+    class _Store:
+        def search_preview(self, **_kwargs):
+            raise ValueError(secret)
+
+    with _system_client(get_rag_observability_store=lambda: _Store()) as client:
+        response = client.post(
+            "/diagnostics/rag/search-preview",
+            json={"query": "AAPL", "collection": "reports"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid RAG diagnostics request"
+    assert secret not in response.text
+
+
+def test_research_note_image_value_error_is_redacted(client, monkeypatch):
+    from backend.api import research_notes_router
+
+    secret = "PRIVATE C:/secret/note-image-cache"
+
+    async def _fail_save_image(**_kwargs):
+        raise ValueError(secret)
+
+    monkeypatch.setattr(
+        research_notes_router.research_notes,
+        "get_note",
+        lambda _note_id: {"user_id": "default_user"},
+    )
+    monkeypatch.setattr(research_notes_router.note_images, "save_image", _fail_save_image)
+
+    response = client.post(
+        "/api/research-notes/note-1/images",
+        files={"file": ("chart.png", b"image", "image/png")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid image upload"
+    assert secret not in response.text
 
 
 def _fake_rag_service(**overrides):
@@ -575,6 +653,87 @@ def test_export_pdf_empty_messages_still_400(monkeypatch):
     assert response.json()["detail"] == "messages 不能为空"
 
 
+def test_export_pdf_rejects_oversized_message_list(monkeypatch):
+    class _Service:
+        def export_conversation(self, *_args, **_kwargs):
+            raise AssertionError("oversized payload must be rejected before rendering")
+
+    _patch_pdf(monkeypatch, lambda: _Service())
+    with _market_client() as client:
+        response = client.post(
+            "/api/export/pdf",
+            json={"messages": [{"role": "user", "content": "x"}] * 501},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Too many messages"
+
+
+def test_export_pdf_rejects_oversized_chart_list(monkeypatch):
+    class _Service:
+        def export_with_charts(self, *_args, **_kwargs):
+            raise AssertionError("oversized payload must be rejected before rendering")
+
+    _patch_pdf(monkeypatch, lambda: _Service())
+    with _market_client() as client:
+        response = client.post(
+            "/api/export/pdf",
+            json={
+                "messages": [{"role": "user", "content": "x"}],
+                "charts": [{"ticker": "AAPL"}] * 101,
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Too many charts"
+
+
+def test_export_pdf_rejects_oversized_payload_before_rendering(monkeypatch):
+    class _Service:
+        def export_conversation(self, *_args, **_kwargs):
+            raise AssertionError("oversized payload must be rejected before rendering")
+
+    _patch_pdf(monkeypatch, lambda: _Service())
+    with _market_client() as client:
+        response = client.post(
+            "/api/export/pdf",
+            json={"messages": [{"role": "user", "content": "x" * (1024 * 1024)}]},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "PDF export payload is too large"
+
+
+def test_export_pdf_drops_client_supplied_local_image_path(monkeypatch):
+    captured = {}
+
+    class _Service:
+        def export_with_charts(self, messages, charts, **kwargs):
+            captured["messages"] = messages
+            captured["charts"] = charts
+            captured.update(kwargs)
+            return b"%PDF-1.4 test"
+
+    _patch_pdf(monkeypatch, lambda: _Service())
+    with _market_client() as client:
+        response = client.post(
+            "/api/export/pdf",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "charts": [
+                    {
+                        "ticker": "AAPL",
+                        "chart_type": "line",
+                        "image_path": "C:/private/server-chart.png",
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured["charts"] == [{"ticker": "AAPL", "chart_type": "line"}]
+
+
 @pytest.mark.parametrize("path", ["/api/stock/kline/AAPL", "/api/kline/AAPL"])
 def test_kline_internal_error_returns_fixed_502(path, monkeypatch, caplog):
     """M2：kline 异常（demo 兜底不可用时）不得再压成 200+str(exc)，改固定 502。"""
@@ -852,7 +1011,7 @@ def test_config_get_internal_error_is_redacted(monkeypatch, caplog, capsys):
     with _config_client() as client:
         response = client.get("/api/config")
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert response.json() == {"success": False, "error": "Internal server error"}
     assert secret not in response.text
@@ -877,7 +1036,7 @@ def test_config_save_internal_error_is_redacted(monkeypatch, tmp_path, caplog, c
     with _config_client() as client:
         response = client.post("/api/config", json={"layout_mode": "wide"})
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert response.json()["success"] is False
     assert response.json()["error"] == "Internal server error"
@@ -903,7 +1062,7 @@ def test_personas_internal_error_is_redacted(monkeypatch, caplog, capsys):
     with _config_client() as client:
         response = client.get("/api/personas")
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert response.json() == {
         "success": False,
@@ -956,7 +1115,7 @@ def test_config_error_paths_survive_broken_loggers(
     with _config_client(logger=_broken_logger(logger_mode)) as client:
         response = getattr(client, method)(path, json=payload) if payload else getattr(client, method)(path)
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert response.json()["success"] is False
     assert response.json()["error"] == "Internal server error"
@@ -1024,7 +1183,7 @@ def test_agent_preferences_get_internal_error_is_redacted(caplog, capsys):
     with _agent_client(_MemoryService()) as client:
         response = client.get("/api/agents/preferences")
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.json() == {"success": False, "error": "Internal server error"}
     assert secret not in response.text
     assert secret not in caplog.text
@@ -1054,7 +1213,7 @@ def test_agent_preferences_update_internal_error_is_redacted(caplog, capsys):
             json={"preferences": {"maxRounds": 4}},
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.json() == {"success": False, "error": "Internal server error"}
     assert secret not in response.text
     assert secret not in caplog.text
@@ -1062,6 +1221,21 @@ def test_agent_preferences_update_internal_error_is_redacted(caplog, capsys):
     captured = capsys.readouterr()
     assert secret not in captured.out
     assert secret not in captured.err
+
+
+@pytest.mark.parametrize("method", ["get", "put"])
+def test_agent_preferences_missing_memory_service_returns_503(method):
+    with _agent_client(None) as client:
+        response = getattr(client, method)(
+            "/api/agents/preferences",
+            **({"json": {"preferences": {}}} if method == "put" else {}),
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "success": False,
+        "error": "MemoryService not initialized",
+    }
 
 
 def test_risk_lens_internal_error_is_redacted(monkeypatch, caplog, capsys):
@@ -1081,7 +1255,7 @@ def test_risk_lens_internal_error_is_redacted(monkeypatch, caplog, capsys):
         )
 
     payload = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert payload["success"] is False
     assert payload["error"] == "Internal server error"
     assert payload["risk_score"] == 0
@@ -1111,7 +1285,7 @@ def test_risk_lens_history_internal_error_is_redacted(monkeypatch, caplog, capsy
             params={"session_id": "private:test-user:default"},
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.json() == {
         "success": False,
         "error": "Internal server error",
@@ -1194,7 +1368,7 @@ def test_user_router_internal_errors_are_redacted(method, path, request_kwargs, 
     with _user_client(_MemoryService(), _UserProfile) as client:
         response = client.request(method, path, **request_kwargs)
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.headers["content-type"].startswith("application/json")
     assert response.json() == {"success": False, "error": "Internal server error"}
     assert secret not in response.text
@@ -1203,6 +1377,96 @@ def test_user_router_internal_errors_are_redacted(method, path, request_kwargs, 
     captured = capsys.readouterr()
     assert secret not in captured.out
     assert secret not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "request_kwargs"),
+    [
+        ("GET", "/api/user/profile", {}),
+        ("POST", "/api/user/profile", {"json": {"profile": {}}}),
+        ("POST", "/api/user/watchlist/add", {"json": {"ticker": "AAPL"}}),
+        ("POST", "/api/user/watchlist/update", {"json": {"ticker": "AAPL"}}),
+        ("GET", "/api/user/watchlist", {}),
+        ("POST", "/api/user/watchlist/remove", {"json": {"ticker": "AAPL"}}),
+    ],
+)
+def test_user_router_missing_memory_service_returns_503(method, path, request_kwargs):
+    with _user_client(None, object) as client:
+        response = client.request(method, path, **request_kwargs)
+
+    assert response.status_code == 503
+    assert response.json() == {"error": "MemoryService not initialized"}
+
+
+@pytest.mark.parametrize(
+    ("path", "payload", "expected_error"),
+    [
+        ("/api/user/watchlist/add", {}, "Ticker is required"),
+        ("/api/user/watchlist/add", {"ticker": "AAPL", "tags": "bad"}, "tags must be a list"),
+        ("/api/user/watchlist/update", {}, "Ticker is required"),
+        ("/api/user/watchlist/update", {"ticker": "AAPL", "tags": "bad"}, "tags must be a list"),
+        ("/api/user/watchlist/add", {"ticker": "A" * 33}, "Invalid ticker"),
+        ("/api/user/watchlist/add", {"ticker": "AAPL", "tags": ["tag"] * 21}, "Invalid tags"),
+        ("/api/user/watchlist/update", {"ticker": "AAPL", "note": "x" * 2001}, "Invalid note"),
+        ("/api/user/watchlist/update", {"ticker": "AAPL", "priority": 6}, "Invalid priority"),
+        ("/api/user/watchlist/remove", {}, "Ticker is required"),
+    ],
+)
+def test_user_router_invalid_watchlist_request_returns_400(path, payload, expected_error):
+    class _MemoryService:
+        pass
+
+    with _user_client(_MemoryService(), object) as client:
+        response = client.post(path, json=payload)
+
+    assert response.status_code == 400
+    assert response.json() == {"success": False, "error": expected_error}
+
+
+def test_user_router_rejects_oversized_profile_and_watchlist_search():
+    class _MemoryService:
+        def list_watchlist_items(self, _user_id):
+            return []
+
+    class _UserProfile:
+        @classmethod
+        def from_dict(cls, _data):
+            raise AssertionError("oversized profile must not be constructed")
+
+    with _user_client(_MemoryService(), _UserProfile) as client:
+        profile_response = client.post(
+            "/api/user/profile",
+            json={"profile": {"preferences": {"blob": "x" * (256 * 1024)}}},
+        )
+        search_response = client.get("/api/user/watchlist", params={"q": "x" * 129})
+
+    assert profile_response.status_code == 413
+    assert profile_response.json()["error"] == "profile is too large"
+    assert search_response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_error"),
+    [
+        ('{"profile":{"preferences":{"score":NaN}}}', "Invalid profile payload"),
+        ('{"profile":{"preferences":[]}}', "preferences must be an object"),
+        ('{"profile":{"watchlist_meta":[]}}', "watchlist_meta must be an object"),
+    ],
+)
+def test_user_router_rejects_invalid_profile_payload(content, expected_error):
+    class _MemoryService:
+        def update_user_profile(self, _profile):
+            raise AssertionError("invalid profile must not be persisted")
+
+    with _user_client(_MemoryService(), object) as client:
+        response = client.post(
+            "/api/user/profile",
+            content=content,
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"success": False, "error": expected_error}
 
 
 @pytest.mark.parametrize(

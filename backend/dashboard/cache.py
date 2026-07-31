@@ -10,6 +10,7 @@ TTL 策略：
 """
 import time
 import logging
+import math
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,14 @@ class DashboardCache:
     def __init__(self) -> None:
         """初始化缓存存储"""
         self._store: dict[str, tuple[float, Any]] = {}
+
+    @staticmethod
+    def _normalize_ttl(value: Any, fallback: int) -> float:
+        try:
+            ttl = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return float(fallback)
+        return ttl if math.isfinite(ttl) and ttl >= 0 else float(fallback)
 
     def _key(self, symbol: str, data_type: str) -> str:
         """
@@ -124,6 +133,7 @@ class DashboardCache:
             return value, False
 
         # Expired but within stale window?
+        stale_ttl = self._normalize_ttl(stale_ttl, self.TTL_INSIGHTS_STALE)
         stale_deadline = expires_at + stale_ttl
         if now <= stale_deadline:
             logger.debug(f"Cache hit (stale): {key}")
@@ -174,6 +184,7 @@ class DashboardCache:
             ttl = ttl_map.get(data_type, self.TTL_CHARTS)
 
         key = self._key(symbol, data_type)
+        ttl = self._normalize_ttl(ttl, 0)
         expires_at = time.time() + ttl
         self._store[key] = (expires_at, value)
         logger.debug(f"Cache set: {key}, TTL={ttl}s")

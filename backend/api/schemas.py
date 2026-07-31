@@ -2,10 +2,11 @@
 FinSight API Pydantic Schemas
 """
 
+import math
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.contracts import CHAT_REQUEST_SCHEMA_VERSION, CHAT_RESPONSE_SCHEMA_VERSION
 
@@ -14,8 +15,8 @@ from backend.contracts import CHAT_REQUEST_SCHEMA_VERSION, CHAT_RESPONSE_SCHEMA_
 
 
 class ChatMessage(BaseModel):
-    role: str = Field(..., description="message role")
-    content: str = Field(..., description="message content")
+    role: str = Field(..., max_length=32, description="message role")
+    content: str = Field(..., max_length=16_384, description="message content")
 
 
 class SelectionContext(BaseModel):
@@ -23,12 +24,12 @@ class SelectionContext(BaseModel):
         ...,
         description="selection type",
     )
-    id: str = Field(..., description="selection id")
-    title: str = Field(..., description="selection title")
-    url: Optional[str] = Field(None, description="selection url")
-    source: Optional[str] = Field(None, description="selection source")
-    ts: Optional[str] = Field(None, description="selection timestamp")
-    snippet: Optional[str] = Field(None, description="selection snippet")
+    id: str = Field(..., max_length=256, description="selection id")
+    title: str = Field(..., max_length=512, description="selection title")
+    url: Optional[str] = Field(None, max_length=2048, description="selection url")
+    source: Optional[str] = Field(None, max_length=256, description="selection source")
+    ts: Optional[str] = Field(None, max_length=64, description="selection timestamp")
+    snippet: Optional[str] = Field(None, max_length=8192, description="selection snippet")
 
     @field_validator("type", mode="before")
     @classmethod
@@ -42,11 +43,11 @@ class SelectionContext(BaseModel):
 
 
 class ChatContext(BaseModel):
-    active_symbol: Optional[str] = Field(None, description="active symbol")
-    view: Optional[str] = Field(None, description="ui view")
+    active_symbol: Optional[str] = Field(None, max_length=64, description="active symbol")
+    view: Optional[str] = Field(None, max_length=64, description="ui view")
     selection: Optional[SelectionContext] = Field(None, description="single selection")
-    selections: Optional[list[SelectionContext]] = Field(None, description="multi selection")
-    user_email: Optional[str] = Field(None, description="user email for alert actions")
+    selections: Optional[list[SelectionContext]] = Field(None, max_length=20, description="multi selection")
+    user_email: Optional[str] = Field(None, max_length=320, description="user email for alert actions")
     persona_id: Optional[str] = Field(
         None,
         description="investment-style persona id (e.g. 'value_investor', 'macro_hedge')",
@@ -89,9 +90,9 @@ class ChatRequest(BaseModel):
         default=CHAT_REQUEST_SCHEMA_VERSION,
         description="request schema version",
     )
-    query: str = Field(..., min_length=1, description="user query")
+    query: str = Field(..., min_length=1, max_length=16_384, description="user query")
     session_id: Optional[str] = Field(None, description="session id")
-    history: Optional[list[ChatMessage]] = Field(None, description="conversation history")
+    history: Optional[list[ChatMessage]] = Field(None, max_length=100, description="conversation history")
     context: Optional[ChatContext] = Field(None, description="ephemeral context")
     options: Optional[ChatOptions] = Field(None, description="request options")
 
@@ -111,15 +112,19 @@ class AnalysisRequest(BaseModel):
 
 
 class SubscriptionRequest(BaseModel):
-    email: str = Field(..., min_length=3, description="email")
-    ticker: str = Field(..., min_length=1, description="ticker")
-    alert_types: Optional[list[str]] = Field(None, description="alert types")
-    price_threshold: Optional[float] = Field(None, description="price threshold")
+    email: str = Field(..., min_length=3, max_length=320, description="email")
+    ticker: str = Field(..., min_length=1, max_length=32, description="ticker")
+    alert_types: Optional[list[str]] = Field(None, max_length=4, description="alert types")
+    price_threshold: Optional[float] = Field(
+        None, allow_inf_nan=False, description="price threshold",
+    )
     alert_mode: Optional[Literal["price_change_pct", "price_target"]] = Field(
         "price_change_pct",
         description="alert trigger mode",
     )
-    price_target: Optional[float] = Field(None, description="target absolute price")
+    price_target: Optional[float] = Field(
+        None, allow_inf_nan=False, description="target absolute price",
+    )
     direction: Optional[Literal["above", "below"]] = Field(
         None,
         description="target direction",
@@ -168,42 +173,116 @@ class SubscriptionRequest(BaseModel):
 
 class ScreenerRunRequest(BaseModel):
     market: Literal["US", "CN", "HK"] = Field("US", description="market scope")
-    filters: dict[str, Any] = Field(default_factory=dict, description="screener filters")
+    filters: dict[str, Any] = Field(
+        default_factory=dict, max_length=20, description="screener filters",
+    )
     limit: int = Field(20, ge=1, le=200, description="rows per page")
     page: int = Field(1, ge=1, le=100, description="page index from 1")
-    sort_by: str = Field("marketCap", description="sort key")
+    sort_by: str = Field("marketCap", max_length=64, description="sort key")
     sort_order: Literal["asc", "desc"] = Field("desc", description="sort order")
+
+    @field_validator("filters")
+    @classmethod
+    def validate_screener_filters(cls, value: dict[str, Any]) -> dict[str, Any]:
+        numeric_keys = {
+            "marketCapMoreThan",
+            "marketCapLowerThan",
+            "priceMoreThan",
+            "priceLowerThan",
+            "betaMoreThan",
+            "betaLowerThan",
+            "volumeMoreThan",
+            "dividendMoreThan",
+        }
+        for key, item in value.items():
+            if len(key) > 64:
+                raise ValueError("screener filter key is too long")
+            if item is not None and not isinstance(item, (str, int, float, bool)):
+                raise ValueError("screener filter values must be scalar")
+            if isinstance(item, str) and len(item) > 256:
+                raise ValueError("screener filter value is too long")
+            if key in numeric_keys and item not in (None, ""):
+                try:
+                    number = float(item)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("invalid numeric screener filter") from exc
+                if not math.isfinite(number):
+                    raise ValueError("invalid numeric screener filter")
+        return value
 
 
 class CNMarketQueryRequest(BaseModel):
     limit: int = Field(20, ge=1, le=200, description="max rows")
-    keyword: Optional[str] = Field(None, description="optional keyword filter")
+    keyword: Optional[str] = Field(None, max_length=128, description="optional keyword filter")
 
 
 class BacktestRequest(BaseModel):
-    ticker: str = Field(..., min_length=1, description="ticker")
+    ticker: str = Field(..., min_length=1, max_length=32, description="ticker")
     strategy: Literal["ma_cross", "macd", "rsi_mean_reversion"] = Field(
         "ma_cross",
         description="strategy id",
     )
-    params: dict[str, Any] = Field(default_factory=dict, description="strategy params")
-    start_date: Optional[str] = Field(None, description="YYYY-MM-DD")
-    end_date: Optional[str] = Field(None, description="YYYY-MM-DD")
-    initial_cash: float = Field(100000.0, gt=0, description="initial cash")
-    fee_bps: Optional[float] = Field(None, ge=0, description="fee basis points")
-    slippage_bps: Optional[float] = Field(None, ge=0, description="slippage basis points")
+    params: dict[str, Any] = Field(
+        default_factory=dict, max_length=10, description="strategy params",
+    )
+    start_date: Optional[str] = Field(None, max_length=10, description="YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, max_length=10, description="YYYY-MM-DD")
+    initial_cash: float = Field(
+        100000.0, gt=0, allow_inf_nan=False, description="initial cash",
+    )
+    fee_bps: Optional[float] = Field(
+        None, ge=0, allow_inf_nan=False, description="fee basis points",
+    )
+    slippage_bps: Optional[float] = Field(
+        None, ge=0, allow_inf_nan=False, description="slippage basis points",
+    )
     t_plus_one: bool = Field(True, description="enable T+1 sell restriction")
     market: Optional[Literal["US", "CN", "HK"]] = Field(None, description="market hint")
 
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_backtest_date(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("backtest dates must use YYYY-MM-DD") from exc
+        return value
+
+    @model_validator(mode="after")
+    def validate_backtest_date_order(self):
+        if self.start_date and self.end_date and self.start_date > self.end_date:
+            raise ValueError("start_date must not be after end_date")
+        return self
+
+    @field_validator("params")
+    @classmethod
+    def validate_backtest_params(cls, value: dict[str, Any]) -> dict[str, Any]:
+        for key, item in value.items():
+            if len(key) > 64:
+                raise ValueError("backtest parameter key is too long")
+            if isinstance(item, bool) or not isinstance(item, (str, int, float)):
+                raise ValueError("backtest parameters must be numeric")
+            if isinstance(item, str) and len(item) > 64:
+                raise ValueError("backtest parameter value is too long")
+            try:
+                number = float(item)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("backtest parameters must be numeric") from exc
+            if not math.isfinite(number):
+                raise ValueError("backtest parameters must be finite")
+        return value
+
 
 class UnsubscribeRequest(BaseModel):
-    email: str = Field(..., min_length=3, description="email")
-    ticker: Optional[str] = Field(None, min_length=1, description="ticker")
+    email: str = Field(..., min_length=3, max_length=320, description="email")
+    ticker: Optional[str] = Field(None, min_length=1, max_length=32, description="ticker")
 
 
 class ToggleSubscriptionRequest(BaseModel):
-    email: str = Field(..., min_length=3, description="email")
-    ticker: str = Field(..., min_length=1, description="ticker")
+    email: str = Field(..., min_length=3, max_length=320, description="email")
+    ticker: str = Field(..., min_length=1, max_length=32, description="ticker")
     enabled: bool = Field(..., description="enable flag")
 
 
@@ -218,8 +297,8 @@ class WatchlistRequest(BaseModel):
 
 
 class ChartDetectRequest(BaseModel):
-    query: str = Field(..., description="query")
-    ticker: Optional[str] = Field(None, description="ticker")
+    query: str = Field(..., max_length=16_384, description="query")
+    ticker: Optional[str] = Field(None, max_length=32, description="ticker")
 
 
 class ChartDataRequest(BaseModel):

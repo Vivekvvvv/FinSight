@@ -4,6 +4,7 @@ import asyncio
 import pytest
 
 import backend.api.dashboard_router as dashboard_router_module
+import backend.dashboard.cache as cache_module
 from backend.dashboard.cache import DashboardCache
 from backend.dashboard.insights_engine import InsightsOrchestrator
 
@@ -56,3 +57,24 @@ def test_insights_collect_data_ignores_failure_marker():
 
     assert data["technicals"] == {}
     assert len(data["news"].get("market", [])) == 1
+
+
+@pytest.mark.parametrize("invalid_ttl", [float("nan"), float("inf"), -1])
+def test_dashboard_cache_invalid_ttl_expires_immediately(monkeypatch, invalid_ttl):
+    monkeypatch.setattr(cache_module.time, "time", lambda: 100.0)
+    cache = DashboardCache()
+
+    cache.set("AAPL", "snapshot", {"price": 1}, ttl=invalid_ttl)
+
+    monkeypatch.setattr(cache_module.time, "time", lambda: 100.1)
+    assert cache.get("AAPL", "snapshot") is None
+
+
+@pytest.mark.parametrize("invalid_ttl", [float("nan"), float("inf"), -1])
+def test_dashboard_cache_invalid_stale_ttl_uses_bounded_default(monkeypatch, invalid_ttl):
+    monkeypatch.setattr(cache_module.time, "time", lambda: 100.0)
+    cache = DashboardCache()
+    cache.set("AAPL", "insights", {"ok": True}, ttl=1)
+
+    monkeypatch.setattr(cache_module.time, "time", lambda: 100.0 + 1 + cache.TTL_INSIGHTS_STALE + 0.1)
+    assert cache.get_with_stale("AAPL", "insights", stale_ttl=invalid_ttl) == (None, False)

@@ -7,12 +7,46 @@ Step 1.3 测试 - ToolOrchestrator 单元测试
 import sys
 import os
 import time
+import logging
+from types import SimpleNamespace
+
+import pytest
 
 # 添加项目根目录到路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 
 from backend.orchestration import ToolOrchestrator, DataSource, FetchResult, DataCache
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-1", "2"])
+def test_orchestrator_rejects_invalid_health_fail_rate(monkeypatch, value):
+    monkeypatch.setenv("PRICE_HEALTH_FAIL_RATE", value)
+
+    orchestrator = ToolOrchestrator(tools_module=SimpleNamespace())
+
+    assert orchestrator.health_fail_rate_threshold == 0.6
+
+
+def test_orchestrator_invalid_positive_integer_config_uses_defaults(monkeypatch):
+    for name in (
+        "CB_FAILURE_THRESHOLD",
+        "CB_RECOVERY_TIMEOUT",
+        "CB_HALF_OPEN_SUCCESS",
+        "PRICE_HEALTH_LATENCY_MS",
+        "PRICE_HEALTH_MIN_CALLS",
+        "PRICE_HEALTH_SKIP_SECONDS",
+    ):
+        monkeypatch.setenv(name, "invalid")
+
+    orchestrator = ToolOrchestrator(tools_module=SimpleNamespace())
+
+    assert orchestrator.circuit_breaker.failure_threshold == 3
+    assert orchestrator.circuit_breaker.recovery_timeout == 120
+    assert orchestrator.circuit_breaker.half_open_success_threshold == 1
+    assert orchestrator.health_latency_threshold_ms == 5000
+    assert orchestrator.health_min_calls == 3
+    assert orchestrator.health_skip_seconds == 300
 
 
 # ============================================
@@ -129,6 +163,55 @@ def test_fetch_all_fail():
     assert 'tried:' in result.source
     
     print("[OK] 所有数据源失败测试通过")
+
+
+def test_multi_source_error_is_redacted_from_result_trace_events_and_logs(monkeypatch, caplog):
+    import backend.orchestration.orchestrator as orchestrator_module
+
+    sentinel = "PRIVATE_SOURCE_API_TOKEN"
+    emitted = []
+
+    class _TraceEmitter:
+        def emit_cache_miss(self, *_args, **_kwargs):
+            pass
+
+        def emit_data_source_query(self, *args, **kwargs):
+            emitted.append((args, kwargs))
+
+    def _fail(_ticker):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(orchestrator_module, "get_trace_emitter", lambda: _TraceEmitter())
+    caplog.set_level(logging.INFO, logger=orchestrator_module.__name__)
+    orchestrator = ToolOrchestrator()
+    orchestrator.sources['price'] = [DataSource('private_source', _fail, 1, 60)]
+
+    result = orchestrator.fetch('price', 'AAPL', force_refresh=True)
+
+    serialized = str({"result": result.to_dict(), "emitted": emitted})
+    assert result.error == "All data sources failed: RuntimeError"
+    assert result.trace['error'] == 'RuntimeError'
+    assert sentinel not in serialized
+    assert sentinel not in caplog.text
+    assert "RuntimeError" in serialized
+
+
+def test_direct_tool_error_is_redacted_from_result_and_trace():
+    sentinel = "PRIVATE postgres://orchestrator:secret@db/data"
+
+    class _FailingTools:
+        @staticmethod
+        def get_company_news(_ticker):
+            raise RuntimeError(sentinel)
+
+    orchestrator = ToolOrchestrator(tools_module=_FailingTools())
+
+    result = orchestrator.fetch('news', 'AAPL')
+
+    assert result.success is False
+    assert result.error == 'direct_tool_error'
+    assert result.trace['error'] == 'direct_tool_error'
+    assert sentinel not in str(result.to_dict())
 
 
 def test_cache_integration():
@@ -364,4 +447,3 @@ def run_all_tests():
 if __name__ == "__main__":
     success = run_all_tests()
     sys.exit(0 if success else 1)
-

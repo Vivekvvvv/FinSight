@@ -96,6 +96,69 @@ def test_create_default_user_uses_authenticated_principal(authenticated_client, 
     assert captured["user_id"] == "pytest_authenticated_user"
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "kwargs"),
+    [
+        (
+            "post",
+            "/api/research-notes",
+            {"json": {"session_id": "pytest_router_session", "title": "Note", "content": "x" * 100_001}},
+        ),
+        (
+            "post",
+            "/api/research-notes",
+            {"json": {"session_id": "pytest_router_session", "title": "Note", "tags": ["tag"] * 21}},
+        ),
+        (
+            "post",
+            "/api/research-notes",
+            {"json": {"session_id": "pytest_router_session", "title": "Note", "tags": ["x" * 65]}},
+        ),
+        (
+            "put",
+            "/api/research-notes/note-1",
+            {"json": {"title": "x" * 513}},
+        ),
+        (
+            "put",
+            "/api/research-notes/note-1",
+            {"json": {"tags": ["x" * 65]}},
+        ),
+        (
+            "get",
+            "/api/research-notes/semantic-search",
+            {"params": {"session_id": "pytest_router_session", "q": "note", "limit": 0}},
+        ),
+        (
+            "get",
+            "/api/research-notes",
+            {"params": {"session_id": "pytest_router_session", "q": "x" * 2049}},
+        ),
+    ],
+)
+def test_research_notes_reject_oversized_or_invalid_inputs(authenticated_client, method, path, kwargs):
+    response = getattr(authenticated_client, method)(path, **kwargs)
+
+    assert response.status_code == 422
+
+
+def test_research_notes_rejects_oversized_note_id_before_store(
+    authenticated_client,
+    monkeypatch,
+):
+    calls: list[str] = []
+    monkeypatch.setattr(
+        research_notes,
+        "get_note",
+        lambda note_id: calls.append(note_id),
+    )
+
+    response = authenticated_client.get(f"/api/research-notes/{'n' * 129}")
+
+    assert response.status_code == 422
+    assert calls == []
+
+
 def test_list_default_user_uses_authenticated_principal(authenticated_client, monkeypatch):
     captured = {}
 
@@ -304,6 +367,22 @@ def test_get_note_image_internal_error_is_redacted(authenticated_client, monkeyp
         "/api/notes/images/pytest_authenticated_user/note-1/chart.png",
     )
     _assert_internal_error_redacted(response, caplog, secret)
+
+
+def test_get_note_image_sets_exact_media_type_and_nosniff(authenticated_client, monkeypatch, tmp_path):
+    from backend.services import note_images
+
+    image_path = tmp_path / "chart.jpg"
+    image_path.write_bytes(b"\xff\xd8\xff\xe0test-image")
+    monkeypatch.setattr(note_images, "get_image_path", lambda *_args, **_kwargs: image_path)
+
+    response = authenticated_client.get(
+        "/api/notes/images/pytest_authenticated_user/note-1/chart.jpg",
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.headers["x-content-type-options"] == "nosniff"
 
 
 def test_list_note_images_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):

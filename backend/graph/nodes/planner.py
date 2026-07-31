@@ -20,6 +20,7 @@ from backend.graph.event_bus import emit_event
 from backend.graph.state import GraphState
 from backend.graph.nodes.planner_stub import planner_stub
 from backend.services.llm_retry import ainvoke_with_rate_limit_retry, is_rate_limit_error
+from backend.utils.env_config import env_float
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ def _extract_error_snippet(text: str, pos: int, *, radius: int = 220) -> str:
 
 
 def _build_parse_error_info(raw_output: str, exc: BaseException) -> dict[str, Any]:
-    payload: dict[str, Any] = {"error": str(exc)}
+    payload: dict[str, Any] = {"error": type(exc).__name__}
     raw = str(raw_output or "")
 
     try:
@@ -165,6 +166,21 @@ def _build_parse_error_info(raw_output: str, exc: BaseException) -> dict[str, An
     else:
         payload["snippet"] = json_candidate[:320]
     return payload
+
+
+def _public_parse_error_info(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    public: dict[str, Any] = {}
+    for key in ("json_retry_used", "line", "column", "pos"):
+        if key in value:
+            public[key] = value[key]
+    if "error" in value:
+        public["error"] = "invalid_json"
+    for key in ("first_attempt", "second_attempt"):
+        if isinstance(value.get(key), dict):
+            public[key] = _public_parse_error_info(value[key])
+    return public
 
 
 def _repair_json_text(text: str) -> str:
@@ -199,6 +215,10 @@ def _repair_json_text(text: str) -> str:
     return repaired
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
 def _load_json_with_repair(json_text: str) -> tuple[Any, dict[str, Any]]:
     raw = str(json_text or "")
     attempts: list[tuple[str, str]] = [("raw", raw)]
@@ -214,7 +234,11 @@ def _load_json_with_repair(json_text: str) -> tuple[Any, dict[str, Any]]:
     last_exc: BaseException | None = None
     for mode, candidate in attempts:
         try:
-            return json.loads(candidate, strict=False), {"parse_mode": mode}
+            return json.loads(
+                candidate,
+                strict=False,
+                parse_constant=_reject_json_constant,
+            ), {"parse_mode": mode}
         except Exception as exc:  # noqa: PERF203
             last_exc = exc
 
@@ -1082,15 +1106,19 @@ async def planner(state: GraphState) -> dict:
     try:
         from backend.llm_config import create_llm
 
-        _planner_temp = float(os.getenv("LANGGRAPH_PLANNER_TEMPERATURE", "0.2"))
+        _planner_temp = env_float(
+            "LANGGRAPH_PLANNER_TEMPERATURE", 0.2, minimum=0.0, maximum=2.0
+        )
         llm = create_llm(temperature=_planner_temp)
         llm_factory = lambda: create_llm(temperature=_planner_temp)  # noqa: E731
     except Exception as exc:
+        error_code = "planner_llm_init_error"
+        logger.error("[Planner] LLM initialization failed: %s", type(exc).__name__)
         append_failure(
             trace,
             node="planner",
             stage="llm_init",
-            error=str(exc),
+            error=error_code,
             fallback="planner_stub",
             retryable=False,
         )
@@ -1099,7 +1127,7 @@ async def planner(state: GraphState) -> dict:
                 "planner_runtime": build_runtime(
                     mode="llm",
                     fallback=True,
-                    reason=f"llm_unavailable: {exc}",
+                    reason=error_code,
                     retry_attempts=0,
                 )
                 | {"variant": planner_variant}
@@ -1269,24 +1297,27 @@ async def planner(state: GraphState) -> dict:
         return {"plan_ir": plan_dict, "trace": trace}
     except Exception as exc:
         retryable = is_rate_limit_error(exc)
+        error_code = "planner_llm_call_error"
+        public_parse_error = _public_parse_error_info(parse_error_info)
+        logger.error("[Planner] LLM planning failed: %s", type(exc).__name__)
         append_failure(
             trace,
             node="planner",
             stage="llm_call",
-            error=str(exc),
+            error=error_code,
             fallback="planner_stub",
             retryable=retryable,
             retry_attempts=retry_attempts,
             metadata={
-                "json_parse_error": parse_error_info or {},
-                "last_output_preview": last_output_preview,
+                "json_parse_error": public_parse_error,
+                "last_output_preview": "[redacted]" if last_output_preview else "",
             },
         )
         await emit_event(
             {
                 "type": "thinking",
                 "stage": "llm_call_error",
-                "message": f"planner: {exc}",
+                "message": error_code,
                 "timestamp": utc_now_iso(),
             }
         )
@@ -1295,12 +1326,12 @@ async def planner(state: GraphState) -> dict:
                 "planner_runtime": build_runtime(
                     mode="llm",
                     fallback=True,
-                    reason=str(exc),
+                    reason=error_code,
                     retry_attempts=retry_attempts,
                 )
                 | {
                     "variant": planner_variant,
-                    "json_parse_error": parse_error_info or {},
+                    "json_parse_error": public_parse_error,
                 }
             }
         )
@@ -1316,13 +1347,13 @@ async def planner(state: GraphState) -> dict:
             state=state,
             plan_dict=(out.get("plan_ir") or {}),
             fallback=True,
-            fallback_reason=str(exc),
+            fallback_reason=error_code,
         )
         await _emit_pipeline_stage(
             stage="planning",
             status="error",
             message="Planner failed, fallback plan emitted",
             duration_ms=int((time.perf_counter() - planner_started_at) * 1000),
-            error=str(exc),
+            error=error_code,
         )
         return out

@@ -44,10 +44,10 @@ def get_market_sentiment() -> str:
         return f"CNN Fear & Greed Index: {score:.1f} ({rating})"
     
     except requests.exceptions.HTTPError as http_err:
-        logger.info(f"CNN API failed with HTTP error: {http_err}. Trying fallback search...")
+        logger.info("CNN API failed with HTTP error: %s. Trying fallback search...", type(http_err).__name__)
     except Exception as e:
         # 捕获其他所有可能的异常，例如网络问题、JSON解析错误等
-        logger.info(f"CNN API failed with other error: {e}. Trying fallback search...")
+        logger.info("CNN API failed with other error: %s. Trying fallback search...", type(e).__name__)
     # --- 如果上面的 try 代码块出现任何异常，则执行下面的回退逻辑 ---
     try:
         search_result = search("CNN Fear and Greed Index current value today")
@@ -59,7 +59,7 @@ def get_market_sentiment() -> str:
             logger.info("Fallback search successful!")
             return f"CNN Fear & Greed Index (via search): {score:.1f} ({rating})"
     except Exception as search_e:
-        logger.info(f"Search fallback also failed: {search_e}")
+            logger.info("Search fallback also failed: %s", type(search_e).__name__)
     
     # 如果所有方法都失败了，返回一个通用错误信息
     return "Fear & Greed Index: Unable to fetch. Please check manually."
@@ -143,7 +143,7 @@ def get_fred_data(series_id: str = None) -> Dict[str, Any]:
                         result[key] = float(value)
 
         except Exception as e:
-            logger.info(f"[FRED] Failed to fetch {sid}: {e}")
+            logger.info("[FRED] Failed to fetch %s: %s", sid, type(e).__name__)
             continue
 
     # 格式化输出

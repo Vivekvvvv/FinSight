@@ -49,3 +49,24 @@ def test_planner_stub_falls_back_on_invalid_output_mode():
     assert plan_ir.get("output_mode") == "brief"
     assert (result.get("trace") or {}).get("planner", {}).get("fallback") is True
 
+
+def test_planner_stub_redacts_validation_error_from_trace():
+    sentinel = "PRIVATE_INVALID_OUTPUT_MODE"
+
+    result = planner_stub(
+        {
+            "query": "analyze impact",
+            "output_mode": sentinel,
+            "subject": {
+                "subject_type": "company",
+                "tickers": ["AAPL"],
+                "selection_ids": [],
+                "selection_types": [],
+                "selection_payload": [],
+            },
+        }
+    )
+
+    planner_trace = (result.get("trace") or {}).get("planner") or {}
+    assert planner_trace["error"] == "ValidationError"
+    assert sentinel not in str(result)

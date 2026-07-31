@@ -33,9 +33,9 @@ def run_health_probe_cycle(tickers: Iterable[str] | None = None) -> None:
         try:
             import time
             res = orchestrator.fetch("price", t, force_refresh=True)
-            results.append((t, res.success, res.source, res.error))
+            results.append((t, res.success, res.source, "source_error" if res.error else None))
         except Exception as e:  # pragma: no cover - diagnostic only
-            results.append((t, False, "exception", str(e)))
+            results.append((t, False, "exception", type(e).__name__))
 
     ok = sum(1 for r in results if r[1])
     fail = len(results) - ok

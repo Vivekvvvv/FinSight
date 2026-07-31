@@ -7,6 +7,7 @@ Three-layer architecture: Rule fast-path -> Embedding similarity -> LLM fallback
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 import asyncio
+import math
 import re
 import logging
 
@@ -63,7 +64,7 @@ class EmbeddingClassifier:
             logger.warning("[IntentClassifier] sentence-transformers not installed, fallback to keyword mode")
             return False
         except Exception as e:
-            logger.warning(f"[IntentClassifier] Failed to load embedding model: {e}")
+            logger.warning("[IntentClassifier] Failed to load embedding model: %s", type(e).__name__)
             return False
 
     def _compute_intent_embeddings(self):
@@ -381,7 +382,12 @@ class IntentClassifier:
         """Embedding similarity + keyword boost"""
 
         # Compute embedding similarity
-        scores = self._embedding_classifier.compute_similarity(query)
+        raw_scores = self._embedding_classifier.compute_similarity(query)
+        scores = {
+            intent: float(score)
+            for intent, score in raw_scores.items()
+            if isinstance(score, (int, float)) and math.isfinite(float(score))
+        }
 
         if not scores:
             # Embedding unavailable, fallback to keyword-only
@@ -535,12 +541,12 @@ class IntentClassifier:
             )
 
         except Exception as e:
-            logger.error(f"[IntentClassifier] LLM classification failed: {e}")
+            logger.error("[IntentClassifier] LLM classification failed: %s", type(e).__name__)
             return ClassificationResult(
                 intent=AgentIntent.SEARCH,
                 confidence=0.5,
                 tickers=tickers,
                 method="fallback",
-                reasoning=f"LLM classification failed: {e}",
+                reasoning="LLM classification unavailable",
                 scores=candidates
             )

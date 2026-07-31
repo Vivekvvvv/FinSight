@@ -4,6 +4,7 @@ from datetime import datetime
 
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceItem
 from backend.services.circuit_breaker import CircuitBreaker
+from backend.utils.env_config import env_float, env_int
 
 
 class AllSourcesFailedError(Exception):
@@ -18,9 +19,9 @@ class PriceAgent(BaseFinancialAgent):
     def __init__(self, llm, cache, tools_module, circuit_breaker: Optional[CircuitBreaker] = None):
         if circuit_breaker is None:
             circuit_breaker = CircuitBreaker(
-                failure_threshold=int(os.getenv("PRICE_CB_FAILURE_THRESHOLD", "5")),
-                recovery_timeout=float(os.getenv("PRICE_CB_RECOVERY_TIMEOUT", "60")),
-                half_open_success_threshold=int(os.getenv("PRICE_CB_HALF_OPEN_SUCCESS", "1")),
+                failure_threshold=env_int("PRICE_CB_FAILURE_THRESHOLD", 5, minimum=1),
+                recovery_timeout=env_float("PRICE_CB_RECOVERY_TIMEOUT", 60.0, minimum=0.1),
+                half_open_success_threshold=env_int("PRICE_CB_HALF_OPEN_SUCCESS", 1, minimum=1),
             )
         super().__init__(llm, cache, circuit_breaker)
         self.tools = tools_module
@@ -79,7 +80,7 @@ class PriceAgent(BaseFinancialAgent):
             return cached
 
         sources = ["yfinance", "finnhub", "alpha_vantage", "tavily"]
-        last_error = None
+        last_error = "unknown"
 
         for source in sources:
             if self.circuit_breaker.can_call(source):
@@ -91,7 +92,7 @@ class PriceAgent(BaseFinancialAgent):
                         _load_option_metrics()
                         return result
                 except Exception as e:
-                    last_error = e
+                    last_error = type(e).__name__
                     self.circuit_breaker.record_failure(source)
 
         try:
@@ -99,8 +100,8 @@ class PriceAgent(BaseFinancialAgent):
             if fallback_result:
                 _load_option_metrics()
                 return fallback_result
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[PriceAgent] search fallback failed: %s", type(exc).__name__)
 
         raise AllSourcesFailedError(f"All sources failed for {ticker}. Last error: {last_error}")
 

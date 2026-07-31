@@ -2,6 +2,9 @@
 """Tests for backend.rag.embedder — EmbeddingService with hash fallback."""
 from __future__ import annotations
 
+import builtins
+import logging
+
 from backend.rag.embedder import (
     EmbeddingResult,
     EmbeddingService,
@@ -64,6 +67,48 @@ def test_embedding_service_empty_batch():
     result = svc.encode([])
     assert result.dense == []
     assert result.sparse == []
+
+
+def test_embedding_service_import_error_log_is_redacted(monkeypatch, caplog):
+    import backend.rag.embedder as emb
+
+    sentinel = "PRIVATE_EMBEDDING_MODEL_PATH"
+    real_import = builtins.__import__
+
+    def _import(name, *args, **kwargs):
+        if name == "FlagEmbedding":
+            raise ImportError(sentinel)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _import)
+    caplog.set_level(logging.INFO, logger=emb.__name__)
+
+    svc = emb.EmbeddingService(force_backend="bge")
+
+    assert svc.model_name == "hash"
+    assert sentinel not in caplog.text
+    assert "ImportError" in caplog.text
+
+
+def test_embedding_service_encode_error_log_is_redacted(monkeypatch, caplog):
+    import backend.rag.embedder as emb
+
+    sentinel = "PRIVATE_EMBEDDING_RUNTIME_DETAIL"
+
+    class _BoomModel:
+        def encode(self, _text_list):
+            raise RuntimeError(sentinel)
+
+    svc = emb.EmbeddingService(force_backend="bge")
+    monkeypatch.setattr(svc, "_check_bge", lambda: True)
+    monkeypatch.setattr(emb, "_get_bge_m3", lambda: _BoomModel())
+    caplog.set_level(logging.INFO, logger=emb.__name__)
+
+    result = svc.encode(["hello world"])
+
+    assert result.model_name == "hash"
+    assert sentinel not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_hash_embedding_deterministic():

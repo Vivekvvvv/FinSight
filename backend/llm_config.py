@@ -9,6 +9,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -81,16 +82,31 @@ def _normalize_api_base(api_base: str | None, *, raw: bool = False) -> str | Non
     return normalized
 
 
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON value: {value}")
+
+
 def _load_user_config() -> dict:
     if os.path.exists(USER_CONFIG_PATH):
         try:
             with open(USER_CONFIG_PATH, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-                if isinstance(payload, dict):
-                    return payload
-        except Exception as exc:
-            logger.info(
-                "[Config] Failed to load user_config.json: %s",
+                payload = json.load(f, parse_constant=_reject_non_finite_json)
+            if not isinstance(payload, dict):
+                raise ValueError("user config payload must be a JSON object")
+            return payload
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+            backup_path = f"{USER_CONFIG_PATH}.{uuid4().hex}.corrupt"
+            try:
+                os.replace(USER_CONFIG_PATH, backup_path)
+            except FileNotFoundError:
+                return {}
+            logger.warning(
+                "[Config] Corrupt user_config.json moved to a backup: %s",
+                type(exc).__name__,
+            )
+        except OSError as exc:
+            logger.warning(
+                "[Config] Failed to read user_config.json: %s",
                 type(exc).__name__,
             )
     return {}

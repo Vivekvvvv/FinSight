@@ -1,6 +1,13 @@
 # -*- coding: utf-8 -*-
 
-from backend.graph.trace import _span_data
+from backend.graph.trace import _safe_preview, _span_data
+
+
+def test_trace_preview_replaces_non_finite_numbers():
+    assert _safe_preview({"score": float("nan"), "latency": float("inf")}) == {
+        "score": None,
+        "latency": None,
+    }
 
 
 def test_trace_policy_gate_includes_v2_fields():

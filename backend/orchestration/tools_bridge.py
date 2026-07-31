@@ -34,7 +34,7 @@ def _import_tools_module():
             logger.info("[Bridge] 成功从 tools 导入")
             return tools
         except ImportError as e:
-            logger.info(f"[Bridge] 警告: 无法导入 tools 模块: {e}")
+            logger.info("[Bridge] 警告: 无法导入 tools 模块: %s", type(e).__name__)
             return None
 
 

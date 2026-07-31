@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import importlib
 import json
+import math
+import os
 import sqlite3
 import subprocess
 import sys
+import tempfile
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
+
+
+_JSON_WRITE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -48,6 +55,38 @@ def evaluate_rollout_thresholds(
         raise ValueError("stages must not be empty")
 
     gate = thresholds or RollbackThresholds()
+    finite_values = {
+        "citation_coverage": citation_coverage,
+        "max_5xx_ratio": gate.max_5xx_ratio,
+        "p95_regression_factor": gate.p95_regression_factor,
+        "min_citation_coverage": gate.min_citation_coverage,
+    }
+    for index, stage in enumerate(stages):
+        integer_fields = {
+            "stage_percent": stage.stage_percent,
+            "request_count": stage.request_count,
+            "success_count": stage.success_count,
+            "error_5xx_count": stage.error_5xx_count,
+        }
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in integer_fields.values()
+        ):
+            raise ValueError(f"stages[{index}] counts must be integers")
+        if not 1 <= stage.stage_percent <= 100:
+            raise ValueError(f"stages[{index}].stage_percent must be between 1 and 100")
+        if stage.request_count <= 0:
+            raise ValueError(f"stages[{index}].request_count must be positive")
+        if not 0 <= stage.success_count <= stage.request_count:
+            raise ValueError(f"stages[{index}].success_count is out of range")
+        if not 0 <= stage.error_5xx_count <= stage.request_count:
+            raise ValueError(f"stages[{index}].error_5xx_count is out of range")
+        finite_values[f"stages[{index}].latency_p95_ms"] = stage.latency_p95_ms
+        if stage.latency_mean_ms is not None:
+            finite_values[f"stages[{index}].latency_mean_ms"] = stage.latency_mean_ms
+    for name, value in finite_values.items():
+        if not math.isfinite(float(value)):
+            raise ValueError(f"{name} must be finite")
     baseline_p95 = max(float(stages[0].latency_p95_ms), 1e-6)
 
     evaluations: list[dict[str, Any]] = []
@@ -270,7 +309,26 @@ def run_security_final_checks(
 def write_json(path: Path, payload: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     # 原子替换（项目规则 1，审计 D4）：进程中断不留半截 JSON
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    with _JSON_WRITE_LOCK:
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(
+                    payload,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
     return path

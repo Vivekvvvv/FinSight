@@ -32,6 +32,7 @@ def _configure_auth(monkeypatch):
     monkeypatch.setenv('VITE_SUPABASE_URL', 'https://supabase.test')
     monkeypatch.setenv('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_test')
     monkeypatch.setattr(main, '_rate_limiter', main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False))
+    monkeypatch.setattr(main, '_rag_auth_rate_limiter', main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False))
     monkeypatch.setattr(main, 'get_rag_observability_store', lambda: _FakeRagStore())
     main._auth_identity_cache.clear()
     return main
@@ -146,6 +147,7 @@ def test_rag_diagnostics_read_allows_local_dev_bearer_without_supabase(monkeypat
     monkeypatch.setenv('RAG_OBSERVABILITY_DEV_USER_ID', 'dev-rag-user')
     monkeypatch.setenv('RAG_OBSERVABILITY_DEV_EMAIL', 'dev-rag@example.com')
     monkeypatch.setattr(main, '_rate_limiter', main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False))
+    monkeypatch.setattr(main, '_rag_auth_rate_limiter', main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False))
     monkeypatch.setattr(main, 'get_rag_observability_store', lambda: _FakeRagStore())
     main._auth_identity_cache.clear()
 
@@ -174,3 +176,53 @@ def test_rag_auth_upstream_error_log_is_redacted(monkeypatch, caplog):
     assert response.json()['detail'] == 'Auth upstream unavailable'
     assert 'private auth upstream detail' not in caplog.text
     assert 'RuntimeError' in caplog.text
+
+
+def test_rag_auth_preflight_rate_limit_runs_before_upstream_auth(monkeypatch):
+    from fastapi import HTTPException
+
+    main = _configure_auth(monkeypatch)
+    monkeypatch.setattr(
+        main,
+        '_rag_auth_rate_limiter',
+        main.SimpleRateLimiter(limit_per_window=1, window_seconds=60, enabled=True),
+    )
+    calls = []
+
+    def deny(_request):
+        calls.append(True)
+        raise HTTPException(status_code=401, detail='Authentication required')
+
+    monkeypatch.setattr(main, '_require_rag_read_access', deny)
+    with TestClient(main.app) as client:
+        first = client.get('/diagnostics/rag/status')
+        second = client.get('/diagnostics/rag/status')
+
+    assert first.status_code == 401
+    assert second.status_code == 429
+    assert second.headers['Retry-After']
+    assert len(calls) == 1
+
+
+def test_rag_auth_cache_hashes_tokens_and_enforces_capacity(monkeypatch):
+    main = _configure_auth(monkeypatch)
+    monkeypatch.setenv('RAG_OBSERVABILITY_AUTH_CACHE_MAX_ENTRIES', '2')
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"id":"user-1","email":"reader@example.com"}'
+
+    monkeypatch.setattr(main.urllib_request, 'urlopen', lambda *_args, **_kwargs: _Response())
+    raw_tokens = ['private-token-a', 'private-token-b', 'private-token-c']
+    for token in raw_tokens:
+        assert main._fetch_supabase_user_identity(token)['user_id'] == 'user-1'
+
+    assert len(main._auth_identity_cache) == 2
+    assert all(token not in main._auth_identity_cache for token in raw_tokens)
+    assert all(len(key) == 64 for key in main._auth_identity_cache)

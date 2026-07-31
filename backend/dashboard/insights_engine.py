@@ -33,6 +33,7 @@ from backend.dashboard.scorers import (
     TechnicalScorer,
 )
 from backend.dashboard.schemas import DashboardInsightsResponse, InsightCard
+from backend.utils.env_config import env_float, env_int
 
 logger = logging.getLogger(__name__)
 _DASHBOARD_FAILURE_MARKER = "__dashboard_failure__"
@@ -43,8 +44,8 @@ _DASHBOARD_FAILURE_MARKER = "__dashboard_failure__"
 # ---------------------------------------------------------------------------
 
 _INSIGHTS_ENABLED = os.getenv("INSIGHTS_ENABLED", "true").lower() in ("true", "1", "yes")
-_OVERALL_TIMEOUT_SECONDS = float(os.getenv("INSIGHTS_OVERALL_TIMEOUT", "8"))
-_MAX_CONCURRENT_SYMBOLS = int(os.getenv("INSIGHTS_MAX_CONCURRENT_SYMBOLS", "3"))
+_OVERALL_TIMEOUT_SECONDS = env_float("INSIGHTS_OVERALL_TIMEOUT", 8.0, minimum=0.1)
+_MAX_CONCURRENT_SYMBOLS = env_int("INSIGHTS_MAX_CONCURRENT_SYMBOLS", 3, minimum=1)
 
 # Backward-compatible aliases for tests/utilities that import from this module.
 _DIGEST_TIMEOUT_SECONDS = scorer_runtime._DIGEST_TIMEOUT_SECONDS
@@ -261,7 +262,7 @@ class InsightsOrchestrator:
             await self._generate_fresh(symbol)
             logger.info("[Insights] Background refresh completed for %s", symbol)
         except Exception as exc:
-            logger.warning("[Insights] Background refresh failed for %s: %s", symbol, exc)
+            logger.warning("[Insights] Background refresh failed for %s: %s", symbol, type(exc).__name__)
         finally:
             _refresh_tasks.pop(symbol, None)
 
@@ -360,7 +361,7 @@ class InsightsOrchestrator:
         except asyncio.TimeoutError:
             logger.warning("[Insights] %s timeout for %s", label, symbol)
         except Exception as exc:
-            logger.warning("[Insights] %s failed for %s: %s", label, symbol, exc)
+            logger.warning("[Insights] %s failed for %s: %s", label, symbol, type(exc).__name__)
         return None
 
     def _fetch_technicals(self, symbol: str) -> dict[str, Any] | None:

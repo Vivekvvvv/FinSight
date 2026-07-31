@@ -210,6 +210,44 @@ def test_retry_helper_reports_failure_and_success(monkeypatch):
     assert calls[-1][0] == 'ok'
 
 
+def test_retry_helper_normalizes_non_finite_wait_config(monkeypatch):
+    import backend.services.llm_retry as llm_retry
+
+    sleeps = []
+
+    async def _capture_sleep(seconds: float):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(llm_retry, 'report_llm_success', lambda _llm: None)
+    monkeypatch.setattr(llm_retry, 'report_llm_failure', lambda _llm, _error=None: None)
+    monkeypatch.setattr(llm_retry.asyncio, 'sleep', _capture_sleep)
+    monkeypatch.setattr(llm_retry.random, 'uniform', lambda _start, _end: 0.0)
+
+    class _FakeLLM:
+        def __init__(self):
+            self.calls = 0
+
+        async def ainvoke(self, _messages):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError('429 retry')
+            return {'ok': True}
+
+    result = asyncio.run(
+        llm_retry.ainvoke_with_rate_limit_retry(
+            _FakeLLM(),
+            messages=[],
+            max_attempts=2,
+            sleep_seconds=float('nan'),
+            jitter_seconds=float('inf'),
+            acquire_token=False,
+        )
+    )
+
+    assert result == {'ok': True}
+    assert sleeps == [5.0]
+
+
 def test_retry_helper_all_failures_raise_explainable_error(monkeypatch):
     import backend.services.llm_retry as llm_retry
 

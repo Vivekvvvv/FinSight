@@ -353,16 +353,16 @@ def reset_checkpointer_caches() -> None:
     if _async_bundle is not None:
         try:
             _async_bundle.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.error("failed to close cached async bundle: %s", type(exc).__name__)
     _async_bundle = None
     _async_lock = None
     _async_bundle_loop_id = None
     try:
         bundle = get_checkpointer_bundle()
         bundle.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error("failed to close cached sync bundle: %s", type(exc).__name__)
     get_checkpointer_bundle.cache_clear()
 
 
@@ -382,8 +382,8 @@ async def areset_checkpointer_caches() -> None:
     try:
         bundle = get_checkpointer_bundle()
         bundle.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error("failed to close cached sync bundle: %s", type(exc).__name__)
     get_checkpointer_bundle.cache_clear()
 
 

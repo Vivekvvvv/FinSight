@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -56,3 +57,31 @@ def test_screener_filter_meta_endpoint():
     assert "US" in payload["markets"]
     assert "marketCap" in payload["sort_by"]
     assert "sector" in payload["filter_keys"]
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {f"filter-{index}": index for index in range(21)},
+        {"sector": "x" * 257},
+        {"sector": {"nested": "value"}},
+        {"priceMoreThan": "not-a-number"},
+        {"priceMoreThan": "1e309"},
+    ],
+)
+def test_screener_rejects_invalid_filters_before_tool(monkeypatch, filters):
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        screener_router_module,
+        "screen_stocks",
+        lambda **kwargs: calls.append(kwargs) or {"success": True},
+    )
+
+    client = _build_client()
+    response = client.post(
+        "/api/screener/run",
+        json={"market": "US", "filters": filters},
+    )
+
+    assert response.status_code == 422
+    assert calls == []

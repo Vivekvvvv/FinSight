@@ -22,6 +22,17 @@ _USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _PROFILE_LOCK = threading.RLock()
 
 
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON value: {value}")
+
+
+class WatchlistLimitExceeded(Exception):
+    def __init__(self, *, limit: int, current: int) -> None:
+        super().__init__("watchlist limit exceeded")
+        self.limit = limit
+        self.current = current
+
+
 @dataclass
 class UserProfile:
     """用户画像"""
@@ -82,14 +93,28 @@ class MemoryService:
 
     def get_user_profile(self, user_id: str) -> UserProfile:
         """获取用户画像，不存在则创建默认"""
-        file_path = self._get_file_path(user_id)
+        normalized_user_id = self._normalize_user_id(user_id)
+        file_path = self._get_file_path(normalized_user_id)
         with _PROFILE_LOCK:
             if os.path.exists(file_path):
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
+                        data = json.load(f, parse_constant=_reject_non_finite_json)
                     if not isinstance(data, dict):
                         raise ValueError("profile payload must be a JSON object")
+                    stored_user_id = str(data.get("user_id") or normalized_user_id).strip()
+                    if stored_user_id != normalized_user_id:
+                        raise ValueError("profile user_id does not match its storage key")
+                    watchlist = data.get("watchlist", [])
+                    if not isinstance(watchlist, list) or any(
+                        not isinstance(ticker, str) for ticker in watchlist
+                    ):
+                        raise ValueError("profile watchlist must be a list of strings")
+                    if not isinstance(data.get("watchlist_meta", {}), dict):
+                        raise ValueError("profile watchlist_meta must be an object")
+                    if not isinstance(data.get("preferences", {}), dict):
+                        raise ValueError("profile preferences must be an object")
+                    data["user_id"] = normalized_user_id
                     return UserProfile.from_dict(data)
                 except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
                     backup_path = f"{file_path}.{uuid4().hex}.corrupt"
@@ -99,9 +124,9 @@ class MemoryService:
                         user_id,
                         type(e).__name__,
                     )
-                    return UserProfile(user_id=user_id)
+                    return UserProfile(user_id=normalized_user_id)
             else:
-                return UserProfile(user_id=user_id)
+                return UserProfile(user_id=normalized_user_id)
 
     def update_user_profile(self, profile: UserProfile) -> bool:
         """更新用户画像"""
@@ -111,7 +136,13 @@ class MemoryService:
         try:
             with _PROFILE_LOCK:
                 with open(tmp_path, 'w', encoding='utf-8') as f:
-                    json.dump(profile.to_dict(), f, indent=2, ensure_ascii=False)
+                    json.dump(
+                        profile.to_dict(),
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                    )
                 os.replace(tmp_path, file_path)
             return True
         except Exception as e:
@@ -143,6 +174,7 @@ class MemoryService:
         priority: Optional[int] = None,
         watch_reason: Optional[str] = None,
         research_status: Optional[str] = None,
+        max_watchlist: Optional[int] = None,
     ) -> bool:
         """添加关注。可选 name/tags/note/group/priority/watch_reason 元信息会写入 watchlist_meta。"""
         clean_ticker = str(ticker or "").strip().upper()
@@ -151,6 +183,11 @@ class MemoryService:
         with _PROFILE_LOCK:
             profile = self.get_user_profile(user_id)
             if clean_ticker not in profile.watchlist:
+                if max_watchlist is not None and max_watchlist >= 0 and len(profile.watchlist) >= max_watchlist:
+                    raise WatchlistLimitExceeded(
+                        limit=max_watchlist,
+                        current=len(profile.watchlist),
+                    )
                 profile.watchlist.append(clean_ticker)
             # merge metadata (None values do not overwrite existing fields)
             existing = profile.watchlist_meta.get(clean_ticker, {}) if isinstance(profile.watchlist_meta, dict) else {}

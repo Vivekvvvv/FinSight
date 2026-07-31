@@ -47,8 +47,10 @@ def test_persist_and_load_memory_snapshot(tmp_path):
 
 
 def test_memory_service_init_failure_only_warn_once(monkeypatch, caplog):
+    secret = "PRIVATE postgres://memory:secret@db/profile"
+
     def _raise_init(*args, **kwargs):
-        raise RuntimeError("init failed")
+        raise RuntimeError(secret)
 
     monkeypatch.setattr(graph_store, "MemoryService", _raise_init)
     monkeypatch.setattr(graph_store, "_memory_service", None)
@@ -59,3 +61,59 @@ def test_memory_service_init_failure_only_warn_once(monkeypatch, caplog):
 
     warning_logs = [rec.message for rec in caplog.records if "init memory service failed" in rec.message]
     assert len(warning_logs) == 1
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_load_memory_context_error_log_is_redacted(caplog):
+    secret = "PRIVATE postgres://memory:secret@db/load"
+
+    class _FailingService:
+        def get_user_profile(self, _user_id):
+            raise RuntimeError(secret)
+
+    assert load_memory_context(thread_id="public:alice:thread", memory_service=_FailingService()) == {}
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_persist_memory_load_error_log_is_redacted(caplog):
+    secret = "PRIVATE postgres://memory:secret@db/prewrite"
+
+    class _FailingService:
+        def get_user_profile(self, _user_id):
+            raise RuntimeError(secret)
+
+    result = persist_memory_snapshot(
+        thread_id="public:alice:thread",
+        state={"query": "AAPL"},
+        memory_service=_FailingService(),
+    )
+
+    assert result is False
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_persist_memory_write_error_log_is_redacted(caplog):
+    secret = "PRIVATE postgres://memory:secret@db/write"
+
+    class _Profile:
+        preferences = {}
+
+    class _FailingService:
+        def get_user_profile(self, _user_id):
+            return _Profile()
+
+        def update_user_profile(self, _profile):
+            raise RuntimeError(secret)
+
+    result = persist_memory_snapshot(
+        thread_id="public:alice:thread",
+        state={"query": "AAPL"},
+        memory_service=_FailingService(),
+    )
+
+    assert result is False
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text

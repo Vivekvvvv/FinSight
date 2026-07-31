@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
@@ -112,6 +113,7 @@ def test_subscription_internal_errors_are_redacted(monkeypatch, method, path, pa
         ('["not-an-object"]', "ValueError"),
         ('{"alice@example.invalid": "not-a-list"}', "ValueError"),
         ('{"alice@example.invalid": ["not-an-object"]}', "ValueError"),
+        ('{"alice@example.invalid": [{"price_target": NaN}]}', "ValueError"),
     ],
 )
 def test_subscription_service_backs_up_corrupt_storage(
@@ -155,6 +157,129 @@ def test_subscription_service_does_not_report_success_when_save_fails(
     assert not storage_path.exists()
     assert "private subscription write detail" not in caplog.text
     assert "OSError" in caplog.text
+
+
+@pytest.mark.parametrize("field", ["price_threshold", "price_target"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_subscription_service_rejects_non_finite_numeric_values(
+    monkeypatch, tmp_path, field, value
+):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+
+    with pytest.raises(ValueError, match=f"{field} must be finite"):
+        service.subscribe("alice@example.invalid", "AAPL", **{field: value})
+
+    assert service.get_subscriptions("alice@example.invalid") == []
+    assert not storage_path.exists()
+
+
+def test_subscription_storage_key_controls_delivery_email(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    storage_path.write_text(
+        json.dumps(
+            {
+                "alice@example.invalid": [
+                    {
+                        "email": "bob@example.invalid",
+                        "ticker": "AAPL",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+
+    service = subs.SubscriptionService()
+
+    loaded = service.get_subscriptions("alice@example.invalid")
+    assert loaded[0]["email"] == "alice@example.invalid"
+    persisted = json.loads(storage_path.read_text(encoding="utf-8"))
+    assert persisted["alice@example.invalid"][0]["email"] == "alice@example.invalid"
+
+
+def test_record_alert_attempt_recovers_invalid_failure_counter(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    email = "alice@example.invalid"
+    storage_path.write_text(
+        json.dumps({email: [{"ticker": "AAPL", "alert_failures": "bad"}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+
+    service.record_alert_attempt(email, "AAPL", success=False, error="delivery failed")
+
+    saved = json.loads(storage_path.read_text(encoding="utf-8"))
+    assert saved[email][0]["alert_failures"] == 1
+
+
+def test_record_alert_event_bounds_persisted_content(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+    assert service.subscribe("alice@example.invalid", "AAPL") is True
+
+    assert service.record_alert_event(
+        "alice@example.invalid",
+        "AAPL",
+        "news",
+        title="t" * 1000,
+        message="m" * 10_000,
+        metadata={"blob": "x" * (16 * 1024)},
+    ) is True
+
+    event = service.list_alert_events("alice@example.invalid")[0]
+    assert len(event["title"]) == 512
+    assert len(event["message"]) == 4096
+    assert event["metadata"] == {}
+
+
+def test_legacy_alert_events_are_bounded_when_loaded(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    email = "alice@example.invalid"
+    event = {
+        "id": "i" * 100,
+        "email": "e" * 500,
+        "ticker": "a" * 50,
+        "event_type": "n" * 100,
+        "severity": "s" * 100,
+        "title": "t" * 1000,
+        "message": "m" * 10_000,
+        "triggered_at": datetime.now(timezone.utc).isoformat(),
+        "metadata": {"blob": "x" * (16 * 1024)},
+        "unexpected": "x" * 10_000,
+    }
+    storage_path.write_text(
+        json.dumps({email: [{"ticker": "AAPL", "recent_events": [event]}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+
+    loaded = subs.SubscriptionService().list_alert_events(email)[0]
+
+    assert len(loaded["id"]) == 64
+    assert len(loaded["email"]) == 320
+    assert len(loaded["ticker"]) == 20
+    assert len(loaded["event_type"]) == 64
+    assert len(loaded["severity"]) == 32
+    assert len(loaded["title"]) == 512
+    assert len(loaded["message"]) == 4096
+    assert loaded["metadata"] == {}
+    assert "unexpected" not in loaded
 
 
 def test_subscription_instances_do_not_overwrite_new_subscribers(monkeypatch, tmp_path):
@@ -292,3 +417,21 @@ def test_stale_subscription_reads_refresh_from_storage(monkeypatch, tmp_path):
     assert len(stale.get_subscriptions("alice@example.invalid")) == 1
     assert len(stale.get_subscribers_for_ticker("AAPL")) == 1
     assert len(stale.list_alert_events("alice@example.invalid")) == 1
+
+
+def test_subscription_limit_is_atomic_and_allows_existing_ticker_updates(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+
+    assert service.subscribe("alice@example.invalid", "AAPL", max_subscriptions=1) is True
+    assert service.subscribe("alice@example.invalid", "AAPL", alert_types=["news"], max_subscriptions=1) is True
+
+    with pytest.raises(subs.SubscriptionLimitExceeded) as exc_info:
+        service.subscribe("alice@example.invalid", "MSFT", max_subscriptions=1)
+
+    assert exc_info.value.limit == 1
+    assert exc_info.value.current == 1
+    assert [item["ticker"] for item in service.get_subscriptions("alice@example.invalid")] == ["AAPL"]

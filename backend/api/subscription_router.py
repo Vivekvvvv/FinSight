@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from backend.api.schemas import (
     SubscriptionListResponse,
@@ -21,7 +21,8 @@ def create_subscription_router() -> APIRouter:
     @router.post("/api/subscribe")
     async def subscribe_email(request: SubscriptionRequest, current_user: Principal = Depends(get_current_user)):
         try:
-            from backend.services.subscription_service import get_subscription_service
+            from backend.services.entitlements import get_entitlements_service
+            from backend.services.subscription_service import SubscriptionLimitExceeded, get_subscription_service
 
             subscription_service = get_subscription_service()
             resolved_email = request.email if current_user.auth_type == "dev" else (current_user.email or "")
@@ -29,16 +30,36 @@ def create_subscription_router() -> APIRouter:
             if not subscription_service.is_valid_email(resolved_email):
                 raise HTTPException(status_code=400, detail="Invalid email")
 
-            success = subscription_service.subscribe(
-                email=resolved_email,
-                ticker=request.ticker,
-                alert_types=request.alert_types,
-                price_threshold=request.price_threshold,
-                alert_mode=request.alert_mode,
-                price_target=request.price_target,
-                direction=request.direction,
-                risk_threshold=request.risk_threshold,
+            entitlements = get_entitlements_service().get_entitlements(
+                current_user.user_id,
+                role=current_user.role,
             )
+            max_alerts = int((entitlements.get("limits") or {}).get("max_alerts", 0))
+
+            try:
+                success = subscription_service.subscribe(
+                    email=resolved_email,
+                    ticker=request.ticker,
+                    alert_types=request.alert_types,
+                    price_threshold=request.price_threshold,
+                    alert_mode=request.alert_mode,
+                    price_target=request.price_target,
+                    direction=request.direction,
+                    risk_threshold=request.risk_threshold,
+                    max_subscriptions=max_alerts,
+                )
+            except SubscriptionLimitExceeded as exc:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "code": "plan_quota_exceeded",
+                        "quota": "max_alerts",
+                        "plan": entitlements.get("plan"),
+                        "limit": exc.limit,
+                        "current": exc.current,
+                        "message": "Alert subscription quota reached. Upgrade to continue.",
+                    },
+                ) from exc
 
             if success:
                 return {
@@ -85,7 +106,7 @@ def create_subscription_router() -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/subscriptions", response_model=SubscriptionListResponse)
-    async def get_subscriptions(email: str = None, current_user: Principal = Depends(get_current_user)):
+    async def get_subscriptions(email: str | None = Query(None, max_length=320), current_user: Principal = Depends(get_current_user)):
         try:
             from backend.services.subscription_service import get_subscription_service
 

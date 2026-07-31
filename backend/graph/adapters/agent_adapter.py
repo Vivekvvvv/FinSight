@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict, is_dataclass
 import logging
+import math
 import os
 import time
 from typing import Any, Iterable, Mapping
@@ -15,9 +16,10 @@ logger = logging.getLogger(__name__)
 
 def _env_float(name: str, default: float) -> float:
     try:
-        return float(os.getenv(name, default))
+        value = float(os.getenv(name, default))
     except Exception:
         return default
+    return value if math.isfinite(value) else default
 
 
 def _env_int(name: str, default: int) -> int:
@@ -40,8 +42,8 @@ def _serialize_agent_output(output: Any, *, step_name: str) -> dict[str, Any]:
             if isinstance(payload, dict):
                 payload.setdefault("agent_name", step_name)
                 return payload
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("agent output model serialization failed: %s", type(exc).__name__)
 
     summary = getattr(output, "summary", "")
     evidence = getattr(output, "evidence", None) or []
@@ -62,8 +64,8 @@ def _serialize_agent_output(output: Any, *, step_name: str) -> dict[str, Any]:
             try:
                 serialized_evidence.append(asdict(item))
                 continue
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("agent evidence model serialization failed: %s", type(exc).__name__)
         serialized_evidence.append(
             {
                 "text": getattr(item, "text", None) or str(item),
@@ -247,8 +249,8 @@ def build_agent_invokers(*, allowed_agents: Iterable[str], state: Mapping[str, A
         from backend.agents.price_agent import PriceAgent
         from backend.agents.risk_agent import RiskAgent
         from backend.agents.technical_agent import TechnicalAgent
-    except Exception:
-        logger.exception("agent adapter failed to import legacy agents")
+    except Exception as exc:
+        logger.error("agent adapter failed to import legacy agents: %s", type(exc).__name__)
         return {}
 
     llm = None
@@ -292,7 +294,7 @@ def build_agent_invokers(*, allowed_agents: Iterable[str], state: Mapping[str, A
         try:
             agents[name] = cls(llm, cache, tools_module)
         except Exception as exc:
-            logger.exception("agent adapter failed to instantiate %s", name)
+            logger.error("agent adapter failed to instantiate %s (%s)", name, type(exc).__name__)
             init_errors[name] = f"init_failed:{exc.__class__.__name__}"
 
     invokers: dict[str, Any] = {}
@@ -301,7 +303,7 @@ def build_agent_invokers(*, allowed_agents: Iterable[str], state: Mapping[str, A
         timeout_seconds,
         _env_float("LANGGRAPH_DEEP_SEARCH_AGENT_TIMEOUT_SECONDS", timeout_seconds),
     )
-    max_attempts = max(1, _env_int("LANGGRAPH_AGENT_INVOKER_RETRY_ATTEMPTS", 2))
+    max_attempts = min(10, max(1, _env_int("LANGGRAPH_AGENT_INVOKER_RETRY_ATTEMPTS", 2)))
 
     for name in names:
         agent = agents.get(name)
@@ -373,12 +375,12 @@ def build_agent_invokers(*, allowed_agents: Iterable[str], state: Mapping[str, A
                     last_retryable = False
                     last_stage = "parse"
                 except Exception as exc:
-                    last_error = f"{exc.__class__.__name__}: {exc}"
+                    last_error = exc.__class__.__name__
                     last_reason, last_retryable, last_stage = _classify_exception(exc)
                     await emit_event({
                         "type": "agent_error",
                         "agent": _name,
-                        "error": str(exc)[:300],
+                        "error": last_error,
                         "error_type": exc.__class__.__name__,
                         "attempt": attempt,
                         "max_attempts": max_attempts,
@@ -394,7 +396,7 @@ def build_agent_invokers(*, allowed_agents: Iterable[str], state: Mapping[str, A
                             max_attempts,
                             last_reason,
                             last_stage,
-                            exc,
+                            type(exc).__name__,
                         )
                         continue
 

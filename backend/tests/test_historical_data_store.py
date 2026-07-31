@@ -3,7 +3,10 @@
 tests/test_historical_data_store.py
 单元测试：A股历史K线数据下载与缓存
 """
+import math
 import pytest
+import sys
+from types import SimpleNamespace
 
 
 # ── _to_bs_code 测试 ──────────────────────────────────────────────────────────
@@ -60,6 +63,25 @@ def test_adjust_flag_unknown_defaults_to_3():
     assert _adjust_flag("unknown") == "3"
 
 
+def test_baostock_fetch_error_log_is_redacted(monkeypatch, caplog):
+    from backend.services.historical_data_store import _fetch_baostock
+
+    secret = "PRIVATE http://proxy-user:secret@proxy.local"
+
+    def _fail_login():
+        raise RuntimeError(secret)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "baostock",
+        SimpleNamespace(login=_fail_login, logout=lambda: None),
+    )
+
+    assert _fetch_baostock("600519.SS", "2026-01-01", "2026-01-02", "qfq") == []
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 # ── _clean 测试 ──────────────────────────────────────────────────────────────
 
 def test_clean_removes_zero_close():
@@ -82,6 +104,56 @@ def test_clean_removes_none_close():
     result = _clean(rows)
     assert len(result) == 1
     assert result[0]["close"] == 10.0
+
+
+def test_clean_removes_invalid_and_non_finite_close():
+    from backend.services.historical_data_store import _clean
+
+    rows = [
+        {"date": "2024-01-01", "open": 10.0, "high": 11.0, "low": 9.0, "close": "nan", "volume": 1000},
+        {"date": "2024-01-02", "open": 10.0, "high": 11.0, "low": 9.0, "close": "inf", "volume": 1000},
+        {"date": "2024-01-03", "open": 10.0, "high": 11.0, "low": 9.0, "close": "bad", "volume": 1000},
+        {"date": "2024-01-04", "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 1000},
+    ]
+
+    result = _clean(rows)
+
+    assert len(result) == 1
+    assert result[0]["date"] == "2024-01-04"
+
+
+def test_clean_replaces_invalid_and_non_finite_ohlc_values():
+    from backend.services.historical_data_store import _clean
+
+    rows = [
+        {"date": "2024-01-01", "open": "bad", "high": "nan", "low": "inf", "close": "10", "volume": 1000},
+        {"date": "2024-01-02", "open": "-inf", "high": 0, "low": -1, "close": 11.0, "volume": 1000},
+    ]
+
+    result = _clean(rows)
+
+    assert result[0]["open"] == result[0]["high"] == result[0]["low"] == 10.0
+    assert result[1]["open"] == 10.0
+    assert result[1]["high"] == result[1]["low"] == 11.0
+    assert all(
+        math.isfinite(row[field]) and row[field] > 0
+        for row in result
+        for field in ("open", "high", "low", "close")
+    )
+
+
+def test_clean_replaces_invalid_non_finite_and_negative_volume():
+    from backend.services.historical_data_store import _clean
+
+    rows = [
+        {"date": "2024-01-01", "open": 10, "high": 11, "low": 9, "close": 10, "volume": value}
+        for value in ("bad", "nan", "inf", -1, None, 0, "12.5")
+    ]
+
+    result = _clean(rows)
+
+    assert [row["volume"] for row in result] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 12.5]
+    assert all(math.isfinite(row["volume"]) and row["volume"] >= 0 for row in result)
 
 
 def test_clean_marks_suspicious_large_change():

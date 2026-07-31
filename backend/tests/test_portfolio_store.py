@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -63,6 +65,95 @@ def test_sync_positions_round_trip_tags(tmp_path, monkeypatch):
     assert by_ticker["MSFT"]["note"] == "watch dvd"
     assert by_ticker["GOOG"]["tags"] == ["ai", "ads"]
     assert by_ticker["GOOG"]["name"] is None
+
+
+def test_portfolio_tags_are_bounded_on_write_and_legacy_read(tmp_path, monkeypatch):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    store.update_position(
+        "session",
+        "AAPL",
+        1,
+        tags=[" ok ", 1, "x" * 100] + [f"tag-{index}" for index in range(30)],
+    )
+    position = store.get_positions("session")[0]
+    assert position["tags"][0] == "ok"
+    assert position["tags"][1] == "x" * 64
+    assert len(position["tags"]) == 19
+
+    with store._db_lock, store._connect() as connection:
+        connection.execute(
+            "UPDATE portfolio_positions SET tags_json = ? WHERE session_id = ?",
+            ('{"tag": true}', "session"),
+        )
+    assert store.get_positions("session")[0]["tags"] == []
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "bad"])
+def test_update_position_rejects_invalid_numeric_values(tmp_path, monkeypatch, value):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError):
+        store.update_position("session", "AAPL", value)
+    with pytest.raises(ValueError):
+        store.update_position("session", "AAPL", 1, avg_cost=value)
+
+    assert store.get_positions("session") == []
+
+
+def test_sync_positions_rolls_back_on_invalid_numeric_value(tmp_path, monkeypatch):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    store.update_position("session", "AAPL", 1, avg_cost=100)
+
+    with pytest.raises(ValueError):
+        store.sync_positions("session", [{"ticker": "MSFT", "shares": "nan"}])
+
+    positions = store.get_positions("session")
+    assert [(item["ticker"], item["shares"]) for item in positions] == [("AAPL", 1.0)]
+
+
+@pytest.mark.parametrize("column", ["shares", "avg_cost"])
+def test_get_positions_skips_legacy_non_finite_numeric_values(
+    tmp_path, monkeypatch, caplog, column
+):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    store.update_position("session", "AAPL", 1, avg_cost=100)
+    store.update_position("session", "MSFT", 2, avg_cost=200)
+    with store._db_lock, store._connect() as connection:
+        connection.execute(
+            f"UPDATE portfolio_positions SET {column} = ? WHERE session_id = ? AND ticker = ?",
+            (float("inf"), "session", "AAPL"),
+        )
+
+    positions = store.get_positions("session")
+
+    assert [item["ticker"] for item in positions] == ["MSFT"]
+    assert "Skipping invalid stored portfolio position" in caplog.text
+    assert "ValueError" in caplog.text
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_save_suggestion_rejects_non_finite_json(tmp_path, monkeypatch, value):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError):
+        store.save_suggestion("suggestion", "session", {"weight": value})
+
+    assert store.list_suggestions("session") == []
+
+
+def test_list_suggestions_sanitizes_legacy_non_finite_json(tmp_path, monkeypatch, caplog):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    store.save_suggestion("suggestion", "session", {"weight": 1})
+    with store._db_lock, store._connect() as connection:
+        connection.execute(
+            "UPDATE rebalance_suggestions SET data = ? WHERE suggestion_id = ?",
+            ('{"weight": NaN}', "suggestion"),
+        )
+
+    suggestions = store.list_suggestions("session")
+
+    assert suggestions[0]["data"] == {}
+    assert "ValueError" in caplog.text
 
 
 def test_update_position_partial_keeps_existing_metadata(tmp_path, monkeypatch):
@@ -150,3 +241,36 @@ def test_get_all_active_sessions_parses_private_session_user_id(tmp_path, monkey
     assert mapping["private:alice:default"] == "alice"
     assert mapping["private:default_user:default"] == "default_user"
     assert mapping["adhoc_dev_session"] == "default_user"
+
+
+def test_corrupt_portfolio_json_is_logged_without_exposing_payload(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    import logging
+
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    session_id = "private:test-user:default"
+    store.update_position(session_id, "AAPL", 1, tags=["safe"])
+    store.save_suggestion("suggestion-corrupt", session_id, {"safe": True})
+    corrupt_payload = "{ PRIVATE_CORRUPT_JSON"
+    with store._db_lock, store._connect() as conn:
+        conn.execute(
+            "UPDATE portfolio_positions SET tags_json = ? WHERE session_id = ? AND ticker = ?",
+            (corrupt_payload, session_id, "AAPL"),
+        )
+        conn.execute(
+            "UPDATE rebalance_suggestions SET data = ? WHERE suggestion_id = ?",
+            (corrupt_payload, "suggestion-corrupt"),
+        )
+        conn.commit()
+
+    caplog.set_level(logging.WARNING, logger="backend.services.portfolio_store")
+    positions = store.get_positions(session_id)
+    suggestions = store.list_suggestions(session_id)
+
+    assert positions[0]["tags"] == []
+    assert suggestions[0]["data"] == {}
+    assert caplog.text.count("JSONDecodeError") == 2
+    assert corrupt_payload not in caplog.text

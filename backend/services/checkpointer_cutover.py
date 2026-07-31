@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +19,7 @@ _CHECKPOINTER_ENV_KEYS = (
     "LANGGRAPH_CHECKPOINT_POSTGRES_PIPELINE",
     "LANGGRAPH_CHECKPOINTER_ALLOW_MEMORY_FALLBACK",
 )
+_EVIDENCE_WRITE_LOCK = threading.RLock()
 
 
 def _now_iso() -> str:
@@ -122,7 +125,7 @@ def run_checkpointer_cutover_drill(
             {
                 "step": "sqlite_precheck",
                 "status": "failed",
-                "error": str(exc),
+                "error": type(exc).__name__,
             }
         )
         finished_at = _now_iso()
@@ -160,7 +163,7 @@ def run_checkpointer_cutover_drill(
             {
                 "step": "postgres_cutover",
                 "status": "failed",
-                "error": str(exc),
+                "error": type(exc).__name__,
             }
         )
 
@@ -186,7 +189,7 @@ def run_checkpointer_cutover_drill(
             {
                 "step": "sqlite_rollback",
                 "status": "failed",
-                "error": str(exc),
+                "error": type(exc).__name__,
             }
         )
 
@@ -209,10 +212,28 @@ def write_checkpointer_drill_evidence(result: dict[str, Any], output_path: str |
     path = Path(output_path).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     # 原子替换（项目规则 1，审计 D4）：进程中断不留半截 JSON
-    tmp = path.with_name(path.name + ".tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        json.dump(result, handle, ensure_ascii=False, indent=2)
-    tmp.replace(path)
+    with _EVIDENCE_WRITE_LOCK:
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(
+                    result,
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
     return path
 
 
@@ -220,4 +241,3 @@ __all__ = [
     "run_checkpointer_cutover_drill",
     "write_checkpointer_drill_evidence",
 ]
-

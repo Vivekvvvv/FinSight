@@ -15,6 +15,10 @@ class _MockResponse:
         return self._payload
 
 
+def test_normalize_domain_drops_embedded_credentials_and_port():
+    assert wayback_mod._normalize_domain("https://user:secret@www.example.com:8443/article") == "example.com"
+
+
 def test_resolve_wayback_snapshot_via_available(monkeypatch):
     payload = {
         "archived_snapshots": {
@@ -46,7 +50,7 @@ def test_fetch_via_wayback_extracts_html_text(monkeypatch):
     html = "<html><body>" + ("Macro data release " * 20) + "</body></html>"
     monkeypatch.setattr(
         wayback_mod,
-        "_http_get",
+        "safe_pinned_request",
         lambda *_args, **_kwargs: _MockResponse(
             status_code=200,
             text=html,
@@ -59,3 +63,31 @@ def test_fetch_via_wayback_extracts_html_text(monkeypatch):
     assert isinstance(text, str)
     assert "Macro data release" in text
     assert len(text) >= 80
+
+
+def test_fetch_via_wayback_rejects_unsafe_snapshot_target(monkeypatch):
+    monkeypatch.setattr(
+        wayback_mod,
+        "resolve_wayback_snapshot",
+        lambda *_args, **_kwargs: {
+            "snapshot_url": "http://127.0.0.1/private-metadata",
+        },
+    )
+    captured = []
+
+    def reject_target(method, url, **_kwargs):
+        captured.append((method, url))
+        return None
+
+    monkeypatch.setattr(wayback_mod, "safe_pinned_request", reject_target)
+
+    assert wayback_mod.fetch_via_wayback("https://www.wsj.com/test") is None
+    assert captured == [("GET", "http://127.0.0.1/private-metadata")]
+
+
+def test_resolve_wayback_rejects_embedded_url_credentials(monkeypatch):
+    calls = []
+    monkeypatch.setattr(wayback_mod, "_http_get", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    assert wayback_mod.resolve_wayback_snapshot("https://user:secret@example.com/article") is None
+    assert calls == []

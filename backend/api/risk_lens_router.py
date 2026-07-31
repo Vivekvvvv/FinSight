@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.portfolio_risk_lens import calculate_portfolio_risk_lens
@@ -108,19 +109,22 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
             raise
         except Exception as exc:
             _log_error("portfolio risk lens failed", exc)
-            return {
-                "success": False,
-                "error": "Internal server error",
-                "risk_score": 0,
-                "concentration_risk": [],
-                "sector_exposure": [],
-                "currency_exposure": [],
-                "market_exposure": [],
-                "stale_research": [],
-                "loss_positions": [],
-                "missing_coverage": [],
-                "next_actions": [],
-            }
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": "Internal server error",
+                    "risk_score": 0,
+                    "concentration_risk": [],
+                    "sector_exposure": [],
+                    "currency_exposure": [],
+                    "market_exposure": [],
+                    "stale_research": [],
+                    "loss_positions": [],
+                    "missing_coverage": [],
+                    "next_actions": [],
+                },
+            )
 
     @router.get("/api/portfolio/risk-lens/history")
     async def get_risk_lens_history(
@@ -175,10 +179,13 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
             raise
         except Exception as exc:
             _log_error("portfolio risk lens history failed", exc)
-            return {
-                "success": False,
-                "error": "Internal server error",
-                "snapshots": [],
-            }
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": "Internal server error",
+                    "snapshots": [],
+                },
+            )
 
     return router

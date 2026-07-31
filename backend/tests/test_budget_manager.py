@@ -34,3 +34,12 @@ def test_budgeted_tools_missing_tool_error_names_tool():
 
     with pytest.raises(AttributeError, match="missing_tool"):
         _ = tools.missing_tool
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_budget_from_env_rejects_non_finite_time_limit(monkeypatch, value):
+    monkeypatch.setenv("BUDGET_MAX_SECONDS", value)
+
+    budget = BudgetManager.from_env()
+
+    assert budget.max_seconds == 600.0

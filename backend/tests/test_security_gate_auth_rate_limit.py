@@ -93,7 +93,8 @@ def test_security_gate_rate_limit_blocks_second_request(monkeypatch):
     monkeypatch.setenv("DEV_MODE", "0")
     _set_required_production_env(monkeypatch)
     monkeypatch.setenv("API_AUTH_KEYS", "release-key-1")
-    monkeypatch.setattr(main, "_rate_limiter", main.SimpleRateLimiter(limit_per_window=1, window_seconds=60, enabled=True))
+    limiter = main.SimpleRateLimiter(limit_per_window=1, window_seconds=60, enabled=True)
+    monkeypatch.setattr(main, "_rate_limiter", limiter)
 
     with TestClient(main.app) as client:
         first = client.get("/api/user/profile", headers={"x-api-key": "release-key-1"})
@@ -103,6 +104,8 @@ def test_security_gate_rate_limit_blocks_second_request(monkeypatch):
     assert second.status_code == 429
     assert second.json().get("detail") == "Rate limit exceeded"
     assert second.headers.get("Retry-After") is not None
+    assert "release-key-1" not in limiter._buckets
+    assert list(limiter._buckets) == [main.api_key_fingerprint("release-key-1")]
 
 
 def test_research_qa_internal_error_is_redacted(monkeypatch, caplog):
@@ -361,6 +364,37 @@ def test_financials_analysis_json_parse_fallback_redacts_error(monkeypatch, capl
     assert "JSONDecodeError" in caplog.text
 
 
+def test_financials_analysis_non_finite_json_falls_back(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import llm_config, tools
+
+    class NonFiniteJsonLlm:
+        async def ainvoke(self, _prompt):
+            class Response:
+                content = '{"overall_rating":{"score":NaN}}'
+
+            return Response()
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: NonFiniteJsonLlm())
+    monkeypatch.setattr(tools, "get_financial_statements", lambda _ticker: {"revenue": 100})
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {"name": "Apple"})
+    caplog.set_level(logging.ERROR, logger="backend.services.financials_analyzer")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/financials/analyze",
+            json={"ticker": "AAPL"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "error"
+    assert response.json()["error"] == "Internal server error"
+    assert "NaN" not in response.text
+    assert "ValueError" in caplog.text
+
+
 def test_financials_analysis_internal_error_is_redacted(monkeypatch, caplog):
     from backend.api.research_router import router
     from backend import tools
@@ -512,6 +546,41 @@ def test_news_sentiment_json_parse_fallback_redacts_error(monkeypatch, caplog):
     assert "not-json-private-sentiment-fragment" not in response.text
     assert "not-json-private-sentiment-fragment" not in caplog.text
     assert "JSONDecodeError" in caplog.text
+
+
+def test_news_sentiment_non_finite_json_falls_back(monkeypatch, caplog):
+    from backend.api.research_router import router
+    from backend import llm_config
+
+    class NonFiniteJsonLlm:
+        async def ainvoke(self, _prompt):
+            class Response:
+                content = (
+                    '[{"sentiment":"positive","sentiment_cn":"positive",'
+                    '"confidence":NaN,"key_event":"earnings beat",'
+                    '"impact_level":"high"}]'
+                )
+
+            return Response()
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: NonFiniteJsonLlm())
+    caplog.set_level(logging.ERROR, logger="backend.services.news_sentiment")
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/news/sentiment",
+            json={
+                "ticker": "AAPL",
+                "news": [{"title": "Quarterly earnings beat expectations"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["news"][0]["sentiment"] == "neutral"
+    assert "NaN" not in response.text
+    assert "ValueError" in caplog.text
 
 
 def test_news_sentiment_internal_error_is_redacted(monkeypatch, caplog):

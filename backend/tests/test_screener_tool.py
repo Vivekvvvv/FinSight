@@ -71,6 +71,29 @@ def test_yfinance_empty_result_uses_static_popular_fallback(monkeypatch):
     assert result["items"][0]["symbol"] in {"AAPL", "MSFT", "NVDA", "GOOGL"}
 
 
+def test_yfinance_fallback_error_is_redacted(monkeypatch, caplog):
+    secret = "PRIVATE http://proxy-user:secret@proxy.local"
+    calls = {"count": 0}
+
+    def _fail_then_empty(_market, _filters):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError(secret)
+        return []
+
+    monkeypatch.setattr(screener, "_alpha_vantage_screen_stocks", lambda *_args: None)
+    monkeypatch.setattr(screener, "_static_fallback_items", _fail_then_empty)
+    monkeypatch.setattr(screener.yf, "Ticker", lambda _symbol: (_ for _ in ()).throw(RuntimeError("offline")))
+
+    result = screener._yfinance_popular_stocks("US", {}, 3, "marketCap", "desc")
+
+    assert result["success"] is False
+    assert result["error"] == "yfinance_fallback_failed"
+    assert secret not in str(result)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 def test_screen_stocks_parses_items(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "demo-key")
 
@@ -107,6 +130,33 @@ def test_screen_stocks_parses_items(monkeypatch):
     assert result["page"] == 2
     assert result["source"] == "fmp_company_screener"
     assert result["count"] == 0
+
+
+def test_screen_stocks_fmp_error_log_is_redacted(monkeypatch, caplog):
+    secret = "PRIVATE https://api-key@fmp.example.com"
+    fallback = {
+        "success": True,
+        "market": "US",
+        "items": [{"symbol": "AAPL"}],
+        "results": [{"symbol": "AAPL"}],
+        "count": 1,
+        "source": "static_market_demo",
+    }
+
+    def _fail_get(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(screener, "FMP_API_KEY", "test-key")
+    monkeypatch.setattr(screener, "_FMP_SCREENER_UNAVAILABLE_UNTIL", 0.0)
+    monkeypatch.setattr(screener, "_http_get", _fail_get)
+    monkeypatch.setattr(screener, "_yfinance_screen_stocks", lambda *_args: fallback)
+
+    result = screener.screen_stocks(market="US", filters={}, limit=10, page=1)
+
+    assert result["source"] == "static_market_demo"
+    assert secret not in str(result)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_screen_stocks_applies_cn_market_filter(monkeypatch):

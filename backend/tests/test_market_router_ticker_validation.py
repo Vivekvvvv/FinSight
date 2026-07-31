@@ -101,3 +101,142 @@ def test_chart_detect_returns_dynamic_ticker_candidates():
     assert "AAPL" in payload["ticker_candidates"]
     assert "TSLA" in payload["ticker_candidates"]
     assert payload.get("resolved_ticker") == payload["ticker_candidates"][0]
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({"query": "x" * 16_385}, "query"),
+        ({"query": "chart trend", "ticker": "A" * 33}, "ticker"),
+    ],
+)
+def test_chart_detect_rejects_oversized_input_before_detector(payload, field):
+    calls: list[tuple[str, str | None]] = []
+
+    def _detect(query: str, ticker: str | None):
+        calls.append((query, ticker))
+        return {}
+
+    client = _build_client(detect_chart_type=_detect)
+    response = client.post("/api/chart/detect", json=payload)
+
+    assert response.status_code == 422
+    assert field in response.text
+    assert calls == []
+
+
+@pytest.mark.parametrize("path", ["/api/stock/kline/AAPL", "/api/kline/AAPL"])
+@pytest.mark.parametrize("parameter", ["period", "interval"])
+def test_kline_rejects_oversized_query_parameters_before_fetch(path, parameter):
+    calls: list[tuple[str, str, str]] = []
+
+    def _history(ticker: str, period: str = "1y", interval: str = "1d"):
+        calls.append((ticker, period, interval))
+        return {"kline_data": []}
+
+    client = _build_client(get_stock_historical_data=_history)
+    response = client.get(path, params={parameter: "x" * 17})
+
+    assert response.status_code == 422
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("path", "parameter", "provider"),
+    [
+        (
+            "/api/stock/top-list/600519.SS/history",
+            "start_date",
+            "backend.tools.tencent_provider.fetch_cn_top_list_history",
+        ),
+        (
+            "/api/stock/top-list/600519.SS/history",
+            "end_date",
+            "backend.tools.tencent_provider.fetch_cn_top_list_history",
+        ),
+        (
+            "/api/market/north-flow",
+            "date",
+            "backend.tools.tencent_provider.fetch_north_flow",
+        ),
+        (
+            "/api/market/historical/AAPL",
+            "start",
+            "backend.services.historical_data_store.fetch_and_cache_kline",
+        ),
+        (
+            "/api/market/historical/AAPL",
+            "end",
+            "backend.services.historical_data_store.fetch_and_cache_kline",
+        ),
+    ],
+)
+@pytest.mark.parametrize("invalid_date", ["2024/01/01", "2024-01-01&x=1", "2024-99-99"])
+def test_market_date_queries_are_rejected_before_provider(
+    monkeypatch,
+    path,
+    parameter,
+    provider,
+    invalid_date,
+):
+    calls = []
+
+    def _provider(*args, **kwargs):
+        calls.append((args, kwargs))
+        return []
+
+    monkeypatch.setattr(provider, _provider)
+    client = _build_client()
+    response = client.get(path, params={parameter: invalid_date})
+
+    assert response.status_code == 422
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("path", "parameters", "provider"),
+    [
+        (
+            "/api/stock/top-list/600519.SS/history",
+            {"start_date": "2024-01-02", "end_date": "2024-01-01"},
+            "backend.tools.tencent_provider.fetch_cn_top_list_history",
+        ),
+        (
+            "/api/market/historical/AAPL",
+            {"start": "2024-01-02", "end": "2024-01-01"},
+            "backend.services.historical_data_store.fetch_and_cache_kline",
+        ),
+    ],
+)
+def test_market_date_queries_reject_reversed_ranges_before_provider(
+    monkeypatch,
+    path,
+    parameters,
+    provider,
+):
+    calls = []
+
+    def _provider(*args, **kwargs):
+        calls.append((args, kwargs))
+        return []
+
+    monkeypatch.setattr(provider, _provider)
+    response = _build_client().get(path, params=parameters)
+
+    assert response.status_code == 422
+    assert calls == []
+
+
+def test_health_trend_rejects_oversized_source_before_storage(monkeypatch):
+    from backend.services import monitoring_storage
+
+    def _unexpected_storage():
+        raise AssertionError("oversized source must be rejected before storage access")
+
+    monkeypatch.setattr(monitoring_storage, "get_storage", _unexpected_storage)
+    response = _build_client().get(
+        "/api/system/health/trend",
+        params={"source": "x" * 129},
+    )
+
+    assert response.status_code == 422

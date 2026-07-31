@@ -1,4 +1,13 @@
+import pytest
+
 from backend.orchestration.data_context import DataContextCollector
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -1])
+def test_data_context_rejects_invalid_skew_limit(value):
+    collector = DataContextCollector(max_skew_hours=value)
+
+    assert collector.max_skew_hours == 24.0
 
 
 def test_data_context_currency_conflict():

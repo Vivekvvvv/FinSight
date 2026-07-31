@@ -1,5 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
 import asyncio
+import logging
 
 
 def _run(coro):
@@ -51,6 +52,95 @@ class _FakeObservabilityStore:
     def append_fallback_event(self, record):
         self.fallback_events.append(record)
         return record.id
+
+
+def _minimal_rag_state(thread_id):
+    selection_payload = [
+        {
+            "id": "n1",
+            "type": "news",
+            "title": "Apple update",
+            "snippet": "Material evidence for the report.",
+            "source": "news",
+        }
+    ]
+    return {
+        "thread_id": thread_id,
+        "query": "analyze AAPL evidence",
+        "plan_ir": {
+            "subject": {
+                "subject_type": "company",
+                "tickers": ["AAPL"],
+                "selection_payload": selection_payload,
+            },
+            "output_mode": "investment_report",
+            "steps": [],
+        },
+        "policy": {"allowed_tools": [], "allowed_agents": []},
+        "subject": {
+            "subject_type": "company",
+            "tickers": ["AAPL"],
+            "selection_payload": selection_payload,
+        },
+        "trace": {},
+    }
+
+
+def test_execute_plan_stub_redacts_observability_write_error_log(monkeypatch, caplog):
+    monkeypatch.setenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", "false")
+    monkeypatch.setenv("RAG_V2_BACKEND", "memory")
+    sentinel = "PRIVATE_OBSERVABILITY_DSN_DETAIL"
+
+    class _FailingEnsureStore(_FakeObservabilityStore):
+        def ensure_schema(self):
+            raise RuntimeError(sentinel)
+
+    fake_store = _FailingEnsureStore()
+    monkeypatch.setattr(
+        "backend.rag.observability_runtime.get_rag_observability_store",
+        lambda: fake_store,
+    )
+    caplog.set_level(logging.WARNING, logger="backend.graph.nodes.execute_plan_stub")
+
+    from backend.graph.nodes.execute_plan_stub import execute_plan_stub
+
+    out = _run(execute_plan_stub(_minimal_rag_state("tenant1:userA:write-failure")))
+
+    assert isinstance(out, dict)
+    assert sentinel not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_execute_plan_stub_redacts_reranker_error_log(monkeypatch, caplog):
+    monkeypatch.setenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", "false")
+    monkeypatch.setenv("RAG_V2_BACKEND", "memory")
+    monkeypatch.setenv("RAG_ENABLE_RERANKER", "true")
+    sentinel = "PRIVATE_RERANKER_MODEL_DETAIL"
+    fake_store = _FakeObservabilityStore()
+
+    class _FailingReranker:
+        is_enabled = True
+
+        def rerank(self, *_args, **_kwargs):
+            raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(
+        "backend.rag.observability_runtime.get_rag_observability_store",
+        lambda: fake_store,
+    )
+    monkeypatch.setattr(
+        "backend.rag.reranker.get_reranker_service",
+        lambda: _FailingReranker(),
+    )
+    caplog.set_level(logging.DEBUG, logger="backend.graph.nodes.execute_plan_stub")
+
+    from backend.graph.nodes.execute_plan_stub import execute_plan_stub
+
+    out = _run(execute_plan_stub(_minimal_rag_state("tenant1:userA:reranker-failure")))
+
+    assert (out.get("artifacts") or {}).get("rag_context")
+    assert sentinel not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_execute_plan_stub_records_rag_observability(monkeypatch):
@@ -148,3 +238,74 @@ def test_execute_plan_stub_records_rag_observability(monkeypatch):
     assert rag_trace.get("source_doc_count", 0) >= 1
     assert rag_trace.get("chunk_count", 0) >= 1
     assert fake_store.updates and fake_store.updates[-1][0] == run_record.id
+
+
+def test_execute_plan_stub_redacts_rag_pipeline_error(monkeypatch, caplog):
+    monkeypatch.setenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", "false")
+    monkeypatch.setenv("RAG_V2_BACKEND", "memory")
+    secret = "PRIVATE_RAG_PIPELINE_ERROR_SENTINEL"
+    fake_store = _FakeObservabilityStore()
+
+    monkeypatch.setattr(
+        "backend.rag.observability_runtime.get_rag_observability_store",
+        lambda: fake_store,
+    )
+
+    def fail_rag_service():
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(
+        "backend.rag.hybrid_service.get_rag_service",
+        fail_rag_service,
+    )
+
+    from backend.graph.nodes.execute_plan_stub import execute_plan_stub
+
+    state = {
+        "thread_id": "tenant1:userA:thread-rag-failure",
+        "query": "analyze AAPL evidence",
+        "plan_ir": {
+            "subject": {
+                "subject_type": "company",
+                "tickers": ["AAPL"],
+                "selection_payload": [
+                    {
+                        "id": "n1",
+                        "type": "news",
+                        "title": "Apple update",
+                        "snippet": "Material evidence for the report.",
+                        "source": "news",
+                    }
+                ],
+            },
+            "output_mode": "investment_report",
+            "steps": [],
+        },
+        "policy": {"allowed_tools": [], "allowed_agents": []},
+        "subject": {
+            "subject_type": "company",
+            "tickers": ["AAPL"],
+            "selection_payload": [
+                {
+                    "id": "n1",
+                    "type": "news",
+                    "title": "Apple update",
+                    "snippet": "Material evidence for the report.",
+                    "source": "news",
+                }
+            ],
+        },
+        "trace": {},
+    }
+
+    out = _run(execute_plan_stub(state))
+    rag_trace = (out.get("trace") or {}).get("rag") or {}
+
+    assert rag_trace["error"] == "rag_pipeline_error"
+    assert fake_store.fallback_events[-1].reason_text == "rag_pipeline_error"
+    assert fake_store.updates[-1][1]["error_message"] == "rag_pipeline_error"
+    assert secret not in str(out)
+    assert secret not in str(fake_store.fallback_events)
+    assert secret not in str(fake_store.updates)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text

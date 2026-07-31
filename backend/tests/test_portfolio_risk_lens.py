@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """测试 Portfolio Risk Lens 规则引擎"""
 from datetime import datetime, timedelta, timezone
+import math
 
 from backend.services.portfolio_risk_lens import calculate_portfolio_risk_lens, RISK_RULES
 
@@ -16,6 +17,49 @@ def test_empty_portfolio():
     assert result["stale_research"] == []
     assert result["missing_coverage"] == []
     assert len(result["next_actions"]) == 1
+    assert result["next_actions"][0]["type"] == "add_portfolio"
+
+
+def test_invalid_and_non_finite_position_values_do_not_pollute_risk_lens():
+    positions = [
+        {"ticker": "VALID", "market_value": "1000", "cost_basis": "900", "unrealized_pnl": "100"},
+        {"ticker": "TEXT", "market_value": "bad", "cost_basis": "bad", "unrealized_pnl": "bad"},
+        {"ticker": "NAN", "market_value": "nan", "cost_basis": "inf", "unrealized_pnl": "-inf"},
+        {"ticker": "NEGATIVE", "market_value": -100, "cost_basis": -90, "unrealized_pnl": -10},
+    ]
+
+    result = calculate_portfolio_risk_lens(positions, [])
+
+    assert result["total_value"] == 1000.0
+    assert result["total_cost"] == 900.0
+    for exposure_key in ("sector_exposure", "currency_exposure", "market_exposure"):
+        assert all(
+            math.isfinite(item["value"]) and math.isfinite(item["percentage"])
+            for item in result[exposure_key]
+        )
+
+
+def test_malformed_positions_and_reports_are_ignored():
+    positions = [
+        None,
+        "bad",
+        {},
+        {"ticker": None, "market_value": 1000},
+        {"ticker": "BAD TICKER", "market_value": 1000},
+        {"ticker": "X" * 21, "market_value": 1000},
+        {"ticker": " aapl ", "market_value": 1000, "cost_basis": 900},
+    ]
+
+    result = calculate_portfolio_risk_lens(positions, [None, "bad", {"ticker": "AAPL"}])
+
+    assert result["total_value"] == 1000.0
+    assert result["concentration_risk"][0]["related_symbol"] == "AAPL"
+
+
+def test_only_malformed_positions_produce_empty_risk_lens():
+    result = calculate_portfolio_risk_lens([None, {}, {"ticker": " "}], [])
+
+    assert result["risk_score"] == 0
     assert result["next_actions"][0]["type"] == "add_portfolio"
 
 

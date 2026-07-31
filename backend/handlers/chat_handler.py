@@ -85,7 +85,7 @@ class ChatHandler:
                 logger.info("[ChatHandler] 成功从 tools 导入")
             except ImportError as e:
                 self.tools_module = None
-                logger.info(f"[ChatHandler] 警告: 无法导入 tools 模块: {e}")
+                logger.info("[ChatHandler] 警告: 无法导入 tools 模块: %s", type(e).__name__)
     
     def handle(
         self,
@@ -180,7 +180,7 @@ class ChatHandler:
                             'data': {'raw_news': news_text}
                         }
                     except Exception as e:
-                        logger.info(f"[ChatHandler] market news fallback failed: {e}")
+                        logger.info("[ChatHandler] market news fallback failed: %s", type(e).__name__)
                 default_news_ticker = os.getenv("DEFAULT_NEWS_TICKER", "^GSPC")
                 return self._handle_news_query(default_news_ticker, query, context)
             
@@ -191,7 +191,7 @@ class ChatHandler:
             # 如果没有股票代码，尝试从上下文获取 (上面已经处理过继承逻辑，这里只需判断最终 tickers)
 
             if not tickers:
-                logger.info(f"[ChatHandler] 检查闲聊/建议意图: Query='{query_lower}'")
+                logger.info("[ChatHandler] 检查闲聊/建议意图: query_chars=%s", len(query or ""))
 
                 # 新闻类无 ticker 查询：默认用大盘指数
                 if is_price_query:
@@ -429,7 +429,7 @@ class ChatHandler:
                 context.cache_data(cache_key, result)
             return result
         except Exception as e:
-            logger.info(f"[ChatHandler] ticker lookup failed for {company_hint}: {e}")
+            logger.info("[ChatHandler] ticker lookup failed for %s: %s", company_hint, type(e).__name__)
             return None
 
     def _select_candidate_by_hint(
@@ -639,7 +639,7 @@ class ChatHandler:
                 'thinking': "Price fallback to kline data.",
             }
         except Exception as e:
-            logger.info(f"[ChatHandler] Kline fallback failed for {ticker}: {e}")
+            logger.info("[ChatHandler] Kline fallback failed for %s: %s", ticker, type(e).__name__)
             return None
 
     def _handle_news_query(
@@ -864,7 +864,7 @@ class ChatHandler:
                     'thinking': f"Fetched financial data for {ticker} via tools module.",
                 }
             except Exception as e:
-                logger.info(f"[ChatHandler] Financial report query failed for {ticker}: {e}")
+                logger.info("[ChatHandler] Financial report query failed for %s: %s", ticker, type(e).__name__)
 
         return {
             'success': False,
@@ -1301,8 +1301,10 @@ class ChatHandler:
                     'thinking': "Used LLM for comparison analysis."
                 }
             except Exception as e:
-                traceback.print_exc()
-                logger.info(f"[ChatHandler] LLM comparison analysis failed: {e}")
+                logger.info(
+                    "[ChatHandler] LLM comparison analysis failed: %s",
+                    type(e).__name__,
+                )
         
         # LLM 或 LangChain 不可用时的回退
         return {

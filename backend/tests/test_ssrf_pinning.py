@@ -51,6 +51,20 @@ def test_resolve_non_http_scheme_blocked():
     assert ssrf.resolve_safe_target("file:///etc/passwd") is None
 
 
+def test_resolve_invalid_port_is_rejected():
+    assert ssrf.resolve_safe_target("https://example.com:not-a-port/path") is None
+
+
+def test_embedded_url_credentials_are_rejected(monkeypatch):
+    monkeypatch.setattr(ssrf.socket, "getaddrinfo", lambda h, p, *a, **k: _addrinfo("93.184.216.34", p or 443))
+
+    target = "https://user:secret@example.com/path"
+
+    assert ssrf.url_has_credentials(target) is True
+    assert ssrf.is_safe_url(target) is False
+    assert ssrf.resolve_safe_target(target) is None
+
+
 # ── safe_pinned_request：pin 生效 ───────────────────────────────
 
 
@@ -59,7 +73,15 @@ def _capture_request(monkeypatch, responder):
     calls = []
 
     def fake_request(self, method, url, **kwargs):
-        calls.append({"method": method, "url": url, "headers": kwargs.get("headers", {})})
+        calls.append(
+            {
+                "method": method,
+                "url": url,
+                "headers": kwargs.get("headers", {}),
+                "auth": kwargs.get("auth"),
+                "cookies": kwargs.get("cookies"),
+            }
+        )
         return responder(len(calls))
 
     monkeypatch.setattr(ph.requests.Session, "request", fake_request)
@@ -134,6 +156,65 @@ def test_too_many_redirects_returns_none(monkeypatch):
 
     assert resp is None
     assert len(calls) == 3  # 初次 + 2 跳后超限
+
+
+def test_cross_origin_redirect_strips_sensitive_credentials(monkeypatch):
+    def resolve(url):
+        host = ph.urlparse(url).hostname
+        if host == "example.com":
+            return host, 443, "93.184.216.34"
+        return host, 443, "93.184.216.35"
+
+    monkeypatch.setattr(ph, "resolve_safe_target", resolve)
+    calls = _capture_request(
+        monkeypatch,
+        lambda n: _Resp(
+            302,
+            headers={"Location": "https://other.example/next"},
+        )
+        if n == 1
+        else _Resp(200),
+    )
+
+    response = ph.safe_pinned_get(
+        "https://example.com/start",
+        timeout=5,
+        headers={
+            "Authorization": "Bearer private",
+            "Cookie": "session=private",
+            "X-API-Key": "private",
+            "X-Custom": "safe",
+        },
+        auth=("user", "private"),
+        cookies={"session": "private"},
+    )
+
+    assert response is not None
+    assert calls[0]["headers"]["Authorization"] == "Bearer private"
+    assert calls[0]["auth"] == ("user", "private")
+    assert "Authorization" not in calls[1]["headers"]
+    assert "Cookie" not in calls[1]["headers"]
+    assert "X-API-Key" not in calls[1]["headers"]
+    assert calls[1]["headers"]["X-Custom"] == "safe"
+    assert calls[1]["auth"] is None
+    assert calls[1]["cookies"] is None
+
+
+def test_blocked_target_log_redacts_url_query(monkeypatch, caplog):
+    import logging
+
+    secret = "PRIVATE_QUERY_TOKEN"
+    monkeypatch.setattr(ph, "resolve_safe_target", lambda _url: None)
+    caplog.set_level(logging.INFO, logger="backend.security.pinned_http")
+
+    response = ph.safe_pinned_get(
+        f"https://example.com/path?token={secret}",
+        timeout=5,
+    )
+
+    assert response is None
+    assert "example.com" in caplog.text
+    assert secret not in caplog.text
 
 
 def test_unsafe_first_url_returns_none(monkeypatch):

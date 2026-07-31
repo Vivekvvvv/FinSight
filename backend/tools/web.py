@@ -1,5 +1,6 @@
 import logging
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -7,6 +8,14 @@ from bs4 import BeautifulSoup
 from backend.security.pinned_http import safe_pinned_request
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_log_host(url: str) -> str:
+    try:
+        return urlparse(url).hostname or "<invalid>"
+    except ValueError:
+        return "<invalid>"
+
 
 def fetch_url_content(url: str, max_length: int = 5000) -> Optional[str]:
     """
@@ -32,7 +41,7 @@ def fetch_url_content(url: str, max_length: int = 5000) -> Optional[str]:
         # 重定向，每跳重新校验）。返回 None = URL 不安全或抓取失败。
         response = safe_pinned_request("GET", url, headers=headers, timeout=15)
         if response is None:
-            logger.info(f"[fetch_url_content] Blocked unsafe url or fetch failed: {url}")
+            logger.info("[fetch_url_content] Blocked unsafe url or fetch failed: host=%s", _safe_log_host(url))
             return None
         response.raise_for_status()
 
@@ -65,15 +74,15 @@ def fetch_url_content(url: str, max_length: int = 5000) -> Optional[str]:
         if len(text) > max_length:
             text = text[:max_length] + "..."
 
-        logger.info(f"[fetch_url_content] 成功抓取 {url[:50]}... ({len(text)} 字符)")
+        logger.info("[fetch_url_content] 成功抓取 host=%s (%s 字符)", _safe_log_host(url), len(text))
         return text
 
     except requests.exceptions.Timeout:
-        logger.info(f"[fetch_url_content] 超时: {url}")
+        logger.info("[fetch_url_content] 超时: host=%s", _safe_log_host(url))
         return None
     except requests.exceptions.RequestException as e:
-        logger.info(f"[fetch_url_content] 请求失败: {url}, error: {e}")
+        logger.info("[fetch_url_content] 请求失败: host=%s, error=%s", _safe_log_host(url), type(e).__name__)
         return None
     except Exception as e:
-        logger.info(f"[fetch_url_content] 解析失败: {url}, error: {e}")
+        logger.info("[fetch_url_content] 解析失败: host=%s, error=%s", _safe_log_host(url), type(e).__name__)
         return None

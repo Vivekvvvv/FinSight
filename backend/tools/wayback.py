@@ -11,6 +11,10 @@ from urllib.parse import quote_plus, urlparse
 
 from bs4 import BeautifulSoup
 
+from backend.security.pinned_http import safe_pinned_request
+from backend.security.ssrf import url_has_credentials
+from backend.utils.env_config import env_int
+
 from .http import _http_get
 
 logger = logging.getLogger(__name__)
@@ -18,8 +22,8 @@ logger = logging.getLogger(__name__)
 _WAYBACK_AVAILABLE_API = "https://archive.org/wayback/available"
 _WAYBACK_CDX_API = "https://web.archive.org/cdx/search/cdx"
 _WAYBACK_SNAPSHOT_BASE = "https://web.archive.org/web"
-_WAYBACK_TIMEOUT = int(os.getenv("WAYBACK_TIMEOUT", "15"))
-_WAYBACK_MAX_CHARS = int(os.getenv("WAYBACK_MAX_CHARS", "12000"))
+_WAYBACK_TIMEOUT = env_int("WAYBACK_TIMEOUT", 15, minimum=1)
+_WAYBACK_MAX_CHARS = env_int("WAYBACK_MAX_CHARS", 12000, minimum=1)
 _WAYBACK_USER_AGENT = os.getenv("WAYBACK_USER_AGENT", "FinSight/1.0")
 
 
@@ -32,8 +36,8 @@ def _safe_iso8601(value: str) -> str | None:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc).isoformat()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Wayback timestamp parse failed: %s", type(exc).__name__)
     try:
         dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         if dt.tzinfo is None:
@@ -45,7 +49,8 @@ def _safe_iso8601(value: str) -> str | None:
 
 def _normalize_domain(url: str) -> str:
     try:
-        return urlparse(str(url or "").strip().lower()).netloc.lstrip("www.")
+        hostname = urlparse(str(url or "").strip()).hostname or ""
+        return hostname.lower().removeprefix("www.")
     except Exception:
         return ""
 
@@ -75,7 +80,8 @@ def _resolve_via_available(url: str, timeout: int) -> dict[str, Any] | None:
         if getattr(resp, "status_code", 0) != 200:
             return None
         payload = resp.json() if hasattr(resp, "json") else json.loads(resp.text)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Wayback availability lookup failed: %s", type(exc).__name__)
         return None
 
     snapshots = payload.get("archived_snapshots") if isinstance(payload, dict) else None
@@ -122,7 +128,8 @@ def _resolve_via_cdx(url: str, timeout: int, from_ts: str | None = None, to_ts: 
         if getattr(resp, "status_code", 0) != 200:
             return None
         payload = resp.json() if hasattr(resp, "json") else json.loads(resp.text)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Wayback CDX lookup failed: %s", type(exc).__name__)
         return None
 
     if not isinstance(payload, list) or len(payload) < 2:
@@ -158,6 +165,8 @@ def resolve_wayback_snapshot(
     target = str(url or "").strip()
     if not target.startswith(("http://", "https://")):
         return None
+    if url_has_credentials(target):
+        return None
     timeout_s = int(timeout or _WAYBACK_TIMEOUT)
 
     available = _resolve_via_available(target, timeout_s)
@@ -175,7 +184,8 @@ def fetch_via_wayback(url: str, *, timeout: int | None = None) -> Optional[str]:
     if not snapshot_url:
         return None
     try:
-        resp = _http_get(
+        resp = safe_pinned_request(
+            "GET",
             snapshot_url,
             timeout=int(timeout or _WAYBACK_TIMEOUT),
             headers={"User-Agent": _WAYBACK_USER_AGENT},
@@ -188,7 +198,11 @@ def fetch_via_wayback(url: str, *, timeout: int | None = None) -> Optional[str]:
             return None
         return text[:_WAYBACK_MAX_CHARS]
     except Exception as exc:
-        logger.debug("[Wayback] fetch failed for %s: %s", snapshot_url, exc)
+        logger.debug(
+            "[Wayback] fetch failed for host=%s: %s",
+            _normalize_domain(snapshot_url) or "<invalid>",
+            type(exc).__name__,
+        )
         return None
 
 

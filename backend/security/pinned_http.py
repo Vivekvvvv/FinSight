@@ -25,6 +25,15 @@ from backend.security.ssrf import resolve_safe_target
 logger = logging.getLogger(__name__)
 
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+_SENSITIVE_REDIRECT_HEADERS = {
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "x-api-key",
+    "api-key",
+    "x-auth-token",
+    "x-access-token",
+}
 
 
 class _PinnedIPAdapter(HTTPAdapter):
@@ -58,6 +67,25 @@ def _host_header(host: str, port: int, scheme: str) -> str:
     return host if port == default_port else f"{host}:{port}"
 
 
+def _origin(url: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlparse(url)
+        host = str(parsed.hostname or "").lower()
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return None
+    if not host:
+        return None
+    return parsed.scheme.lower(), host, port
+
+
+def _safe_log_host(url: str) -> str:
+    try:
+        return str(urlparse(url).hostname or "invalid")
+    except ValueError:
+        return "invalid"
+
+
 def _build_retry() -> Retry:
     return Retry(
         total=1,
@@ -87,11 +115,12 @@ def safe_pinned_request(
     base_headers = dict(headers or {})
     retry = _build_retry()
     current_url = url
+    forward_sensitive_credentials = True
 
     for _hop in range(max_redirects + 1):
         target = resolve_safe_target(current_url)
         if target is None:
-            logger.info("[pinned_http] blocked unsafe target: %s", current_url)
+            logger.info("[pinned_http] blocked unsafe target host=%s", _safe_log_host(current_url))
             return None
         host, port, pinned_ip = target
 
@@ -105,6 +134,15 @@ def safe_pinned_request(
             parsed.fragment,
         ))
         req_headers = dict(base_headers)
+        request_kwargs = dict(kwargs)
+        if not forward_sensitive_credentials:
+            req_headers = {
+                key: value
+                for key, value in req_headers.items()
+                if str(key).lower() not in _SENSITIVE_REDIRECT_HEADERS
+            }
+            request_kwargs.pop("auth", None)
+            request_kwargs.pop("cookies", None)
         req_headers["Host"] = _host_header(host, port, parsed.scheme)
 
         session = requests.Session()
@@ -118,7 +156,7 @@ def safe_pinned_request(
                 headers=req_headers,
                 timeout=timeout,
                 allow_redirects=False,
-                **kwargs,
+                **request_kwargs,
             )
         finally:
             session.close()
@@ -127,11 +165,14 @@ def safe_pinned_request(
             location = resp.headers.get("Location")
             if not location:
                 return resp
-            current_url = urljoin(current_url, location)  # 相对 Location → 绝对
+            next_url = urljoin(current_url, location)
+            if _origin(next_url) != _origin(current_url):
+                forward_sensitive_credentials = False
+            current_url = next_url  # 相对 Location → 绝对
             continue
         return resp
 
-    logger.info("[pinned_http] too many redirects for %s", url)
+    logger.info("[pinned_http] too many redirects for host=%s", _safe_log_host(url))
     return None
 
 

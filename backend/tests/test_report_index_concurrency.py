@@ -35,6 +35,35 @@ def test_wal_mode_enabled(tmp_path, monkeypatch):
     assert str(mode).lower() == "wal"
 
 
+def test_multiple_store_instances_share_write_lock(tmp_path, monkeypatch):
+    store_a = _make_store(tmp_path, monkeypatch)
+    store_b = _make_store(tmp_path, monkeypatch)
+    errors: list[Exception] = []
+
+    def writer(store, start: int):
+        try:
+            for i in range(start, start + 20):
+                store.upsert_report(
+                    session_id="private:u:default",
+                    report=_report(i),
+                )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=writer, args=(store_a, 0)),
+        threading.Thread(target=writer, args=(store_b, 20)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    reports = store_a.list_reports(session_id="private:u:default", limit=50)
+    assert len(reports) == 40
+
+
 def test_concurrent_read_write_no_lock_error(tmp_path, monkeypatch):
     store = _make_store(tmp_path, monkeypatch)
     errors: list[Exception] = []

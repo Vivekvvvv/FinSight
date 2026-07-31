@@ -6,6 +6,17 @@
 from backend.services import research_notes
 
 
+def test_parse_tags_sanitizes_corrupt_and_legacy_values(caplog):
+    assert research_notes._parse_tags("{bad-json") == []
+    assert research_notes._parse_tags('{"tag": true}') == []
+    assert research_notes._parse_tags('[" ok ", 1, "' + "x" * 100 + '"]') == [
+        "ok",
+        "x" * 64,
+    ]
+    assert "JSONDecodeError" in caplog.text
+    assert "ValueError" in caplog.text
+
+
 def test_create_and_get_note():
     """测试创建和获取笔记"""
     # 创建笔记

@@ -96,6 +96,107 @@ def test_report_index_list_replay_and_favorite_flow(tmp_path, monkeypatch):
     assert note_replay_data.get("report", {}).get("user_note") == "下次财报后复核服务收入。"
 
 
+@pytest.mark.parametrize(
+    ("corrupt_payload", "error_type"),
+    [
+        ("{ PRIVATE_CORRUPT_JSON", "JSONDecodeError"),
+        ('{"value":NaN}', "ValueError"),
+    ],
+)
+def test_report_index_logs_corrupt_stored_json_without_exposing_payload(
+    tmp_path,
+    monkeypatch,
+    caplog,
+    corrupt_payload,
+    error_type,
+):
+    import logging
+
+    from backend.services.report_index import ReportIndexStore
+
+    sqlite_path = tmp_path / "report_index.sqlite"
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(sqlite_path))
+    store = ReportIndexStore()
+    session_id = "private:test-user:default"
+    report_id = "report-corrupt-json"
+    report = {
+        "report_id": report_id,
+        "title": "report",
+        "tags": ["safe"],
+        "citations": [{"title": "source", "url": "https://example.com"}],
+    }
+    store.upsert_report(
+        session_id=session_id,
+        report=report,
+        trace_digest={"span_count": 1},
+        include_blocked=True,
+    )
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE report_index SET tags_json = ?, quality_reasons_json = ?, trace_digest_json = ? "
+            "WHERE report_id = ?",
+            (corrupt_payload, corrupt_payload, corrupt_payload, report_id),
+        )
+        conn.execute(
+            "UPDATE citation_index SET citation_json = ? WHERE report_id = ?",
+            (corrupt_payload, report_id),
+        )
+        conn.commit()
+
+    caplog.set_level(logging.WARNING, logger="backend.services.report_index")
+    listed = store.list_reports(session_id=session_id, include_blocked=True)
+    replay = store.get_report_replay(
+        session_id=session_id,
+        report_id=report_id,
+        include_blocked=True,
+    )
+    citations = store.list_citations(session_id=session_id, report_id=report_id)
+
+    assert listed[0]["tags"] == []
+    assert listed[0]["quality_reasons"] == []
+    assert replay is not None
+    assert replay["trace_digest"] == {}
+    assert replay["citations"] == []
+    assert citations[0]["citation"] == {}
+    assert caplog.text.count(error_type) >= 5
+    assert corrupt_payload not in caplog.text
+
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE report_index SET report_json = ? WHERE report_id = ?",
+            (corrupt_payload, report_id),
+        )
+        conn.commit()
+
+    assert store.get_report_replay(
+        session_id=session_id,
+        report_id=report_id,
+        include_blocked=True,
+    ) is None
+    assert "stored report payload parse failed" in caplog.text
+    assert corrupt_payload not in caplog.text
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_report_index_rejects_non_finite_json(tmp_path, monkeypatch, value):
+    from backend.services.report_index import ReportIndexStore
+
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "report_index.sqlite"))
+    store = ReportIndexStore()
+
+    with pytest.raises(ValueError):
+        store.upsert_report(
+            session_id="private:user:default",
+            report={"report_id": "report-non-finite", "payload": {"value": value}},
+            include_blocked=True,
+        )
+
+    assert store.list_reports(
+        session_id="private:user:default",
+        include_blocked=True,
+    ) == []
+
+
 def test_report_note_rejects_long_text_and_missing_report(tmp_path, monkeypatch):
     sqlite_path = tmp_path / "report_index.sqlite"
     monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(sqlite_path))
@@ -115,6 +216,84 @@ def test_report_note_rejects_long_text_and_missing_report(tmp_path, monkeypatch)
         json={"session_id": session_id, "user_note": "x" * 2001},
     )
     assert long_resp.status_code == 422
+
+
+def test_report_favorite_rejects_non_boolean_value(tmp_path, monkeypatch):
+    sqlite_path = tmp_path / "report_index.sqlite"
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(sqlite_path))
+
+    main = _load_main_module()
+    store = main.get_report_index_store()
+    session_id = "tenant1:user1:favorite-type"
+    store.upsert_report(
+        session_id=session_id,
+        report={"report_id": "rpt-favorite-type", "title": "report"},
+        include_blocked=True,
+    )
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/reports/rpt-favorite-type/favorite",
+        json={"session_id": session_id, "is_favorite": "false"},
+    )
+
+    assert response.status_code == 422
+    assert store.list_reports(session_id=session_id, include_blocked=True)[0]["is_favorite"] is False
+
+
+def test_report_review_status_rejects_unknown_value(tmp_path, monkeypatch):
+    sqlite_path = tmp_path / "report_index.sqlite"
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(sqlite_path))
+
+    main = _load_main_module()
+    store = main.get_report_index_store()
+    session_id = "tenant1:user1:review-status"
+    store.upsert_report(
+        session_id=session_id,
+        report={"report_id": "rpt-review-status", "title": "report"},
+        include_blocked=True,
+    )
+
+    client = TestClient(main.app)
+    invalid_response = client.patch(
+        "/api/reports/rpt-review-status/review_status",
+        json={"session_id": session_id, "review_status": "done"},
+    )
+    valid_response = client.patch(
+        "/api/reports/rpt-review-status/review_status",
+        json={"session_id": session_id, "review_status": " WATCH "},
+    )
+
+    assert invalid_response.status_code == 422
+    assert valid_response.status_code == 200
+    assert valid_response.json()["review_status"] == "watch"
+    assert store.list_reports(session_id=session_id, include_blocked=True)[0]["review_status"] == "watch"
+
+
+def test_report_queries_reject_oversized_filters_and_limits(tmp_path, monkeypatch):
+    sqlite_path = tmp_path / "report_index.sqlite"
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(sqlite_path))
+
+    main = _load_main_module()
+    client = TestClient(main.app)
+    session_id = "tenant1:user1:thread-limits"
+
+    query_response = client.get(
+        "/api/reports/index",
+        params={"session_id": session_id, "query": "x" * 2049},
+    )
+    limit_response = client.get(
+        "/api/reports/index",
+        params={"session_id": session_id, "limit": 501},
+    )
+    source_response = client.get(
+        "/api/reports/citations",
+        params={"session_id": session_id, "source_id": "x" * 257},
+    )
+
+    assert query_response.status_code == 422
+    assert limit_response.status_code == 422
+    assert source_response.status_code == 422
 
 
 def test_report_index_replay_quality_matches_index_quality_state(tmp_path, monkeypatch):

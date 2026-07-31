@@ -38,6 +38,8 @@ class ChatRouterDeps:
 def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
     router = APIRouter(tags=["Chat"])
     _logger = logging.getLogger("chat_router")
+    _MAX_CHART_TICKER_CHARS = 64
+    _MAX_CHART_SUMMARY_CHARS = 16_384
 
     @router.post("/chat/supervisor")
     async def chat_supervisor_endpoint(
@@ -60,7 +62,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             try:
                 thread_id = deps.resolve_thread_id(resolved_session_id)
             except ValueError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
+                raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
             ui_context = deps.build_ui_context(request)
 
@@ -177,7 +179,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         try:
             thread_id = deps.resolve_thread_id(resolved_session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         trace_raw_enabled = deps.resolve_trace_raw_enabled(request)
         ui_context = deps.build_ui_context(request)
@@ -271,7 +273,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         try:
             thread_id = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
         messages = deps.chat_history_store.list_messages(session_id=thread_id, limit=limit)
         return {
             "success": True,
@@ -296,7 +298,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         try:
             thread_id = deps.resolve_thread_id(session_id)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="Invalid session_id") from exc
         deps.chat_history_store.clear(session_id=thread_id)
         deps.get_session_context(thread_id).clear()
         return {"success": True, "session_id": thread_id}
@@ -320,12 +322,16 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         summary = request.get("summary", "")
         if not ticker or not summary:
             raise HTTPException(status_code=400, detail="Missing ticker or summary")
+        if not isinstance(ticker, str) or len(ticker) > _MAX_CHART_TICKER_CHARS:
+            raise HTTPException(status_code=400, detail="Invalid ticker")
+        if not isinstance(summary, str) or len(summary) > _MAX_CHART_SUMMARY_CHARS:
+            raise HTTPException(status_code=400, detail="Invalid summary")
 
         try:
             try:
                 session_id = deps.resolve_thread_id(resolved_session_id)
             except ValueError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
+                raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
             chart_message = f"[Chart Data] {summary}"
             deps.get_session_context(session_id).add_turn(

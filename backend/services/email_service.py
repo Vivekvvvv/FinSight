@@ -12,9 +12,12 @@ import smtplib
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape
 from typing import Optional
 
 from dotenv import load_dotenv
+
+from backend.utils.env_config import env_int
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,7 @@ load_dotenv()
 
 # 邮件配置（从环境变量读取）
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_PORT = env_int("SMTP_PORT", 587, minimum=1, maximum=65535)
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER)
@@ -71,23 +74,23 @@ class EmailService:
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(msg)
 
-            logger.info("[EmailService] Sent email to %s", to_email)
+            logger.info("[EmailService] Email sent")
             return True, "none", None
 
         except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, TimeoutError, ConnectionError) as exc:
-            logger.error("[EmailService] Transient network error for %s: %s", to_email, exc)
-            return False, "transient", str(exc)
+            logger.error("[EmailService] Transient network error: %s", type(exc).__name__)
+            return False, "transient", "Email delivery unavailable"
         except (
             smtplib.SMTPAuthenticationError,
             smtplib.SMTPRecipientsRefused,
             smtplib.SMTPSenderRefused,
             smtplib.SMTPDataError,
         ) as exc:
-            logger.error("[EmailService] Permanent SMTP error for %s: %s", to_email, exc)
-            return False, "permanent", str(exc)
+            logger.error("[EmailService] Permanent SMTP error: %s", type(exc).__name__)
+            return False, "permanent", "Email delivery rejected"
         except Exception as exc:  # noqa: BLE001 - 保持外部接口兼容
-            logger.error("[EmailService] Unexpected error for %s: %s", to_email, exc)
-            return False, "transient", str(exc)
+            logger.error("[EmailService] Unexpected error: %s", type(exc).__name__)
+            return False, "transient", "Email delivery unavailable"
 
     def send_stock_alert(
         self,
@@ -119,6 +122,8 @@ class EmailService:
             if change_percent is not None
             else ""
         )
+        safe_ticker = escape(str(ticker), quote=True)
+        safe_message = escape(str(message), quote=True)
 
         html_content = f"""
         <!DOCTYPE html>
@@ -145,11 +150,11 @@ class EmailService:
                     <h1>FinSight 股票提醒</h1>
                 </div>
                 <div class="content">
-                    <div class="ticker">{ticker}</div>
+                    <div class="ticker">{safe_ticker}</div>
                     {price_html}
                     {change_html}
                     <div class="message">
-                        <p>{message}</p>
+                        <p>{safe_message}</p>
                     </div>
                     <div class="footer">
                         <p>此邮件由 FinSight AI 自动发送</p>
@@ -189,4 +194,3 @@ def get_email_service() -> EmailService:
     if _email_service is None:
         _email_service = EmailService()
     return _email_service
-

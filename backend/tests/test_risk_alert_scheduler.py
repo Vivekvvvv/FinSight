@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 from typing import List
 
 import pytest
 
 from backend.services import subscription_service as subs
+from backend.services import alert_scheduler as alert_scheduler_module
 from backend.services.alert_scheduler import PriceSnapshot, RiskAlertScheduler
 from backend.services.subscription_service import SubscriptionService
 
@@ -121,6 +123,80 @@ def test_risk_scheduler_skips_when_below_threshold(subscription_service_tmp):
 
     assert sent == []
     assert email.sent == []
+
+
+def test_risk_scheduler_isolates_price_fetch_failure(subscription_service_tmp, monkeypatch):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    messages = []
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: messages.append(message % args),
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    for ticker in ("AAPL", "MSFT"):
+        service.subscribe(
+            email="user@example.com",
+            ticker=ticker,
+            alert_types=["risk"],
+            risk_threshold="high",
+        )
+    secret = "PRIVATE risk provider failure"
+
+    def fetcher(ticker):
+        if ticker == "AAPL":
+            raise RuntimeError(secret)
+        return PriceSnapshot(ticker=ticker, price=100.0, change_percent=-9.0)
+
+    sent = RiskAlertScheduler(service, email, fetcher).run_once()
+
+    assert [item["ticker"] for item in sent] == ["MSFT"]
+    log_text = "\n".join(messages)
+    assert secret not in log_text
+    assert "RuntimeError" in log_text
+
+
+def test_risk_scheduler_isolates_email_exception(subscription_service_tmp, monkeypatch):
+    class _RaisingEmailService(FakeEmailService):
+        def send_stock_alert(self, *args, **kwargs):
+            if kwargs["ticker"] == "AAPL":
+                raise RuntimeError("PRIVATE risk email failure")
+            return super().send_stock_alert(*args, **kwargs)
+
+    service = subscription_service_tmp
+    email = _RaisingEmailService()
+    messages = []
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "logger",
+        SimpleNamespace(
+            warning=lambda message, *args: messages.append(message % args),
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    for ticker in ("AAPL", "MSFT"):
+        service.subscribe(
+            email="user@example.com",
+            ticker=ticker,
+            alert_types=["risk"],
+            risk_threshold="high",
+        )
+
+    sent = RiskAlertScheduler(
+        service,
+        email,
+        lambda ticker: PriceSnapshot(ticker=ticker, price=100.0, change_percent=-9.0),
+    ).run_once()
+
+    assert [item["ticker"] for item in sent] == ["MSFT"]
+    aapl = next(item for item in service.get_subscriptions("user@example.com") if item["ticker"] == "AAPL")
+    assert aapl["last_alert_error"] == "delivery_error"
+    log_text = "\n".join(messages)
+    assert "PRIVATE risk email failure" not in log_text
+    assert "RuntimeError" in log_text
 
 
 def test_risk_scheduler_respects_cooldown(subscription_service_tmp, monkeypatch: pytest.MonkeyPatch):

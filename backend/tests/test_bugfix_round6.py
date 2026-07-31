@@ -83,6 +83,40 @@ def test_b2_daily_risk_snapshot_saves_when_list_reports_returns_list(monkeypatch
     assert saved == [("private:alice:default", "alice")]
 
 
+def test_daily_risk_snapshot_session_error_log_is_redacted(monkeypatch, caplog):
+    import backend.services.portfolio_store as portfolio_store
+    import backend.services.risk_snapshot_scheduler as sched
+
+    secret = "PRIVATE postgres://risk:secret@db/session"
+    monkeypatch.setattr(sched, "get_all_active_sessions", lambda: [("private:alice:default", "alice")])
+    monkeypatch.setattr(
+        portfolio_store,
+        "get_positions",
+        lambda _session_id: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
+
+    sched.take_daily_risk_snapshot()
+
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
+def test_daily_risk_snapshot_job_error_log_is_redacted(monkeypatch, caplog):
+    import backend.services.risk_snapshot_scheduler as sched
+
+    secret = "PRIVATE postgres://risk:secret@db/job"
+
+    def _fail_sessions():
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(sched, "get_all_active_sessions", _fail_sessions)
+
+    sched.take_daily_risk_snapshot()
+
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 # ── C1: 待复查报告接口被 naive 日期 as_of 打成 TypeError → 500 ─────────────────
 
 def test_c1_reports_to_review_handles_naive_as_of(monkeypatch):

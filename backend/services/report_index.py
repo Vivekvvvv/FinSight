@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -9,6 +10,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from backend.report.quality_engine import apply_quality_to_report
+
+logger = logging.getLogger(__name__)
+_REPORT_INDEX_LOCK = threading.RLock()
+
+
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON value: {value}")
+
+
+def _json_loads_strict(value: str) -> Any:
+    return json.loads(value, parse_constant=_reject_non_finite_json)
 
 
 def _now_iso() -> str:
@@ -52,7 +64,8 @@ def _normalize_citation_item(item: Any) -> dict[str, Any] | None:
     confidence = item.get("confidence")
     try:
         normalized["confidence"] = float(confidence) if confidence is not None else None
-    except Exception:
+    except Exception as exc:
+        logger.debug("report confidence normalization failed: %s", type(exc).__name__)
         normalized["confidence"] = None
 
     return normalized
@@ -62,8 +75,9 @@ def _extract_report_meta(report_json: str | None) -> dict[str, Any]:
     if not report_json:
         return {}
     try:
-        payload = json.loads(report_json)
-    except Exception:
+        payload = _json_loads_strict(report_json)
+    except Exception as exc:
+        logger.warning("stored report metadata parse failed: %s", type(exc).__name__)
         return {}
     if not isinstance(payload, dict):
         return {}
@@ -109,7 +123,7 @@ def _derive_quality_fields(report: dict[str, Any]) -> tuple[str, int, str]:
     quality, blocked = apply_quality_to_report(report)
     state = str(quality.get("state") or "pass").strip().lower() or "pass"
     publishable = 0 if blocked else 1
-    reasons_json = json.dumps(quality.get("reasons") or [], ensure_ascii=False)
+    reasons_json = json.dumps(quality.get("reasons") or [], ensure_ascii=False, allow_nan=False)
     return state, publishable, reasons_json
 
 
@@ -117,7 +131,7 @@ class ReportIndexStore:
     def __init__(self) -> None:
         self._path = _resolve_report_index_path()
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
-        self._lock = threading.Lock()
+        self._lock = _REPORT_INDEX_LOCK
         self._init_db()
 
     @property
@@ -249,10 +263,10 @@ class ReportIndexStore:
             confidence_value = None
 
         tags = report.get("tags")
-        tags_json = json.dumps(tags, ensure_ascii=False) if isinstance(tags, list) else None
+        tags_json = json.dumps(tags, ensure_ascii=False, allow_nan=False) if isinstance(tags, list) else None
         quality_state, publishable, quality_reasons_json = _derive_quality_fields(report)
-        report_json = json.dumps(report, ensure_ascii=False)
-        trace_digest_json = json.dumps(trace_digest or {}, ensure_ascii=False)
+        report_json = json.dumps(report, ensure_ascii=False, allow_nan=False)
+        trace_digest_json = json.dumps(trace_digest or {}, ensure_ascii=False, allow_nan=False)
         if quality_state == "block" and not include_blocked:
             return {
                 "report_id": report_id,
@@ -345,7 +359,7 @@ class ReportIndexStore:
                             normalized_citation.get("snippet"),
                             normalized_citation.get("published_date"),
                             normalized_citation.get("confidence"),
-                            json.dumps(normalized_citation, ensure_ascii=False),
+                            json.dumps(normalized_citation, ensure_ascii=False, allow_nan=False),
                             now,
                         ),
                     )
@@ -429,10 +443,15 @@ class ReportIndexStore:
                 tags = []
                 if row["tags_json"]:
                     try:
-                        parsed = json.loads(row["tags_json"])
+                        parsed = _json_loads_strict(row["tags_json"])
                         if isinstance(parsed, list):
                             tags = parsed
-                    except Exception:
+                    except Exception as exc:
+                        logger.warning(
+                            "stored report tags parse failed for report_id=%s: %s",
+                            row["report_id"],
+                            type(exc).__name__,
+                        )
                         tags = []
                 report_meta = _extract_report_meta(row["report_json"])
                 source_trigger = str(report_meta.get("source_trigger") or "").strip() or None
@@ -442,10 +461,15 @@ class ReportIndexStore:
                 )
                 quality_reasons: list[dict[str, Any]] = []
                 try:
-                    parsed_reasons = json.loads(row["quality_reasons_json"] or "[]")
+                    parsed_reasons = _json_loads_strict(row["quality_reasons_json"] or "[]")
                     if isinstance(parsed_reasons, list):
                         quality_reasons = [item for item in parsed_reasons if isinstance(item, dict)]
-                except Exception:
+                except Exception as exc:
+                    logger.warning(
+                        "stored report quality reasons parse failed for report_id=%s: %s",
+                        row["report_id"],
+                        type(exc).__name__,
+                    )
                     quality_reasons = []
 
                 citation_count = self._count_citations(conn, row["report_id"], session_id)
@@ -532,19 +556,39 @@ class ReportIndexStore:
                 (session_id, report_id),
             ).fetchall()
 
-        report_payload = json.loads(row["report_json"])
+        try:
+            report_payload = _json_loads_strict(row["report_json"])
+            if not isinstance(report_payload, dict):
+                raise ValueError("stored report must be an object")
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning(
+                "stored report payload parse failed for report_id=%s: %s",
+                report_id,
+                type(exc).__name__,
+            )
+            return None
         report_payload["user_note"] = row["user_note"]
         citation_items = []
         for item in citations:
             try:
-                citation_items.append(json.loads(item["citation_json"]))
-            except Exception:
+                citation_items.append(_json_loads_strict(item["citation_json"]))
+            except Exception as exc:
+                logger.warning(
+                    "stored report citation parse failed for report_id=%s: %s",
+                    report_id,
+                    type(exc).__name__,
+                )
                 continue
         report_payload["citations"] = citation_items
         trace_digest = {}
         try:
-            trace_digest = json.loads(row["trace_digest_json"] or "{}")
-        except Exception:
+            trace_digest = _json_loads_strict(row["trace_digest_json"] or "{}")
+        except Exception as exc:
+            logger.warning(
+                "stored report trace digest parse failed for report_id=%s: %s",
+                report_id,
+                type(exc).__name__,
+            )
             trace_digest = {}
         return {
             "report": report_payload,
@@ -598,10 +642,16 @@ class ReportIndexStore:
             for row in rows:
                 citation_payload: dict[str, Any] = {}
                 try:
-                    parsed = json.loads(row["citation_json"] or "{}")
+                    parsed = _json_loads_strict(row["citation_json"] or "{}")
                     if isinstance(parsed, dict):
                         citation_payload = parsed
-                except Exception:
+                except Exception as exc:
+                    logger.warning(
+                        "stored citation payload parse failed for row_id=%s report_id=%s: %s",
+                        row["row_id"],
+                        row["report_id"],
+                        type(exc).__name__,
+                    )
                     citation_payload = {}
 
                 result.append(

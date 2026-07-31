@@ -118,7 +118,7 @@ class MacroAgent(BaseFinancialAgent):
                 source_health["fred"] = "unavailable"
         except Exception as exc:
             source_health["fred"] = f"failed:{exc.__class__.__name__}"
-            logger.info("[MacroAgent] FRED fetch failed: %s", exc)
+            logger.info("[MacroAgent] FRED fetch failed: %s", type(exc).__name__)
 
         official_payload: Dict[str, Any] = {}
         official_releases: List[Dict[str, Any]] = []
@@ -141,7 +141,7 @@ class MacroAgent(BaseFinancialAgent):
                 source_health["official_releases"] = "unavailable"
         except Exception as exc:
             source_health["official_releases"] = f"failed:{exc.__class__.__name__}"
-            logger.info("[MacroAgent] Official release fetch failed: %s", exc)
+            logger.info("[MacroAgent] Official release fetch failed: %s", type(exc).__name__)
 
         market_sentiment = ""
         try:
@@ -156,7 +156,7 @@ class MacroAgent(BaseFinancialAgent):
                 source_health["market_sentiment"] = "unavailable"
         except Exception as exc:
             source_health["market_sentiment"] = f"failed:{exc.__class__.__name__}"
-            logger.info("[MacroAgent] Market sentiment fetch failed: %s", exc)
+            logger.info("[MacroAgent] Market sentiment fetch failed: %s", type(exc).__name__)
 
         economic_events = ""
         try:
@@ -171,7 +171,7 @@ class MacroAgent(BaseFinancialAgent):
                 source_health["economic_events"] = "unavailable"
         except Exception as exc:
             source_health["economic_events"] = f"failed:{exc.__class__.__name__}"
-            logger.info("[MacroAgent] Economic events fetch failed: %s", exc)
+            logger.info("[MacroAgent] Economic events fetch failed: %s", type(exc).__name__)
 
         cross_check_text = ""
         cross_check_metrics: Dict[str, float] = {}
@@ -189,7 +189,7 @@ class MacroAgent(BaseFinancialAgent):
                     source_health["search_cross_check"] = "empty"
         except Exception as exc:
             source_health["search_cross_check"] = f"failed:{exc.__class__.__name__}"
-            logger.info("[MacroAgent] Search cross-check failed: %s", exc)
+            logger.info("[MacroAgent] Search cross-check failed: %s", type(exc).__name__)
 
         merged = self._merge_indicator_sources(
             primary_source="fred",
@@ -667,4 +667,3 @@ class MacroAgent(BaseFinancialAgent):
 
     def _format_percentage_value(self, value: float, *, digits: int = 2) -> str:
         return f"{value:.{digits}f}%"
-

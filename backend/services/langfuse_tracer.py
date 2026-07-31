@@ -85,7 +85,7 @@ def _ensure_client() -> Any | None:
         logger.info("[LangFuse] langfuse 未安装 — pip install langfuse")
         return None
     except Exception as exc:
-        logger.warning("[LangFuse] 初始化失败: %s", exc)
+        logger.warning("[LangFuse] 初始化失败: %s", type(exc).__name__)
         return None
 
 
@@ -98,7 +98,8 @@ def get_langfuse_client_safe() -> Any | None:
     """获取 Langfuse client，吞掉所有异常。供 trace.py 等热路径使用。"""
     try:
         return _ensure_client()
-    except Exception:
+    except Exception as exc:
+        logger.debug("[LangFuse] safe client lookup failed: %s", type(exc).__name__)
         return None
 
 
@@ -132,7 +133,8 @@ def get_langfuse_callback() -> Any | None:
         )
     except ImportError:
         return None
-    except Exception:
+    except Exception as exc:
+        logger.debug("[LangFuse] callback initialization failed: %s", type(exc).__name__)
         return None
 
 
@@ -156,8 +158,9 @@ async def langfuse_span(name: str, *, input: Any | None = None):
                 kwargs["input"] = input
             async with lf.start_as_current_span(**kwargs) as span:
                 yield span
-        except Exception:
+        except Exception as exc:
             # Langfuse span 创建失败不应影响业务逻辑
+            logger.debug("[LangFuse] span creation failed: %s", type(exc).__name__)
             yield None
     else:
         yield None
@@ -194,8 +197,8 @@ def update_current_trace(
             kwargs["tags"] = tags
         if kwargs:
             lf.update_current_trace(**kwargs)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("[LangFuse] trace update failed: %s", type(exc).__name__)
 
 
 # ==================== @observe 装饰器安全导入 ====================
@@ -217,8 +220,8 @@ def flush_langfuse() -> None:
     if _langfuse_client is not None:
         try:
             _langfuse_client.flush()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[LangFuse] flush failed: %s", type(exc).__name__)
 
 
 def shutdown_langfuse() -> None:
@@ -226,8 +229,8 @@ def shutdown_langfuse() -> None:
     if _langfuse_client is not None:
         try:
             _langfuse_client.shutdown()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[LangFuse] shutdown failed: %s", type(exc).__name__)
 
 
 __all__ = [

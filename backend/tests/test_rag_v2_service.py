@@ -1,13 +1,40 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
+import backend.rag.hybrid_service as hybrid_service
+from backend.rag.embedder import EmbeddingService
 from backend.rag.hybrid_service import HybridRAGService, RAGDocument
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def test_postgres_init_fallback_reason_and_log_are_redacted(monkeypatch, caplog):
+    sentinel = "PRIVATE_POSTGRES_DSN_DETAIL"
+
+    def _raise_postgres_init(**_kwargs):
+        raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(hybrid_service, "_PostgresHybridStore", _raise_postgres_init)
+    caplog.set_level(logging.INFO, logger=hybrid_service.__name__)
+
+    service = HybridRAGService(
+        backend="postgres",
+        vector_dim=96,
+        rrf_k=60,
+        postgres_dsn="postgresql://configured",
+        allow_memory_fallback=True,
+        embedder=EmbeddingService(force_backend="hash"),
+    )
+
+    assert service.backend_name == "memory"
+    assert service.fallback_reason == "RuntimeError"
+    assert sentinel not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_hybrid_rag_memory_ingest_and_search_ranks_relevant_doc():

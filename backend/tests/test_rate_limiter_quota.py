@@ -40,6 +40,22 @@ def _make_limiter(**kwargs) -> LLMRateLimiter:
     return LLMRateLimiter(**defaults)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("requests_per_minute", -1, 60),
+        ("burst_capacity", float("inf"), 15),
+        ("min_tokens_per_agent", -1, 8),
+        ("agent_window_seconds", float("nan"), 60.0),
+        ("agent_window_seconds", float("inf"), 60.0),
+    ],
+)
+def test_rate_limiter_rejects_invalid_numeric_config(field, value, expected):
+    limiter = _make_limiter(**{field: value})
+
+    assert getattr(limiter, field) == expected
+
+
 # ------------------------------------------------------------------
 # Basic global bucket tests
 # ------------------------------------------------------------------

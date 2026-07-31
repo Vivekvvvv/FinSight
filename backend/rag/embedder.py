@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Any, Sequence
 
+from backend.utils.env_config import env_int
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -136,7 +138,7 @@ class _BGEM3Wrapper:
         self._model: Any = None
         self._lock = threading.Lock()
         self._device = os.getenv("BGE_M3_DEVICE", "cpu").strip()
-        self._max_length = int(os.getenv("BGE_M3_MAX_LENGTH", "512"))
+        self._max_length = env_int("BGE_M3_MAX_LENGTH", 512, minimum=1)
 
     def _load(self) -> Any:
         if self._model is not None:
@@ -224,7 +226,7 @@ class EmbeddingService:
         self._requested_backend = backend
         self._use_bge = backend != "hash"
         self._bge_available: bool | None = None
-        self._hash_dim = int(os.getenv("RAG_HASH_DIM", str(_HASH_DIM_DEFAULT)))
+        self._hash_dim = env_int("RAG_HASH_DIM", _HASH_DIM_DEFAULT, minimum=1)
         if not self._use_bge:
             _log_hash_fallback(reason="configured_hash_backend", requested_backend=backend)
 
@@ -251,7 +253,7 @@ class EmbeddingService:
         except ImportError as exc:
             _log_hash_fallback(
                 reason="flagembedding_unavailable",
-                detail=str(exc),
+                detail=type(exc).__name__,
                 requested_backend=self._requested_backend,
             )
             self._bge_available = False
@@ -269,7 +271,7 @@ class EmbeddingService:
             except Exception as exc:
                 _log_hash_fallback(
                     reason="bge_encode_error",
-                    detail=str(exc),
+                    detail=type(exc).__name__,
                     requested_backend=self._requested_backend,
                 )
 

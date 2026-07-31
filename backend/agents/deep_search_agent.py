@@ -25,8 +25,13 @@ from backend.orchestration.trace_schema import create_trace_event
 from backend.security.ssrf import is_safe_url
 from backend.security.pinned_http import safe_pinned_request
 from backend.services.circuit_breaker import CircuitBreaker
+from backend.utils.env_config import env_float, env_int
 
 logger = logging.getLogger(__name__)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
 
 
 class DeepSearchAgent(BaseFinancialAgent):
@@ -34,13 +39,13 @@ class DeepSearchAgent(BaseFinancialAgent):
     DeepSearchAgent - Deep research with real retrieval, PDF parsing, and Self-RAG.
     """
     AGENT_NAME = "deep_search"
-    MAX_REFLECTIONS = int(os.getenv("DEEPSEARCH_MAX_REFLECTIONS", "2"))
+    MAX_REFLECTIONS = env_int("DEEPSEARCH_MAX_REFLECTIONS", 2, minimum=0)
     CACHE_TTL = 3600  # 1 hour
-    MAX_RESULTS = int(os.getenv("DEEPSEARCH_MAX_RESULTS", "8"))
-    MAX_DOCS = int(os.getenv("DEEPSEARCH_MAX_DOCS", "4"))
-    MIN_TEXT_CHARS = int(os.getenv("DEEPSEARCH_MIN_TEXT_CHARS", "400"))
-    MAX_TEXT_CHARS = int(os.getenv("DEEPSEARCH_MAX_TEXT_CHARS", "12000"))
-    LLM_TOKEN_TIMEOUT_SECONDS = float(os.getenv("DEEPSEARCH_LLM_TOKEN_TIMEOUT_SECONDS", "500"))
+    MAX_RESULTS = env_int("DEEPSEARCH_MAX_RESULTS", 8, minimum=1)
+    MAX_DOCS = env_int("DEEPSEARCH_MAX_DOCS", 4, minimum=1)
+    MIN_TEXT_CHARS = env_int("DEEPSEARCH_MIN_TEXT_CHARS", 400, minimum=1)
+    MAX_TEXT_CHARS = env_int("DEEPSEARCH_MAX_TEXT_CHARS", 12000, minimum=1)
+    LLM_TOKEN_TIMEOUT_SECONDS = env_float("DEEPSEARCH_LLM_TOKEN_TIMEOUT_SECONDS", 500.0, minimum=0.1)
     _POSITIVE_SIGNAL_TERMS = (
         "beat",
         "strong",
@@ -173,8 +178,8 @@ class DeepSearchAgent(BaseFinancialAgent):
                         "details": {"type": event_type, **details},
                         "timestamp": datetime.now().isoformat()
                     })
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("[DeepSearch] event callback failed: %s", type(exc).__name__)
 
         def _notify(msg: str):
             if on_event:
@@ -185,8 +190,8 @@ class DeepSearchAgent(BaseFinancialAgent):
                         "details": {"message": msg},
                         "timestamp": datetime.now().isoformat()
                     })
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("[DeepSearch] action callback failed: %s", type(exc).__name__)
 
         # Initialize convergence controller
         convergence = SearchConvergence()
@@ -633,8 +638,9 @@ queries 要求：
         for idx, doc in enumerate(docs, 1):
             title = doc.get("title") or "Untitled"
             url = doc.get("url") or ""
+            host = self._normalized_domain_from_url(url) or "<invalid>"
             is_pdf = doc.get("is_pdf", False)
-            logger.info(f"[DeepSearch] {label} doc {idx}: {title} | {url} | pdf={is_pdf}")
+            logger.info("[DeepSearch] %s doc %d: %s | host=%s | pdf=%s", label, idx, title, host, is_pdf)
 
     def _build_queries(self, query: str, ticker: str) -> List[str]:
         base = query.strip()
@@ -828,16 +834,16 @@ queries 要求：
 
     def _normalized_domain_from_url(self, url: str) -> str:
         try:
-            host = urlparse(str(url or "").strip().lower()).netloc
+            host = urlparse(str(url or "").strip()).hostname or ""
         except Exception:
             host = ""
-        return host.lstrip("www.")
+        return host.lower().removeprefix("www.")
 
     def _is_trusted_finance_domain(self, domain: str) -> bool:
-        host = str(domain or "").strip().lower().lstrip("www.")
+        host = str(domain or "").strip().lower().removeprefix("www.")
         if not host:
             return False
-        trusted_exact = {d.lower().lstrip("www.") for d in self._TRUSTED_FINANCE_DOMAINS}
+        trusted_exact = {d.lower().removeprefix("www.") for d in self._TRUSTED_FINANCE_DOMAINS}
         if host in trusted_exact:
             return True
         if any(hint in host for hint in self._TRUSTED_FINANCE_DOMAIN_HINTS):
@@ -849,7 +855,10 @@ queries 要求：
         title = str(item.get("title") or "").strip().lower()
         snippet = str(item.get("snippet") or "").strip().lower()
         domain = self._normalized_domain_from_url(url)
-        parsed = urlparse(url) if url else None
+        try:
+            parsed = urlparse(url) if url else None
+        except ValueError:
+            return True
         path = parsed.path.lower() if parsed else ""
         if not url.startswith(("http://", "https://")):
             return True
@@ -1059,7 +1068,10 @@ queries 要求：
             # 返回 None = URL 不安全（含重定向目标）或抓取失败。
             response = safe_pinned_request("GET", url, headers=headers, timeout=30)
             if response is None:
-                logger.info(f"[DeepSearch] Blocked unsafe url or fetch failed: {url}")
+                logger.info(
+                    "[DeepSearch] Blocked unsafe url or fetch failed: host=%s",
+                    self._normalized_domain_from_url(url) or "<invalid>",
+                )
                 return None
             response.raise_for_status()
         except Exception as exc:
@@ -1095,9 +1107,9 @@ queries 要求：
                 jina_text = fetch_via_jina(url)
                 if jina_text and len(jina_text) > len(text):
                     text = self._trim_text(jina_text)
-                    logger.info("[DeepSearch] Jina fallback: %s (%d chars)", url, len(text))
-            except Exception:
-                pass
+                    logger.info("[DeepSearch] Jina fallback: host=%s (%d chars)", domain, len(text))
+            except Exception as exc:
+                logger.debug("[DeepSearch] Jina fallback failed: %s", type(exc).__name__)
 
         enable_wayback_fallback = str(os.getenv("DEEPSEARCH_ENABLE_WAYBACK_FALLBACK", "true")).strip().lower() in {
             "1",
@@ -1118,9 +1130,9 @@ queries 要求：
                 wayback_text = fetch_via_wayback(url)
                 if wayback_text and len(wayback_text) > len(text):
                     text = self._trim_text(wayback_text)
-                    logger.info("[DeepSearch] Wayback fallback: %s (%d chars)", url, len(text))
-            except Exception:
-                pass
+                    logger.info("[DeepSearch] Wayback fallback: host=%s (%d chars)", domain, len(text))
+            except Exception as exc:
+                logger.debug("[DeepSearch] Wayback fallback failed: %s", type(exc).__name__)
 
         title = item.get("title") or self._infer_title(url)
         snippet = str(item.get("snippet") or "").strip()
@@ -1285,12 +1297,10 @@ queries 要求：
         return text
 
     def _infer_title(self, url: str) -> str:
-        parsed = urlparse(url)
-        return parsed.netloc or "web"
+        return self._normalized_domain_from_url(url) or "web"
 
     def _infer_source(self, url: str) -> str:
-        parsed = urlparse(url)
-        return parsed.netloc or "web"
+        return self._normalized_domain_from_url(url) or "web"
 
     async def _summarize_docs(self, docs: List[Dict[str, Any]], previous_summary: Optional[str] = None) -> str:
         if not docs:
@@ -1395,8 +1405,8 @@ queries 要求：
                 return getattr(response, "content", "") if response is not None else ""
             except Exception as exc:
                 logger.warning(
-                    "[DeepSearch] LLM call attempt %d/%d failed (%s): %s",
-                    outer + 1, max_outer_retries, type(exc).__name__, exc,
+                    "[DeepSearch] LLM call attempt %d/%d failed: %s",
+                    outer + 1, max_outer_retries, type(exc).__name__,
                 )
                 if outer < max_outer_retries - 1:
                     backoff = 5.0 * (outer + 1)
@@ -1413,8 +1423,11 @@ queries 要求：
         if not match:
             return {}
         try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
+            return json.loads(
+                match.group(0),
+                parse_constant=_reject_json_constant,
+            )
+        except (json.JSONDecodeError, ValueError):
             return {}
 
     def _clean_degraded_text(self, text: str) -> str:

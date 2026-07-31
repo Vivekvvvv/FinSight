@@ -1,9 +1,19 @@
 ﻿# -*- coding: utf-8 -*-
 import asyncio
 
+import pytest
+
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_planner_json_loader_rejects_non_finite_constants(constant):
+    from backend.graph.nodes.planner import _load_json_with_repair
+
+    with pytest.raises(ValueError):
+        _load_json_with_repair('{"params":{"score":' + constant + "}}")
 
 
 def test_planner_ab_variant_is_deterministic_and_present_in_runtime(monkeypatch):
@@ -34,7 +44,7 @@ def test_planner_ab_variant_is_deterministic_and_present_in_runtime(monkeypatch)
     assert runtime1.get("variant") == runtime2.get("variant")
 
 
-def test_planner_runtime_contains_variant_when_llm_init_fails(monkeypatch):
+def test_planner_runtime_contains_variant_when_llm_init_fails(monkeypatch, caplog):
     monkeypatch.setenv("LANGGRAPH_PLANNER_MODE", "llm")
     monkeypatch.setenv("LANGGRAPH_PLANNER_AB_ENABLED", "true")
     monkeypatch.setenv("LANGGRAPH_PLANNER_AB_SPLIT", "50")
@@ -42,8 +52,10 @@ def test_planner_runtime_contains_variant_when_llm_init_fails(monkeypatch):
 
     import backend.llm_config as llm_config
 
+    secret = "PRIVATE postgres://planner:secret@db/plans"
+
     def _boom(*_args, **_kwargs):
-        raise ValueError("no api key")
+        raise ValueError(secret)
 
     monkeypatch.setattr(llm_config, "create_llm", _boom)
 
@@ -63,6 +75,12 @@ def test_planner_runtime_contains_variant_when_llm_init_fails(monkeypatch):
     runtime = (out.get("trace") or {}).get("planner_runtime") or {}
     assert runtime.get("fallback") is True
     assert runtime.get("variant") in {"A", "B"}
+    assert runtime.get("reason") == "planner_llm_init_error"
+    failures = (out.get("trace") or {}).get("failures") or []
+    assert failures[-1]["error"] == "planner_llm_init_error"
+    assert secret not in str(out)
+    assert secret not in caplog.text
+    assert "ValueError" in caplog.text
 
 
 def test_planner_llm_mode_retries_on_invalid_json_then_recovers(monkeypatch):
@@ -124,6 +142,7 @@ def test_planner_llm_mode_retries_on_invalid_json_then_recovers(monkeypatch):
 
 def test_planner_llm_mode_records_json_error_context_when_retry_still_invalid(monkeypatch):
     monkeypatch.setenv("LANGGRAPH_PLANNER_MODE", "llm")
+    secret = "PRIVATE postgres://planner:secret@db/plans"
 
     class _Resp:
         def __init__(self, content):
@@ -131,7 +150,7 @@ def test_planner_llm_mode_records_json_error_context_when_retry_still_invalid(mo
 
     class _AlwaysInvalidLLM:
         async def ainvoke(self, _messages):
-            return _Resp("{ goal: 'demo', steps: [ }")
+            return _Resp(f"{{ goal: '{secret}', steps: [ }}")
 
     import backend.llm_config as llm_config
 
@@ -161,6 +180,19 @@ def test_planner_llm_mode_records_json_error_context_when_retry_still_invalid(mo
     assert failures and isinstance(failures, list)
     metadata = (failures[-1] or {}).get("metadata") or {}
     assert isinstance(metadata.get("json_parse_error"), dict)
+    assert metadata.get("last_output_preview") == "[redacted]"
+    assert secret not in str(out)
+
+
+def test_planner_parse_error_info_redacts_exception_message():
+    from backend.graph.nodes.planner import _build_parse_error_info
+
+    sentinel = "PRIVATE_PLANNER_PARSE_DETAIL"
+
+    info = _build_parse_error_info("invalid output", RuntimeError(sentinel))
+
+    assert info["error"] == "RuntimeError"
+    assert sentinel not in str(info)
 
 
 def test_planner_llm_mode_falls_back_when_llm_unavailable(monkeypatch):
@@ -189,6 +221,48 @@ def test_planner_llm_mode_falls_back_when_llm_unavailable(monkeypatch):
     runtime = (out.get("trace") or {}).get("planner_runtime") or {}
     assert runtime.get("mode") == "llm"
     assert runtime.get("fallback") is True
+
+
+def test_planner_llm_call_failure_is_redacted_from_trace_and_events(monkeypatch, caplog):
+    monkeypatch.setenv("LANGGRAPH_PLANNER_MODE", "llm")
+    secret = "PRIVATE postgres://planner:secret@db/plans"
+    events = []
+
+    class _FailingLLM:
+        async def ainvoke(self, _messages):
+            raise RuntimeError(secret)
+
+    import importlib
+
+    import backend.llm_config as llm_config
+
+    planner_module = importlib.import_module("backend.graph.nodes.planner")
+
+    async def _capture_event(payload):
+        events.append(payload)
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda *args, **kwargs: _FailingLLM())
+    monkeypatch.setattr(planner_module, "emit_event", _capture_event)
+
+    state = {
+        "query": "analyze impact",
+        "output_mode": "brief",
+        "operation": {"name": "analyze_impact", "confidence": 0.7, "params": {}},
+        "subject": {"subject_type": "unknown", "selection_payload": []},
+        "policy": {"budget": {"max_rounds": 3, "max_tools": 4}, "allowed_tools": ["search"]},
+        "trace": {},
+    }
+
+    out = _run(planner_module.planner(state))
+    runtime = (out.get("trace") or {}).get("planner_runtime") or {}
+    failures = (out.get("trace") or {}).get("failures") or []
+
+    assert runtime.get("reason") == "planner_llm_call_error"
+    assert failures[-1]["error"] == "planner_llm_call_error"
+    assert secret not in str(out)
+    assert secret not in str(events)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_planner_llm_mode_enforces_state_output_mode_and_allowlist(monkeypatch):

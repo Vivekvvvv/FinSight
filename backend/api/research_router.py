@@ -3,12 +3,15 @@ Research API Router
 研究助手相关端点：报告生成、财报分析、新闻情绪
 """
 
+import json
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, Dict, Any, List, Literal
 import logging
 
 logger = logging.getLogger(__name__)
+_MAX_NEWS_INPUT_BYTES = 256 * 1024
 
 router = APIRouter(prefix="/api/research", tags=["Research"])
 
@@ -16,8 +19,10 @@ router = APIRouter(prefix="/api/research", tags=["Research"])
 # ── 数据模型 ──────────────────────────────────────────────────────────────────
 
 class ReportGenerateRequest(BaseModel):
-    ticker: str = Field(..., description="股票代码")
-    report_type: str = Field(default="comprehensive", description="fundamental/technical/comprehensive")
+    ticker: str = Field(..., min_length=1, max_length=32, description="股票代码")
+    report_type: Literal["fundamental", "technical", "comprehensive"] = Field(
+        default="comprehensive", description="fundamental/technical/comprehensive",
+    )
     include_news: bool = Field(default=True)
     include_technical: bool = Field(default=True)
 
@@ -33,17 +38,36 @@ class ReportResponse(BaseModel):
 
 
 class FinancialsAnalyzeRequest(BaseModel):
-    ticker: str = Field(..., description="股票代码")
+    ticker: str = Field(..., min_length=1, max_length=32, description="股票代码")
 
 
 class NewsSentimentRequest(BaseModel):
-    ticker: str = Field(..., description="股票代码")
-    news: Optional[List[Dict[str, Any]]] = Field(None, description="直接传入新闻列表（可选，不传则自动拉取）")
+    ticker: str = Field(..., min_length=1, max_length=32, description="股票代码")
+    news: Optional[List[Dict[str, Any]]] = Field(None, max_length=100, description="直接传入新闻列表（可选，不传则自动拉取）")
+
+    @field_validator("news")
+    @classmethod
+    def validate_news_prompt_fields(cls, value):
+        if value is not None:
+            encoded = json.dumps(
+                value, ensure_ascii=False, separators=(",", ":"),
+            ).encode("utf-8")
+            if len(encoded) > _MAX_NEWS_INPUT_BYTES:
+                raise ValueError("news payload is too large")
+        for item in value or []:
+            if not isinstance(item, dict):
+                raise ValueError("news items must be objects")
+            if len(str(item.get("title") or "")) > 512:
+                raise ValueError("news title is too long")
+            text = item.get("summary") or item.get("content") or ""
+            if len(str(text)) > 4096:
+                raise ValueError("news summary is too long")
+        return value
 
 
 class SmartQARequest(BaseModel):
-    question: str = Field(..., description="问题内容")
-    ticker: Optional[str] = Field(None, description="关联股票代码")
+    question: str = Field(..., min_length=1, max_length=16_384, description="问题内容")
+    ticker: Optional[str] = Field(None, max_length=32, description="关联股票代码")
     use_cn_data: bool = Field(default=True, description="是否注入A股特色数据（龙虎榜/北向/融资融券）")
 
 
@@ -68,32 +92,32 @@ async def generate_report(request: ReportGenerateRequest):
             info = get_company_info(request.ticker)
             if info and not info.get("error"):
                 data_context["company_info"] = info
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("company info context unavailable: %s", type(exc).__name__)
 
         if request.report_type in ["fundamental", "comprehensive"]:
             try:
                 fin = get_financial_statements(request.ticker)
                 if fin and not fin.get("error"):
                     data_context["financials"] = fin
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("financial context unavailable: %s", type(exc).__name__)
 
         if request.include_technical and request.report_type in ["technical", "comprehensive"]:
             try:
                 price = get_stock_historical_data(ticker=request.ticker, period="3mo", interval="1d")
                 if price and not price.get("error"):
                     data_context["price_data"] = price
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("technical context unavailable: %s", type(exc).__name__)
 
         if request.include_news and request.report_type == "comprehensive":
             try:
                 news = get_company_news(request.ticker)
                 if news and not news.get("error"):
                     data_context["news"] = news
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("news context unavailable: %s", type(exc).__name__)
 
         report = await generator.generate_report(
             ticker=request.ticker,
@@ -135,8 +159,8 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
 
         try:
             company_info = get_company_info(request.ticker) or {}
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("company info unavailable for %s: %s", request.ticker, type(exc).__name__)
 
         if not financials or financials.get("error"):
             raise HTTPException(status_code=422, detail="无法获取该股票财报数据，请确认代码正确")
@@ -230,8 +254,8 @@ async def smart_qa(request: SmartQARequest):
                     price = quote.get("price") or quote.get("current_price", "N/A")
                     change = quote.get("change_percent") or quote.get("change_pct", "N/A")
                     context_parts.append(f"【最新行情】{ticker} 现价 {price}，涨跌幅 {change}%")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("stock price unavailable for %s: %s", ticker, type(exc).__name__)
 
             # 2. 最新新闻（最多3条）
             try:
@@ -245,8 +269,8 @@ async def smart_qa(request: SmartQARequest):
                 if news_items:
                     titles = [n.get("title", "") for n in news_items[:3] if n.get("title")]
                     context_parts.append("【今日相关新闻】\n" + "\n".join(f"- {t}" for t in titles))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("company news unavailable for %s: %s", ticker, type(exc).__name__)
 
             # 3. A股特色数据
             from backend.tools.baostock_provider import is_cn_symbol
@@ -261,8 +285,8 @@ async def smart_qa(request: SmartQARequest):
                         context_parts.append(
                             f"【龙虎榜】今日上榜，机构{direction} {abs(net_buy)/1e8:.2f}亿元"
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("top list unavailable for %s: %s", ticker, type(exc).__name__)
 
                 # 北向资金
                 try:
@@ -274,8 +298,8 @@ async def smart_qa(request: SmartQARequest):
                         context_parts.append(
                             f"【北向资金】今日{direction} {abs(north)/1e8:.2f}亿元"
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("north flow unavailable: %s", type(exc).__name__)
 
                 # 融资余额
                 try:
@@ -286,8 +310,8 @@ async def smart_qa(request: SmartQARequest):
                         context_parts.append(
                             f"【融资融券】融资余额 {bal/1e8:.2f}亿元"
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("margin trading unavailable for %s: %s", ticker, type(exc).__name__)
 
         # 构建最终prompt
         context_block = ""

@@ -19,8 +19,8 @@ def build_tool_invokers(*, allowed_tools: Iterable[str]) -> dict[str, Callable[[
 
     try:  # pragma: no cover - runtime dependency path
         from backend.langchain_tools import get_tool_by_name
-    except Exception:
-        logger.exception("tool adapter failed to import registry")
+    except Exception as exc:
+        logger.error("tool adapter failed to import registry: %s", type(exc).__name__)
         return {}
 
     invokers: dict[str, Callable[[dict[str, Any]], Any]] = {}
@@ -34,4 +34,3 @@ def build_tool_invokers(*, allowed_tools: Iterable[str]) -> dict[str, Callable[[
 
 
 __all__ = ["build_tool_invokers"]
-

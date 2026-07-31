@@ -16,9 +16,15 @@ from uuid import uuid4
 _DEFAULT_LIMIT = 100
 _MAX_MESSAGES_PER_SESSION = 200
 _MAX_CONTENT_CHARS = 20_000
+_MAX_EVIDENCE_BYTES = 64 * 1024
+_MAX_HISTORY_FILE_BYTES = 20 * 1024 * 1024
 _STORE_LOCK = threading.RLock()
 
 logger = logging.getLogger(__name__)
+
+
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON value: {value}")
 
 
 def _utc_now() -> str:
@@ -37,6 +43,20 @@ def _clean_content(value: Any) -> str:
     if len(text) > _MAX_CONTENT_CHARS:
         return text[:_MAX_CONTENT_CHARS]
     return text
+
+
+def _validate_evidence(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or not value:
+        return None
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    if len(encoded) > _MAX_EVIDENCE_BYTES:
+        raise ValueError("chat history evidence is too large")
+    return value
 
 
 class ChatHistoryStore:
@@ -65,6 +85,7 @@ class ChatHistoryStore:
     ) -> list[dict[str, Any]]:
         user_text = _clean_content(user_content)
         assistant_text = _clean_content(assistant_content)
+        safe_evidence = _validate_evidence(evidence)
         if not user_text and not assistant_text:
             return self.list_messages(session_id=session_id)
 
@@ -88,8 +109,8 @@ class ChatHistoryStore:
                 "status": "done",
                 "created_at": now,
             }
-            if isinstance(evidence, dict) and evidence:
-                assistant["evidence"] = evidence
+            if safe_evidence is not None:
+                assistant["evidence"] = safe_evidence
             additions.append(assistant)
 
         with _STORE_LOCK:
@@ -122,7 +143,12 @@ class ChatHistoryStore:
         if not path.exists():
             return {"session_id": session_id, "messages": []}
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            if path.stat().st_size > _MAX_HISTORY_FILE_BYTES:
+                raise ValueError("chat history file is too large")
+            data = json.loads(
+                path.read_text(encoding="utf-8"),
+                parse_constant=_reject_non_finite_json,
+            )
             if not isinstance(data, dict):
                 raise ValueError("chat history payload must be a JSON object")
             messages = data.get("messages", [])
@@ -147,7 +173,10 @@ class ChatHistoryStore:
         self.storage_path.mkdir(parents=True, exist_ok=True)
         path = self._path_for_session(session_id)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False),
+            encoding="utf-8",
+        )
         tmp.replace(path)
 
     @staticmethod

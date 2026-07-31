@@ -161,6 +161,44 @@ def test_export_pdf_allowed_for_pro_user(tmp_path, monkeypatch):
             assert resp.json().get("detail", {}).get("code") != "plan_feature_required"
 
 
+def test_subscribe_enforces_free_plan_alert_quota(tmp_path, monkeypatch):
+    _configure_storage(tmp_path)
+    monkeypatch.setenv("DEV_MODE", "true")
+
+    from backend.api import main as main_module
+    from backend.security.auth import Principal
+    from backend.services import subscription_service as subs
+    from backend.services.entitlements import get_entitlements_service
+
+    email = "free-alerts@example.invalid"
+    get_entitlements_service().set_plan("free_alerts", "free")
+    fake_principal = Principal(user_id="free_alerts", email=email, role="user", auth_type="dev")
+    monkeypatch.setattr(main_module, "dev_principal", lambda: fake_principal)
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    subs._subscription_service = None
+    service = subs.get_subscription_service()
+    for ticker in ("AAPL", "MSFT", "NVDA"):
+        assert service.subscribe(email, ticker) is True
+
+    from backend.api.main import app
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/subscribe",
+                json={"email": email, "ticker": "TSLA", "alert_types": ["news"]},
+            )
+    finally:
+        subs._subscription_service = None
+
+    assert response.status_code == 429
+    detail = response.json()["detail"]
+    assert detail["code"] == "plan_quota_exceeded"
+    assert detail["quota"] == "max_alerts"
+    assert detail["limit"] == 3
+    assert detail["current"] == 3
+
+
 def test_chat_supervisor_investment_report_blocked_for_free(tmp_path, monkeypatch):
     """Free plan cannot generate investment_report via /chat/supervisor."""
     _configure_storage(tmp_path)

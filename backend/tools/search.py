@@ -4,12 +4,14 @@ import re
 import time
 from typing import List
 
+from backend.utils.env_config import env_int
+
 from .env import EXA_API_KEY, TAVILY_API_KEY
 from .utils import _normalize_published_date
 
 logger = logging.getLogger(__name__)
 
-_SEARCH_QUOTA_COOLDOWN_SECONDS = int(os.getenv("SEARCH_QUOTA_COOLDOWN_SECONDS", "1800"))
+_SEARCH_QUOTA_COOLDOWN_SECONDS = env_int("SEARCH_QUOTA_COOLDOWN_SECONDS", 1800, minimum=0)
 _EXA_QUOTA_BLOCKED_UNTIL = 0.0
 _TAVILY_QUOTA_BLOCKED_UNTIL = 0.0
 
@@ -92,7 +94,7 @@ def search(query: str) -> str:
         try:
             exa_result = _search_with_exa(query)
             if exa_result and len(exa_result) > 200:  # 确保结果足够长
-                logger.info(f"[Search] ✅ Exa 搜索成功: {query[:50]}...")
+                logger.info("[Search] Exa 搜索成功: query_chars=%s", len(query or ""))
                 # 检查信息充足性 (简单启发式)
                 # 如果是深度查询，且 Exa 返回了丰富内容，直接返回
                 if len(exa_result) > 1000:
@@ -118,7 +120,7 @@ def search(query: str) -> str:
                     "[Search] Exa quota exhausted, disable for %ss",
                     max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS),
                 )
-            logger.info(f"[Search] Exa 搜索失败: {error_msg}")
+            logger.info("[Search] Exa 搜索失败: %s", type(e).__name__)
 
     # 1.尝试 Tavily Search (AI搜索)
     # 如果 Exa 失败或结果不足，尝试 Tavily
@@ -131,7 +133,7 @@ def search(query: str) -> str:
                     'content': tavily_result
                 })
                 sources_used.append('Tavily')
-                logger.info(f"[Search] ✅ Tavily 搜索成功: {query[:50]}...")
+                logger.info("[Search] Tavily 搜索成功: query_chars=%s", len(query or ""))
 
                 # 如果已有两个高质量源，停止搜索
                 if len(sources_used) >= 2:
@@ -147,7 +149,7 @@ def search(query: str) -> str:
                     max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS),
                 )
             # 忽略 Tavily 错误，继续尝试下一个源
-            logger.info(f"[Search] Tavily 搜索失败: {error_msg}")
+            logger.info("[Search] Tavily 搜索失败: %s", type(e).__name__)
 
     # 2. 尝试维基百科（仅用于非金融查询）
     query_lower = query.lower()
@@ -170,9 +172,9 @@ def search(query: str) -> str:
                     'content': wiki_result
                 })
                 sources_used.append('Wikipedia')
-                logger.info(f"[Search] ✅ 维基百科获取信息成功: {query[:50]}...")
+                logger.info("[Search] 维基百科获取信息成功: query_chars=%s", len(query or ""))
         except Exception as e:
-            logger.info(f"[Search] 维基百科搜索失败: {e}")
+            logger.info("[Search] 维基百科搜索失败: %s", type(e).__name__)
 
     # 3. 尝试 DuckDuckGo (最后兜底)
     # 如果之前所有尝试都失败，或者结果太少
@@ -185,9 +187,9 @@ def search(query: str) -> str:
                     'content': ddgs_result
                 })
                 sources_used.append('DuckDuckGo')
-                logger.info(f"[Search] ✅ DuckDuckGo 搜索成功: {query[:50]}...")
+                logger.info("[Search] DuckDuckGo 搜索成功: query_chars=%s", len(query or ""))
         except Exception as e:
-            logger.info(f"[Search] DuckDuckGo 搜索失败: {e}")
+            logger.info("[Search] DuckDuckGo 搜索失败: %s", type(e).__name__)
 
     # 4. 合并所有结果
     if not all_results:
@@ -392,7 +394,7 @@ def _search_with_wikipedia(query: str) -> str:
             except wikipedia.exceptions.PageError:
                 continue
             except Exception as e:
-                logger.info(f"[Search] 维基百科获取页面 {page_title} 失败: {e}")
+                logger.info("[Search] 维基百科获取页面 %s 失败: %s", page_title, type(e).__name__)
                 continue
         
         # 如果没找到相关结果，使用第一个搜索结果
@@ -424,7 +426,7 @@ URL: {best_result['url']}"""
         return None
             
     except Exception as e:
-        logger.info(f"[Search] 维基百科搜索出错: {e}")
+        logger.info("[Search] 维基百科搜索出错: %s", type(e).__name__)
         return None
 
 
@@ -486,13 +488,13 @@ def _search_with_tavily(query: str) -> str:
     except Exception as e:
         error_msg = str(e) if e else "未知错误"
         error_type = type(e).__name__
-        logger.info(f"[Search] Tavily API 错误 ({error_type}): {error_msg}")
+        logger.info("[Search] Tavily API 错误: %s", error_type)
 
         # 如果是 API key 相关错误，给出更明确的提示
         if "api" in error_msg.lower() or "key" in error_msg.lower() or "auth" in error_msg.lower():
             logger.info(f"[Search] 提示: 请检查 TAVILY_API_KEY 是否正确配置")
 
-        raise Exception(f"Tavily API 错误: {error_msg}")
+        raise RuntimeError("Tavily search failed") from e
 
 
 
@@ -560,7 +562,7 @@ def _search_with_exa(query: str) -> str:
             return None
 
     except Exception as e:
-        raise Exception(f"Exa search failed: {str(e)}")
+        raise RuntimeError("Exa search failed") from e
 
 # ============================================
 # 股价获取 - 多数据源策略

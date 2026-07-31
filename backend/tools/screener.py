@@ -812,7 +812,7 @@ def _alpha_vantage_screen_stocks(
             "capability_note": "当前使用 Alpha Vantage 免费热门榜，因为配置的 FMP key 不支持批量筛选接口。",
         }
     except Exception as exc:
-        logger.info("Alpha Vantage top movers fallback failed: %s", exc)
+        logger.info("Alpha Vantage top movers fallback failed: %s", type(exc).__name__)
         return None
 
 
@@ -897,7 +897,7 @@ def _yfinance_popular_stocks(
             ),
         }
     except Exception as exc:
-        logger.warning("yfinance popular stocks failed: %s", exc)
+        logger.warning("yfinance popular stocks failed: %s", type(exc).__name__)
         items = _sort_screener_items(_static_fallback_items(market_norm, filters), sort_by, sort_order)
         if items:
             sliced = items[:limit]
@@ -918,7 +918,7 @@ def _yfinance_popular_stocks(
             "market": market,
             "items": [],
             "count": 0,
-            "error": f"yfinance_fallback_failed: {exc}",
+            "error": "yfinance_fallback_failed",
             "source": "yfinance_popular",
         }
 
@@ -1313,7 +1313,10 @@ def screen_stocks(
             "capability_note": capability_note,
         }
     except Exception as exc:
-        logger.warning("screen_stocks FMP failed: %s, trying free-source fallback", exc)
+        logger.warning(
+            "screen_stocks FMP failed: %s, trying free-source fallback",
+            type(exc).__name__,
+        )
         return _with_fmp_fallback_note(_yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir))
 
 

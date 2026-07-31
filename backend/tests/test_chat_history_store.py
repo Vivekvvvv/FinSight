@@ -72,6 +72,7 @@ def test_chat_history_store_avoids_sanitized_name_collisions(tmp_path):
         ("{invalid json", "JSONDecodeError"),
         ('{"messages": "not-a-list"}', "ValueError"),
         ('{"messages": ["not-an-object"]}', "ValueError"),
+        ('{"messages": [], "score": NaN}', "ValueError"),
     ],
 )
 def test_chat_history_store_backs_up_corrupt_payload_before_recovery(
@@ -99,6 +100,61 @@ def test_chat_history_store_backs_up_corrupt_payload_before_recovery(
     )
     assert path.exists()
     assert backups[0].read_text(encoding="utf-8") == corrupt_payload
+
+
+def test_chat_history_store_backs_up_oversized_file_before_parsing(
+    tmp_path, monkeypatch
+):
+    import backend.services.chat_history as chat_history
+
+    monkeypatch.setattr(chat_history, "_MAX_HISTORY_FILE_BYTES", 32)
+    store = ChatHistoryStore(storage_path=tmp_path)
+    session_id = "tenant:user:oversized"
+    path = store._path_for_session(session_id)
+    payload = '{"messages":[],"padding":"' + ("x" * 64) + '"}'
+    path.write_text(payload, encoding="utf-8")
+
+    assert store.list_messages(session_id=session_id) == []
+    assert not path.exists()
+    backups = list(tmp_path.glob("*.corrupt"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == payload
+
+
+def test_chat_history_store_rejects_non_finite_evidence(tmp_path):
+    store = ChatHistoryStore(storage_path=tmp_path)
+    session_id = "tenant:user:non-finite"
+
+    with pytest.raises(ValueError, match="Out of range float values"):
+        store.append_turn(
+            session_id=session_id,
+            user_content="question",
+            assistant_content="answer",
+            evidence={"score": float("nan")},
+        )
+
+    assert not store._path_for_session(session_id).exists()
+
+
+@pytest.mark.parametrize(
+    ("evidence", "message"),
+    [
+        ({"blob": "x" * (64 * 1024)}, "evidence is too large"),
+        ({"unsupported": object()}, "is not JSON serializable"),
+    ],
+)
+def test_chat_history_store_rejects_invalid_evidence(tmp_path, evidence, message):
+    store = ChatHistoryStore(storage_path=tmp_path)
+
+    with pytest.raises((TypeError, ValueError), match=message):
+        store.append_turn(
+            session_id="tenant:user:invalid-evidence",
+            user_content="question",
+            assistant_content="answer",
+            evidence=evidence,
+        )
+
+    assert not store._path_for_session("tenant:user:invalid-evidence").exists()
 
 
 def test_chat_history_store_instances_share_read_modify_write_lock(tmp_path, monkeypatch):

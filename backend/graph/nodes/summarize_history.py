@@ -25,14 +25,15 @@ from langchain_core.messages import (
 )
 
 from backend.graph.state import GraphState
+from backend.utils.env_config import env_int
 
 logger = logging.getLogger(__name__)
 
 # Trigger summarization when messages exceed this count
-_SUMMARIZE_THRESHOLD = int(os.getenv("LANGGRAPH_SUMMARIZE_THRESHOLD", "12"))
+_SUMMARIZE_THRESHOLD = env_int("LANGGRAPH_SUMMARIZE_THRESHOLD", 12, minimum=1)
 
 # Number of recent messages to always keep (3 turns = 6 messages)
-_KEEP_RECENT_COUNT = int(os.getenv("LANGGRAPH_SUMMARIZE_KEEP_RECENT", "6"))
+_KEEP_RECENT_COUNT = env_int("LANGGRAPH_SUMMARIZE_KEEP_RECENT", 6, minimum=0)
 
 
 def _extract_summary_from_messages(messages: list) -> str:

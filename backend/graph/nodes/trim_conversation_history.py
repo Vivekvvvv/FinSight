@@ -19,12 +19,13 @@ import os
 from langchain_core.messages import RemoveMessage, trim_messages
 
 from backend.graph.state import GraphState
+from backend.utils.env_config import env_int
 
 logger = logging.getLogger(__name__)
 
 # Default max tokens for conversation history in state.
 # ~8k tokens ≈ 6-8 full conversation rounds.
-_DEFAULT_MAX_HISTORY_TOKENS = int(os.getenv("LANGGRAPH_MAX_HISTORY_TOKENS", "8000"))
+_DEFAULT_MAX_HISTORY_TOKENS = env_int("LANGGRAPH_MAX_HISTORY_TOKENS", 8000, minimum=1)
 
 
 def _token_counter(messages: list) -> int:

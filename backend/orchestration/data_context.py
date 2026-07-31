@@ -9,11 +9,23 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+import math
 import os
 import re
 
 
-DEFAULT_MAX_SKEW_HOURS = float(os.getenv("DATA_CONTEXT_MAX_SKEW_HOURS", "24"))
+def _nonnegative_finite_float(value: object, default: float) -> float:
+    try:
+        parsed = float(value)
+    except Exception:
+        return default
+    return parsed if math.isfinite(parsed) and parsed >= 0 else default
+
+
+DEFAULT_MAX_SKEW_HOURS = _nonnegative_finite_float(
+    os.getenv("DATA_CONTEXT_MAX_SKEW_HOURS", "24"),
+    24.0,
+)
 
 
 def _parse_iso(value: Any) -> Optional[datetime]:
@@ -195,7 +207,10 @@ class DataContextSummary:
 class DataContextCollector:
     def __init__(self, max_skew_hours: Optional[float] = None):
         self.items: List[DataContextItem] = []
-        self.max_skew_hours = max_skew_hours if max_skew_hours is not None else DEFAULT_MAX_SKEW_HOURS
+        self.max_skew_hours = _nonnegative_finite_float(
+            max_skew_hours if max_skew_hours is not None else DEFAULT_MAX_SKEW_HOURS,
+            DEFAULT_MAX_SKEW_HOURS,
+        )
 
     def add(
         self,

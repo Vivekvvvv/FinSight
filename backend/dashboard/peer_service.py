@@ -68,7 +68,7 @@ def _finnhub_request(path: str, params: Optional[dict[str, Any]] = None) -> Any 
             return None
         return payload
     except Exception as exc:
-        logger.info("[PeerService] Finnhub request failed for %s: %s", path, exc)
+        logger.info("[PeerService] Finnhub request failed for %s: %s", path, type(exc).__name__)
         return None
 
 
@@ -156,7 +156,7 @@ def _fetch_single_peer_metrics_from_cn_hk(sym: str) -> dict[str, Any] | None:
             return None
         return result
     except Exception as exc:
-        logger.info("[PeerService] CN/HK metrics fetch failed for %s: %s", sym, exc)
+        logger.info("[PeerService] CN/HK metrics fetch failed for %s: %s", sym, type(exc).__name__)
         return None
 
 
@@ -187,7 +187,7 @@ def resolve_peers(symbol: str, limit: int = 6) -> list[str]:
         industry = info.get("industry", "") or ""
         sector = info.get("sector", "") or ""
     except Exception as exc:
-        logger.info("[PeerService] yfinance info failed for %s: %s", symbol, exc)
+        logger.info("[PeerService] yfinance info failed for %s: %s", symbol, type(exc).__name__)
 
     # Try FMP stock screener with matching industry (best-effort)
     peers: list[str] = []
@@ -211,7 +211,7 @@ def resolve_peers(symbol: str, limit: int = 6) -> list[str]:
                     if len(peers) >= limit:
                         break
         except Exception as exc:
-            logger.info("[PeerService] FMP screener failed: %s", exc)
+            logger.info("[PeerService] FMP screener failed: %s", type(exc).__name__)
 
     # Fallback to hardcoded sector map
     if not peers:
@@ -266,7 +266,7 @@ def _fetch_single_peer_metrics(sym: str) -> dict[str, Any]:
         if _has_peer_metrics(yfinance_result):
             return yfinance_result
     except Exception as exc:
-        logger.info("[PeerService] metrics fetch failed for %s: %s", sym, exc)
+        logger.info("[PeerService] metrics fetch failed for %s: %s", sym, type(exc).__name__)
 
     finnhub_result = _fetch_single_peer_metrics_from_finnhub(sym)
     if finnhub_result:
@@ -310,7 +310,7 @@ def fetch_peer_comparison(
                         if isinstance(result, dict):
                             results_by_symbol[sym] = result
                     except Exception as exc:
-                        logger.info("[PeerService] peer %s failed: %s", sym, exc)
+                        logger.info("[PeerService] peer %s failed: %s", sym, type(exc).__name__)
             except FuturesTimeout:
                 logger.info("[PeerService] global timeout while fetching peers for %s", symbol)
 
@@ -323,5 +323,5 @@ def fetch_peer_comparison(
         has_any_metric = any(_has_peer_metrics(row) for row in results if isinstance(row, dict))
         return payload if has_any_metric else None
     except Exception as exc:
-        logger.info("[PeerService] fetch_peer_comparison failed for %s: %s", symbol, exc)
+        logger.info("[PeerService] fetch_peer_comparison failed for %s: %s", symbol, type(exc).__name__)
         return None

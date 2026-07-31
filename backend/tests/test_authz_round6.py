@@ -72,6 +72,27 @@ def test_a7_what_changed_rejects_forged_user_id_with_valid_session(monkeypatch):
     assert resp.status_code == 403
 
 
+def test_what_changed_rejects_oversized_symbol_before_aggregation(monkeypatch):
+    from backend.api import what_changed_router
+
+    calls = []
+
+    def fake_get_what_changed(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(what_changed_router.what_changed, "get_what_changed", fake_get_what_changed)
+    with _client(monkeypatch) as client:
+        response = client.get(
+            "/api/what-changed",
+            params={"session_id": "private:alice:default", "symbol": "A" * 33},
+            headers=_KEY,
+        )
+
+    assert response.status_code == 422
+    assert calls == []
+
+
 def test_research_quality_rejects_forged_user_id_with_valid_session(monkeypatch):
     with _client(monkeypatch) as client:
         resp = client.get(
@@ -107,6 +128,31 @@ def test_research_quality_default_user_uses_authenticated_principal(monkeypatch)
 
     assert resp.status_code == 200
     assert captured["user_id"] == "alice"
+
+
+def test_research_quality_rejects_oversized_symbol_before_service(monkeypatch):
+    from backend.api import research_quality_router
+
+    calls = []
+
+    def fake_get_research_quality(**kwargs):
+        calls.append(kwargs)
+        return {"success": True}
+
+    monkeypatch.setattr(
+        research_quality_router.research_quality,
+        "get_research_quality",
+        fake_get_research_quality,
+    )
+    with _client(monkeypatch) as client:
+        response = client.get(
+            "/api/research-quality",
+            params={"session_id": "private:alice:default", "symbol": "A" * 33},
+            headers=_KEY,
+        )
+
+    assert response.status_code == 422
+    assert calls == []
 
 
 def test_a6_today_rejects_forged_session_id(monkeypatch):

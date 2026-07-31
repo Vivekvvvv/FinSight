@@ -5,13 +5,14 @@ PDF 导出服务
 """
 
 import logging
+from html import escape
 
 logger = logging.getLogger(__name__)
 
 # -*- coding: utf-8 -*-
 
 
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
 import io
@@ -29,6 +30,10 @@ try:
 except ImportError:
     REPORTLAB_AVAILABLE = False
     logger.info("⚠️  reportlab 未安装，PDF 导出功能将不可用。运行: pip install reportlab")
+
+
+def _escape_paragraph_text(value: Any) -> str:
+    return escape(str(value or ""))
 
 
 class PDFExportService:
@@ -87,7 +92,7 @@ class PDFExportService:
                         font_registered = True
                         break
                     except Exception as e:
-                        logger.info(f"[PDF] 注册字体失败 {font_path}: {e}")
+                        logger.info("[PDF] 注册字体失败 %s: %s", font_path, type(e).__name__)
                         continue
             
             if not font_registered:
@@ -98,7 +103,7 @@ class PDFExportService:
                 self.chinese_font = 'ChineseFont'
                 
         except Exception as e:
-            logger.info(f"[PDF] 字体注册过程出错: {e}")
+            logger.info("[PDF] 字体注册过程出错: %s", type(e).__name__)
             self.chinese_font = 'Helvetica'  # 回退到默认字体
     
     def _setup_custom_styles(self):
@@ -184,7 +189,7 @@ class PDFExportService:
         story = []
         
         # 标题
-        story.append(Paragraph(title, self.styles['CustomTitle']))
+        story.append(Paragraph(_escape_paragraph_text(title), self.styles['CustomTitle']))
         story.append(Spacer(1, 0.2*inch))
         
         # 导出时间
@@ -206,18 +211,18 @@ class PDFExportService:
                 role_label = "AI 助手"
                 style = self.styles['AIMessage']
             else:
-                role_label = role
+                role_label = str(role)
                 style = self.styles['Normal']
             
             # 消息头部
-            header = f"<b>{role_label}</b>"
+            header = f"<b>{_escape_paragraph_text(role_label)}</b>"
             if timestamp:
-                header += f" <i>({timestamp})</i>"
+                header += f" <i>({_escape_paragraph_text(timestamp)})</i>"
             story.append(Paragraph(header, self.styles['Normal']))
             story.append(Spacer(1, 0.1*inch))
             
             # 消息内容（处理换行和特殊字符）
-            content_escaped = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            content_escaped = _escape_paragraph_text(content)
             content_escaped = content_escaped.replace('\n', '<br/>')
             
             story.append(Paragraph(content_escaped, style))
@@ -263,7 +268,7 @@ class PDFExportService:
         story = []
         
         # 标题
-        story.append(Paragraph(title, self.styles['CustomTitle']))
+        story.append(Paragraph(_escape_paragraph_text(title), self.styles['CustomTitle']))
         story.append(Spacer(1, 0.2*inch))
         
         # 导出时间
@@ -284,16 +289,16 @@ class PDFExportService:
                 role_label = "AI 助手"
                 style = self.styles['AIMessage']
             else:
-                role_label = role
+                role_label = str(role)
                 style = self.styles['Normal']
             
-            header = f"<b>{role_label}</b>"
+            header = f"<b>{_escape_paragraph_text(role_label)}</b>"
             if timestamp:
-                header += f" <i>({timestamp})</i>"
+                header += f" <i>({_escape_paragraph_text(timestamp)})</i>"
             story.append(Paragraph(header, self.styles['Normal']))
             story.append(Spacer(1, 0.1*inch))
             
-            content_escaped = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            content_escaped = _escape_paragraph_text(content)
             content_escaped = content_escaped.replace('\n', '<br/>')
             story.append(Paragraph(content_escaped, style))
             story.append(Spacer(1, 0.2*inch))
@@ -308,7 +313,12 @@ class PDFExportService:
                 ticker = chart.get('ticker', 'Unknown')
                 chart_type = chart.get('chart_type', 'Unknown')
                 
-                story.append(Paragraph(f"<b>{ticker} - {chart_type}</b>", self.styles['Normal']))
+                story.append(
+                    Paragraph(
+                        f"<b>{_escape_paragraph_text(ticker)} - {_escape_paragraph_text(chart_type)}</b>",
+                        self.styles['Normal'],
+                    )
+                )
                 story.append(Spacer(1, 0.1*inch))
                 
                 # 如果有图片路径，尝试添加图片
@@ -318,7 +328,7 @@ class PDFExportService:
                         img = Image(image_path, width=6*inch, height=4*inch)
                         story.append(img)
                     except Exception as e:
-                        story.append(Paragraph(f"[图表图片加载失败: {e}]", self.styles['Normal']))
+                        story.append(Paragraph("[图表图片加载失败]", self.styles['Normal']))
                 else:
                     story.append(Paragraph("[图表数据]", self.styles['Normal']))
                 

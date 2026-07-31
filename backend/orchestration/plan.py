@@ -279,12 +279,12 @@ class PlanExecutor:
                     return result
                 except BudgetExceededError as exc:
                     step.status = "failed"
-                    step.error = str(exc)
+                    step.error = type(exc).__name__
                     raise
                 except asyncio.TimeoutError as exc:
                     step.error = f"timeout:{step.timeout_seconds}s"
                 except Exception as exc:  # pragma: no cover - defensive
-                    step.error = str(exc)
+                    step.error = type(exc).__name__
 
                 attempt += 1
                 if attempt > step.max_retries:
@@ -318,8 +318,8 @@ class PlanExecutor:
             self._consume_round("forum")
         except BudgetExceededError as exc:
             step.status = "failed"
-            step.error = str(exc)
-            self._emit_event(on_event, trace, step, "step_error", {"error": str(exc)})
+            step.error = type(exc).__name__
+            self._emit_event(on_event, trace, step, "step_error", {"error": step.error})
             raise
 
         step.status = "running"
@@ -352,11 +352,9 @@ class PlanExecutor:
             logger.error("[PlanExecutor._run_forum_step] Timeout after %s seconds", step.timeout_seconds)
             raise RuntimeError(step.error) from exc
         except Exception as exc:  # pragma: no cover - defensive
-            import traceback
             step.status = "failed"
-            step.error = str(exc)
-            logger.error("[PlanExecutor._run_forum_step] Exception: %s: %s", type(exc).__name__, str(exc))
-            logger.error("[PlanExecutor._run_forum_step] Traceback:\n%s", traceback.format_exc())
+            step.error = type(exc).__name__
+            logger.error("[PlanExecutor._run_forum_step] Exception: %s", type(exc).__name__)
             raise
         finally:
             step.finished_at = _now_iso()
@@ -439,10 +437,11 @@ class PlanExecutor:
                         agent_outputs[step.agent_name] = result
                     completed.add(step_id)
                 except Exception as exc:
+                    safe_error = step.error or type(exc).__name__
                     if step.agent_name:
-                        _record_error(step, f"{step.agent_name}:{exc}")
+                        _record_error(step, f"{step.agent_name}:{safe_error}")
                     else:
-                        _record_error(step, str(exc))
+                        _record_error(step, safe_error)
                     failed.add(step_id)
                 running.pop(step_id, None)
 
@@ -459,13 +458,10 @@ class PlanExecutor:
                 )
             except Exception as exc:
                 import logging
-                import traceback
                 logger = logging.getLogger(__name__)
                 logger.error("[PlanExecutor] Forum step failed!")
                 logger.error("[PlanExecutor] Exception type: %s", type(exc).__name__)
-                logger.error("[PlanExecutor] Exception message: %s", str(exc))
-                logger.error("[PlanExecutor] Full traceback:\n%s", traceback.format_exc())
-                _record_error(step, str(exc))
+                _record_error(step, step.error or type(exc).__name__)
 
         return {
             "plan": plan.to_dict(),

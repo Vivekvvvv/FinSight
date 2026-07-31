@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 
 from backend.graph.capability_registry import REPORT_AGENT_CANDIDATES
 from backend.security.auth import Principal, get_current_user, require_matching_identity
@@ -86,7 +87,10 @@ def create_agent_router(deps: AgentRouterDeps) -> APIRouter:
         current_user: Principal = Depends(get_current_user),
     ):
         if not deps.memory_service:
-            return {"success": False, "error": "MemoryService not initialized"}
+            return JSONResponse(
+                status_code=503,
+                content={"success": False, "error": "MemoryService not initialized"},
+            )
 
         try:
             require_matching_identity(
@@ -104,7 +108,10 @@ def create_agent_router(deps: AgentRouterDeps) -> APIRouter:
             raise
         except Exception as exc:
             _log_error("agent preferences load failed", exc)
-            return {"success": False, "error": "Internal server error"}
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "Internal server error"},
+            )
 
     @router.put("/api/agents/preferences")
     async def update_agent_preferences(
@@ -112,7 +119,10 @@ def create_agent_router(deps: AgentRouterDeps) -> APIRouter:
         current_user: Principal = Depends(get_current_user),
     ):
         if not deps.memory_service:
-            return {"success": False, "error": "MemoryService not initialized"}
+            return JSONResponse(
+                status_code=503,
+                content={"success": False, "error": "MemoryService not initialized"},
+            )
 
         try:
             user_id = str(request.get("user_id") or "default_user").strip() or "default_user"
@@ -135,6 +145,9 @@ def create_agent_router(deps: AgentRouterDeps) -> APIRouter:
             raise
         except Exception as exc:
             _log_error("agent preferences save failed", exc)
-            return {"success": False, "error": "Internal server error"}
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "Internal server error"},
+            )
 
     return router

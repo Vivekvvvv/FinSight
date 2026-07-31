@@ -37,6 +37,7 @@ from backend.dashboard.insights_prompts import (
     build_technical_prompt,
 )
 from backend.dashboard.insights_scorer import (
+    _clip_contribution,
     clamp_score,
     score_financial,
     score_news,
@@ -162,6 +163,14 @@ class TestClampScore:
 
     def test_clamp_boundary_max(self):
         assert clamp_score(10.0) == 10.0
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "bad"])
+    def test_clamp_non_finite_or_invalid_is_neutral(self, value):
+        assert clamp_score(value) == 5.0
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "bad"])
+    def test_contribution_non_finite_or_invalid_is_neutral(self, value):
+        assert _clip_contribution(value) == 0.0
 
 
 class TestScoreTechnical:
@@ -397,6 +406,23 @@ class TestPrompts:
 class TestDigestAgent:
     """Tests for DigestAgent base class via TechnicalDigest."""
 
+    def test_llm_initialization_error_log_is_redacted(self, monkeypatch, caplog):
+        import backend.dashboard.scorers as scorers
+        import backend.llm_config as llm_config
+
+        secret = "PRIVATE postgres://insights:secret@db/llm"
+        monkeypatch.setattr(scorers, "_llm_instance", None)
+        monkeypatch.setattr(scorers, "_llm_init_attempted", False)
+        monkeypatch.setattr(
+            llm_config,
+            "create_llm",
+            lambda **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+        )
+
+        assert scorers._get_llm() is None
+        assert secret not in caplog.text
+        assert "RuntimeError" in caplog.text
+
     @pytest.mark.asyncio
     async def test_digest_llm_unavailable_uses_fallback(self):
         """When LLM is None, should use deterministic fallback."""
@@ -464,6 +490,20 @@ class TestDigestAgent:
         assert card.model_generated is False
 
     @pytest.mark.asyncio
+    async def test_digest_llm_error_log_is_redacted(self, caplog):
+        secret = "PRIVATE postgres://insights:secret@db/invoke"
+        agent = TechnicalDigest()
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke = AsyncMock(side_effect=RuntimeError(secret))
+
+        with patch("backend.dashboard.scorers._get_llm", return_value=mock_llm):
+            card = await agent.digest("AAPL", {"rsi": 55.0})
+
+        assert card.model_generated is False
+        assert secret not in caplog.text
+        assert "RuntimeError" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_digest_llm_returns_invalid_json(self):
         """When LLM returns invalid JSON, should fall back to deterministic."""
         agent = FinancialDigest()
@@ -478,6 +518,20 @@ class TestDigestAgent:
             card = await agent.digest("AAPL", data)
 
         assert card.model_generated is False
+
+    @pytest.mark.asyncio
+    async def test_digest_llm_rejects_non_finite_score(self):
+        agent = TechnicalDigest()
+        mock_llm = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.content = '{"score": NaN, "score_label": "strong"}'
+        mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+
+        with patch("backend.dashboard.scorers._get_llm", return_value=mock_llm):
+            card = await agent.digest("AAPL", {"rsi": 55.0})
+
+        assert card.model_generated is False
+        assert card.score != 10.0
 
     @pytest.mark.asyncio
     async def test_digest_llm_returns_markdown_fenced_json(self):
@@ -582,6 +636,31 @@ class TestInsightsOrchestrator:
         assert isinstance(response, DashboardInsightsResponse)
         assert response.insights == {}
         assert response.cached is False
+
+    @pytest.mark.asyncio
+    async def test_background_refresh_error_log_is_redacted(self, caplog):
+        secret = "PRIVATE postgres://insights:secret@db/cache"
+        orchestrator = InsightsOrchestrator(cache=DashboardCache())
+
+        with patch.object(orchestrator, "_generate_fresh", new=AsyncMock(side_effect=RuntimeError(secret))):
+            await orchestrator._refresh_in_background("AAPL")
+
+        assert secret not in caplog.text
+        assert "RuntimeError" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_hydration_fetch_error_log_is_redacted(self, caplog):
+        secret = "PRIVATE postgres://insights:secret@db/hydration"
+        orchestrator = InsightsOrchestrator(cache=DashboardCache())
+
+        def _fail(_symbol):
+            raise RuntimeError(secret)
+
+        result = await orchestrator._run_fetch_with_timeout("fetch_news", _fail, "AAPL", timeout=1.0)
+
+        assert result is None
+        assert secret not in caplog.text
+        assert "RuntimeError" in caplog.text
 
     @pytest.mark.asyncio
     async def test_generate_fresh_all_fallback(self):

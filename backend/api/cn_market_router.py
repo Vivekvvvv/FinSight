@@ -32,7 +32,7 @@ def cn_market_lhb(limit: int = Query(default=20, ge=1, le=100)):
 
 @cn_market_router.get("/api/cn/market/concept")
 def cn_market_concept(
-    keyword: str = Query(default="", description="概念关键字过滤"),
+    keyword: str = Query(default="", max_length=128, description="概念关键字过滤"),
     limit: int = Query(default=20, ge=1, le=200),
 ):
     return fetch_concept_map(keyword=keyword, limit=limit)

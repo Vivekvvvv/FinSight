@@ -728,7 +728,7 @@ def planner_stub(state: GraphState) -> dict:
                     "type": "stub",
                     "validated": False,
                     "fallback": True,
-                    "error": str(exc),
+                    "error": type(exc).__name__,
                 }
             }
         )

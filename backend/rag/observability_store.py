@@ -36,9 +36,14 @@ from backend.rag.observability_runtime import (
     _store_lock,
     _utc_now,
 )
+from backend.utils.env_config import env_int
 
 logger = logging.getLogger(__name__)
 _RAG_RAW_COLUMNS = {"query_text", "query_text_redacted", "content_raw", "chunk_text"}
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
 
 
 def _new_id(prefix: str) -> str:
@@ -61,13 +66,15 @@ def _sha256_text(value: str) -> str:
 
 
 def _json_loads(value: Any, default: Any) -> Any:
-    if isinstance(value, (dict, list)):
-        return value
     if value in (None, ""):
         return default
     try:
-        return json.loads(value)
-    except Exception:
+        if isinstance(value, (dict, list)):
+            json.dumps(value, allow_nan=False)
+            return value
+        return json.loads(value, parse_constant=_reject_json_constant)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("invalid stored RAG JSON (%s)", type(exc).__name__)
         return default
 
 
@@ -390,8 +397,12 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
         self._extended_schema_ready = False
         self._pending_lock = threading.Lock()
         self._pending_batches: dict[str, deque[PendingIngestBatch]] = defaultdict(deque)
-        self._pending_ttl_seconds = max(30, min(86400, int(os.getenv("RAG_OBSERVABILITY_PENDING_TTL_SECONDS", "900") or "900")))
-        self._pending_max_batches = max(1, min(500, int(os.getenv("RAG_OBSERVABILITY_PENDING_BATCHES", "20") or "20")))
+        self._pending_ttl_seconds = env_int(
+            "RAG_OBSERVABILITY_PENDING_TTL_SECONDS", 900, minimum=30, maximum=86400
+        )
+        self._pending_max_batches = env_int(
+            "RAG_OBSERVABILITY_PENDING_BATCHES", 20, minimum=1, maximum=500
+        )
 
     def ensure_schema(self) -> bool:
         super().ensure_schema()
@@ -731,10 +742,11 @@ class SQLRAGObservabilityStore(_RuntimeSQL):
             self.append_fallback_event(FallbackEventRecord(id=_new_id('fallback'), run_id=context.run.id, reason_code='rag_backend_fallback', reason_text=context.run.fallback_reason, backend_before=context.run.backend_requested, backend_after=context.run.backend_actual, payload_json={'collection': context.run.collection, 'query_preview': _truncate(context.run.query_text, 160)}, created_at=_utc_now()))
         latency_ms = max(0.0, (time.monotonic() - context.started_monotonic) * 1000.0)
         status = 'failed' if error else 'completed'
+        error_type = type(error).__name__ if error else None
         source_doc_count = max(len(context.source_doc_map), int(context.materialized_source_doc_count or 0))
         chunk_count = max(len(context.primary_chunk_map), int(context.materialized_chunk_count or 0))
-        self.update_query_run(context.run.id, source_doc_count=source_doc_count, chunk_count=chunk_count, retrieval_hit_count=len(hit_records), rerank_hit_count=0, fallback_reason=context.run.fallback_reason, status=status, error_message=str(error) if error else None, finished_at=_utc_now(), latency_ms=latency_ms)
-        self._append_event(context.run.id, 'search_failed' if error else 'search_completed', 'search', {'status': status, 'hit_count': len(hit_records), 'source_doc_count': source_doc_count, 'chunk_count': chunk_count, 'latency_ms': latency_ms, 'error': str(error) if error else None})
+        self.update_query_run(context.run.id, source_doc_count=source_doc_count, chunk_count=chunk_count, retrieval_hit_count=len(hit_records), rerank_hit_count=0, fallback_reason=context.run.fallback_reason, status=status, error_message=error_type, finished_at=_utc_now(), latency_ms=latency_ms)
+        self._append_event(context.run.id, 'search_failed' if error else 'search_completed', 'search', {'status': status, 'hit_count': len(hit_records), 'source_doc_count': source_doc_count, 'chunk_count': chunk_count, 'latency_ms': latency_ms, 'error': error_type})
         return {'id': context.run.id, 'status': status, 'hit_count': len(hit_records)}
 
     def _materialize_pending_batch(self, context: SearchRunContext) -> None:

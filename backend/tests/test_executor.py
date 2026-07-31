@@ -1,8 +1,19 @@
 # -*- coding: utf-8 -*-
 import asyncio
+import json
 import time
 
 from backend.graph.executor import execute_plan, group_steps_by_parallel_group
+from backend.graph.json_utils import json_dumps_safe
+
+
+def test_json_dumps_safe_replaces_non_finite_numbers():
+    payload = {"score": float("nan"), "values": [1.0, float("inf")]}
+
+    assert json.loads(json_dumps_safe(payload)) == {
+        "score": None,
+        "values": [1.0, None],
+    }
 
 
 def _run(coro):
@@ -81,6 +92,31 @@ def test_execute_plan_optional_failure_does_not_stop():
     assert "s1" == artifacts["errors"][0]["step_id"]
 
 
+def test_execute_plan_optional_failure_redacts_internal_error(caplog):
+    secret = "PRIVATE_EXECUTOR_STEP_ERROR_SENTINEL"
+
+    def fail_tool(_inputs):
+        raise RuntimeError(secret)
+
+    plan = {
+        "steps": [
+            {"id": "s1", "kind": "tool", "name": "fail", "inputs": {}, "optional": True},
+        ]
+    }
+
+    artifacts, events = _run(
+        execute_plan(plan, tool_invokers={"fail": fail_tool}, dry_run=False)
+    )
+
+    assert artifacts["errors"][0]["error"] == "step_failed"
+    assert artifacts["errors"][0]["error_type"] == "RuntimeError"
+    assert events[-1]["error"] == "step_failed"
+    assert secret not in str(artifacts)
+    assert secret not in str(events)
+    assert secret not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 def test_execute_plan_required_failure_stops_following_steps():
     calls = {"ok": 0}
 
@@ -99,6 +135,40 @@ def test_execute_plan_required_failure_stops_following_steps():
     assert calls["ok"] == 0
     assert len(artifacts.get("errors") or []) == 1
     assert "s1" == artifacts["errors"][0]["step_id"]
+
+
+def test_execute_plan_required_failure_redacts_pipeline_event(monkeypatch):
+    import backend.graph.executor as executor_module
+
+    secret = "PRIVATE_EXECUTOR_PIPELINE_ERROR_SENTINEL"
+    emitted = []
+
+    async def capture_event(event):
+        emitted.append(event)
+
+    def fail_tool(_inputs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(executor_module, "emit_event", capture_event)
+    plan = {
+        "steps": [
+            {"id": "s1", "kind": "tool", "name": "fail", "inputs": {}, "optional": False},
+        ]
+    }
+
+    artifacts, events = _run(
+        executor_module.execute_plan(plan, tool_invokers={"fail": fail_tool}, dry_run=False)
+    )
+
+    pipeline_error = next(
+        event
+        for event in emitted
+        if event.get("type") == "pipeline_stage" and event.get("status") == "error"
+    )
+    assert pipeline_error["error"] == "step_failed"
+    assert secret not in str(emitted)
+    assert secret not in str(artifacts)
+    assert secret not in str(events)
 
 
 def test_execute_plan_supports_llm_summarize_selection_in_live_mode():

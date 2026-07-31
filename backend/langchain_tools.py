@@ -295,7 +295,7 @@ def get_stock_price(ticker: str) -> str:
     try:
         return _get_stock_price(ticker)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_stock_price failed: {exc}"
+        return "get_stock_price failed"
 
 
 @tool("get_company_news", args_schema=StockTickerInput, return_direct=False)
@@ -308,7 +308,7 @@ def get_company_news(ticker: str) -> str:
             return json.dumps(news, ensure_ascii=False)
         return str(news)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_company_news failed: {exc}"
+        return "get_company_news failed"
 
 
 @tool("get_company_info", args_schema=StockTickerInput, return_direct=False)
@@ -318,7 +318,7 @@ def get_company_info(ticker: str) -> str:
     try:
         return _get_company_info(ticker)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_company_info failed: {exc}"
+        return "get_company_info failed"
 
 
 @tool("search", args_schema=SearchQueryInput, return_direct=False)
@@ -328,7 +328,7 @@ def search(query: str) -> str:
     try:
         return _search(query)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"search failed: {exc}"
+        return "search failed"
 
 
 @tool("get_market_sentiment", args_schema=EmptyInput, return_direct=False)
@@ -338,7 +338,7 @@ def get_market_sentiment() -> str:
     try:
         return _get_market_sentiment()
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_market_sentiment failed: {exc}"
+        return "get_market_sentiment failed"
 
 
 @tool("get_economic_events", args_schema=EmptyInput, return_direct=False)
@@ -348,7 +348,7 @@ def get_economic_events() -> str:
     try:
         return _get_economic_events()
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_economic_events failed: {exc}"
+        return "get_economic_events failed"
 
 
 @tool("get_official_macro_releases", args_schema=MacroOfficialInput, return_direct=False)
@@ -361,7 +361,7 @@ def get_official_macro_releases(query: str = "", max_results: int = 10) -> str:
         payload = _get_official_macro_releases(query=query, max_results=max_results)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_official_macro_releases failed: {exc}"
+        return "get_official_macro_releases failed"
 
 
 @tool("get_performance_comparison", args_schema=TickerComparisonInput, return_direct=False)
@@ -371,7 +371,7 @@ def get_performance_comparison(tickers: Dict[str, str]) -> str:
     try:
         return _get_performance_comparison(tickers)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_performance_comparison failed: {exc}"
+        return "get_performance_comparison failed"
 
 
 @tool("analyze_historical_drawdowns", args_schema=StockTickerInput, return_direct=False)
@@ -381,7 +381,7 @@ def analyze_historical_drawdowns(ticker: str) -> str:
     try:
         return _analyze_historical_drawdowns(ticker)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"analyze_historical_drawdowns failed: {exc}"
+        return "analyze_historical_drawdowns failed"
 
 
 @tool("get_technical_snapshot", args_schema=StockTickerInput, return_direct=False)
@@ -500,7 +500,7 @@ def get_technical_snapshot(ticker: str) -> str:
         }
         return json.dumps(payload, ensure_ascii=False)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_technical_snapshot failed: {exc}"
+        return "get_technical_snapshot failed"
 
 
 @tool("get_current_datetime", args_schema=EmptyInput, return_direct=False)
@@ -510,7 +510,7 @@ def get_current_datetime() -> str:
     try:
         return _get_current_datetime()
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_current_datetime failed: {exc}"
+        return "get_current_datetime failed"
 
 
 @tool("get_earnings_estimates", args_schema=StockTickerInput, return_direct=False)
@@ -523,7 +523,7 @@ def get_earnings_estimates(ticker: str) -> str:
         payload = _get_earnings_estimates(ticker)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_earnings_estimates failed: {exc}"
+        return "get_earnings_estimates failed"
 
 
 @tool("get_eps_revisions", args_schema=StockTickerInput, return_direct=False)
@@ -536,7 +536,7 @@ def get_eps_revisions(ticker: str) -> str:
         payload = _get_eps_revisions(ticker)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_eps_revisions failed: {exc}"
+        return "get_eps_revisions failed"
 
 
 @tool("get_option_chain_metrics", args_schema=OptionChainInput, return_direct=False)
@@ -549,7 +549,7 @@ def get_option_chain_metrics(ticker: str, expiry: Optional[str] = None) -> str:
         payload = _get_option_chain_metrics(ticker, expiry=expiry)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_option_chain_metrics failed: {exc}"
+        return "get_option_chain_metrics failed"
 
 
 @tool("get_factor_exposure", args_schema=FactorExposureInput, return_direct=False)
@@ -562,7 +562,7 @@ def get_factor_exposure(positions: list[dict[str, Any]], lookback_days: int = 25
         payload = _get_factor_exposure(positions, lookback_days=lookback_days)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_factor_exposure failed: {exc}"
+        return "get_factor_exposure failed"
 
 
 @tool("run_portfolio_stress_test", args_schema=StressTestInput, return_direct=False)
@@ -579,7 +579,7 @@ def run_portfolio_stress_test(
         payload = _run_portfolio_stress_test(positions, scenarios=scenarios, lookback_days=lookback_days)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"run_portfolio_stress_test failed: {exc}"
+        return "run_portfolio_stress_test failed"
 
 
 @tool("get_event_calendar", args_schema=EventCalendarInput, return_direct=False)
@@ -592,7 +592,7 @@ def get_event_calendar(ticker: str, days_ahead: int = 30) -> str:
         payload = _get_event_calendar(ticker, days_ahead=days_ahead)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_event_calendar failed: {exc}"
+        return "get_event_calendar failed"
 
 
 @tool("score_news_source_reliability", args_schema=SourceReliabilityInput, return_direct=False)
@@ -605,7 +605,7 @@ def score_news_source_reliability(source: str = "", url: str = "") -> str:
         payload = _score_news_source_reliability(source=source, url=url)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"score_news_source_reliability failed: {exc}"
+        return "score_news_source_reliability failed"
 
 
 @tool("get_authoritative_media_news", args_schema=AuthoritativeMediaInput, return_direct=False)
@@ -622,7 +622,7 @@ def get_authoritative_media_news(query: str, max_results: int = 8, authoritative
         )
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_authoritative_media_news failed: {exc}"
+        return "get_authoritative_media_news failed"
 
 
 @tool("get_earnings_call_transcripts", args_schema=EarningsTranscriptInput, return_direct=False)
@@ -635,7 +635,7 @@ def get_earnings_call_transcripts(ticker: str, limit: int = 6) -> str:
         payload = _get_earnings_call_transcripts(ticker=ticker, limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_earnings_call_transcripts failed: {exc}"
+        return "get_earnings_call_transcripts failed"
 
 
 @tool("get_local_market_filings", args_schema=LocalFilingsInput, return_direct=False)
@@ -648,7 +648,7 @@ def get_local_market_filings(ticker: str, limit: int = 8) -> str:
         payload = _get_local_market_filings(ticker=ticker, limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_local_market_filings failed: {exc}"
+        return "get_local_market_filings failed"
 
 
 @tool("get_sec_filings", args_schema=SecFilingsInput, return_direct=False)
@@ -661,7 +661,7 @@ def get_sec_filings(ticker: str, forms: str = "10-K,10-Q,8-K", limit: int = 12) 
         payload = _get_sec_filings(ticker=ticker, forms=forms, limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_sec_filings failed: {exc}"
+        return "get_sec_filings failed"
 
 
 @tool("get_sec_material_events", args_schema=SecMaterialEventsInput, return_direct=False)
@@ -674,7 +674,7 @@ def get_sec_material_events(ticker: str, limit: int = 10) -> str:
         payload = _get_sec_material_events(ticker=ticker, limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_sec_material_events failed: {exc}"
+        return "get_sec_material_events failed"
 
 
 @tool("get_sec_company_facts_quarterly", args_schema=SecCompanyFactsInput, return_direct=False)
@@ -687,7 +687,7 @@ def get_sec_company_facts_quarterly(ticker: str, limit: int = 8) -> str:
         payload = _get_sec_company_facts_quarterly(ticker=ticker, limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_sec_company_facts_quarterly failed: {exc}"
+        return "get_sec_company_facts_quarterly failed"
 
 
 @tool("get_sec_risk_factors", args_schema=StockTickerInput, return_direct=False)
@@ -700,7 +700,7 @@ def get_sec_risk_factors(ticker: str) -> str:
         payload = _get_sec_risk_factors(ticker=ticker)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover - runtime data issues
-        return f"get_sec_risk_factors failed: {exc}"
+        return "get_sec_risk_factors failed"
 
 
 @tool("screen_stocks", args_schema=ScreenerInput, return_direct=False)
@@ -727,7 +727,7 @@ def screen_stocks(
         )
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover
-        return f"screen_stocks failed: {exc}"
+        return "screen_stocks failed"
 
 
 @tool("get_cn_market_fund_flow", args_schema=CNMarketInput, return_direct=False)
@@ -740,7 +740,7 @@ def get_cn_market_fund_flow(limit: int = 20, keyword: str = "") -> str:
         payload = _fetch_fund_flow(limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover
-        return f"get_cn_market_fund_flow failed: {exc}"
+        return "get_cn_market_fund_flow failed"
 
 
 @tool("get_cn_market_northbound", args_schema=CNMarketInput, return_direct=False)
@@ -753,7 +753,7 @@ def get_cn_market_northbound(limit: int = 20, keyword: str = "") -> str:
         payload = _fetch_northbound(limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover
-        return f"get_cn_market_northbound failed: {exc}"
+        return "get_cn_market_northbound failed"
 
 
 @tool("get_cn_limit_board", args_schema=CNMarketInput, return_direct=False)
@@ -766,7 +766,7 @@ def get_cn_limit_board(limit: int = 20, keyword: str = "") -> str:
         payload = _fetch_limit_board(limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover
-        return f"get_cn_limit_board failed: {exc}"
+        return "get_cn_limit_board failed"
 
 
 @tool("get_cn_lhb", args_schema=CNMarketInput, return_direct=False)
@@ -779,7 +779,7 @@ def get_cn_lhb(limit: int = 20, keyword: str = "") -> str:
         payload = _fetch_lhb(limit=limit)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover
-        return f"get_cn_lhb failed: {exc}"
+        return "get_cn_lhb failed"
 
 
 @tool("get_cn_concept_map", args_schema=CNMarketInput, return_direct=False)
@@ -792,7 +792,7 @@ def get_cn_concept_map(limit: int = 20, keyword: str = "") -> str:
         payload = _fetch_concept_map(limit=limit, keyword=keyword)
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover
-        return f"get_cn_concept_map failed: {exc}"
+        return "get_cn_concept_map failed"
 
 
 @tool("run_strategy_backtest", args_schema=BacktestInput, return_direct=False)
@@ -828,7 +828,7 @@ def run_strategy_backtest(
         )
         return json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else str(payload)
     except Exception as exc:  # pragma: no cover
-        return f"run_strategy_backtest failed: {exc}"
+        return "run_strategy_backtest failed"
 
 
 # ============================================

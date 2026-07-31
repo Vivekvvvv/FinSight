@@ -94,3 +94,42 @@ def test_get_financial_statements_returns_error_when_all_sources_fail(monkeypatc
     assert isinstance(result, dict)
     assert result.get("source") != "sec_companyfacts"
     assert isinstance(result.get("error"), str) and result.get("error")
+
+
+def test_get_financial_statements_redacts_top_level_exception(monkeypatch, caplog):
+    sentinel = "PRIVATE_FINANCIAL_PROVIDER_DETAIL"
+
+    class FailingTicker:
+        def __init__(self, _ticker: str):
+            raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(financial, "yf", types.SimpleNamespace(Ticker=FailingTicker))
+    monkeypatch.setattr(financial, "_fetch_financials_from_sec_companyfacts", lambda _ticker: None)
+
+    result = financial.get_financial_statements("MSFT")
+
+    assert result["error"] == "获取财报数据失败"
+    assert result["warnings"] == ["RuntimeError"]
+    assert sentinel not in str(result)
+    assert sentinel not in caplog.text
+
+
+def test_get_financial_statements_redacts_partial_table_warnings(monkeypatch, caplog):
+    sentinel = "PRIVATE_FINANCIAL_TABLE_DETAIL"
+
+    class FailingTicker:
+        def __init__(self, _ticker: str):
+            pass
+
+        def __getattr__(self, _name):
+            raise RuntimeError(sentinel)
+
+    monkeypatch.setattr(financial, "yf", types.SimpleNamespace(Ticker=FailingTicker))
+    monkeypatch.setattr(financial, "_fetch_financials_from_sec_companyfacts", lambda _ticker: None)
+
+    result = financial.get_financial_statements("MSFT")
+
+    assert result["warnings"]
+    assert all(item.endswith(":RuntimeError") for item in result["warnings"])
+    assert sentinel not in str(result)
+    assert sentinel not in caplog.text

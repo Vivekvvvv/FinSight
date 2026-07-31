@@ -6,12 +6,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from backend.agents.base_agent import AgentOutput, BaseFinancialAgent, ConflictClaim, EvidenceItem
 from backend.services.circuit_breaker import CircuitBreaker
+from backend.utils.env_config import env_int
 
 
 class FundamentalAgent(BaseFinancialAgent):
     AGENT_NAME = "fundamental"
     CACHE_TTL = 86400  # 24 hours
-    ERROR_CACHE_TTL = int(os.getenv("FUNDAMENTAL_ERROR_CACHE_TTL_SECONDS", "300"))
+    ERROR_CACHE_TTL = env_int("FUNDAMENTAL_ERROR_CACHE_TTL_SECONDS", 300, minimum=0)
     MAX_REFLECTIONS = 1  # Chain-of-Thought: one reflection to check for missed risk signals
 
     _METRIC_DEFINITIONS: List[Dict[str, Any]] = [

@@ -4,6 +4,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from backend.services.risk_snapshots import (
     save_risk_snapshot,
     get_risk_snapshots_history,
@@ -266,3 +268,88 @@ def test_session_isolation():
         assert len(history_b) == 1
         assert history_a[0]["risk_score"] == 10
         assert history_b[0]["risk_score"] == 20
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_save_rejects_non_finite_json_values(tmp_path, value):
+    db_path = tmp_path / "risk.db"
+
+    with pytest.raises(ValueError):
+        save_risk_snapshot(
+            session_id="session",
+            user_id="user",
+            risk_lens_data={
+                "risk_score": value,
+                "concentration_risk": [],
+                "loss_positions": [],
+                "stale_research": [],
+                "missing_coverage": [],
+            },
+            db_path=db_path,
+        )
+
+    assert get_latest_snapshot("session", "user", db_path=db_path) is None
+
+
+@pytest.mark.parametrize(
+    ("corrupt_payload", "error_type"),
+    [
+        ("{bad-json", "JSONDecodeError"),
+        ('{"risk_score":NaN}', "ValueError"),
+    ],
+)
+def test_latest_snapshot_handles_corrupt_full_data(
+    tmp_path, caplog, corrupt_payload, error_type
+):
+    import sqlite3
+
+    db_path = tmp_path / "risk.db"
+    save_risk_snapshot(
+        session_id="session",
+        user_id="user",
+        risk_lens_data={
+            "risk_score": 1,
+            "concentration_risk": [],
+            "loss_positions": [],
+            "stale_research": [],
+            "missing_coverage": [],
+        },
+        db_path=db_path,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("UPDATE risk_snapshots SET full_data = ?", (corrupt_payload,))
+
+    assert get_latest_snapshot("session", "user", db_path=db_path) is None
+    assert f"invalid stored risk snapshot ({error_type})" in caplog.text
+
+
+def test_history_skips_legacy_non_finite_summary(tmp_path, caplog):
+    import sqlite3
+
+    db_path = tmp_path / "risk.db"
+    for date in ("2026-06-01", "2026-06-02"):
+        save_risk_snapshot(
+            session_id="session",
+            user_id="user",
+            risk_lens_data={
+                "risk_score": 1,
+                "total_value": 100,
+                "total_cost": 90,
+                "concentration_risk": [],
+                "loss_positions": [],
+                "stale_research": [],
+                "missing_coverage": [],
+            },
+            snapshot_date=date,
+            db_path=db_path,
+        )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE risk_snapshots SET total_value = ? WHERE snapshot_date = ?",
+            (float("inf"), "2026-06-01"),
+        )
+
+    history = get_risk_snapshots_history("session", "user", db_path=db_path)
+
+    assert [item["snapshot_date"] for item in history] == ["2026-06-02"]
+    assert "invalid stored risk snapshot summary" in caplog.text

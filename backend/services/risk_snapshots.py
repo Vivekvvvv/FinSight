@@ -7,11 +7,20 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
+import math
 import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+
+logger = logging.getLogger(__name__)
+
+
+def _reject_non_finite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON value: {value}")
 
 # 默认数据库路径
 DEFAULT_DB_PATH = Path("./data/portfolio_risk_snapshots.db")
@@ -121,7 +130,7 @@ def save_risk_snapshot(
             len(risk_lens_data.get("loss_positions", [])),
             len(risk_lens_data.get("stale_research", [])),
             len(risk_lens_data.get("missing_coverage", [])),
-            json.dumps(risk_lens_data, ensure_ascii=False),
+            json.dumps(risk_lens_data, ensure_ascii=False, allow_nan=False),
             datetime.now(timezone.utc).isoformat(),
         ))
         conn.commit()
@@ -173,7 +182,22 @@ def get_risk_snapshots_history(
 
         rows = cursor.fetchall()
         # 反转为升序（图表从左到右：过去 -> 现在）
-        return [dict(row) for row in reversed(rows)]
+        result: list[dict[str, Any]] = []
+        for row in reversed(rows):
+            try:
+                for field in ("risk_score", "total_value", "total_cost"):
+                    value = row[field]
+                    if value is not None and not math.isfinite(float(value)):
+                        raise ValueError(f"{field} must be finite")
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "invalid stored risk snapshot summary for date=%s (%s)",
+                    row["snapshot_date"],
+                    type(exc).__name__,
+                )
+                continue
+            result.append(dict(row))
+        return result
     finally:
         conn.close()
 
@@ -213,9 +237,16 @@ def get_latest_snapshot(
         if not row:
             return None
 
-        return {
-            "snapshot_date": row["snapshot_date"],
-            "data": json.loads(row["full_data"]),
-        }
+        try:
+            data = json.loads(
+                row["full_data"],
+                parse_constant=_reject_non_finite_json,
+            )
+            if not isinstance(data, dict):
+                raise ValueError("snapshot payload must be an object")
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("invalid stored risk snapshot (%s)", type(exc).__name__)
+            return None
+        return {"snapshot_date": row["snapshot_date"], "data": data}
     finally:
         conn.close()
