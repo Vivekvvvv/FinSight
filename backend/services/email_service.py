@@ -78,7 +78,7 @@ class EmailService:
             return True, "none", None
 
         except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, TimeoutError, ConnectionError) as exc:
-            logger.error("[EmailService] Transient network error: %s", type(exc).__name__)
+            logger.error('[EmailService] Transient network error')
             return False, "transient", "Email delivery unavailable"
         except (
             smtplib.SMTPAuthenticationError,
@@ -86,10 +86,10 @@ class EmailService:
             smtplib.SMTPSenderRefused,
             smtplib.SMTPDataError,
         ) as exc:
-            logger.error("[EmailService] Permanent SMTP error: %s", type(exc).__name__)
+            logger.error('[EmailService] Permanent SMTP error')
             return False, "permanent", "Email delivery rejected"
         except Exception as exc:  # noqa: BLE001 - 保持外部接口兼容
-            logger.error("[EmailService] Unexpected error: %s", type(exc).__name__)
+            logger.error('[EmailService] Unexpected error')
             return False, "transient", "Email delivery unavailable"
 
     def send_stock_alert(

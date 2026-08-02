@@ -80,7 +80,7 @@ def test_planner_runtime_contains_variant_when_llm_init_fails(monkeypatch, caplo
     assert failures[-1]["error"] == "planner_llm_init_error"
     assert secret not in str(out)
     assert secret not in caplog.text
-    assert "ValueError" in caplog.text
+    assert "[Planner] LLM initialization failed" in caplog.text
 
 
 def test_planner_llm_mode_retries_on_invalid_json_then_recovers(monkeypatch):
@@ -262,7 +262,7 @@ def test_planner_llm_call_failure_is_redacted_from_trace_and_events(monkeypatch,
     assert secret not in str(out)
     assert secret not in str(events)
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[Planner] LLM planning failed" in caplog.text
 
 
 def test_planner_llm_mode_enforces_state_output_mode_and_allowlist(monkeypatch):

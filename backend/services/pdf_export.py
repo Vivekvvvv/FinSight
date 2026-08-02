@@ -88,11 +88,11 @@ class PDFExportService:
                             pdfmetrics.registerFont(TTFont('ChineseFont', font_path, subfontIndex=0))
                         else:
                             pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
-                        logger.info(f"[PDF] 成功注册中文字体: {font_path}")
+                        logger.info("[PDF] 成功注册中文字体")
                         font_registered = True
                         break
                     except Exception as e:
-                        logger.info("[PDF] 注册字体失败 %s: %s", font_path, type(e).__name__)
+                        logger.info("[PDF] 注册字体失败: %s", type(e).__name__)
                         continue
             
             if not font_registered:

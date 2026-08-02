@@ -19,4 +19,4 @@ def test_langfuse_initialization_error_log_is_redacted(monkeypatch, caplog):
 
     assert langfuse_tracer.get_langfuse_client() is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[LangFuse] 初始化失败" in caplog.text

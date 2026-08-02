@@ -111,11 +111,11 @@ def _load_yaml_file(path: Path) -> Optional[Persona]:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
-            logger.warning("[personas] %s does not contain a mapping; skipped", path.name)
+            logger.warning("[personas] file does not contain a mapping; skipped")
             return None
         return Persona(**raw)
     except Exception as exc:
-        logger.warning("[personas] failed to parse %s: %s", path.name, type(exc).__name__)
+        logger.warning('[personas] failed to parse file')
         return None
 
 
@@ -128,7 +128,7 @@ def _load_all_unsafe() -> Dict[str, Persona]:
         if persona is None:
             continue
         if persona.id in registry:
-            logger.warning("[personas] duplicate id '%s' in %s; overriding", persona.id, yaml_path.name)
+            logger.warning("[personas] duplicate id; overriding")
         registry[persona.id] = persona
     # Always ensure neutral fallback exists
     registry.setdefault("neutral", _DEFAULT_NEUTRAL)

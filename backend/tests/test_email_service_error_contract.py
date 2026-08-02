@@ -25,7 +25,7 @@ def test_email_transient_error_is_redacted(monkeypatch, caplog):
     assert secret not in str(result)
     assert secret not in caplog.text
     assert private_email not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[EmailService] Transient network error" in caplog.text
 
 
 def test_email_permanent_error_is_redacted(monkeypatch, caplog):
@@ -41,7 +41,7 @@ def test_email_permanent_error_is_redacted(monkeypatch, caplog):
     assert result == (False, "permanent", "Email delivery rejected")
     assert secret not in str(result)
     assert secret not in caplog.text
-    assert "SMTPAuthenticationError" in caplog.text
+    assert "[EmailService] Permanent SMTP error" in caplog.text
 
 
 def test_email_unexpected_error_is_redacted(monkeypatch, caplog):
@@ -57,7 +57,7 @@ def test_email_unexpected_error_is_redacted(monkeypatch, caplog):
     assert result == (False, "transient", "Email delivery unavailable")
     assert secret not in str(result)
     assert secret not in caplog.text
-    assert "ValueError" in caplog.text
+    assert "[EmailService] Unexpected error" in caplog.text
 
 
 def test_stock_alert_escapes_untrusted_html(monkeypatch):

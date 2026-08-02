@@ -191,7 +191,7 @@ class ChatHandler:
             # 如果没有股票代码，尝试从上下文获取 (上面已经处理过继承逻辑，这里只需判断最终 tickers)
 
             if not tickers:
-                logger.info("[ChatHandler] 检查闲聊/建议意图: query_chars=%s", len(query or ""))
+                logger.info("[ChatHandler] 检查闲聊/建议意图")
 
                 # 新闻类无 ticker 查询：默认用大盘指数
                 if is_price_query:
@@ -241,7 +241,7 @@ class ChatHandler:
                     return self._handle_advice_query(ticker, query, context)
             
         except Exception as e:
-            logger.error("[ChatHandler] request handling failed: %s", type(e).__name__)
+            logger.error("[ChatHandler] request handling failed")
             return {
                 'success': False,
                 'response': "Unable to process the request",
@@ -429,7 +429,7 @@ class ChatHandler:
                 context.cache_data(cache_key, result)
             return result
         except Exception as e:
-            logger.info("[ChatHandler] ticker lookup failed for %s: %s", company_hint, type(e).__name__)
+            logger.info("[ChatHandler] ticker lookup failed")
             return None
 
     def _select_candidate_by_hint(
@@ -587,8 +587,7 @@ class ChatHandler:
                 }
             except Exception as e:
                 logger.error(
-                    "[ChatHandler] Direct price fetch failed for %s: %s",
-                    ticker,
+                    "[ChatHandler] Direct price fetch failed: %s",
                     type(e).__name__,
                 )
                 fallback = self._fallback_price_from_kline(ticker)
@@ -639,7 +638,7 @@ class ChatHandler:
                 'thinking': "Price fallback to kline data.",
             }
         except Exception as e:
-            logger.info("[ChatHandler] Kline fallback failed for %s: %s", ticker, type(e).__name__)
+            logger.info("[ChatHandler] Kline fallback failed")
             return None
 
     def _handle_news_query(
@@ -715,8 +714,7 @@ class ChatHandler:
                     }
             except Exception as e:
                 logger.info(
-                    "[ChatHandler] NewsAgent failed for %s: %s",
-                    ticker,
+                    "[ChatHandler] NewsAgent failed: %s",
                     type(e).__name__,
                 )
 
@@ -738,8 +736,7 @@ class ChatHandler:
                 }
             except Exception as e:
                 logger.info(
-                    "[ChatHandler] DeepSearch news failed for %s: %s",
-                    ticker,
+                    "[ChatHandler] DeepSearch news failed: %s",
                     type(e).__name__,
                 )
 
@@ -776,8 +773,7 @@ class ChatHandler:
                 }
             except Exception as e:
                 logger.error(
-                    "[ChatHandler] Company news fetch failed for %s: %s",
-                    ticker,
+                    "[ChatHandler] Company news fetch failed: %s",
                     type(e).__name__,
                 )
                 return {
@@ -864,7 +860,7 @@ class ChatHandler:
                     'thinking': f"Fetched financial data for {ticker} via tools module.",
                 }
             except Exception as e:
-                logger.info("[ChatHandler] Financial report query failed for %s: %s", ticker, type(e).__name__)
+                logger.info("[ChatHandler] Financial report query failed: %s", type(e).__name__)
 
         return {
             'success': False,
@@ -1088,8 +1084,7 @@ class ChatHandler:
                 }
             except Exception as e:
                 logger.error(
-                    "[ChatHandler] News sentiment fetch failed for %s: %s",
-                    ticker,
+                    "[ChatHandler] News sentiment fetch failed: %s",
                     type(e).__name__,
                 )
                 return {
@@ -1134,8 +1129,7 @@ class ChatHandler:
                 }
             except Exception as e:
                 logger.error(
-                    "[ChatHandler] Company info fetch failed for %s: %s",
-                    ticker,
+                    "[ChatHandler] Company info fetch failed: %s",
                     type(e).__name__,
                 )
                 return {
@@ -1230,8 +1224,7 @@ class ChatHandler:
                 }
         except Exception as e:
             logger.error(
-                "[ChatHandler] Composition search failed for %s: %s",
-                ticker,
+                "[ChatHandler] Composition search failed: %s",
                 type(e).__name__,
             )
             return {
@@ -1648,10 +1641,7 @@ class ChatHandler:
                 final_result['enhanced_by_llm'] = True
             result_container.update(final_result)
         except Exception as exc:
-            logger.error(
-                "[ChatHandler] Streaming LLM enhancement failed: %s",
-                type(exc).__name__,
-            )
+            logger.error('[ChatHandler] Streaming LLM enhancement failed')
             result_container.update(basic_result)
             if raw_response:
                 yield raw_response

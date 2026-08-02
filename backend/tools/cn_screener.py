@@ -83,7 +83,7 @@ def _fetch_page(*, fs: str, fid: str, po: int, page: int) -> list[dict[str, Any]
             return [row for row in diff if isinstance(row, dict)]
         return []
     except Exception as exc:
-        logger.info("eastmoney screener page %s failed: %s", page, type(exc).__name__)
+        logger.info("eastmoney screener page failed: %s", type(exc).__name__)
         return None
 
 

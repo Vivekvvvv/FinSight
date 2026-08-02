@@ -123,8 +123,7 @@ class MemoryService:
                     backup_path = f"{file_path}.{uuid4().hex}.corrupt"
                     os.replace(file_path, backup_path)
                     logger.warning(
-                        "[MemoryService] Corrupt profile for %s moved to backup (%s)",
-                        user_id,
+                        "[MemoryService] Corrupt profile moved to backup (%s)",
                         type(e).__name__,
                     )
                     return UserProfile(user_id=normalized_user_id)
@@ -150,8 +149,7 @@ class MemoryService:
             return True
         except Exception as e:
             logger.warning(
-                "[MemoryService] Error saving profile for %s (%s)",
-                profile.user_id,
+                "[MemoryService] Error saving profile (%s)",
                 type(e).__name__,
             )
             return False
@@ -160,10 +158,7 @@ class MemoryService:
                 try:
                     os.remove(tmp_path)
                 except OSError as cleanup_error:
-                    logger.warning(
-                        "[MemoryService] Failed to remove profile temp file (%s)",
-                        type(cleanup_error).__name__,
-                    )
+                    logger.warning('[MemoryService] Failed to remove profile temp file')
 
     def add_to_watchlist(
         self,

@@ -171,7 +171,7 @@ class BaseFinancialAgent:
 
             token_timeout = self._llm_analyze_timeout()
             if not await acquire_llm_token(timeout=token_timeout, agent_name=self.AGENT_NAME):
-                logger.warning("[%s] Rate limit timeout in _llm_analyze", self.AGENT_NAME)
+                logger.warning("Rate limit timeout in _llm_analyze")
                 return None
 
             trace_emitter = get_trace_emitter()
@@ -210,7 +210,7 @@ class BaseFinancialAgent:
             )
             return content.strip()
         except Exception as exc:
-            logger.info("[%s] _llm_analyze failed: %s", self.AGENT_NAME, type(exc).__name__)
+            logger.info("_llm_analyze failed")
             try:
                 get_trace_emitter().emit_llm_end(
                     model=getattr(self.llm, "model_name", None) if self.llm else None,
@@ -219,7 +219,7 @@ class BaseFinancialAgent:
                     agent=self.AGENT_NAME,
                 )
             except Exception as trace_exc:
-                logger.debug("[%s] LLM trace emission failed: %s", self.AGENT_NAME, type(trace_exc).__name__)
+                logger.debug("LLM trace emission failed")
             return None
 
     async def research(self, query: str, ticker: str, on_event: Optional[Callable[[Dict[str, Any]], None]] = None) -> AgentOutput:
@@ -262,7 +262,7 @@ class BaseFinancialAgent:
                         "timestamp": datetime.now().isoformat()
                     })
                 except Exception:
-                    logger.debug("[%s] on_event callback failed", self.AGENT_NAME)
+                    logger.debug("on_event callback failed")
 
         _log_event("agent_start", {"query": query, "ticker": ticker})
 
@@ -274,7 +274,7 @@ class BaseFinancialAgent:
                     "agent": self.AGENT_NAME, 
                     "details": {"message": f"正在搜索: {query[:30]}..."}
                 })
-            except: logger.debug("[%s] on_event callback error in search notification", self.AGENT_NAME)
+            except: logger.debug("on_event callback error in search notification")
             
         results = await self._initial_search(query, ticker)
         result_count = None
@@ -300,7 +300,7 @@ class BaseFinancialAgent:
             
             if on_event:
                 try: on_event({"event": "agent_action", "agent": self.AGENT_NAME, "details": {"message": f"发现信息缺口，进行第 {i+1} 轮补充搜索..."}})
-                except: logger.debug("[%s] on_event callback error in search notification", self.AGENT_NAME)
+                except: logger.debug("on_event callback error in search notification")
 
             _log_event("reflection_gap", {"round": i + 1, "gaps": gaps})
             new_data = await self._targeted_search(gaps, ticker)
@@ -398,7 +398,7 @@ class BaseFinancialAgent:
 
             token_timeout = self._reflection_token_timeout()
             if not await acquire_llm_token(timeout=token_timeout, agent_name=self.AGENT_NAME):
-                logger.warning("[%s] Rate limit timeout after %.1fs in _identify_gaps", self.AGENT_NAME, token_timeout)
+                logger.warning("Rate limit timeout in _identify_gaps")
                 return []
 
             trace_emitter = get_trace_emitter()
@@ -520,22 +520,13 @@ class BaseFinancialAgent:
                     if len(result_str) > 50:
                         results.append(result_str)
                         trace_emitter.emit_tool_end(tool_name, success=True, agent=self.AGENT_NAME)
-                        logger.info(
-                            "[%s] Tool-aware search success: %s(%s) → %d chars",
-                            self.AGENT_NAME, tool_name, gap_desc[:40], len(result_str),
-                        )
+                        logger.info("Tool-aware search succeeded")
                     else:
                         trace_emitter.emit_tool_end(tool_name, success=False, agent=self.AGENT_NAME)
                 else:
                     trace_emitter.emit_tool_end(tool_name, success=False, agent=self.AGENT_NAME)
             except Exception as e:
-                logger.warning(
-                    "[%s] Tool %s failed for '%s': %s",
-                    self.AGENT_NAME,
-                    tool_name,
-                    gap_desc[:40],
-                    type(e).__name__,
-                )
+                logger.warning("Tool-aware search failed")
                 trace_emitter.emit_tool_end(
                     tool_name,
                     success=False,
@@ -551,13 +542,9 @@ class BaseFinancialAgent:
                             fb_result = search_entry["func"](fallback_query)
                             if fb_result and isinstance(fb_result, str) and len(fb_result) > 30:
                                 results.append(fb_result)
-                                logger.info("[%s] Fallback search success for: %s", self.AGENT_NAME, gap_desc[:40])
+                                logger.info("Fallback search succeeded")
                         except Exception as fallback_exc:
-                            logger.debug(
-                                "[%s] fallback search failed: %s",
-                                self.AGENT_NAME,
-                                type(fallback_exc).__name__,
-                            )
+                            logger.debug("Fallback search failed")
                 continue
         return "\n\n---\n\n".join(results) if results else None
 
@@ -598,7 +585,7 @@ class BaseFinancialAgent:
             # 获取速率限制令牌（并发 agent 场景需要较长等待）
             token_timeout = self._reflection_token_timeout()
             if not await acquire_llm_token(timeout=token_timeout, agent_name=self.AGENT_NAME):
-                logger.warning("[%s] Rate limit timeout after %.1fs in _update_summary", self.AGENT_NAME, token_timeout)
+                logger.warning("Rate limit timeout in _update_summary")
                 return summary  # 限流超时，返回原摘要
 
             # 发射 LLM 调用开始事件

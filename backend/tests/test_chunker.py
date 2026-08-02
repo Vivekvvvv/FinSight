@@ -125,4 +125,4 @@ def test_chunking_fallback_error_log_is_redacted(monkeypatch, caplog):
 
     assert result.chunks == [content.strip()]
     assert sentinel not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "Chunking failed, falling back to whole doc" in caplog.text

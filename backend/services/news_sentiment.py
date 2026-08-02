@@ -96,10 +96,10 @@ async def analyze_news_sentiment(
         return result
 
     except json.JSONDecodeError as exc:
-        logger.warning("[NewsSentiment] LLM返回非JSON: %s", type(exc).__name__)
+        logger.warning("[NewsSentiment] LLM返回非JSON")
         return [dict(n, **_neutral_sentiment()) for n in news_list]
     except Exception as exc:
-        logger.error("[NewsSentiment] 分析失败: %s", type(exc).__name__)
+        logger.error("[NewsSentiment] 分析失败")
         return [dict(n, **_neutral_sentiment()) for n in news_list]
 
 

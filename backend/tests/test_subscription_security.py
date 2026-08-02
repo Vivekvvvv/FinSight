@@ -103,7 +103,7 @@ def test_subscription_internal_errors_are_redacted(monkeypatch, method, path, pa
     assert "private subscription storage detail" not in response.text
     assert "private subscription storage detail" not in capsys.readouterr().err
     assert "private subscription storage detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[subscription/" in caplog.text
 
 
 @pytest.mark.parametrize(

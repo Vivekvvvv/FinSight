@@ -95,7 +95,7 @@ def test_narrative_llm_init_error_log_is_redacted(monkeypatch, caplog):
 
     assert result == ("", None)
     assert sentinel not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[Synthesize/narrative] LLM init failed" in caplog.text
 
 
 def test_narrative_llm_call_error_trace_and_log_are_redacted(monkeypatch, caplog):

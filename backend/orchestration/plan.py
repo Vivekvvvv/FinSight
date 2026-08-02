@@ -314,7 +314,7 @@ class PlanExecutor:
     ) -> Any:
         import logging
         logger = logging.getLogger(__name__)
-        logger.info("[PlanExecutor._run_forum_step] Entered, agent_outputs count: %d", len(agent_outputs) if agent_outputs else 0)
+        logger.info("[PlanExecutor._run_forum_step] Entered")
         
         try:
             self._consume_round("forum")
@@ -336,7 +336,7 @@ class PlanExecutor:
                 logger.warning("[PlanExecutor._run_forum_step] No agent outputs, skipping forum step")
                 return None
             
-            logger.info("[PlanExecutor._run_forum_step] Calling forum.synthesize with timeout=%s", step.timeout_seconds)
+            logger.info("[PlanExecutor._run_forum_step] Calling forum.synthesize")
             result = await asyncio.wait_for(
                 self.forum.synthesize(
                     agent_outputs,
@@ -345,18 +345,18 @@ class PlanExecutor:
                 ),
                 timeout=step.timeout_seconds,
             )
-            logger.info("[PlanExecutor._run_forum_step] forum.synthesize completed, result type: %s", type(result).__name__ if result else "None")
+            logger.info("[PlanExecutor._run_forum_step] forum.synthesize completed")
             step.status = "completed"
             return result
         except asyncio.TimeoutError as exc:
             step.status = "failed"
             step.error = f"timeout:{step.timeout_seconds}s"
-            logger.error("[PlanExecutor._run_forum_step] Timeout after %s seconds", step.timeout_seconds)
+            logger.error("[PlanExecutor._run_forum_step] Timeout")
             raise RuntimeError(step.error) from exc
         except Exception as exc:  # pragma: no cover - defensive
             step.status = "failed"
             step.error = type(exc).__name__
-            logger.error("[PlanExecutor._run_forum_step] Exception: %s", type(exc).__name__)
+            logger.error('[PlanExecutor._run_forum_step] Exception')
             raise
         finally:
             step.finished_at = _now_iso()
@@ -462,7 +462,7 @@ class PlanExecutor:
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.error("[PlanExecutor] Forum step failed!")
-                logger.error("[PlanExecutor] Exception type: %s", type(exc).__name__)
+                logger.error('[PlanExecutor] Exception type')
                 _record_error(step, step.error or type(exc).__name__)
 
         return {

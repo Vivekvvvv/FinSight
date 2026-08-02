@@ -180,7 +180,7 @@ class DeepSearchAgent(BaseFinancialAgent):
         """
         trace: List[Dict[str, Any]] = []
         queries = self._build_queries(query, ticker)
-        logger.info(f"[DeepSearch] queries: {queries}")
+        logger.info("[DeepSearch] queries built")
 
         def _log_event(event_type: str, details: Dict[str, Any]):
             event = self._trace_step(event_type, details)
@@ -194,7 +194,7 @@ class DeepSearchAgent(BaseFinancialAgent):
                         "timestamp": datetime.now().isoformat()
                     })
                 except Exception as exc:
-                    logger.debug("[DeepSearch] event callback failed: %s", type(exc).__name__)
+                    logger.debug("[DeepSearch] event callback failed")
 
         def _notify(msg: str):
             if on_event:
@@ -206,7 +206,7 @@ class DeepSearchAgent(BaseFinancialAgent):
                         "timestamp": datetime.now().isoformat()
                     })
                 except Exception as exc:
-                    logger.debug("[DeepSearch] action callback failed: %s", type(exc).__name__)
+                    logger.debug("[DeepSearch] action callback failed")
 
         # Initialize convergence controller
         convergence = SearchConvergence()
@@ -259,7 +259,7 @@ class DeepSearchAgent(BaseFinancialAgent):
 
                 # Check convergence stop condition
                 if metrics.should_stop:
-                    logger.info(f"[DeepSearch] Convergence stop: {metrics.reason}")
+                    logger.info("[DeepSearch] Convergence stop")
                     break
             
             _notify(f"更新摘要整合新信息...")
@@ -307,7 +307,7 @@ class DeepSearchAgent(BaseFinancialAgent):
         queries = queries or self._build_queries(query, ticker)
         results: List[Dict[str, Any]] = []
         for q in queries:
-            logger.info(f"[DeepSearch] search: {q}")
+            logger.info("[DeepSearch] search started")
             # _search_web 做 Tavily/Exa advanced HTTP（阻塞），此处在 async 方法
             # 内，须卸载到线程池——否则冻结共享事件循环，与 executor.gather 并发
             # 的其他 agent 全被阻塞。相邻 _fetch_documents 早已 to_thread（R62）。
@@ -324,15 +324,11 @@ class DeepSearchAgent(BaseFinancialAgent):
         docs = await asyncio.to_thread(self._fetch_documents, results)
         if docs:
             sources = sorted({doc.get("source", "web") for doc in docs if isinstance(doc, dict)})
-            pdf_count = sum(1 for doc in docs if doc.get("is_pdf"))
-            logger.info(f"[DeepSearch] fetched docs={len(docs)} pdfs={pdf_count} sources={sources}")
+            logger.info("[DeepSearch] documents fetched")
 
         # 降级策略：如果文档抓取全部失败但搜索有结果，用搜索 snippet 构建降级文档
         if not docs and results:
-            logger.warning(
-                f"[DeepSearch] All {len(results)} document fetches failed, "
-                "falling back to search snippets"
-            )
+            logger.warning("[DeepSearch] All document fetches failed; falling back to search snippets")
             docs = self._build_snippet_docs(results)
 
         if docs:
@@ -652,10 +648,8 @@ queries 要求：
     def _log_documents(self, docs: List[Dict[str, Any]], label: str) -> None:
         for idx, doc in enumerate(docs, 1):
             title = doc.get("title") or "Untitled"
-            url = doc.get("url") or ""
-            host = self._normalized_domain_from_url(url) or "<invalid>"
             is_pdf = doc.get("is_pdf", False)
-            logger.info("[DeepSearch] %s doc %d: %s | host=%s | pdf=%s", label, idx, title, host, is_pdf)
+            logger.info("[DeepSearch] document inspected")
 
     def _build_queries(self, query: str, ticker: str) -> List[str]:
         base = query.strip()
@@ -738,10 +732,7 @@ queries 要求：
                         "score": item.get("score"),
                     })
             except Exception as exc:
-                logger.info(
-                    "[DeepSearch] Tavily search failed (%s)",
-                    type(exc).__name__,
-                )
+                logger.info("[DeepSearch] Tavily search failed")
 
         if not results and exa_key and exa_available:
             try:
@@ -769,20 +760,14 @@ queries 要求：
                         "published_date": getattr(item, "published_date", None),
                     })
             except Exception as exc:
-                logger.info(
-                    "[DeepSearch] Exa search failed (%s)",
-                    type(exc).__name__,
-                )
+                logger.info("[DeepSearch] Exa search failed")
 
         if not results and self.tools and hasattr(self.tools, "search"):
             try:
                 raw = self.tools.search(query)
                 results = self._parse_search_text(raw)
             except Exception as exc:
-                logger.info(
-                    "[DeepSearch] Search fallback failed (%s)",
-                    type(exc).__name__,
-                )
+                logger.info("[DeepSearch] Search fallback failed")
 
         trusted_count = 0
         for item in results:
@@ -821,10 +806,7 @@ queries 要求：
                         }
                     )
             except Exception as exc:
-                logger.info(
-                    "[DeepSearch] Authoritative feed supplement failed (%s)",
-                    type(exc).__name__,
-                )
+                logger.info("[DeepSearch] Authoritative feed supplement failed")
 
         return results
 
@@ -1083,17 +1065,11 @@ queries 要求：
             # 返回 None = URL 不安全（含重定向目标）或抓取失败。
             response = safe_pinned_request("GET", url, headers=headers, timeout=30)
             if response is None:
-                logger.info(
-                    "[DeepSearch] Blocked unsafe url or fetch failed: host=%s",
-                    self._normalized_domain_from_url(url) or "<invalid>",
-                )
+                logger.info("[DeepSearch] Blocked unsafe url or fetch failed")
                 return None
             response.raise_for_status()
         except Exception as exc:
-            logger.info(
-                "[DeepSearch] Fetch failed (%s)",
-                type(exc).__name__,
-            )
+            logger.info("[DeepSearch] Fetch failed")
             return None
 
         content_type = response.headers.get("Content-Type", "").lower()
@@ -1122,9 +1098,9 @@ queries 要求：
                 jina_text = fetch_via_jina(url)
                 if jina_text and len(jina_text) > len(text):
                     text = self._trim_text(jina_text)
-                    logger.info("[DeepSearch] Jina fallback: host=%s (%d chars)", domain, len(text))
+                    logger.info("[DeepSearch] Jina fallback succeeded")
             except Exception as exc:
-                logger.debug("[DeepSearch] Jina fallback failed: %s", type(exc).__name__)
+                logger.debug("[DeepSearch] Jina fallback failed")
 
         enable_wayback_fallback = str(os.getenv("DEEPSEARCH_ENABLE_WAYBACK_FALLBACK", "true")).strip().lower() in {
             "1",
@@ -1145,9 +1121,9 @@ queries 要求：
                 wayback_text = fetch_via_wayback(url)
                 if wayback_text and len(wayback_text) > len(text):
                     text = self._trim_text(wayback_text)
-                    logger.info("[DeepSearch] Wayback fallback: host=%s (%d chars)", domain, len(text))
+                    logger.info("[DeepSearch] Wayback fallback succeeded")
             except Exception as exc:
-                logger.debug("[DeepSearch] Wayback fallback failed: %s", type(exc).__name__)
+                logger.debug("[DeepSearch] Wayback fallback failed")
 
         title = item.get("title") or self._infer_title(url)
         snippet = str(item.get("snippet") or "").strip()
@@ -1189,10 +1165,7 @@ queries 要求：
         try:
             from backend.rag import RAGDocument, get_rag_service
         except Exception as exc:
-            logger.info(
-                "[DeepSearch] RAG observability unavailable (%s)",
-                type(exc).__name__,
-            )
+            logger.info("[DeepSearch] RAG observability unavailable")
             return {"enabled": False, "error": "unavailable"}
 
         collection = self._build_rag_collection(query=query, ticker=ticker)
@@ -1266,10 +1239,7 @@ queries 要求：
         try:
             return await asyncio.to_thread(_sync_record)
         except Exception as exc:
-            logger.error(
-                "[DeepSearch] Failed to record RAG observability (%s)",
-                type(exc).__name__,
-            )
+            logger.error("[DeepSearch] Failed to record RAG observability")
             return {"enabled": False, "collection": collection, "error": "unavailable"}
 
     def _build_rag_collection(self, *, query: str, ticker: str) -> str:
@@ -1290,10 +1260,7 @@ queries 要求：
                 pages.append(page.extract_text() or "")
             return "\n".join(pages)
         except Exception as exc:
-            logger.info(
-                "[DeepSearch] PDF parse failed (%s)",
-                type(exc).__name__,
-            )
+            logger.info("[DeepSearch] PDF parse failed")
             return ""
 
     def _extract_html_text(self, html: str) -> str:
@@ -1395,10 +1362,7 @@ queries 要求：
                 from backend.services.rate_limiter import acquire_llm_token
                 token_timeout = max(1.0, float(self.LLM_TOKEN_TIMEOUT_SECONDS))
                 if not await acquire_llm_token(timeout=token_timeout, agent_name=self.AGENT_NAME):
-                    logger.warning(
-                        "[DeepSearch] Rate limit timeout after %.1fs, skipping LLM call",
-                        token_timeout,
-                    )
+                    logger.warning("[DeepSearch] Rate limit timeout; skipping LLM call")
                     return ""
 
                 message = HumanMessage(content=prompt)
@@ -1419,16 +1383,13 @@ queries 要求：
                     response = await asyncio.to_thread(self.llm.invoke, [message])
                 return getattr(response, "content", "") if response is not None else ""
             except Exception as exc:
-                logger.warning(
-                    "[DeepSearch] LLM call attempt %d/%d failed: %s",
-                    outer + 1, max_outer_retries, type(exc).__name__,
-                )
+                logger.warning("[DeepSearch] LLM call failed")
                 if outer < max_outer_retries - 1:
                     backoff = 5.0 * (outer + 1)
-                    logger.info("[DeepSearch] Waiting %.1fs before outer retry...", backoff)
+                    logger.info("[DeepSearch] Waiting before outer retry")
                     await asyncio.sleep(backoff)
                 else:
-                    logger.error("[DeepSearch] All %d outer retries exhausted", max_outer_retries)
+                    logger.error("[DeepSearch] All outer retries exhausted")
         return ""
 
     def _extract_json(self, text: str) -> Dict[str, Any]:

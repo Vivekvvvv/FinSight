@@ -70,7 +70,7 @@ def _extract_report_meta(report_json: str | None) -> dict[str, Any]:
     try:
         payload = _json_loads_strict(report_json)
     except Exception as exc:
-        logger.warning("stored report metadata parse failed: %s", type(exc).__name__)
+        logger.warning('stored report metadata parse failed')
         return {}
     if not isinstance(payload, dict):
         return {}
@@ -436,11 +436,7 @@ class ReportIndexStore:
                         if isinstance(parsed, list):
                             tags = parsed
                     except Exception as exc:
-                        logger.warning(
-                            "stored report tags parse failed for report_id=%s: %s",
-                            row["report_id"],
-                            type(exc).__name__,
-                        )
+                        logger.warning('stored report tags parse failed')
                         tags = []
                 report_meta = _extract_report_meta(row["report_json"])
                 source_trigger = str(report_meta.get("source_trigger") or "").strip() or None
@@ -454,11 +450,7 @@ class ReportIndexStore:
                     if isinstance(parsed_reasons, list):
                         quality_reasons = [item for item in parsed_reasons if isinstance(item, dict)]
                 except Exception as exc:
-                    logger.warning(
-                        "stored report quality reasons parse failed for report_id=%s: %s",
-                        row["report_id"],
-                        type(exc).__name__,
-                    )
+                    logger.warning('stored report quality reasons parse failed')
                     quality_reasons = []
 
                 citation_count = self._count_citations(conn, row["report_id"], session_id)
@@ -550,11 +542,7 @@ class ReportIndexStore:
             if not isinstance(report_payload, dict):
                 raise ValueError("stored report must be an object")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning(
-                "stored report payload parse failed for report_id=%s: %s",
-                report_id,
-                type(exc).__name__,
-            )
+            logger.warning('stored report payload parse failed')
             return None
         report_payload["user_note"] = row["user_note"]
         citation_items = []
@@ -562,22 +550,14 @@ class ReportIndexStore:
             try:
                 citation_items.append(_json_loads_strict(item["citation_json"]))
             except Exception as exc:
-                logger.warning(
-                    "stored report citation parse failed for report_id=%s: %s",
-                    report_id,
-                    type(exc).__name__,
-                )
+                logger.warning('stored report citation parse failed')
                 continue
         report_payload["citations"] = citation_items
         trace_digest = {}
         try:
             trace_digest = _json_loads_strict(row["trace_digest_json"] or "{}")
         except Exception as exc:
-            logger.warning(
-                "stored report trace digest parse failed for report_id=%s: %s",
-                report_id,
-                type(exc).__name__,
-            )
+            logger.warning('stored report trace digest parse failed')
             trace_digest = {}
         return {
             "report": report_payload,
@@ -635,12 +615,7 @@ class ReportIndexStore:
                     if isinstance(parsed, dict):
                         citation_payload = parsed
                 except Exception as exc:
-                    logger.warning(
-                        "stored citation payload parse failed for row_id=%s report_id=%s: %s",
-                        row["row_id"],
-                        row["report_id"],
-                        type(exc).__name__,
-                    )
+                    logger.warning('stored citation payload parse failed')
                     citation_payload = {}
 
                 result.append(

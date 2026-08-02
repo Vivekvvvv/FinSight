@@ -96,7 +96,7 @@ def test_async_checkpointer_close_error_log_is_redacted(caplog):
 
     assert bundle._async_cm is None
     assert "private async checkpointer detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "failed to close async checkpointer context" in caplog.text
 
 
 def test_async_bundle_sync_stack_close_error_log_is_redacted(caplog):
@@ -113,7 +113,7 @@ def test_async_bundle_sync_stack_close_error_log_is_redacted(caplog):
 
     assert bundle._stack is None
     assert "private sync stack detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "failed to close sync checkpointer stack asynchronously" in caplog.text
 
 
 def test_sync_bundle_stack_close_error_log_is_redacted(caplog):
@@ -130,7 +130,7 @@ def test_sync_bundle_stack_close_error_log_is_redacted(caplog):
 
     assert bundle._stack is None
     assert "private sync close detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "failed to close sync checkpointer stack" in caplog.text
 
 
 def test_stale_async_bundle_close_error_log_is_redacted(monkeypatch, caplog):
@@ -154,7 +154,7 @@ def test_stale_async_bundle_close_error_log_is_redacted(monkeypatch, caplog):
 
     assert resolved is replacement
     assert "private stale bundle detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "failed to close stale async checkpointer bundle" in caplog.text
     checkpointer_mod._async_bundle = None
     checkpointer_mod._async_lock = None
     checkpointer_mod._async_bundle_loop_id = None
@@ -173,7 +173,7 @@ def test_async_cache_reset_close_error_log_is_redacted(monkeypatch, caplog):
 
     assert checkpointer_mod._async_bundle is None
     assert "private async reset detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "failed to close async bundle" in caplog.text
 
 
 def test_async_checkpointer_fallback_log_is_redacted(monkeypatch, caplog):
@@ -192,7 +192,7 @@ def test_async_checkpointer_fallback_log_is_redacted(monkeypatch, caplog):
     assert bundle.info.fallback_reason == "RuntimeError"
     assert "private async backend detail" not in str(bundle.info.fallback_reason)
     assert "private async backend detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "LangGraph async checkpointer fallback to memory" in caplog.text
 
 
 def test_sync_checkpointer_fallback_reason_and_log_are_redacted(monkeypatch, caplog):
@@ -210,4 +210,4 @@ def test_sync_checkpointer_fallback_reason_and_log_are_redacted(monkeypatch, cap
     assert bundle.info.fallback_used is True
     assert bundle.info.fallback_reason == "RuntimeError"
     assert "private sync backend detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "LangGraph sync checkpointer fallback to memory" in caplog.text

@@ -158,9 +158,9 @@ if __name__ == "__main__":
     
     for query in test_queries:
         result = detector.detect_chart_type(query)
-        logger.info(f"查询: {query}")
-        logger.info(f"  图表类型: {result['chart_type']}")
-        logger.info(f"  数据维度: {result['data_dimension']}")
-        logger.info(f"  置信度: {result['confidence']:.2f}")
-        logger.info(f"  原因: {result['reason']}")
+        logger.info("查询已接收")
+        logger.info("  图表类型已解析")
+        logger.info("  数据维度已解析")
+        logger.info("  置信度已计算")
+        logger.info("  原因已生成")
         logger.info("")

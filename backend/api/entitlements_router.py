@@ -96,12 +96,7 @@ def create_entitlements_router() -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="Invalid entitlement request") from exc
 
-        logger.info(
-            "[Audit] admin set plan user_id=%s plan=%s actor=%s",
-            request.user_id,
-            normalized,
-            current_user.user_id,
-        )
+        logger.info("[Audit] admin set plan completed")
         return {"success": True, "user_id": request.user_id, "plan": normalized}
 
     return router

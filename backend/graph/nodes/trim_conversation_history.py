@@ -76,11 +76,7 @@ def trim_conversation_history(state: GraphState) -> dict:
         # Within budget — no trimming needed
         return {}
 
-    logger.info(
-        "[trim_conversation_history] Messages exceed budget: %d tokens > %d max. Trimming...",
-        current_tokens,
-        max_tokens,
-    )
+    logger.info("[trim_conversation_history] message history exceeds budget; trimming")
 
     # Use trim_messages to determine which messages to KEEP
     trimmed = trim_messages(
@@ -108,13 +104,6 @@ def trim_conversation_history(state: GraphState) -> dict:
     if not removals:
         return {}
 
-    trimmed_tokens = _token_counter(trimmed)
-    logger.info(
-        "[trim_conversation_history] Removing %d messages (%d -> %d tokens, keeping %d messages)",
-        len(removals),
-        current_tokens,
-        trimmed_tokens,
-        len(trimmed),
-    )
+    logger.info("[trim_conversation_history] message history trimmed")
 
     return {"messages": removals}

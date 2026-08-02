@@ -159,7 +159,7 @@ def test_report_index_logs_corrupt_stored_json_without_exposing_payload(
     assert replay["trace_digest"] == {}
     assert replay["citations"] == []
     assert citations[0]["citation"] == {}
-    assert caplog.text.count(error_type) >= 5
+    assert caplog.text.count("parse failed") >= 5
     assert corrupt_payload not in caplog.text
 
     with store._connect() as conn:

@@ -16,4 +16,4 @@ def test_load_user_config_error_log_is_redacted(monkeypatch, caplog):
 
     assert llm_config._load_user_config() == {}
     assert secret not in caplog.text
-    assert "OSError" in caplog.text
+    assert "[Config] Failed to read user_config.json" in caplog.text

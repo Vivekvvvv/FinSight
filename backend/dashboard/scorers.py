@@ -89,7 +89,7 @@ def _get_llm():
         logger.info("[Insights] LLM initialized for dashboard scorers")
         return _llm_instance
     except Exception as exc:
-        logger.warning("[Insights] LLM init failed, dashboard scorers will use fallback: %s", type(exc).__name__)
+        logger.warning("[Insights] LLM init failed; dashboard scorers will use fallback")
         return None
 
 
@@ -182,10 +182,10 @@ class DashboardScorer(ABC):
             )
             return self._parse_response(response, data, now_iso)
         except asyncio.TimeoutError:
-            logger.warning("[Insights] %s timed out for %s", self.AGENT_NAME, ticker)
+            logger.warning("[Insights] scorer timed out")
             return self._make_fallback_card(data, now_iso)
         except Exception as exc:
-            logger.warning("[Insights] %s failed for %s: %s", self.AGENT_NAME, ticker, type(exc).__name__)
+            logger.warning("[Insights] scorer failed")
             return self._make_fallback_card(data, now_iso)
 
     async def _call_llm(self, llm: Any, prompt: str) -> str:
@@ -210,7 +210,7 @@ class DashboardScorer(ABC):
         try:
             parsed = json_loads_strict(text)
         except (json.JSONDecodeError, ValueError):
-            logger.warning("[Insights] %s JSON parse failed, using fallback", self.AGENT_NAME)
+            logger.warning("[Insights] scorer JSON parse failed, using fallback")
             return self._make_fallback_card(data, now_iso)
 
         # Validate and clamp

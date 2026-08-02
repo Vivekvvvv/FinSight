@@ -123,11 +123,7 @@ def _fetch_feed(url: str) -> str:
             return ""
         return str(getattr(resp, "text", "") or "")
     except Exception as exc:
-        logger.debug(
-            "official feed request failed for host=%s: %s",
-            _normalize_domain(url) or "<invalid>",
-            type(exc).__name__,
-        )
+        logger.debug("official feed request failed: %s", type(exc).__name__)
         return ""
 
 
@@ -137,7 +133,7 @@ def _parse_rss_items(feed_key: str, source_name: str, xml_text: str) -> list[dic
     try:
         root = ET.fromstring(xml_text)
     except Exception as exc:
-        logger.debug("official feed XML parse failed for %s: %s", feed_key, type(exc).__name__)
+        logger.debug("official feed XML parse failed: %s", type(exc).__name__)
         return []
 
     rows: list[dict[str, Any]] = []

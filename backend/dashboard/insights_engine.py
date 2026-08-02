@@ -127,8 +127,7 @@ class InsightsOrchestrator:
                 insights_dict = _deserialize_insights(cached_data.get("insights", {}))
                 if self._cached_insights_need_refresh(sym_upper, insights_dict):
                     logger.info(
-                        "[Insights] cached news fallback stale for %s; regenerate from refreshed dashboard data",
-                        sym_upper,
+                        "[Insights] cached news fallback stale; regenerate from refreshed dashboard data"
                     )
                     return await self._generate_fresh(sym_upper)
 
@@ -178,7 +177,7 @@ class InsightsOrchestrator:
                     timeout=_OVERALL_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
-                logger.warning("[Insights] Overall timeout for %s, using fallbacks", symbol)
+                logger.warning("[Insights] Overall timeout, using fallbacks")
                 tech_card = self._technical._make_fallback_card(
                     data.get("technicals", {}),
                     now_iso,
@@ -260,9 +259,9 @@ class InsightsOrchestrator:
         """Background cache refresh (fire-and-forget)."""
         try:
             await self._generate_fresh(symbol)
-            logger.info("[Insights] Background refresh completed for %s", symbol)
+            logger.info("[Insights] Background refresh completed")
         except Exception as exc:
-            logger.warning("[Insights] Background refresh failed for %s: %s", symbol, type(exc).__name__)
+            logger.warning("[Insights] Background refresh failed")
         finally:
             _refresh_tasks.pop(symbol, None)
 
@@ -359,9 +358,9 @@ class InsightsOrchestrator:
         try:
             return await asyncio.wait_for(asyncio.to_thread(fn, symbol), timeout=timeout)
         except asyncio.TimeoutError:
-            logger.warning("[Insights] %s timeout for %s", label, symbol)
+            logger.warning("[Insights] fetch timeout")
         except Exception as exc:
-            logger.warning("[Insights] %s failed for %s: %s", label, symbol, type(exc).__name__)
+                logger.warning("[Insights] fetch failed")
         return None
 
     def _fetch_technicals(self, symbol: str) -> dict[str, Any] | None:
@@ -423,7 +422,7 @@ def _deserialize_insights(raw: dict[str, Any]) -> dict[str, InsightCard]:
             try:
                 result[tab_name] = InsightCard(**card_data)
             except Exception:
-                logger.warning("[Insights] Failed to deserialize insight for tab=%s", tab_name)
+                logger.warning("[Insights] Failed to deserialize insight")
     return result
 
 

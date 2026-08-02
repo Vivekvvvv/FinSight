@@ -153,8 +153,8 @@ def test_vector_search_sanitizes_corrupt_vector_and_tags(monkeypatch, caplog):
 
     assert result[0]["similarity"] == 0.0
     assert result[0]["tags"] == []
-    assert "invalid stored note vector (ValueError)" in caplog.text
-    assert "invalid stored note tags (JSONDecodeError)" in caplog.text
+    assert "invalid stored note vector" in caplog.text
+    assert "invalid stored note tags" in caplog.text
 
 
 def test_vector_search_rejects_non_finite_tags(monkeypatch, caplog):
@@ -180,7 +180,7 @@ def test_vector_search_rejects_non_finite_tags(monkeypatch, caplog):
     result = rag_module._vector_search("sid", "uid", [1.0], 10)
 
     assert result[0]["tags"] == []
-    assert "invalid stored note tags (ValueError)" in caplog.text
+    assert "invalid stored note tags" in caplog.text
 
 
 # ── vectorize_all_notes 测试 ──────────────────────────────────────────────────

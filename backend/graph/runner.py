@@ -278,7 +278,7 @@ def _update_langfuse_trace(*, thread_id: str, query: str, output_mode: str | Non
                 metadata={"thread_id": thread_id},
             )
     except Exception as exc:
-        logger.debug("graph trace metadata update failed: %s", type(exc).__name__)
+        logger.debug("graph trace metadata update failed")
 
 
 @langfuse_observe(name="graph_pipeline")

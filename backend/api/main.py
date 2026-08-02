@@ -130,20 +130,14 @@ except ImportError as e:
         )
         logger.info("[Init] Core tools imported from root successfully.")
     except ImportError as e2:
-        logger.error(
-            "[Init] Error importing tools (%s)",
-            type(e2).__name__,
-        )
+        logger.error("[Init] Error importing tools")
 
 # Import chart detector.
 try:
     from backend.api.chart_detector import ChartTypeDetector
     logger.info("[Init] Chart detector imported successfully.")
 except ImportError as e:
-    logger.info(
-        "[Init] Error importing chart detector (%s)",
-        type(e).__name__,
-    )
+    logger.info("[Init] Error importing chart detector")
     ChartTypeDetector = None
 
 # 导�??MemoryService
@@ -152,10 +146,7 @@ try:
     memory_service = MemoryService()
     logger.info("[Init] MemoryService initialized successfully.")
 except Exception as e:
-    logger.error(
-        "[Init] Error initializing MemoryService (%s)",
-        type(e).__name__,
-    )
+    logger.error("[Init] Error initializing MemoryService")
     memory_service = None
 
 
@@ -291,10 +282,7 @@ def _index_report_async(*, session_id: str, report: dict[str, Any], state: dict[
             trace_digest=_build_trace_digest(state),
         )
     except Exception as exc:
-        logger.error(
-            "report index async upsert failed (%s)",
-            type(exc).__name__,
-        )
+        logger.error("report index async upsert failed")
 
 
 def _schedule_report_index(*, session_id: str, report: dict[str, Any], state: dict[str, Any] | None) -> None:
@@ -308,10 +296,7 @@ def _schedule_report_index(*, session_id: str, report: dict[str, Any], state: di
             lambda: _index_report_async(session_id=session_id, report=report, state=state),
         )
     except Exception as exc:
-        logger.error(
-            "schedule async report indexing failed (%s)",
-            type(exc).__name__,
-        )
+        logger.error("schedule async report indexing failed")
 
 
 def _is_raw_trace_event(payload: dict[str, Any]) -> bool:
@@ -400,10 +385,7 @@ def _update_session_context(
             metadata=metadata,
         )
     except Exception as exc:
-        logger.error(
-            "failed to update session context (%s)",
-            type(exc).__name__,
-        )
+        logger.error("failed to update session context")
 
 
 def _build_ui_context(request: ChatRequest) -> Dict[str, Any]:
@@ -437,10 +419,7 @@ def _get_orchestrator_safe():
     try:
         return get_global_orchestrator()
     except Exception as exc:
-        logger.error(
-            "failed to initialize orchestrator (%s)",
-            type(exc).__name__,
-        )
+        logger.error("failed to initialize orchestrator")
         return None
 
 def _env_bool(key: str, default: str = "false") -> bool:
@@ -670,12 +649,9 @@ def _init_default_user_config() -> None:
                 _f.flush()
                 os.fsync(_f.fileno())
             os.replace(temp_path, USER_CONFIG_PATH)
-            logger.info("[Config] wrote default user config to %s", USER_CONFIG_PATH)
+            logger.info("[Config] wrote default user config")
         except Exception as _exc:
-            logger.warning(
-                "[Config] failed to write default user config (%s)",
-                type(_exc).__name__,
-            )
+            logger.warning("[Config] failed to write default user config")
         finally:
             if os.path.exists(temp_path):
                 try:
@@ -759,12 +735,9 @@ async def lifespan(app: FastAPI):
     try:
         install_rag_observability_hooks()
         rag_observability_status = get_rag_observability_store().ensure_schema() if hasattr(get_rag_observability_store(), 'ensure_schema') else False
-        logger.info("[RAGObservability] initialized=%s", rag_observability_status)
+        logger.info("[RAGObservability] initialization completed")
     except Exception as exc:
-        logger.error(
-            "[RAGObservability] initialization failed in lifespan (%s)",
-            type(exc).__name__,
-        )
+        logger.error("[RAGObservability] initialization failed in lifespan")
 
     rag_retention_enabled = _env_bool("RAG_OBSERVABILITY_RETENTION_ENABLED", "true")
     if rag_retention_enabled:
@@ -775,12 +748,9 @@ async def lifespan(app: FastAPI):
         def _run_rag_observability_retention_cycle() -> None:
             try:
                 deleted = get_rag_observability_store().cleanup_retention()
-                logger.info("[RAGObservability] retention cleanup deleted=%s", deleted)
+                logger.info("[RAGObservability] retention cleanup completed")
             except Exception as exc:
-                logger.error(
-                    "[RAGObservability] retention cleanup failed (%s)",
-                    type(exc).__name__,
-                )
+                logger.error("[RAGObservability] retention cleanup failed")
 
         sched = start_interval_scheduler(
             _run_rag_observability_retention_cycle,
@@ -798,10 +768,7 @@ async def lifespan(app: FastAPI):
         await aget_graph_runner()
         logger.info("[GraphRunner] initialized in lifespan")
     except Exception as exc:
-        logger.error(
-            "[GraphRunner] initialization failed in lifespan (%s)",
-            type(exc).__name__,
-        )
+        logger.error("[GraphRunner] initialization failed in lifespan")
 
     try:
         yield
@@ -816,10 +783,7 @@ async def lifespan(app: FastAPI):
             try:
                 sched.shutdown(wait=True)
             except Exception as e:
-                logger.error(
-                    "[Scheduler] shutdown error (%s)",
-                    type(e).__name__,
-                )
+                logger.error("[Scheduler] shutdown error")
         if scheduler_count:
             logger.info("[Scheduler] all schedulers stopped.")
         _schedulers.clear()
@@ -830,10 +794,7 @@ async def lifespan(app: FastAPI):
             reset_graph_runner()
             logger.info("[GraphRunner] checkpointer/runner caches cleared on shutdown")
         except Exception as e:
-            logger.error(
-                "[GraphRunner] shutdown cleanup error (%s)",
-                type(e).__name__,
-            )
+            logger.error("[GraphRunner] shutdown cleanup error")
 
 app = FastAPI(
     title="FinSight API",
@@ -872,10 +833,7 @@ async def security_gate(request: Request, call_next):
         except Exception as exc:
             # Supabase 抖动/超时抛 RuntimeError/TimeoutError：认证上游不可用应是
             # 503 而非裸 500（R35），不泄露内部栈
-            logger.error(
-                "rag access check failed due to upstream auth error (%s)",
-                type(exc).__name__,
-            )
+            logger.error("rag access check failed due to upstream auth error")
             return JSONResponse(status_code=503, content={"detail": "Auth upstream unavailable"})
         # rag 路径此前直接 return，完全绕过限流（且使主路径的"按用户限流"
         # 分支成为死代码）——在本分支内按登录用户限流（R40）

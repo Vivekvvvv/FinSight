@@ -213,7 +213,7 @@ def test_price_scheduler_isolates_fetch_failure_per_subscription(subscription_se
     assert [item["ticker"] for item in sent] == ["MSFT"]
     log_text = "\n".join(messages)
     assert secret not in log_text
-    assert "RuntimeError" in log_text
+    assert "Price fetch failed" in log_text
 
 
 def test_price_scheduler_isolates_email_exception(subscription_service_tmp, monkeypatch):
@@ -253,7 +253,7 @@ def test_price_scheduler_isolates_email_exception(subscription_service_tmp, monk
     assert aapl["last_alert_error"] == "delivery_error"
     log_text = "\n".join(messages)
     assert "PRIVATE email failure" not in log_text
-    assert "RuntimeError" in log_text
+    assert "Email send raised" in log_text
 
 
 def test_alert_failure_log_omits_email_and_error_message(subscription_service_tmp, monkeypatch):
@@ -284,7 +284,9 @@ def test_alert_failure_log_omits_email_and_error_message(subscription_service_tm
     log_text = "\n".join(messages)
     assert private_email not in log_text
     assert "PRIVATE provider failure" not in log_text
-    assert "ticker=AAPL (transient)" in log_text
+    assert "AAPL" not in log_text
+    assert "Email send failed" in log_text
+    assert "transient" not in log_text
 
 
 def test_alert_failure_normalizes_untrusted_error_fields(subscription_service_tmp, monkeypatch):
@@ -320,7 +322,9 @@ def test_alert_failure_normalizes_untrusted_error_fields(subscription_service_tm
     log_text = "\n".join(messages)
     stored = service.get_subscriptions("user@example.com")[0]
     assert "PRIVATE" not in log_text
-    assert "ticker=AAPL (unknown)" in log_text
+    assert "AAPL" not in log_text
+    assert "Email send failed" in log_text
+    assert "unknown" not in log_text
     assert stored["last_alert_error"] == "delivery_error"
 
 
@@ -563,7 +567,7 @@ def test_news_scheduler_isolates_fetch_failure_per_subscription(subscription_ser
     assert [item["ticker"] for item in sent] == ["MSFT"]
     log_text = "\n".join(messages)
     assert secret not in log_text
-    assert "RuntimeError" in log_text
+    assert "News fetch failed" in log_text
 
 
 def test_news_scheduler_isolates_email_exception(subscription_service_tmp, monkeypatch):
@@ -604,7 +608,7 @@ def test_news_scheduler_isolates_email_exception(subscription_service_tmp, monke
     assert aapl["last_alert_error"] == "delivery_error"
     log_text = "\n".join(messages)
     assert "PRIVATE news email failure" not in log_text
-    assert "RuntimeError" in log_text
+    assert "News email send raised" in log_text
 
 
 def test_c3_yfinance_epoch_converted_to_utc(monkeypatch):

@@ -235,19 +235,19 @@ def _runtime_fetch_all(store: SQLRAGObservabilityStore, sql: str, params: dict[s
             try:
                 item['payload_json'] = _strict_json_loads(item['payload_json'])
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                logger.warning("invalid stored RAG payload_json (%s)", type(exc).__name__)
+                logger.warning('invalid stored RAG payload_json')
                 item['payload_json'] = {}
         if 'metadata_json' in item:
             try:
                 item['metadata_json'] = _strict_json_loads(item['metadata_json'])
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                logger.warning("invalid stored RAG metadata_json (%s)", type(exc).__name__)
+                logger.warning('invalid stored RAG metadata_json')
                 item['metadata_json'] = {}
         if 'metadata' in item:
             try:
                 item['metadata'] = _strict_json_loads(item['metadata'])
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                logger.warning("invalid stored RAG metadata (%s)", type(exc).__name__)
+                logger.warning('invalid stored RAG metadata')
                 item['metadata'] = {}
     return items
 

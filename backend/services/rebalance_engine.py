@@ -502,10 +502,7 @@ class RebalanceEngine:
             logger.warning("[rebalance] enhancer returned invalid payload, fallback to deterministic")
             return candidates
         except Exception as exc:
-            logger.warning(
-                "[rebalance] enhancer failed, fallback to deterministic: %s",
-                type(exc).__name__,
-            )
+            logger.warning('[rebalance] enhancer failed, fallback to deterministic')
             return candidates
 
     @staticmethod

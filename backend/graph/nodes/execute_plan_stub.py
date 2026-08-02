@@ -814,7 +814,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                 try:
                     return method(*args, **kwargs)
                 except Exception as exc:
-                    logger.warning("RAG 鍙娴嬪啓鍏ュけ璐?method=%s error=%s", method_name, type(exc).__name__)
+                    logger.warning("RAG observability write failed")
                     return None
 
             await asyncio.to_thread(_store_call, "ensure_schema")
@@ -1126,7 +1126,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
                             )]
                             reranker_used = True
                 except Exception as rerank_exc:
-                    logger.debug("Reranker unavailable, using RRF order: %s", type(rerank_exc).__name__)
+                    logger.debug("Reranker unavailable; using RRF order")
                     rag_hits = pre_rerank_hits[:rerank_top_n]
 
                 cleaned = await asyncio.to_thread(rag.cleanup_expired)
@@ -1318,7 +1318,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
         else:
             rag_trace = {"enabled": False, "reason": "empty_query", "router_decision": rag_priority.value}
     except Exception as exc:
-        logger.error("RAG pipeline failed: %s", type(exc).__name__)
+        logger.error("RAG pipeline failed")
         rag_trace = {"enabled": False, "error": "rag_pipeline_error", "run_id": rag_run_id}
         if rag_run_id:
             rag_fallback_records.append(

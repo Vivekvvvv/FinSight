@@ -148,7 +148,7 @@ def get_fred_data(series_id: str = None) -> Dict[str, Any]:
                         result[key] = safe_float(value)
 
         except Exception as e:
-            logger.info("[FRED] Failed to fetch %s: %s", sid, type(e).__name__)
+            logger.info("[FRED] Failed to fetch series: %s", type(e).__name__)
             continue
 
     # 格式化输出

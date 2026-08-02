@@ -192,7 +192,7 @@ class ResearchReportGenerator:
             return str(response)
 
         except Exception as exc:
-            logger.error("[ResearchReport] LLM调用失败 for %s: %s", ticker, type(exc).__name__)
+            logger.error("[ResearchReport] LLM调用失败")
             return self._fallback_report(ticker)
 
     def _fallback_report(self, ticker: str) -> str:

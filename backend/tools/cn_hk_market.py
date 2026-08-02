@@ -99,7 +99,7 @@ def _eastmoney_get_json(url: str, params: dict[str, Any], timeout: int | None = 
         payload = resp.json()
         return payload if isinstance(payload, dict) else None
     except Exception as exc:
-        logger.info("[CNHK] eastmoney request failed for %s: %s", url, type(exc).__name__)
+        logger.info('[CNHK] eastmoney request failed')
         return None
 
 
@@ -113,7 +113,7 @@ def _http_get_text(url: str, *, timeout: int | None = None, referer: str | None 
             return None
         return str(getattr(resp, "text", "") or "")
     except Exception as exc:
-        logger.info("[CNHK] quote text request failed for %s: %s", url, type(exc).__name__)
+        logger.info('[CNHK] quote text request failed')
         return None
 
 

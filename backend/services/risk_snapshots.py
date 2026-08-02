@@ -192,11 +192,7 @@ def get_risk_snapshots_history(
                     if value is not None and not math.isfinite(float(value)):
                         raise ValueError(f"{field} must be finite")
             except (TypeError, ValueError) as exc:
-                logger.warning(
-                    "invalid stored risk snapshot summary for date=%s (%s)",
-                    row["snapshot_date"],
-                    type(exc).__name__,
-                )
+                logger.warning('invalid stored risk snapshot summary')
                 continue
             result.append(dict(row))
         return result
@@ -244,7 +240,7 @@ def get_latest_snapshot(
             if not isinstance(data, dict):
                 raise ValueError("snapshot payload must be an object")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning("invalid stored risk snapshot (%s)", type(exc).__name__)
+            logger.warning('invalid stored risk snapshot')
             return None
         return {"snapshot_date": row["snapshot_date"], "data": data}
     finally:

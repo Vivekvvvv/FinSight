@@ -93,10 +93,10 @@ class DashboardCache:
         # 检查是否过期
         if time.time() > expires_at:
             del self._store[key]
-            logger.debug(f"Cache expired: {key}")
+            logger.debug("Cache expired")
             return None
 
-        logger.debug(f"Cache hit: {key}")
+        logger.debug("Cache hit")
         return value
 
     def get_with_stale(
@@ -129,19 +129,19 @@ class DashboardCache:
 
         if now <= expires_at:
             # Fresh
-            logger.debug(f"Cache hit (fresh): {key}")
+            logger.debug("Cache hit (fresh)")
             return value, False
 
         # Expired but within stale window?
         stale_ttl = self._normalize_ttl(stale_ttl, self.TTL_INSIGHTS_STALE)
         stale_deadline = expires_at + stale_ttl
         if now <= stale_deadline:
-            logger.debug(f"Cache hit (stale): {key}")
+            logger.debug("Cache hit (stale)")
             return value, True
 
         # Beyond stale window — treat as miss
         del self._store[key]
-        logger.debug(f"Cache expired beyond stale window: {key}")
+        logger.debug("Cache expired beyond stale window")
         return None, False
 
     def set(
@@ -187,7 +187,7 @@ class DashboardCache:
         ttl = self._normalize_ttl(ttl, 0)
         expires_at = time.time() + ttl
         self._store[key] = (expires_at, value)
-        logger.debug(f"Cache set: {key}, TTL={ttl}s")
+        logger.debug("Cache set")
 
     def invalidate(self, symbol: str) -> None:
         """
@@ -203,7 +203,7 @@ class DashboardCache:
             del self._store[key]
 
         if keys_to_delete:
-            logger.debug(f"Invalidated {len(keys_to_delete)} cache entries for {symbol}")
+            logger.debug("Invalidated symbol cache entries")
 
     def invalidate_type(self, data_type: str) -> None:
         """
@@ -219,13 +219,13 @@ class DashboardCache:
             del self._store[key]
 
         if keys_to_delete:
-            logger.debug(f"Invalidated {len(keys_to_delete)} cache entries for type {data_type}")
+            logger.debug("Invalidated cache entries by data type")
 
     def clear(self) -> None:
         """清空所有缓存"""
         count = len(self._store)
         self._store.clear()
-        logger.debug(f"Cache cleared: {count} entries removed")
+        logger.debug("Cache cleared")
 
     def stats(self) -> dict[str, Any]:
         """
@@ -271,7 +271,7 @@ class DashboardCache:
             del self._store[key]
 
         if expired_keys:
-            logger.debug(f"Cleaned up {len(expired_keys)} expired cache entries")
+            logger.debug("Cleaned up expired cache entries")
 
         return len(expired_keys)
 

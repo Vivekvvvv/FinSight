@@ -130,7 +130,8 @@ def test_wikipedia_page_error_log_is_redacted(monkeypatch, caplog):
 
     assert search_tools._search_with_wikipedia("Ada Lovelace") is None
     assert secret not in caplog.text
-    assert "Ada Lovelace 失败: RuntimeError" in caplog.text
+    assert "Ada Lovelace" not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_wikipedia_search_error_log_is_redacted(monkeypatch, caplog):
@@ -161,7 +162,8 @@ def test_tavily_api_error_log_is_redacted(monkeypatch, caplog):
         search_tools._search_with_tavily("AAPL earnings")
 
     assert secret not in caplog.text
-    assert "Tavily API 错误: RuntimeError" in caplog.text
+    assert "Tavily API 错误" in caplog.text
+    assert "RuntimeError" not in caplog.text
 
 
 def test_tavily_api_error_is_redacted_when_raised(monkeypatch):

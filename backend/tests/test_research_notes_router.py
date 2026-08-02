@@ -222,7 +222,8 @@ def _assert_internal_error_redacted(response, caplog, secret: str) -> None:
     assert response.json()["detail"] == "Internal server error"
     assert secret not in response.text
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "research-notes/" in caplog.text
+    assert "failed" in caplog.text
 
 
 def test_create_note_internal_error_is_redacted(authenticated_client, monkeypatch, caplog):

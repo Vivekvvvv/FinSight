@@ -419,7 +419,10 @@ class ToolOrchestrator:
                         },
                     )
                 else:
-                    logger.info(f"[Orchestrator] {source.name} 数据验证失败: {validation.issues}")
+                    logger.info(
+                        "[Orchestrator] data validation failed: issue_count=%d",
+                        len(validation.issues),
+                    )
                     last_error = f"Validation failed: {validation.issues}"
                     source.consecutive_failures += 1
                     source.last_fail = datetime.now()
@@ -449,7 +452,7 @@ class ToolOrchestrator:
                     success=False, duration_ms=source_duration_ms,
                     error=type(e).__name__, fallback=(i > 0), tried_sources=list(tried_sources)
                 )
-                logger.info("[Orchestrator] %s failed: %s", source.name, type(e).__name__)
+                logger.info("[Orchestrator] source failed: %s", type(e).__name__)
                 continue
             
             time.sleep(0.3)
@@ -512,7 +515,7 @@ class ToolOrchestrator:
             if isinstance(result, str):
                 if "Error" in result or "error" in result.lower():
                     if "rate limit" in result.lower() or "too many requests" in result.lower():
-                        logger.info(f"[Orchestrator] {source.name} rate limited")
+                        logger.info("[Orchestrator] source rate limited")
                     return None
             
             return result

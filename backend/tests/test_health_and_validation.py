@@ -230,7 +230,7 @@ def test_add_chart_data_internal_error_returns_500(client, monkeypatch, caplog, 
     assert resp.json()["detail"] == "Internal server error"
     assert "private storage detail" not in capsys.readouterr().err
     assert "private storage detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[chat/add-chart-data] failed" in caplog.text
 
 
 def test_legacy_chat_endpoint_removed(client):

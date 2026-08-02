@@ -39,7 +39,7 @@ def test_handle_does_not_log_user_query(monkeypatch, caplog):
 
     assert result["success"] is True
     assert secret not in caplog.text
-    assert f"query_chars={len(secret)}" in caplog.text
+    assert "[ChatHandler] 检查闲聊/建议意图" in caplog.text
 
 
 def test_handle_internal_error_is_redacted(monkeypatch, caplog, capsys):
@@ -55,7 +55,7 @@ def test_handle_internal_error_is_redacted(monkeypatch, caplog, capsys):
 
     _assert_redacted(result, secret, caplog, capsys.readouterr())
     assert result["error"] == "internal_error"
-    assert "RuntimeError" in caplog.text
+    assert "[ChatHandler] request handling failed" in caplog.text
 
 
 def test_price_error_is_redacted(caplog, capsys):
@@ -254,7 +254,7 @@ async def test_stream_with_llm_error_does_not_print_traceback(monkeypatch, caplo
     assert secret not in caplog.text
     assert secret not in captured.out
     assert secret not in captured.err
-    assert "ConnectionError" in caplog.text
+    assert "[ChatHandler] Streaming LLM enhancement failed" in caplog.text
 
 
 def test_comparison_llm_error_does_not_leak(monkeypatch, caplog, capsys):

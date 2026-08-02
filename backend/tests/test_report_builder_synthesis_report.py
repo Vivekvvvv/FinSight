@@ -27,7 +27,7 @@ def test_build_report_payload_redacts_fallback_error(monkeypatch, caplog):
     assert report["meta"]["builder_error"] == "internal_error"
     assert secret not in str(report)
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[ReportBuilder] build_report_payload failed" in caplog.text
 
 
 def test_count_content_chars_ignores_raw_urls():

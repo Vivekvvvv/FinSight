@@ -108,7 +108,7 @@ def _parse_stored_tags(value: object) -> list[str]:
         if not isinstance(parsed, list):
             raise ValueError("tags must be a list")
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        logger.warning("stored portfolio tags parse failed (%s)", type(exc).__name__)
+        logger.warning('stored portfolio tags parse failed')
         return []
     return _normalize_tags(parsed) or []
 
@@ -136,11 +136,7 @@ def get_positions(session_id: str) -> list[dict[str, Any]]:
             shares = _finite_number(r[1], field="shares")
             avg_cost = _finite_number(r[2], field="avg_cost", allow_none=True)
         except ValueError as exc:
-            logger.warning(
-                "Skipping invalid stored portfolio position for ticker=%s (%s)",
-                r[0],
-                type(exc).__name__,
-            )
+            logger.warning('Skipping invalid stored portfolio position')
             continue
         tags = _parse_stored_tags(r[5])
         result.append(
@@ -285,11 +281,7 @@ def list_suggestions(session_id: str, limit: int = 10) -> list[dict[str, Any]]:
             if not isinstance(parsed, dict):
                 raise ValueError("suggestion payload must be an object")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning(
-                "stored rebalance suggestion parse failed for suggestion_id=%s: %s",
-                r[0],
-                type(exc).__name__,
-            )
+            logger.warning('stored rebalance suggestion parse failed')
             parsed = {}
         result.append({
             "suggestion_id": r[0],

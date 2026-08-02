@@ -37,11 +37,9 @@ def run_health_probe_cycle(tickers: Iterable[str] | None = None) -> None:
         except Exception as e:  # pragma: no cover - diagnostic only
             results.append((t, False, "exception", type(e).__name__))
 
-    ok = sum(1 for r in results if r[1])
-    fail = len(results) - ok
-    logger.info(f"[HealthProbe] run completed: total={len(results)} ok={ok} fail={fail}")
+    logger.info("[HealthProbe] run completed")
     for t, success, source, err in results:
         if success:
-            logger.info(f"[HealthProbe] {t}: ok via {source}")
+            logger.info("[HealthProbe] check ok")
         else:
-            logger.info(f"[HealthProbe] {t}: fail via {source} error={err}")
+            logger.info("[HealthProbe] check failed")

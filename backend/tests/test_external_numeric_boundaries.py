@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import ast
 import json
 import importlib
@@ -1500,6 +1501,14 @@ def test_stooq_quote_rejects_non_finite_close(monkeypatch, value):
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_performance_comparison_rejects_non_finite_prices(monkeypatch, source, row_index, value):
     from backend.tools import price as module
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 7, 31)
+            return value if tz is None else value.replace(tzinfo=tz)
+
+    monkeypatch.setattr(module, "datetime", _FixedDateTime)
 
     dates = pd.to_datetime(["2025-08-01", "2026-01-01", "2026-07-31"])
     closes = [80.0, 90.0, 100.0]

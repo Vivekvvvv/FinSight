@@ -120,7 +120,7 @@ def safe_pinned_request(
     for _hop in range(max_redirects + 1):
         target = resolve_safe_target(current_url)
         if target is None:
-            logger.info("[pinned_http] blocked unsafe target host=%s", _safe_log_host(current_url))
+            logger.info("[pinned_http] blocked unsafe target")
             return None
         host, port, pinned_ip = target
 
@@ -172,7 +172,7 @@ def safe_pinned_request(
             continue
         return resp
 
-    logger.info("[pinned_http] too many redirects for host=%s", _safe_log_host(url))
+    logger.info("[pinned_http] too many redirects")
     return None
 
 

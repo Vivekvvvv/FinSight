@@ -63,7 +63,7 @@ def _get_embedder():
         from backend.rag.embedder import get_embedding_service
         return get_embedding_service()
     except Exception as exc:
-        logger.debug("embedding service unavailable: %s", type(exc).__name__)
+        logger.debug('embedding service unavailable')
         return None
 
 
@@ -112,7 +112,7 @@ def vectorize_note(note_id: str, title: str, content: str) -> bool:
             )
         return True
     except Exception as e:
-        logger.warning("vectorize_note failed %s: %s", note_id, type(e).__name__)
+        logger.warning("vectorize_note failed: %s", type(e).__name__)
         return False
 
 
@@ -166,14 +166,14 @@ def _vector_search(
             if not math.isfinite(score):
                 raise ValueError("non-finite similarity")
         except Exception as exc:
-            logger.warning("invalid stored note vector (%s)", type(exc).__name__)
+            logger.warning('invalid stored note vector')
             score = 0.0
         try:
             tags = json_loads_strict(tags_json or "[]")
             if not isinstance(tags, list):
                 raise ValueError("tags must be a list")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning("invalid stored note tags (%s)", type(exc).__name__)
+            logger.warning('invalid stored note tags')
             tags = []
         scored.append((score, {
             "note_id": note_id,

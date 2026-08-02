@@ -116,10 +116,7 @@ def search(query: str) -> str:
             error_msg = str(e) if e else "未知错误"
             if _is_quota_error(error_msg):
                 _EXA_QUOTA_BLOCKED_UNTIL = time.time() + max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS)
-                logger.warning(
-                    "[Search] Exa quota exhausted, disable for %ss",
-                    max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS),
-                )
+                logger.warning("[Search] Exa quota exhausted; temporarily disabled")
             logger.info("[Search] Exa 搜索失败: %s", type(e).__name__)
 
     # 1.尝试 Tavily Search (AI搜索)
@@ -144,10 +141,7 @@ def search(query: str) -> str:
             error_msg = str(e) if e else "未知错误"
             if _is_quota_error(error_msg):
                 _TAVILY_QUOTA_BLOCKED_UNTIL = time.time() + max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS)
-                logger.warning(
-                    "[Search] Tavily quota exhausted, disable for %ss",
-                    max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS),
-                )
+                logger.warning("[Search] Tavily quota exhausted; temporarily disabled")
             # 忽略 Tavily 错误，继续尝试下一个源
             logger.info("[Search] Tavily 搜索失败: %s", type(e).__name__)
 
@@ -198,7 +192,7 @@ def search(query: str) -> str:
     # 合并结果
     combined_result = _merge_search_results(all_results, query)
 
-    logger.info(f"[Search] ✅ 最终使用 {len(sources_used)} 个搜索源: {', '.join(sources_used)}")
+    logger.info("[Search] 最终使用 %d 个搜索源", len(sources_used))
     return combined_result
 
 
@@ -394,7 +388,7 @@ def _search_with_wikipedia(query: str) -> str:
             except wikipedia.exceptions.PageError:
                 continue
             except Exception as e:
-                logger.info("[Search] 维基百科获取页面 %s 失败: %s", page_title, type(e).__name__)
+                logger.info("[Search] 维基百科获取页面失败: %s", type(e).__name__)
                 continue
         
         # 如果没找到相关结果，使用第一个搜索结果
@@ -488,7 +482,7 @@ def _search_with_tavily(query: str) -> str:
     except Exception as e:
         error_msg = str(e) if e else "未知错误"
         error_type = type(e).__name__
-        logger.info("[Search] Tavily API 错误: %s", error_type)
+        logger.info("[Search] Tavily API 错误")
 
         # 如果是 API key 相关错误，给出更明确的提示
         if "api" in error_msg.lower() or "key" in error_msg.lower() or "auth" in error_msg.lower():

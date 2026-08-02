@@ -55,7 +55,7 @@ async def test_llm_enhancer_failure_falls_back_to_deterministic(caplog):
     assert len(suggestion.actions) >= 1
     assert any("fallback to deterministic" in rec.message for rec in caplog.records)
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[rebalance] enhancer failed, fallback to deterministic" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -72,7 +72,7 @@ async def test_rebalance_llm_initialization_error_log_is_redacted(caplog):
 
     assert result is candidates
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[rebalance-enhancer] LLM init failed" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_rebalance_llm_call_error_log_is_redacted(caplog):
 
     assert result is candidates
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[rebalance-enhancer] LLM call failed" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -117,7 +117,7 @@ async def test_rebalance_news_fetch_error_log_is_redacted(caplog):
 
     assert result == {"AAPL": {}}
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[rebalance-enhancer] news fetch failed" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_rebalance_company_info_error_log_is_redacted(caplog):
 
     assert result == {"AAPL": {}}
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[rebalance-enhancer] info fetch failed" in caplog.text
 
 
 @pytest.mark.asyncio

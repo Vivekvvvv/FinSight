@@ -85,7 +85,7 @@ class _ProbeStore(SQLRAGObservabilityStore):
 def test_json_loads_rejects_non_finite_stored_metadata(caplog):
     assert _json_loads('{"score":NaN}', {}) == {}
     assert _json_loads({"score": math.inf}, {}) == {}
-    assert caplog.text.count("invalid stored RAG JSON (ValueError)") == 2
+    assert caplog.text.count("invalid stored RAG JSON") == 2
 
 
 def test_runtime_json_loader_rejects_non_finite_values():

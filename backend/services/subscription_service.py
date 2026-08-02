@@ -369,7 +369,7 @@ class SubscriptionService:
 
             self.subscriptions[email].append(subscription)
             self._save_subscriptions()
-            logger.info("Subscription created for ticker=%s", ticker)
+            logger.info("Subscription created")
             return True
 
     def is_valid_email(self, email: str) -> bool:
@@ -408,7 +408,7 @@ class SubscriptionService:
                     del self.subscriptions[email]
 
             self._save_subscriptions()
-            logger.info("Subscription removed for ticker=%s", ticker or "all")
+            logger.info("Subscription removed")
             return True
     
     def get_subscriptions(self, email: Optional[str] = None, *, allow_all: bool = False) -> List[Dict]:
@@ -572,7 +572,7 @@ class SubscriptionService:
                         sub['last_alert_error_at'] = None
                     sub['updated_at'] = datetime.now().isoformat()
                     self._save_subscriptions()
-                    logger.info("Subscription %s for ticker=%s", "enabled" if enabled else "disabled", ticker)
+                    logger.info("Subscription status updated for single ticker")
                     return True
 
             return False

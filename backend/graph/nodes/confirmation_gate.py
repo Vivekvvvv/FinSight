@@ -176,11 +176,7 @@ def confirmation_gate(state: GraphState) -> dict[str, Any]:
     )
     option_effects, option_intents = _build_option_metadata(options)
 
-    logger.info(
-        "[confirmation_gate] interrupt for confirmation output_mode=%s confirmation_mode=%s",
-        output_mode,
-        confirmation_mode,
-    )
+    logger.info("[confirmation_gate] interrupt for confirmation")
 
     user_response = interrupt(
         {
@@ -218,11 +214,7 @@ def confirmation_gate(state: GraphState) -> dict[str, Any]:
         if merged_query:
             updates["query"] = merged_query
 
-    logger.info(
-        "[confirmation_gate] resumed intent=%s has_instruction=%s",
-        intent,
-        bool(instruction),
-    )
+    logger.info("[confirmation_gate] resumed")
     return updates
 
 

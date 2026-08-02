@@ -549,11 +549,7 @@ def _fetch_rss_headlines(
             if ok:
                 all_lines.extend(lines)
         except Exception as exc:
-            logger.debug(
-                "news RSS request failed for host=%s: %s",
-                _domain_from_url(url) or "<invalid>",
-                type(exc).__name__,
-            )
+            logger.debug("news RSS request failed: %s", type(exc).__name__)
             continue
         if len(all_lines) >= limit:
             break
@@ -643,7 +639,7 @@ def _get_index_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
     """
     friendly_name = MARKET_INDICES.get(ticker, ticker.replace('^', ''))
     
-    logger.info(f"  → Detected market index: {friendly_name}")
+    logger.info("  → Detected market index")
     logger.info(f"  → Using specialized search strategy for index news...")
     
     # 策略1: 搜索指数最近表现和分析
@@ -662,7 +658,7 @@ def _get_index_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
                 all_results.append(results)
             time.sleep(1)
         except Exception as e:
-            logger.info("  → Search failed for '%s': %s", query, type(e).__name__)
+            logger.info("  → Search failed for query_chars=%d: %s", len(query or ""), type(e).__name__)
             continue
     
     if not all_results:
@@ -782,7 +778,7 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
                 if items:
                     return items
         except Exception as e:
-            logger.info("yfinance index news error for %s: %s", ticker, type(e).__name__)
+            logger.info("yfinance index news error: %s", type(e).__name__)
 
         # 再退回搜索策略
         return _get_index_news(ticker, limit=limit)
@@ -819,12 +815,12 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
             if items:
                 return items
     except Exception as e:
-        logger.info("yfinance news error for %s: %s", ticker, type(e).__name__)
+        logger.info("yfinance company news error: %s", type(e).__name__)
 
     # 方法2: Finnhub
     if finnhub_client:
         try:
-            logger.info(f"Trying Finnhub news for {ticker}")
+            logger.info("Trying Finnhub company news")
             to_date = date.today().strftime("%Y-%m-%d")
             from_date = (date.today() - timedelta(days=7)).strftime("%Y-%m-%d")
             news = finnhub_client.company_news(ticker, _from=from_date, to=to_date)
@@ -858,7 +854,7 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
 
     # 方法3: Alpha Vantage
     try:
-        logger.info(f"Trying Alpha Vantage news for {ticker}")
+        logger.info("Trying Alpha Vantage company news")
         url = "https://www.alphavantage.co/query"
         params = {'function': 'NEWS_SENTIMENT', 'tickers': ticker, 'limit': 5, 'apikey': ALPHA_VANTAGE_API_KEY}
         response = _http_get(url, params=params, timeout=10)
@@ -894,7 +890,7 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
         logger.info("Alpha Vantage news fetch failed: %s", type(e).__name__)
     
     # 方法4: 回退到公司特定搜索
-    logger.info(f"Falling back to search for {ticker} news")
+    logger.info("Falling back to company news search")
     fallback_text = search(f"{ticker} company latest news stock")
     items = _build_search_news_items(fallback_text, limit=limit, max_age_days=7)
     if items:
@@ -1079,7 +1075,7 @@ def get_event_calendar(ticker: str, days_ahead: int = 30) -> Dict[str, Any]:
                     }
                 )
     except Exception as e:
-        logger.info("[News] get_event_calendar yfinance failed for %s: %s", ticker, type(e).__name__)
+        logger.info("[News] get_event_calendar yfinance failed: %s", type(e).__name__)
 
     macro_query = (
         f"US economic calendar next {days} days CPI PCE FOMC NFP GDP release dates"
@@ -1296,7 +1292,7 @@ def get_market_news_headlines(limit: int = 5) -> str:
             try:
                 articles = fetch_news_articles(idx_ticker)
             except Exception as inner:
-                logger.info("[MarketNews] fetch_news_articles failed for %s: %s", idx_ticker, type(inner).__name__)
+                logger.info("[MarketNews] fetch_news_articles failed: %s", type(inner).__name__)
                 continue
             if articles:
                 lines = []
@@ -1334,7 +1330,7 @@ def get_market_news_headlines(limit: int = 5) -> str:
             res = search(q)
             combined.append(res)
         except Exception as e:
-            logger.info("[MarketNews] search failed for '%s': %s", q, type(e).__name__)
+            logger.info("[MarketNews] search failed: %s", type(e).__name__)
             continue
     if not combined:
         return "未能获取可靠的市场热点信息，请直接查看 Bloomberg/Reuters/WSJ 等权威来源。"
@@ -1356,7 +1352,7 @@ def get_market_news_headlines(limit: int = 5) -> str:
                 res = search(q)
                 retry_combined.append(res)
             except Exception as e:
-                logger.info("[MarketNews] retry search failed for '%s': %s", q, type(e).__name__)
+                logger.info("[MarketNews] retry search failed: %s", type(e).__name__)
                 continue
         if retry_combined:
             retry_text = "\n\n".join(retry_combined)

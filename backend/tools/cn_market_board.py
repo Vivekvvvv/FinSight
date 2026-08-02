@@ -45,7 +45,7 @@ def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, 
         rows = data.get("diff") if isinstance(data, dict) else None
         return rows if isinstance(rows, list) else []
     except Exception as exc:
-        logger.info("cn market board list failed: %s", type(exc).__name__)
+        logger.info('cn market board list failed')
         return None
 
 

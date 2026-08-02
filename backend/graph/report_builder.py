@@ -1693,7 +1693,7 @@ def build_report_payload(*, state: dict[str, Any], query: str, thread_id: str) -
     try:
         return _build_report_payload_impl(state=state, query=query, thread_id=thread_id)
     except Exception as exc:
-        logger.error("[ReportBuilder] build_report_payload failed: %s", type(exc).__name__)
+        logger.error("[ReportBuilder] build_report_payload failed")
         fallback = {
             "report_id": f"lg_{uuid.uuid4().hex[:10]}",
             "ticker": "N/A",

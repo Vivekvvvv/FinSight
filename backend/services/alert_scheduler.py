@@ -141,11 +141,7 @@ class PriceChangeScheduler:
             try:
                 snapshot = self.price_fetcher(sub["ticker"])
             except Exception as exc:
-                logger.warning(
-                    "Price fetch failed for ticker=%s (%s)",
-                    sub["ticker"],
-                    type(exc).__name__,
-                )
+                logger.warning('Price fetch failed')
                 continue
             if snapshot is None:
                 continue
@@ -233,11 +229,7 @@ class PriceChangeScheduler:
                     change_percent=snapshot.change_percent,
                 )
             except Exception as exc:
-                logger.warning(
-                    "Email send raised for ticker=%s (%s)",
-                    sub["ticker"],
-                    type(exc).__name__,
-                )
+                logger.warning('Email send raised')
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -252,7 +244,7 @@ class PriceChangeScheduler:
             error_type = _normalize_delivery_error_type(error_type)
 
             if not success:
-                logger.warning("Email send failed for ticker=%s (%s)", sub["ticker"], error_type)
+                logger.warning("Email send failed")
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -303,11 +295,7 @@ class PriceChangeScheduler:
                 }
             )
 
-        logger.info(
-            "price_change run completed: checked=%s, sent=%s",
-            checked,
-            len(sent),
-        )
+        logger.info("price_change run completed")
         return sent
 
 
@@ -358,11 +346,7 @@ class NewsAlertScheduler:
             try:
                 articles = self.news_fetcher(sub["ticker"])
             except Exception as exc:
-                logger.warning(
-                    "News fetch failed for ticker=%s (%s)",
-                    sub["ticker"],
-                    type(exc).__name__,
-                )
+                logger.warning('News fetch failed')
                 continue
             if not articles:
                 continue
@@ -424,11 +408,7 @@ class NewsAlertScheduler:
                     change_percent=None,
                 )
             except Exception as exc:
-                logger.warning(
-                    "News email send raised for ticker=%s (%s)",
-                    sub["ticker"],
-                    type(exc).__name__,
-                )
+                logger.warning('News email send raised')
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -445,7 +425,7 @@ class NewsAlertScheduler:
 
             # Only update last_news_at if email was actually sent
             if not success:
-                logger.warning("News email send failed for ticker=%s (%s)", sub["ticker"], error_type)
+                logger.warning("News email send failed")
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -476,11 +456,7 @@ class NewsAlertScheduler:
                 }
             )
 
-        logger.info(
-            "news run completed: checked=%s, sent=%s",
-            checked,
-            len(sent),
-        )
+        logger.info("news run completed")
         return sent
 
 
@@ -557,11 +533,7 @@ class RiskAlertScheduler:
             try:
                 snapshot = self.price_fetcher(sub["ticker"])
             except Exception as exc:
-                logger.warning(
-                    "Risk price fetch failed for ticker=%s (%s)",
-                    sub["ticker"],
-                    type(exc).__name__,
-                )
+                logger.warning('Risk price fetch failed')
                 continue
             if snapshot is None:
                 continue
@@ -600,11 +572,7 @@ class RiskAlertScheduler:
                     change_percent=snapshot.change_percent,
                 )
             except Exception as exc:
-                logger.warning(
-                    "Risk email send raised for ticker=%s (%s)",
-                    sub["ticker"],
-                    type(exc).__name__,
-                )
+                logger.warning('Risk email send raised')
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -620,7 +588,7 @@ class RiskAlertScheduler:
             error_type = _normalize_delivery_error_type(error_type)
 
             if not success:
-                logger.warning("Risk email send failed for ticker=%s (%s)", sub["ticker"], error_type)
+                logger.warning("Risk email send failed")
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -658,7 +626,7 @@ class RiskAlertScheduler:
                 }
             )
 
-        logger.info("risk run completed: checked=%s, sent=%s", checked, len(sent))
+        logger.info("risk run completed")
         return sent
 
 
@@ -772,7 +740,7 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
             )
             _add_article(title, link, source, pub_dt, related)
     except Exception as e:
-        logger.info("[NewsFetcher] yfinance news failed for %s: %s", ticker, type(e).__name__)
+        logger.info("[NewsFetcher] yfinance news failed: %s", type(e).__name__)
 
     # Finnhub fallback
     if not articles:
@@ -806,7 +774,7 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                         related = item.get("related", "").split(",") if item.get("related") else [ticker_up]
                         _add_article(title, link, source, pub_dt, related)
             except Exception as e:
-                logger.info("[NewsFetcher] finnhub news failed for %s: %s", ticker, type(e).__name__)
+                logger.info("[NewsFetcher] finnhub news failed: %s", type(e).__name__)
 
     # Alpha Vantage fallback
     if not articles:
@@ -837,7 +805,7 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                     rel_codes = [r.get("ticker") for r in related if isinstance(r, dict) and r.get("ticker")]
                     _add_article(title, link, source, pub_dt, rel_codes or [ticker_up])
             except Exception as e:
-                logger.info("[NewsFetcher] alpha vantage news failed for %s: %s", ticker, type(e).__name__)
+                logger.info("[NewsFetcher] alpha vantage news failed: %s", type(e).__name__)
 
     return articles
 
@@ -863,7 +831,7 @@ def _fetch_with_yfinance(ticker: str) -> Optional[PriceSnapshot]:
 
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
     except Exception as exc:
-        logger.debug("yfinance quote fetch failed for %s: %s", ticker, type(exc).__name__)
+        logger.debug('yfinance quote fetch failed')
         return None
 
 
@@ -892,7 +860,7 @@ def _fetch_with_yahoo_quote(ticker: str) -> Optional[PriceSnapshot]:
             change_percent = (price - prev_close) / prev_close * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
     except Exception as exc:
-        logger.debug("Yahoo quote fetch failed for %s: %s", ticker, type(exc).__name__)
+        logger.debug('Yahoo quote fetch failed')
         return None
 
 
@@ -944,7 +912,7 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
                 if closes:
                     prev = closes[-1]
         except Exception as exc:
-            logger.debug("Stooq history fetch failed for %s: %s", ticker, type(exc).__name__)
+            logger.debug('Stooq history fetch failed')
             prev = None
 
         change_percent = None
@@ -952,7 +920,7 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
             change_percent = (price - prev) / prev * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
     except Exception as exc:
-        logger.debug("Stooq quote fetch failed for %s: %s", ticker, type(exc).__name__)
+        logger.debug('Stooq quote fetch failed')
         return None
 
 
@@ -979,7 +947,7 @@ def _fetch_with_yahoo_chart(ticker: str) -> Optional[PriceSnapshot]:
         change_percent = (price - prev_close) / prev_close * 100.0
         return PriceSnapshot(ticker=ticker, price=price, change_percent=change_percent)
     except Exception as exc:
-        logger.debug("Yahoo chart fetch failed for %s: %s", ticker, type(exc).__name__)
+        logger.debug('Yahoo chart fetch failed')
         return None
 
 

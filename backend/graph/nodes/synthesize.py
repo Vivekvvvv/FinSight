@@ -363,7 +363,7 @@ def _scrub_unverified_future_claims(text: str, evidence_text: str) -> str:
             claim = match.group(0)
             if _claim_supported_by_evidence(claim, evidence_text):
                 return claim
-            logger.warning("[Synthesize] scrubbed unverified future claim: %s", claim)
+            logger.warning("[Synthesize] scrubbed unverified future claim")
             return _HALLUCINATION_SAFE_PLACEHOLDER
 
         cleaned = pattern.sub(_replace, cleaned)
@@ -492,7 +492,7 @@ async def _run_deep_report_verifier(
     try:
         from backend.llm_config import create_llm
     except Exception as exc:
-        logger.warning("[Synthesize/verifier] create_llm unavailable: %s", type(exc).__name__)
+        logger.warning("[Synthesize/verifier] create_llm unavailable")
         return {"enabled": True, "checked": False, "unsupported_claims": [], "error": type(exc).__name__}
 
     def _new_verifier_llm():
@@ -559,7 +559,7 @@ async def _run_deep_report_verifier(
             "unsupported_claims": claims,
         }
     except Exception as exc:
-        logger.warning("[Synthesize/verifier] verification failed: %s", type(exc).__name__)
+        logger.warning("[Synthesize/verifier] verification failed")
         return {
             "enabled": True,
             "checked": False,
@@ -1737,7 +1737,7 @@ async def _generate_narrative_draft(
         llm = create_llm(temperature=_synth_temp)
         llm_factory = lambda: create_llm(temperature=_synth_temp)  # noqa: E731
     except Exception as exc:
-        logger.warning("[Synthesize/narrative] LLM init failed: %s", type(exc).__name__)
+        logger.warning("[Synthesize/narrative] LLM init failed")
         return "", None
 
     artifacts = state.get("artifacts") or {}
@@ -2012,18 +2012,15 @@ async def _generate_narrative_draft(
             verifier_result["unresolved_unsupported_claims"] = unresolved_claims
 
         if len(draft) < 500:
-            logger.warning("[Synthesize/narrative] LLM output too short (%d chars), discarding", len(draft))
+            logger.warning("[Synthesize/narrative] LLM output too short; discarding")
             return "", verifier_result
 
-        logger.info("[Synthesize/narrative] Generated %d-char narrative draft (retries=%d)", len(draft), retry_attempts)
+        logger.info("[Synthesize/narrative] generated narrative draft")
         return draft, verifier_result
 
     except Exception as exc:
         retryable = is_rate_limit_error(exc)
-        logger.warning(
-            "[Synthesize/narrative] LLM call FAILED (retryable=%s, attempts=%d): %s — will use template fallback",
-            retryable, retry_attempts, type(exc).__name__,
-        )
+        logger.warning("[Synthesize/narrative] LLM call failed; using template fallback")
         append_failure(
             trace,
             node="synthesize",
@@ -2686,10 +2683,7 @@ summary, highlights, analysis.
         return {"artifacts": merged_artifacts, "trace": trace}
     except Exception as exc:
         retryable = is_rate_limit_error(exc)
-        logger.warning(
-            "[Synthesize] LLM call FAILED (retryable=%s, attempts=%d): %s — falling back to stub",
-            retryable, retry_attempts, type(exc).__name__,
-        )
+        logger.warning("[Synthesize] LLM call failed; falling back to stub")
         append_failure(
             trace,
             node="synthesize",

@@ -81,9 +81,9 @@ async def _run_blocking(
     try:
         return await asyncio.wait_for(asyncio.to_thread(bound), timeout=timeout)
     except asyncio.TimeoutError:
-        logger.warning("[Dashboard] %s timed out (%.1fs)", name, timeout)
+        logger.warning("[Dashboard] request timed out")
     except Exception as exc:
-        logger.warning("[Dashboard] %s failed: %s", name, type(exc).__name__)
+        logger.warning("[Dashboard] request failed")
     return None
 
 
@@ -240,7 +240,7 @@ async def get_dashboard(
         raise symbol_not_found(symbol)
 
     active_asset = resolve_asset(symbol)
-    logger.info("[Dashboard] Resolved %s -> %s", symbol, active_asset.type)
+    logger.info("[Dashboard] Resolved asset")
     if type and type in {"equity", "index", "etf", "crypto", "portfolio"}:
         active_asset.type = type
 
@@ -776,7 +776,7 @@ async def get_dashboard(
             indicator_series=IndicatorSeries(**g2_indicator_series) if g2_indicator_series else None,
         )
     except Exception as exc:
-        logger.warning("[Dashboard] DashboardData construction failed: %s", type(exc).__name__)
+        logger.warning("[Dashboard] DashboardData construction failed")
         data = DashboardData(
             snapshot=raw_data.get("snapshot", {}),
             charts=filtered_charts,

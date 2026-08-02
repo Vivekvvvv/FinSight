@@ -76,7 +76,7 @@ def _safe_preview(value: Any, *, limit: int = 240) -> Any:
             return {k: _safe_preview(v, limit=limit) for k, v in list(value.items())[:12]}
         return str(value)[:limit]
     except Exception as exc:
-        logger.debug("trace preview serialization failed: %s", type(exc).__name__)
+        logger.debug("trace preview serialization failed")
         return None
 
 
@@ -331,7 +331,7 @@ def _span_data(node_name: str, state: GraphState, updates: dict[str, Any]) -> di
             return {}
 
     except Exception as exc:
-        logger.debug("trace span data extraction failed for %s: %s", node_name, type(exc).__name__)
+        logger.debug("trace span data extraction failed")
         return {}
 
     return {}
@@ -384,7 +384,7 @@ def with_node_trace(node_name: str, fn: Callable[[GraphState], Any]) -> Callable
                         metadata={"duration_ms": duration_ms},
                     )
                 except Exception as exc:
-                    logger.debug("LangFuse span update failed for %s: %s", node_name, type(exc).__name__)
+                    logger.debug("LangFuse span update failed")
 
         # ========== 内部 Trace 收集（SSE 推送用） ==========
         span: dict[str, Any] = {

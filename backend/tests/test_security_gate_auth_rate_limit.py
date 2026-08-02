@@ -131,7 +131,7 @@ def test_research_qa_internal_error_is_redacted(monkeypatch, caplog):
     assert response.json()["detail"] == "Internal server error"
     assert "private LLM provider detail" not in response.text
     assert "private LLM provider detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "智能问答失败" in caplog.text
 
 
 def test_research_qa_uses_configured_llm_factory(monkeypatch):
@@ -233,7 +233,7 @@ def test_research_report_fallback_redacts_llm_error(monkeypatch, caplog):
     assert "生成报告时遇到错误，请稍后重试。" in response.json()["content"]
     assert "private report provider detail" not in response.text
     assert "private report provider detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[ResearchReport] LLM调用失败" in caplog.text
 
 
 def test_research_report_internal_error_is_redacted(monkeypatch, caplog):
@@ -263,7 +263,7 @@ def test_research_report_internal_error_is_redacted(monkeypatch, caplog):
     assert response.json()["detail"] == "Internal server error"
     assert "private report initialization detail" not in response.text
     assert "private report initialization detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "生成报告失败" in caplog.text
 
 
 def test_financials_analysis_uses_configured_llm_factory(monkeypatch):
@@ -327,7 +327,7 @@ def test_financials_analysis_fallback_redacts_llm_error(monkeypatch, caplog):
     assert response.json()["error"] == "Internal server error"
     assert "private financials provider detail" not in response.text
     assert "private financials provider detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[FinancialsAnalyzer] 分析失败" in caplog.text
 
 
 def test_financials_analysis_json_parse_fallback_redacts_error(monkeypatch, caplog):
@@ -361,7 +361,7 @@ def test_financials_analysis_json_parse_fallback_redacts_error(monkeypatch, capl
     assert "not-json-private-fragment" not in response.text
     assert "解析LLM响应失败" not in response.text
     assert "not-json-private-fragment" not in caplog.text
-    assert "JSONDecodeError" in caplog.text
+    assert "[FinancialsAnalyzer] LLM返回非JSON，fallback" in caplog.text
 
 
 def test_financials_analysis_non_finite_json_falls_back(monkeypatch, caplog):
@@ -392,7 +392,7 @@ def test_financials_analysis_non_finite_json_falls_back(monkeypatch, caplog):
     assert response.json()["status"] == "error"
     assert response.json()["error"] == "Internal server error"
     assert "NaN" not in response.text
-    assert "ValueError" in caplog.text
+    assert "[FinancialsAnalyzer] 分析失败" in caplog.text
 
 
 def test_financials_analysis_internal_error_is_redacted(monkeypatch, caplog):
@@ -420,7 +420,7 @@ def test_financials_analysis_internal_error_is_redacted(monkeypatch, caplog):
     assert response.json()["detail"] == "Internal server error"
     assert "private financials service detail" not in response.text
     assert "private financials service detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "财报分析失败" in caplog.text
 
 
 def test_financials_fetch_warning_redacts_exception_text(monkeypatch, caplog):
@@ -445,7 +445,7 @@ def test_financials_fetch_warning_redacts_exception_text(monkeypatch, caplog):
     assert response.status_code == 422
     assert response.json()["detail"] == "无法获取该股票财报数据，请确认代码正确"
     assert "private financials fetch detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "获取财报失败" in caplog.text
 
 
 def test_news_sentiment_uses_configured_llm_factory(monkeypatch):
@@ -513,7 +513,7 @@ def test_news_sentiment_fallback_redacts_llm_error(monkeypatch, caplog):
     assert response.json()["news"][0]["sentiment"] == "neutral"
     assert "private sentiment provider detail" not in response.text
     assert "private sentiment provider detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[NewsSentiment] 分析失败" in caplog.text
 
 
 def test_news_sentiment_json_parse_fallback_redacts_error(monkeypatch, caplog):
@@ -545,7 +545,7 @@ def test_news_sentiment_json_parse_fallback_redacts_error(monkeypatch, caplog):
     assert response.json()["news"][0]["sentiment"] == "neutral"
     assert "not-json-private-sentiment-fragment" not in response.text
     assert "not-json-private-sentiment-fragment" not in caplog.text
-    assert "JSONDecodeError" in caplog.text
+    assert "[NewsSentiment] LLM返回非JSON" in caplog.text
 
 
 def test_news_sentiment_non_finite_json_falls_back(monkeypatch, caplog):
@@ -580,7 +580,7 @@ def test_news_sentiment_non_finite_json_falls_back(monkeypatch, caplog):
     assert response.status_code == 200
     assert response.json()["news"][0]["sentiment"] == "neutral"
     assert "NaN" not in response.text
-    assert "ValueError" in caplog.text
+    assert "[NewsSentiment] 分析失败" in caplog.text
 
 
 def test_news_sentiment_internal_error_is_redacted(monkeypatch, caplog):
@@ -608,4 +608,4 @@ def test_news_sentiment_internal_error_is_redacted(monkeypatch, caplog):
     assert response.json()["detail"] == "Internal server error"
     assert "private sentiment service detail" not in response.text
     assert "private sentiment service detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "新闻情绪分析失败" in caplog.text

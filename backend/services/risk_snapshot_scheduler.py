@@ -27,7 +27,7 @@ def take_daily_risk_snapshot() -> None:
     try:
         # 获取所有活跃会话（有持仓数据的 session）
         sessions = get_all_active_sessions()
-        logger.info(f"Found {len(sessions)} active sessions")
+        logger.info("Active sessions loaded")
 
         snapshot_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         success_count = 0
@@ -65,16 +65,12 @@ def take_daily_risk_snapshot() -> None:
 
             except Exception as e:
                 logger.error(
-                    "Failed to snapshot %s/%s: %s",
-                    session_id,
-                    user_id,
+                    "Failed to snapshot portfolio: %s",
                     type(e).__name__,
                 )
                 error_count += 1
 
-        logger.info(
-            f"Daily risk snapshot completed: {success_count} success, {error_count} errors"
-        )
+        logger.info("Daily risk snapshot completed")
 
     except Exception as e:
         logger.error("Daily risk snapshot job failed: %s", type(e).__name__)

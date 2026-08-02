@@ -13,8 +13,7 @@ def test_parse_tags_sanitizes_corrupt_and_legacy_values(caplog):
         "ok",
         "x" * 64,
     ]
-    assert "JSONDecodeError" in caplog.text
-    assert "ValueError" in caplog.text
+    assert caplog.text.count("invalid stored research note tags") == 2
 
 
 def test_create_and_get_note():

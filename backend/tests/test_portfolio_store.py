@@ -128,7 +128,7 @@ def test_get_positions_skips_legacy_non_finite_numeric_values(
 
     assert [item["ticker"] for item in positions] == ["MSFT"]
     assert "Skipping invalid stored portfolio position" in caplog.text
-    assert "ValueError" in caplog.text
+    assert "Skipping invalid stored portfolio position" in caplog.text
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
@@ -153,7 +153,7 @@ def test_list_suggestions_sanitizes_legacy_non_finite_json(tmp_path, monkeypatch
     suggestions = store.list_suggestions("session")
 
     assert suggestions[0]["data"] == {}
-    assert "ValueError" in caplog.text
+    assert "stored rebalance suggestion parse failed" in caplog.text
 
 
 def test_update_position_partial_keeps_existing_metadata(tmp_path, monkeypatch):
@@ -272,5 +272,6 @@ def test_corrupt_portfolio_json_is_logged_without_exposing_payload(
 
     assert positions[0]["tags"] == []
     assert suggestions[0]["data"] == {}
-    assert caplog.text.count("JSONDecodeError") == 2
+    assert "stored portfolio tags parse failed" in caplog.text
+    assert "stored rebalance suggestion parse failed" in caplog.text
     assert corrupt_payload not in caplog.text

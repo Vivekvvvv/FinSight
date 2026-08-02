@@ -80,11 +80,7 @@ def summarize_history(state: GraphState) -> dict:
         # Within threshold — no summarization needed
         return {}
 
-    logger.info(
-        "[summarize_history] %d conversation messages exceed threshold %d. Summarizing...",
-        len(conversation_msgs),
-        _SUMMARIZE_THRESHOLD,
-    )
+    logger.info("[summarize_history] conversation history exceeds threshold; summarizing")
 
     # Split: older messages to summarize, recent messages to keep
     keep_count = min(_KEEP_RECENT_COUNT, len(conversation_msgs))
@@ -109,11 +105,7 @@ def summarize_history(state: GraphState) -> dict:
     # Add the summary as a new SystemMessage
     summary_msg = SystemMessage(content=summary_text)
 
-    logger.info(
-        "[summarize_history] Compressed %d old messages into summary, keeping %d recent",
-        len(msgs_to_summarize),
-        keep_count,
-    )
+    logger.info("[summarize_history] conversation history compressed")
 
     # RemoveMessage + SystemMessage: reducer removes old, adds summary
     return {"messages": removals + [summary_msg]}

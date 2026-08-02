@@ -41,7 +41,7 @@ def _get_memory_service() -> MemoryService | None:
         storage_path = os.getenv("MEMORY_STORAGE_PATH", "data/memory")
         _memory_service = MemoryService(storage_path=storage_path)
     except Exception as exc:
-        logger.warning("[graph.store] init memory service failed: %s", type(exc).__name__)
+        logger.warning("[graph.store] init memory service failed")
         _memory_service = _MEMORY_INIT_FAILED
         return None
     return _memory_service
@@ -129,7 +129,7 @@ def load_memory_context(
     try:
         profile = service.get_user_profile(user_id)
     except Exception as exc:
-        logger.warning("[graph.store] load profile failed user=%s: %s", user_id, type(exc).__name__)
+        logger.warning("[graph.store] load profile failed")
         return {}
 
     preferences = profile.preferences if isinstance(profile.preferences, dict) else {}
@@ -171,11 +171,7 @@ def persist_memory_snapshot(
     try:
         profile = service.get_user_profile(user_id)
     except Exception as exc:
-        logger.warning(
-            "[graph.store] load profile before persist failed user=%s: %s",
-            user_id,
-            type(exc).__name__,
-        )
+        logger.warning("[graph.store] load profile before persist failed")
         return False
 
     summary = _extract_summary(state, report)
@@ -217,7 +213,7 @@ def persist_memory_snapshot(
     try:
         return bool(service.update_user_profile(profile))
     except Exception as exc:
-        logger.warning("[graph.store] persist profile failed user=%s: %s", user_id, type(exc).__name__)
+        logger.warning("[graph.store] persist profile failed")
         return False
 
 

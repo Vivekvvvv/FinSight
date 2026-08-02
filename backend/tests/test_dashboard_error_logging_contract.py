@@ -23,7 +23,7 @@ def test_macro_sentiment_error_log_is_redacted(monkeypatch, caplog):
 
     assert payload["status"] == "unavailable"
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_macro_fred_error_log_is_redacted(monkeypatch, caplog):
@@ -41,7 +41,7 @@ def test_macro_fred_error_log_is_redacted(monkeypatch, caplog):
 
     assert payload["status"] == "unavailable"
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_market_chart_error_log_is_redacted(monkeypatch, caplog):
@@ -54,7 +54,7 @@ def test_market_chart_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_market_chart("AAPL") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_snapshot_error_log_is_redacted(monkeypatch, caplog):
@@ -69,7 +69,7 @@ def test_snapshot_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_snapshot("AAPL", "equity") is None
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_revenue_trend_error_log_is_redacted(monkeypatch, caplog):
@@ -84,7 +84,7 @@ def test_revenue_trend_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_revenue_trend("AAPL") == []
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_segment_mix_error_log_is_redacted(monkeypatch, caplog):
@@ -99,7 +99,7 @@ def test_segment_mix_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_segment_mix("AAPL") == []
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_company_news_error_log_is_redacted(monkeypatch, caplog):
@@ -117,7 +117,7 @@ def test_company_news_error_log_is_redacted(monkeypatch, caplog):
 
     assert payload is not None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_market_news_error_log_is_redacted(monkeypatch, caplog):
@@ -135,7 +135,7 @@ def test_market_news_error_log_is_redacted(monkeypatch, caplog):
 
     assert payload is not None
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_fetch_news_outer_error_log_is_redacted(monkeypatch, caplog):
@@ -154,7 +154,7 @@ def test_fetch_news_outer_error_log_is_redacted(monkeypatch, caplog):
 
     assert payload == data_service._empty_news_payload()
     assert secret not in caplog.text
-    assert "ValueError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_sector_weights_error_log_is_redacted(monkeypatch, caplog):
@@ -169,7 +169,7 @@ def test_sector_weights_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_sector_weights("SPY", "etf") == []
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_top_constituents_error_log_is_redacted(monkeypatch, caplog):
@@ -184,7 +184,7 @@ def test_top_constituents_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_top_constituents("SPX", "index") == []
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_holdings_error_log_is_redacted(monkeypatch, caplog):
@@ -199,7 +199,7 @@ def test_holdings_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_holdings("SPY", "etf") == []
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_cn_hk_ohlcv_error_log_is_redacted(monkeypatch, caplog):
@@ -218,7 +218,7 @@ def test_cn_hk_ohlcv_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service._load_ohlcv_frame("600519.SS") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_yfinance_ohlcv_error_log_is_redacted(monkeypatch, caplog):
@@ -236,7 +236,7 @@ def test_yfinance_ohlcv_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service._load_ohlcv_frame("AAPL") is None
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_stooq_ohlcv_error_log_is_redacted(monkeypatch, caplog):
@@ -254,7 +254,7 @@ def test_stooq_ohlcv_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service._load_ohlcv_frame("AAPL") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_price_pipeline_ohlcv_error_log_is_redacted(monkeypatch, caplog):
@@ -272,7 +272,7 @@ def test_price_pipeline_ohlcv_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service._load_ohlcv_frame("AAPL") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_finnhub_request_error_log_is_redacted(monkeypatch, caplog):
@@ -288,7 +288,7 @@ def test_finnhub_request_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service._finnhub_request("stock/profile2") is None
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_cn_hk_valuation_error_log_is_redacted(monkeypatch, caplog):
@@ -303,7 +303,7 @@ def test_cn_hk_valuation_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service._fetch_valuation_from_cn_hk_market("600519.SS") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_sec_companyfacts_error_log_is_redacted(monkeypatch, caplog):
@@ -318,7 +318,7 @@ def test_sec_companyfacts_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service._fetch_financial_statements_from_sec_companyfacts("AAPL") is None
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_cn_hk_financials_error_log_is_redacted(monkeypatch, caplog):
@@ -333,7 +333,7 @@ def test_cn_hk_financials_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service._fetch_financial_statements_from_cn_hk_market("600519.SS") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_fetch_valuation_error_log_is_redacted(monkeypatch, caplog):
@@ -349,7 +349,7 @@ def test_fetch_valuation_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_valuation("AAPL") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_fetch_financial_statements_error_log_is_redacted(monkeypatch, caplog):
@@ -374,7 +374,7 @@ def test_fetch_financial_statements_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_financial_statements("AAPL") is None
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_technical_indicators_error_log_is_redacted(monkeypatch, caplog):
@@ -387,7 +387,7 @@ def test_technical_indicators_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_technical_indicators("AAPL") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_indicator_series_error_log_is_redacted(monkeypatch, caplog):
@@ -400,7 +400,7 @@ def test_indicator_series_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_indicator_series("AAPL") is None
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_earnings_history_error_log_is_redacted(monkeypatch, caplog):
@@ -415,7 +415,7 @@ def test_earnings_history_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_earnings_history("AAPL") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_analyst_targets_error_log_is_redacted(monkeypatch, caplog):
@@ -430,7 +430,7 @@ def test_analyst_targets_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_analyst_targets("AAPL") is None
     assert secret not in caplog.text
-    assert "ConnectionError" in caplog.text
+    assert "[DataService]" in caplog.text
 
 
 def test_recommendations_error_log_is_redacted(monkeypatch, caplog):
@@ -445,4 +445,4 @@ def test_recommendations_error_log_is_redacted(monkeypatch, caplog):
 
     assert data_service.fetch_recommendations("AAPL") is None
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DataService]" in caplog.text

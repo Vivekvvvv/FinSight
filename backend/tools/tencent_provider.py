@@ -84,7 +84,7 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
         response_time_ms = (time.time() - start_time) * 1000
 
         if resp.status_code != 200:
-            logger.info("[Tencent] HTTP %d for %s", resp.status_code, symbol)
+            logger.info("[Tencent] quote HTTP %d", resp.status_code)
             monitor.record_failure("tencent", f"HTTP {resp.status_code}")
             return None
 
@@ -96,7 +96,7 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
 
         parts = text.split('"')[1].split("~") if '"' in text else []
         if len(parts) < 34:
-            logger.info("[Tencent] 字段不足 for %s: %d fields", symbol, len(parts))
+            logger.info("[Tencent] quote 字段不足: %d fields", len(parts))
             monitor.record_failure("tencent", f"insufficient fields: {len(parts)}")
             return None
 
@@ -173,7 +173,7 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
             "modelGenerated": False,
         }
     except Exception as exc:
-        logger.info("[Tencent] 获取失败 %s: %s", symbol, type(exc).__name__)
+        logger.info("[Tencent] quote 获取失败: %s", type(exc).__name__)
         monitor.record_failure("tencent", type(exc).__name__)
         return None
 
@@ -222,12 +222,12 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
     try:
         resp = _http_get(url, timeout=(3, 8))
         if resp.status_code != 200:
-            logger.info("[Tencent] K线 HTTP %d for %s", resp.status_code, symbol)
+            logger.info("[Tencent] K线 HTTP %d", resp.status_code)
             return None
 
         data = resp.json()
         if data.get("code") != 0:
-            logger.info("[Tencent] K线返回错误 for %s: %s", symbol, data.get("msg"))
+            logger.info("[Tencent] K线返回错误")
             return None
 
         # 解析K线数据
@@ -236,7 +236,7 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
         raw_lines = stock_data.get(kline_key, [])
 
         if not raw_lines:
-            logger.info("[Tencent] K线数据为空 for %s", symbol)
+            logger.info("[Tencent] K线数据为空")
             return None
 
         # 解析每条K线: ['2026-04-29', '1405.000', '1401.170', '1409.750', '1400.280', '34813.000']
@@ -291,7 +291,7 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
             "fallback_level": 1,
         }
     except Exception as exc:
-        logger.info("[Tencent] K线获取失败 %s: %s", symbol, type(exc).__name__)
+        logger.info("[Tencent] K线获取失败: %s", type(exc).__name__)
         return None
 
 
@@ -313,12 +313,12 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
     try:
         resp = _http_get(url, timeout=(3, 8))
         if resp.status_code != 200:
-            logger.info("[Tencent] 分时 HTTP %d for %s", resp.status_code, symbol)
+            logger.info("[Tencent] 分时 HTTP %d", resp.status_code)
             return None
 
         data = resp.json()
         if data.get("code") != 0:
-            logger.info("[Tencent] 分时返回错误 for %s: %s", symbol, data.get("msg"))
+            logger.info("[Tencent] 分时返回错误")
             return None
 
         # 解析分时数据
@@ -327,14 +327,14 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
 
         # 分时数据在 minute_container['data'] 中
         if not isinstance(minute_container, dict):
-            logger.info("[Tencent] 分时数据格式错误 for %s", symbol)
+            logger.info("[Tencent] 分时数据格式错误")
             return None
 
         raw_lines = minute_container.get("data", [])
         date_str = minute_container.get("date", "")
 
         if not raw_lines:
-            logger.info("[Tencent] 分时数据为空 for %s", symbol)
+            logger.info("[Tencent] 分时数据为空")
             return None
 
         # 解析每条分时数据: '0930 1271.18 415 52753970.34'
@@ -393,7 +393,7 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
             "fallback_level": 1,
         }
     except Exception as exc:
-        logger.info("[Tencent] 分时获取失败 %s: %s", symbol, type(exc).__name__)
+        logger.info("[Tencent] 分时获取失败: %s", type(exc).__name__)
         return None
 
 
@@ -466,7 +466,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
                 record = rows[0]
                 trade_date = record.get("TRADE_DATE")
                 if not _is_recent_eastmoney_date(trade_date, max_age_days=max_age_days):
-                    logger.info("[Eastmoney] top list record is stale for %s: %s", symbol, trade_date)
+                    logger.info("[Eastmoney] top list record is stale")
                     return None
                 result = {
                     "symbol": symbol.upper(),
@@ -491,7 +491,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
                         result["sell_seats"] = seats.get("sell_seats", [])
                 return result
     except Exception as exc:
-        logger.info("[Eastmoney] new top list lookup failed %s: %s", symbol, type(exc).__name__)
+        logger.info("[Eastmoney] new top list lookup failed: %s", type(exc).__name__)
 
     # 提取纯数字代码（如sh600519 → 600519）
     stock_code = code[2:] if len(code) > 2 else code
@@ -502,7 +502,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
     try:
         resp = _http_get(url, timeout=(5, 10))
         if resp.status_code != 200:
-            logger.info("[东方财富] 龙虎榜 HTTP %d for %s", resp.status_code, symbol)
+            logger.info("[东方财富] 龙虎榜 HTTP %d", resp.status_code)
             return None
 
         text = resp.text.strip()
@@ -511,14 +511,14 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
         import re
         match = re.search(r'var\s+data_tab_1\s*=\s*(\[.*?\]);?', text, re.DOTALL)
         if not match:
-            logger.info("[东方财富] 龙虎榜数据解析失败 for %s", symbol)
+            logger.info("[东方财富] 龙虎榜数据解析失败")
             return None
 
         import json
         data_list = json_loads_strict(match.group(1))
 
         if not data_list:
-            logger.info("[东方财富] 龙虎榜无数据 for %s", symbol)
+            logger.info("[东方财富] 龙虎榜无数据")
             return None
 
         # 查找匹配的股票记录
@@ -529,7 +529,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
                 break
 
         if not record:
-            logger.info("[东方财富] 龙虎榜未找到 %s 的记录", symbol)
+            logger.info("[东方财富] 龙虎榜未找到记录")
             return None
 
         # 解析龙虎榜基础数据
@@ -564,7 +564,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
         return result
 
     except Exception as exc:
-        logger.info("[东方财富] 龙虎榜获取失败 %s: %s", symbol, type(exc).__name__)
+        logger.info("[东方财富] 龙虎榜获取失败: %s", type(exc).__name__)
         return None
 
 
@@ -595,7 +595,7 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
     try:
         resp = _http_get(url, timeout=(5, 10))
         if resp.status_code != 200:
-            logger.debug("[东方财富] 席位明细 HTTP %d for %s", resp.status_code, stock_code)
+            logger.debug("[东方财富] 席位明细 HTTP %d", resp.status_code)
             return None
 
         text = resp.text.strip()
@@ -652,7 +652,7 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
         }
 
     except Exception as exc:
-        logger.debug("[东方财富] 席位明细获取失败 %s: %s", stock_code, type(exc).__name__)
+        logger.debug("[东方财富] 席位明细获取失败: %s", type(exc).__name__)
         return None
 
 
@@ -745,7 +745,7 @@ def fetch_cn_top_list_history(
             if results:
                 return sorted(results, key=lambda x: x["date"], reverse=True)
     except Exception as exc:
-        logger.info("[Eastmoney] new top list history lookup failed %s: %s", symbol, type(exc).__name__)
+        logger.info("[Eastmoney] new top list history lookup failed: %s", type(exc).__name__)
 
     # 东方财富历史龙虎榜API
     url = f"http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/pagesize=200,page=1,sortRule=-1,sortType=,startDate={start_date},endDate={end_date},gpfw=0,code={stock_code},js=var%20data_tab_1.html"
@@ -753,7 +753,7 @@ def fetch_cn_top_list_history(
     try:
         resp = _http_get(url, timeout=(5, 10))
         if resp.status_code != 200:
-            logger.info("[东方财富] 龙虎榜历史 HTTP %d for %s", resp.status_code, symbol)
+            logger.info("[东方财富] 龙虎榜历史 HTTP %d", resp.status_code)
             return []
 
         text = resp.text.strip()
@@ -763,7 +763,7 @@ def fetch_cn_top_list_history(
 
         match = re.search(r'var\s+data_tab_1\s*=\s*(\[.*?\]);?', text, re.DOTALL)
         if not match:
-            logger.info("[东方财富] 龙虎榜历史数据解析失败 for %s", symbol)
+            logger.info("[东方财富] 龙虎榜历史数据解析失败")
             return []
 
         data_list = json_loads_strict(match.group(1))
@@ -802,7 +802,7 @@ def fetch_cn_top_list_history(
         return results
 
     except Exception as exc:
-        logger.info("[东方财富] 龙虎榜历史获取失败 %s: %s", symbol, type(exc).__name__)
+        logger.info("[东方财富] 龙虎榜历史获取失败: %s", type(exc).__name__)
         return []
 
 
@@ -1079,7 +1079,7 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
                     "unit": "融资单位=元，融券单位=股",
                 }
     except Exception as exc:
-        logger.info("[Eastmoney] new margin trading lookup failed %s: %s", symbol, type(exc).__name__)
+        logger.info("[Eastmoney] new margin trading lookup failed: %s", type(exc).__name__)
 
     # 提取纯数字代码
     stock_code = code[2:] if len(code) > 2 else code
@@ -1104,18 +1104,18 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
     try:
         resp = _http_get(url, params=params, timeout=(5, 10))
         if resp.status_code != 200:
-            logger.info("[东方财富] 融资融券 HTTP %d for %s", resp.status_code, symbol)
+            logger.info("[东方财富] 融资融券 HTTP %d", resp.status_code)
             return None
 
         data = resp.json()
 
         if data.get("code") != 0 or not data.get("result"):
-            logger.info("[东方财富] 融资融券返回错误 for %s", symbol)
+            logger.info("[东方财富] 融资融券返回错误")
             return None
 
         records = data["result"].get("data", [])
         if not records:
-            logger.info("[东方财富] 融资融券无数据 for %s", symbol)
+            logger.info("[东方财富] 融资融券无数据")
             return None
 
         # 取最新一条记录
@@ -1159,7 +1159,7 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
             "unit": "融资单位=元，融券单位=股"
         }
     except Exception as exc:
-        logger.info("[东方财富] 融资融券获取失败 %s: %s", symbol, type(exc).__name__)
+        logger.info("[东方财富] 融资融券获取失败: %s", type(exc).__name__)
         return None
 
 
@@ -1231,7 +1231,7 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
             if results:
                 return sorted(results, key=lambda x: x["date"], reverse=True)
     except Exception as exc:
-        logger.info("[Eastmoney] new margin trading history lookup failed %s: %s", symbol, type(exc).__name__)
+        logger.info("[Eastmoney] new margin trading history lookup failed: %s", type(exc).__name__)
 
     # 东方财富融资融券历史API
     url = "http://datacenter-web.eastmoney.com/api/data/v1/get"
@@ -1251,13 +1251,13 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
     try:
         resp = _http_get(url, params=params, timeout=(5, 10))
         if resp.status_code != 200:
-            logger.info("[东方财富] 融资融券历史 HTTP %d for %s", resp.status_code, symbol)
+            logger.info("[东方财富] 融资融券历史 HTTP %d", resp.status_code)
             return []
 
         data = resp.json()
 
         if data.get("code") != 0 or not data.get("result"):
-            logger.info("[东方财富] 融资融券历史返回错误 for %s", symbol)
+            logger.info("[东方财富] 融资融券历史返回错误")
             return []
 
         records = data["result"].get("data", [])
@@ -1287,7 +1287,7 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
         return results
 
     except Exception as exc:
-        logger.info("[东方财富] 融资融券历史获取失败 %s: %s", symbol, type(exc).__name__)
+        logger.info("[东方财富] 融资融券历史获取失败: %s", type(exc).__name__)
         return []
 
 

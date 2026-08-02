@@ -421,7 +421,7 @@ class TestDigestAgent:
 
         assert scorers._get_llm() is None
         assert secret not in caplog.text
-        assert "RuntimeError" in caplog.text
+        assert "[Insights] LLM init failed; dashboard scorers will use fallback" in caplog.text
 
     @pytest.mark.asyncio
     async def test_digest_llm_unavailable_uses_fallback(self):
@@ -501,7 +501,7 @@ class TestDigestAgent:
 
         assert card.model_generated is False
         assert secret not in caplog.text
-        assert "RuntimeError" in caplog.text
+        assert "[Insights] scorer failed" in caplog.text
 
     @pytest.mark.asyncio
     async def test_digest_llm_returns_invalid_json(self):
@@ -646,7 +646,7 @@ class TestInsightsOrchestrator:
             await orchestrator._refresh_in_background("AAPL")
 
         assert secret not in caplog.text
-        assert "RuntimeError" in caplog.text
+        assert "[Insights] Background refresh failed" in caplog.text
 
     @pytest.mark.asyncio
     async def test_hydration_fetch_error_log_is_redacted(self, caplog):
@@ -660,7 +660,7 @@ class TestInsightsOrchestrator:
 
         assert result is None
         assert secret not in caplog.text
-        assert "RuntimeError" in caplog.text
+        assert "[Insights] fetch failed" in caplog.text
 
     @pytest.mark.asyncio
     async def test_generate_fresh_all_fallback(self):

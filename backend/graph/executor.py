@@ -387,12 +387,7 @@ async def execute_plan(
                 "retry_attempts": 0,
             }
             artifacts["errors"].append(err)
-            logger.warning(
-                "[Executor] step %s (%s:%s) FAILED%s: %s",
-                step_id, kind, name,
-                " (optional, continuing)" if optional else " (REQUIRED, aborting)",
-                type(exc).__name__,
-            )
+            logger.warning("[Executor] step failed")
             exec_events.append(
                 {"event": "executor.step_failed", "step_id": step_id, "duration_ms": int((time.perf_counter() - start) * 1000), "error": "step_failed", "optional": optional}
             )

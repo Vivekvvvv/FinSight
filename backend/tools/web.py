@@ -41,7 +41,7 @@ def fetch_url_content(url: str, max_length: int = 5000) -> Optional[str]:
         # 重定向，每跳重新校验）。返回 None = URL 不安全或抓取失败。
         response = safe_pinned_request("GET", url, headers=headers, timeout=15)
         if response is None:
-            logger.info("[fetch_url_content] Blocked unsafe url or fetch failed: host=%s", _safe_log_host(url))
+            logger.info("[fetch_url_content] Blocked unsafe url or fetch failed")
             return None
         response.raise_for_status()
 
@@ -74,15 +74,15 @@ def fetch_url_content(url: str, max_length: int = 5000) -> Optional[str]:
         if len(text) > max_length:
             text = text[:max_length] + "..."
 
-        logger.info("[fetch_url_content] 成功抓取 host=%s (%s 字符)", _safe_log_host(url), len(text))
+        logger.info("[fetch_url_content] 成功抓取 (%s 字符)", len(text))
         return text
 
     except requests.exceptions.Timeout:
-        logger.info("[fetch_url_content] 超时: host=%s", _safe_log_host(url))
+        logger.info("[fetch_url_content] 超时")
         return None
     except requests.exceptions.RequestException as e:
-        logger.info("[fetch_url_content] 请求失败: host=%s, error=%s", _safe_log_host(url), type(e).__name__)
+        logger.info("[fetch_url_content] 请求失败: error=%s", type(e).__name__)
         return None
     except Exception as e:
-        logger.info("[fetch_url_content] 解析失败: host=%s, error=%s", _safe_log_host(url), type(e).__name__)
+        logger.info("[fetch_url_content] 解析失败: error=%s", type(e).__name__)
         return None

@@ -185,9 +185,7 @@ def get_smart_cache_ttl(symbol: str, data_type: Literal["quote", "kline", "intra
     market = TradingHoursCache.detect_market(symbol)
     ttl = TradingHoursCache.get_smart_ttl(market, data_type)
 
-    logger.debug(
-        f"[SmartCache] {symbol} ({market}) {data_type} → TTL={ttl}s"
-    )
+    logger.debug("[SmartCache] ttl resolved")
     return ttl
 
 

@@ -172,10 +172,7 @@ class EntitlementsService:
                 f"{self._path.name}.{uuid4().hex}.corrupt"
             )
             os.replace(self._path, backup_path)
-            logger.warning(
-                "User plans file was corrupt and moved to a backup (%s)",
-                type(exc).__name__,
-            )
+            logger.warning('User plans file was corrupt and moved to a backup')
             self._plans = {}
 
     def _save(self) -> None:
@@ -355,10 +352,7 @@ def build_usage_view(
             since=_today_utc_start_iso(),
         )
     except Exception as exc:
-        logger.error(
-            "build_usage_view: count_reports_since failed; fallback 0 (%s)",
-            type(exc).__name__,
-        )
+        logger.error('build_usage_view: count_reports_since failed; fallback 0')
         reports_used = 0
     result["max_reports_per_day"] = _quota_entry(
                 plan=plan, used=reports_used, limit=safe_int(limits.get("max_reports_per_day"), 0) or 0
@@ -375,10 +369,7 @@ def build_usage_view(
         subs = sub_service.get_subscriptions(email=target_email)
         alerts_used = len(subs)
     except Exception as exc:
-        logger.error(
-            "build_usage_view: count subscriptions failed; fallback 0 (%s)",
-            type(exc).__name__,
-        )
+        logger.error('build_usage_view: count subscriptions failed; fallback 0')
         alerts_used = 0
     result["max_alerts"] = _quota_entry(
                 plan=plan, used=alerts_used, limit=safe_int(limits.get("max_alerts"), 0) or 0
@@ -392,10 +383,7 @@ def build_usage_view(
         positions = get_positions(_build_session_id_for_user(user_id))
         pf_used = len(positions) if positions else 0
     except Exception as exc:
-        logger.error(
-            "build_usage_view: count portfolio positions failed; fallback 0 (%s)",
-            type(exc).__name__,
-        )
+        logger.error('build_usage_view: count portfolio positions failed; fallback 0')
         pf_used = 0
     result["max_portfolio_positions"] = _quota_entry(
                 plan=plan, used=pf_used, limit=safe_int(limits.get("max_portfolio_positions"), 0) or 0

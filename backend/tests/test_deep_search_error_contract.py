@@ -37,7 +37,7 @@ def test_rag_observability_recording_error_is_redacted(monkeypatch, caplog):
     assert result["error"] == "unavailable"
     assert "private deep search rag detail" not in str(result)
     assert "private deep search rag detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DeepSearch] Failed to record RAG observability" in caplog.text
 
 
 def test_rag_observability_import_error_is_redacted(monkeypatch, caplog):
@@ -62,7 +62,7 @@ def test_rag_observability_import_error_is_redacted(monkeypatch, caplog):
     assert result == {"enabled": False, "error": "unavailable"}
     assert "private rag import detail" not in str(result)
     assert "private rag import detail" not in caplog.text
-    assert "ImportError" in caplog.text
+    assert "[DeepSearch] RAG observability unavailable" in caplog.text
 
 
 def test_pdf_parse_error_log_is_redacted(monkeypatch, caplog):
@@ -78,7 +78,7 @@ def test_pdf_parse_error_log_is_redacted(monkeypatch, caplog):
 
     assert result == ""
     assert "private pdf parser detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DeepSearch] PDF parse failed" in caplog.text
 
 
 def test_tavily_search_error_log_is_redacted(monkeypatch, caplog):
@@ -102,7 +102,7 @@ def test_tavily_search_error_log_is_redacted(monkeypatch, caplog):
 
     assert results == []
     assert "private tavily provider detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DeepSearch] Tavily search failed" in caplog.text
 
 
 def test_exa_search_error_log_is_redacted(monkeypatch, caplog):
@@ -126,7 +126,7 @@ def test_exa_search_error_log_is_redacted(monkeypatch, caplog):
 
     assert results == []
     assert "private exa provider detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DeepSearch] Exa search failed" in caplog.text
 
 
 def test_local_search_fallback_error_log_is_redacted(caplog):
@@ -146,7 +146,7 @@ def test_local_search_fallback_error_log_is_redacted(caplog):
 
     assert results == []
     assert "private local search detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DeepSearch] Search fallback failed" in caplog.text
 
 
 def test_authoritative_feed_error_log_is_redacted(caplog):
@@ -166,7 +166,7 @@ def test_authoritative_feed_error_log_is_redacted(caplog):
 
     assert results == []
     assert "private authoritative feed detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DeepSearch] Authoritative feed supplement failed" in caplog.text
 
 
 def test_document_fetch_error_log_is_redacted(monkeypatch, caplog):
@@ -182,7 +182,7 @@ def test_document_fetch_error_log_is_redacted(monkeypatch, caplog):
 
     assert result is None
     assert "private document fetch detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[DeepSearch] Fetch failed" in caplog.text
 
 
 def test_document_url_query_is_redacted_from_logs(monkeypatch, caplog):
@@ -200,10 +200,10 @@ def test_document_url_query_is_redacted_from_logs(monkeypatch, caplog):
     assert result is None
     assert secret not in caplog.text
     assert "access_token" not in caplog.text
-    assert "example.invalid" in caplog.text
+    assert "example.invalid" not in caplog.text
 
 
-def test_document_inventory_logs_only_url_host(caplog):
+def test_document_inventory_omits_url_host(caplog):
     secret = "PRIVATE_QUERY_TOKEN_789"
     agent = DeepSearchAgent(llm=None, cache=None, tools_module=None)
 
@@ -215,4 +215,4 @@ def test_document_inventory_logs_only_url_host(caplog):
 
     assert secret not in caplog.text
     assert "token=" not in caplog.text
-    assert "example.invalid" in caplog.text
+    assert "example.invalid" not in caplog.text

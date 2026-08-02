@@ -73,7 +73,7 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[subscription/subscribe] failed: %s", type(exc).__name__)
+            logger.error("[subscription/subscribe] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/api/unsubscribe")
@@ -103,7 +103,7 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[subscription/unsubscribe] failed: %s", type(exc).__name__)
+            logger.error("[subscription/unsubscribe] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/subscriptions", response_model=SubscriptionListResponse)
@@ -126,7 +126,7 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[subscription/list] failed: %s", type(exc).__name__)
+            logger.error("[subscription/list] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/api/subscription/toggle", response_model=SubscriptionResponse)
@@ -154,7 +154,7 @@ def create_subscription_router() -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[subscription/toggle] failed: %s", type(exc).__name__)
+            logger.error("[subscription/toggle] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/admin/subscriptions", response_model=SubscriptionListResponse)
@@ -164,17 +164,12 @@ def create_subscription_router() -> APIRouter:
 
             subscription_service = get_subscription_service()
             subscriptions = subscription_service.get_subscriptions(email=None, allow_all=True)
-            logger.info(
-                "[Audit] admin subscription list user_id=%s role=%s count=%d",
-                current_user.user_id,
-                current_user.role,
-                len(subscriptions),
-            )
+            logger.info("[Audit] admin subscription list completed")
             return {"success": True, "subscriptions": subscriptions, "count": len(subscriptions)}
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[subscription/admin-list] failed: %s", type(exc).__name__)
+            logger.error("[subscription/admin-list] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router

@@ -744,12 +744,12 @@ def _alpha_vantage_screen_stocks(
                 timeout=(2, 5),
             )
             if getattr(response, "status_code", 0) != 200:
-                logger.info("Alpha Vantage top movers returned %s", getattr(response, "status_code", "unknown"))
+                logger.info("Alpha Vantage top movers returned a non-success status")
                 return None
 
             raw = response.json()
             if not isinstance(raw, dict) or raw.get("Information") or raw.get("Note"):
-                logger.info("Alpha Vantage top movers unavailable: %s", raw.get("Information") or raw.get("Note") if isinstance(raw, dict) else raw)
+                logger.info("Alpha Vantage top movers unavailable")
                 return None
 
             rows = [
@@ -1214,7 +1214,7 @@ def screen_stocks(
 
     unavailable_status = _fmp_screener_unavailable_status()
     if unavailable_status:
-        logger.info("FMP screener is in cooldown after HTTP %s; using free sources", unavailable_status)
+        logger.info("FMP screener is in cooldown; using free sources")
         return _with_fmp_fallback_note(
             _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir),
             status_code=unavailable_status,
@@ -1253,7 +1253,7 @@ def screen_stocks(
         response = _http_get(_FMP_SCREENER_URL, params=params, timeout=15)
         if getattr(response, "status_code", 0) != 200:
             status_code = getattr(response, "status_code", None)
-            logger.info("FMP screener returned %s, falling back to free sources", status_code or "unknown")
+            logger.info("FMP screener returned a non-success status; falling back to free sources")
             _remember_fmp_screener_unavailable(status_code)
             return _with_fmp_fallback_note(
                 _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir),

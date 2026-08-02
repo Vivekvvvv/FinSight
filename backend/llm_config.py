@@ -102,15 +102,9 @@ def _load_user_config() -> dict:
                 os.replace(USER_CONFIG_PATH, backup_path)
             except FileNotFoundError:
                 return {}
-            logger.warning(
-                "[Config] Corrupt user_config.json moved to a backup: %s",
-                type(exc).__name__,
-            )
+            logger.warning('[Config] Corrupt user_config.json moved to a backup')
         except OSError as exc:
-            logger.warning(
-                "[Config] Failed to read user_config.json: %s",
-                type(exc).__name__,
-            )
+            logger.warning('[Config] Failed to read user_config.json')
     return {}
 
 
@@ -233,12 +227,7 @@ class EndpointManager:
                     continue
                 ep.cooldown_until = time.time() + max(1, safe_int(ep.cfg.cooldown_sec, 1) or 1)
                 ep.current_weight = 0
-                logger.warning(
-                    "[LLM Rotation] endpoint cooling down: name=%s cooldown=%ss reason=%s",
-                    endpoint_name,
-                    ep.cfg.cooldown_sec,
-                    (reason or "unknown")[:180],
-                )
+                logger.warning('[LLM Rotation] endpoint cooling down')
                 return
 
     def report_success(self, endpoint_name: str) -> None:
@@ -246,7 +235,7 @@ class EndpointManager:
             for ep in self.endpoints:
                 if ep.cfg.name == endpoint_name and ep.cooldown_until > 0 and time.time() >= ep.cooldown_until:
                     ep.cooldown_until = 0.0
-                    logger.info("[LLM Rotation] endpoint restored: name=%s", endpoint_name)
+                    logger.info("[LLM Rotation] endpoint restored")
                     return
 
 
@@ -285,10 +274,8 @@ def _parse_user_endpoints(user_config: dict, provider: str, model: str | None) -
             else:
                 endpoint_model = "gpt-4o-mini"
                 logger.warning(
-                    "[LLM Config] endpoint '%s' has empty model field, falling back to '%s'. "
+                    "[LLM Config] endpoint has empty model field; using configured fallback. "
                     "Please set the model name in Settings → Endpoint Pool.",
-                    _safe_endpoint_name(raw.get("name"), f"ep-{idx+1}"),
-                    endpoint_model,
                 )
             if not api_key:
                 continue
@@ -320,9 +307,8 @@ def _parse_user_endpoints(user_config: dict, provider: str, model: str | None) -
         if not legacy_model:
             legacy_model = "gpt-4o-mini"
             logger.warning(
-                "[LLM Config] legacy endpoint has empty llm_model, falling back to '%s'. "
+                "[LLM Config] legacy endpoint has empty llm_model; using configured fallback. "
                 "Please set the model name in Settings.",
-                legacy_model,
             )
         endpoints.append(
             EndpointConfig(
@@ -413,14 +399,7 @@ def get_llm_config(provider: str | None = None, model: str | None = None) -> dic
     _ENDPOINT_MANAGER._sync_if_changed(endpoints)
     selected = _ENDPOINT_MANAGER.select()
 
-    logger.info(
-        "[LLM Rotation] select endpoint name=%s provider=%s model=%s api_base=%s api_key=%s",
-        selected.name,
-        selected.provider,
-        selected.model,
-        selected.api_base,
-        _mask(selected.api_key),
-    )
+    logger.info("[LLM Rotation] select endpoint")
     return {
         "provider": selected.provider,
         "api_key": selected.api_key,
@@ -475,15 +454,7 @@ def create_llm(
         resolved_provider = str(cfg.get("provider") or provider or _default_provider())
         raise ValueError(f"API key not found for provider '{resolved_provider}'")
 
-    logger.info(
-        "[LLM Factory] create endpoint=%s provider=%s model=%s api_base=%s sdk_api_base=%s timeout=%ss",
-        endpoint_name,
-        cfg.get("provider"),
-        model_name,
-        api_base,
-        sdk_api_base,
-        request_timeout,
-    )
+    logger.info("[LLM Factory] create")
 
     callbacks = []
     langfuse_cb = get_langfuse_callback()

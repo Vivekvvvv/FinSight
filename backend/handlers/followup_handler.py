@@ -316,7 +316,7 @@ class FollowupHandler:
                     yield result['response']
                 return
             except Exception as exc:
-                logger.warning("[Followup] streaming LLM fallback failed: %s", type(exc).__name__)
+                logger.warning('[Followup] streaming LLM fallback failed')
 
         result = self._handle_without_llm(
             query=query,
@@ -532,7 +532,7 @@ class FollowupHandler:
                     'followup_type': action,
                 }
             except Exception as e:
-                logger.warning("[Followup] LLM invoke failed for action=%s: %s", action, type(e).__name__)
+                logger.warning("[Followup] LLM invoke failed: %s", type(e).__name__)
 
         # 无 LLM 或 LLM 失败：只能返回原文头部。对翻译类这是错误结果（原文
         # 根本没被翻译），必须标 success=False，否则前端把未翻译原文当成翻译

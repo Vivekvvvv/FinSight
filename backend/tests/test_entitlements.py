@@ -130,7 +130,7 @@ def test_entitlements_back_up_corrupt_storage(
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == payload
     assert not ent_module.PLANS_FILE.exists()
-    assert error_type in caplog.text
+    assert "User plans file was corrupt and moved to a backup" in caplog.text
     assert payload not in caplog.text
 
 

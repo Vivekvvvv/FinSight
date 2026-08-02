@@ -347,9 +347,7 @@ class _PostgresHybridStore:
                 existing_dim = self._check_vector_dimension(conn)
                 if existing_dim is not None and existing_dim != self._vector_dim:
                     logger.warning(
-                        "RAG v2 vector dimension mismatch: table has %d, need %d. "
-                        "Dropping and recreating table (all embeddings will be re-generated).",
-                        existing_dim, self._vector_dim,
+                        "RAG v2 vector dimension mismatch; dropping and recreating table"
                     )
                     conn.execute(text("DROP TABLE IF EXISTS rag_documents_v2 CASCADE"))
 
@@ -388,7 +386,7 @@ class _PostgresHybridStore:
                         )
                     )
                 except Exception as exc:  # pragma: no cover - depends on pgvector runtime config
-                    logger.warning("RAG v2 ivfflat index skipped: %s", type(exc).__name__)
+                    logger.warning('RAG v2 ivfflat index skipped')
             self._schema_ready = True
 
     @staticmethod
@@ -417,7 +415,7 @@ class _PostgresHybridStore:
             if row and row[0]:
                 return safe_int(row[0], 0) or 0
         except Exception as exc:
-            logger.debug("RAG v2 embedding dimension lookup failed: %s", type(exc).__name__)
+            logger.debug('RAG v2 embedding dimension lookup failed')
         return None
 
     def ingest_documents(self, docs: Iterable[RAGDocument]) -> dict[str, Any]:

@@ -135,7 +135,8 @@ def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch, c
     assert done.get("allow_continue_when_blocked") is True
     assert secret not in caplog.text
     assert memory_secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[execution_service] record chat turn failed" in caplog.text
+    assert "[execution_service] persist memory snapshot failed" in caplog.text
 
 
 def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch, caplog):
@@ -249,7 +250,8 @@ def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch
     assert done.get("allow_continue_when_blocked") is True
     assert secret not in caplog.text
     assert memory_secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[resume_pipeline] record chat turn failed" in caplog.text
+    assert "[resume_pipeline] persist memory snapshot failed" in caplog.text
 
 
 def test_resume_graph_pipeline_unhandled_error_is_redacted(caplog):
@@ -291,7 +293,7 @@ def test_resume_graph_pipeline_unhandled_error_is_redacted(caplog):
     assert error_events[0]["message"] == "Resume execution failed"
     assert secret not in str(events)
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[resume_pipeline] unhandled" in caplog.text
 
 
 def test_resume_report_build_error_log_is_redacted(monkeypatch, caplog):
@@ -343,7 +345,7 @@ def test_resume_report_build_error_log_is_redacted(monkeypatch, caplog):
     assert any(event.get("type") == "done" for event in events)
     assert secret not in str(events)
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[resume_pipeline] report build failed" in caplog.text
 
 
 def test_run_graph_timeout_does_not_log_query(monkeypatch, caplog):
@@ -383,4 +385,5 @@ def test_run_graph_timeout_does_not_log_query(monkeypatch, caplog):
 
     assert any(event.get("type") == "error" for event in events)
     assert secret not in caplog.text
-    assert f"query_chars={len(secret)}" in caplog.text
+    assert "[execution_service] graph timeout" in caplog.text
+    assert "query_chars=" not in caplog.text

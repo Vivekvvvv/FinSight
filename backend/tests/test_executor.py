@@ -114,7 +114,7 @@ def test_execute_plan_optional_failure_redacts_internal_error(caplog):
     assert secret not in str(artifacts)
     assert secret not in str(events)
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[Executor] step failed" in caplog.text
 
 
 def test_execute_plan_required_failure_stops_following_steps():

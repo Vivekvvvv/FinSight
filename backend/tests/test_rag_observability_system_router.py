@@ -41,6 +41,8 @@ class _FakeRagStore:
                 {
                     'id': 'run-1',
                     'query_text': 'AAPL earnings outlook',
+                    'fallback_reason': 'secret fallback reason',
+                    'error_message': 'secret error message',
                     'status': 'success',
                     'backend_actual': 'postgres',
                     'retrieval_hit_count': 3,
@@ -55,13 +57,26 @@ class _FakeRagStore:
         return {
             'id': 'run-1',
             'query_text': 'AAPL earnings outlook',
+            'fallback_reason': 'secret fallback reason',
+            'error_message': 'secret error message',
             'status': 'success',
             'backend_actual': 'postgres',
             'collection': 'finance-news',
         }
 
     def list_events(self, *, run_id: str, limit: int = 500) -> dict[str, object]:
-        return {'items': [{'id': 'evt-1', 'run_id': run_id, 'seq_no': 1, 'event_type': 'query_received'}], 'next_cursor': None}
+        return {
+            'items': [
+                {
+                    'id': 'evt-1',
+                    'run_id': run_id,
+                    'seq_no': 1,
+                    'event_type': 'query_received',
+                    'payload_json': {'query_preview': 'secret query', 'top_k': limit},
+                }
+            ],
+            'next_cursor': None,
+        }
 
     def list_documents(self, **_: object) -> dict[str, object]:
         return {'items': [{'id': 'doc-1', 'content_raw': 'secret raw document'}], 'next_cursor': None}
@@ -70,7 +85,17 @@ class _FakeRagStore:
         return {'items': [{'id': 'chunk-1', 'chunk_text': 'secret chunk'}], 'next_cursor': None}
 
     def list_hits(self, **_: object) -> dict[str, object]:
-        return {'items': [], 'next_cursor': None}
+        return {
+            'items': [
+                {
+                    'id': 'hit-1',
+                    'chunk_text': 'secret hit chunk',
+                    'chunk_preview': 'secret hit preview',
+                    'rrf_score': 0.75,
+                }
+            ],
+            'next_cursor': None,
+        }
 
     def list_collections(self, *, limit: int = 200) -> dict[str, object]:
         return {
@@ -112,7 +137,15 @@ class _FakeRagStore:
         }
 
     def search_preview(self, *, query: str, collection: str, top_k: int = 10) -> list[dict[str, object]]:
-        return [{'query': query, 'collection': collection, 'top_k': top_k}]
+        return [
+            {
+                'query': query,
+                'collection': collection,
+                'top_k': top_k,
+                'content': 'secret search content',
+                'rrf_score': 0.75,
+            }
+        ]
 
     def soft_delete_run(self, run_id: str, deleted_by: str = 'system', reason: str | None = None) -> dict[str, object] | None:
         return {'id': run_id, 'deleted_by': deleted_by, 'reason': reason}
@@ -182,6 +215,36 @@ def test_rag_status_endpoint_returns_health_summary():
     assert payload['status'] == 'ok'
     assert payload['data']['enabled'] is True
     assert payload['data']['backend'] == 'postgres'
+
+
+def test_rag_status_projects_store_fields_for_reader():
+    secret = 'private-store-field'
+
+    class _ProjectionStore(_FakeRagStore):
+        def health_summary(self, recent_limit: int = 5, fallback_limit: int = 5) -> dict[str, object]:
+            payload = super().health_summary(recent_limit, fallback_limit)
+            payload['future_store_field'] = secret
+            payload['recent_runs'] = [{'id': 'run-1', 'query_text': secret, 'status': 'success'}]
+            return payload
+
+    client = _build_client(_ProjectionStore())
+    response = client.get('/diagnostics/rag/status')
+
+    assert response.status_code == 200
+    observability = response.json()['data']['observability']
+    assert set(observability) == {
+        'status',
+        'enabled',
+        'backend',
+        'recent_run_count_24h',
+        'recent_fallback_count_24h',
+        'recent_empty_hits_rate_24h',
+        'last_run_at',
+        'last_fallback_at',
+        'recent_runs',
+        'fallback_summary',
+    }
+    assert secret not in response.text
 
 
 def test_rag_runs_endpoint_returns_items_and_passes_filters():
@@ -265,6 +328,30 @@ def test_rag_raw_fields_require_admin_include():
     reader_response = reader.get('/diagnostics/rag/chunks', params={'include': 'raw'})
     assert reader_response.status_code == 200
     assert 'chunk_text' not in str(reader_response.json())
+    reader_events = reader.get('/diagnostics/rag/runs/run-1/events', params={'include': 'raw'})
+    assert reader_events.status_code == 200
+    assert 'query_preview' not in str(reader_events.json())
+    assert reader_events.json()['data']['items'][0]['payload_json']['top_k'] == 500
+    reader_hits = reader.get('/diagnostics/rag/hits', params={'include': 'raw'})
+    assert reader_hits.status_code == 200
+    assert 'secret hit' not in reader_hits.text
+    assert reader_hits.json()['data']['items'][0]['rrf_score'] == 0.75
+    reader_preview = reader.post(
+        '/diagnostics/rag/search-preview',
+        params={'include': 'raw'},
+        json={'query': 'secret search query', 'collection': 'finance-news', 'top_k': 3},
+    )
+    assert reader_preview.status_code == 200
+    assert 'secret search' not in reader_preview.text
+    assert reader_preview.json()['data'][0]['rrf_score'] == 0.75
+    reader_runs = reader.get('/diagnostics/rag/runs', params={'include': 'raw'})
+    assert reader_runs.status_code == 200
+    assert 'secret fallback reason' not in reader_runs.text
+    assert 'secret error message' not in reader_runs.text
+    reader_run = reader.get('/diagnostics/rag/runs/run-1', params={'include': 'raw'})
+    assert reader_run.status_code == 200
+    assert 'secret fallback reason' not in reader_run.text
+    assert 'secret error message' not in reader_run.text
 
     app = FastAPI()
     app.include_router(
@@ -288,6 +375,23 @@ def test_rag_raw_fields_require_admin_include():
     admin_response = admin.get('/diagnostics/rag/chunks', params={'include': 'raw'})
     assert admin_response.status_code == 200
     assert 'chunk_text' in str(admin_response.json())
+    admin_events = admin.get('/diagnostics/rag/runs/run-1/events', params={'include': 'raw'})
+    assert admin_events.status_code == 200
+    assert admin_events.json()['data']['items'][0]['payload_json']['query_preview'] == 'secret query'
+    admin_hits = admin.get('/diagnostics/rag/hits', params={'include': 'raw'})
+    assert admin_hits.status_code == 200
+    assert admin_hits.json()['data']['items'][0]['chunk_text'] == 'secret hit chunk'
+    admin_preview = admin.post(
+        '/diagnostics/rag/search-preview',
+        params={'include': 'raw'},
+        json={'query': 'secret search query', 'collection': 'finance-news', 'top_k': 3},
+    )
+    assert admin_preview.status_code == 200
+    assert admin_preview.json()['data'][0]['content'] == 'secret search content'
+    admin_runs = admin.get('/diagnostics/rag/runs', params={'include': 'raw'})
+    assert admin_runs.status_code == 200
+    assert admin_runs.json()['data']['items'][0]['fallback_reason'] == 'secret fallback reason'
+    assert admin_runs.json()['data']['items'][0]['error_message'] == 'secret error message'
 
 
 def test_internal_health_projects_stable_redacted_rag_observability(monkeypatch):

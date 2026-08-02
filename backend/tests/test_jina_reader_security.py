@@ -18,7 +18,7 @@ def test_jina_reader_does_not_log_url_query_credentials(monkeypatch, caplog):
     assert jina_reader.fetch_via_jina(url) is None
     assert secret not in caplog.text
     assert "access_token" not in caplog.text
-    assert "example.com" in caplog.text
+    assert "example.com" not in caplog.text
     assert "RuntimeError" in caplog.text
 
 

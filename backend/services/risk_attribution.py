@@ -43,7 +43,7 @@ def _fetch_returns(ticker: str, period: str = "1y") -> list[float] | None:
             return None
         return [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
     except Exception as e:
-        logger.debug("_fetch_returns %s: %s", ticker, type(e).__name__)
+        logger.debug("_fetch_returns failed: %s", type(e).__name__)
         return None
 
 

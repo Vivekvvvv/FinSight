@@ -156,7 +156,7 @@ def test_risk_scheduler_isolates_price_fetch_failure(subscription_service_tmp, m
     assert [item["ticker"] for item in sent] == ["MSFT"]
     log_text = "\n".join(messages)
     assert secret not in log_text
-    assert "RuntimeError" in log_text
+    assert "Risk price fetch failed" in log_text
 
 
 def test_risk_scheduler_isolates_email_exception(subscription_service_tmp, monkeypatch):
@@ -196,7 +196,7 @@ def test_risk_scheduler_isolates_email_exception(subscription_service_tmp, monke
     assert aapl["last_alert_error"] == "delivery_error"
     log_text = "\n".join(messages)
     assert "PRIVATE risk email failure" not in log_text
-    assert "RuntimeError" in log_text
+    assert "Risk email send raised" in log_text
 
 
 def test_risk_scheduler_respects_cooldown(subscription_service_tmp, monkeypatch: pytest.MonkeyPatch):

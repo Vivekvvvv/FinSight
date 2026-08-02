@@ -192,4 +192,6 @@ def test_usage_fallback_logs_do_not_expose_exception_details(
     assert usage["max_alerts"]["used"] == 0
     assert usage["max_portfolio_positions"]["used"] == 0
     assert "private usage storage detail" not in caplog.text
-    assert caplog.text.count("RuntimeError") == 3
+    assert "build_usage_view: count_reports_since failed; fallback 0" in caplog.text
+    assert "build_usage_view: count subscriptions failed; fallback 0" in caplog.text
+    assert "build_usage_view: count portfolio positions failed; fallback 0" in caplog.text

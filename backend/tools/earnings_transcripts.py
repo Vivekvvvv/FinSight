@@ -269,7 +269,7 @@ def get_earnings_call_transcripts(ticker: str, limit: int = 6) -> dict[str, Any]
         try:
             raw = search(query)
         except Exception as exc:
-            logger.info("[Transcript] Search failed for %s: %s", query, type(exc).__name__)
+            logger.info("[Transcript] Search failed for query_chars=%d: %s", len(query or ""), type(exc).__name__)
             continue
 
         parsed = _parse_search_text(raw)

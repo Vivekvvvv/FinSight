@@ -36,7 +36,7 @@ def test_today_internal_error_is_redacted(client, monkeypatch, caplog):
     assert response.json()["detail"] == "Internal server error"
     assert "private today workspace detail" not in response.text
     assert "private today workspace detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "今日工作台生成失败" in caplog.text
 
 
 def test_notes_list_internal_error_returns_500(client, monkeypatch):
@@ -104,7 +104,7 @@ def test_timeline_internal_error_is_redacted(client, monkeypatch, caplog):
     assert response.json()["detail"] == "Internal server error"
     assert "private timeline database detail" not in response.text
     assert "private timeline database detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "获取时间线失败" in caplog.text
 
 
 def test_timeline_value_error_returns_fixed_400(client, monkeypatch, caplog):
@@ -125,7 +125,7 @@ def test_timeline_value_error_returns_fixed_400(client, monkeypatch, caplog):
     assert "private parser path" not in response.text
     assert "C:/secret/timeline.db" not in response.text
     assert "private parser path" not in caplog.text
-    assert "ValueError" in caplog.text
+    assert "timeline invalid value" in caplog.text
 
 
 @pytest.mark.parametrize("parameter", ["from", "to"])

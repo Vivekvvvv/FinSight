@@ -320,7 +320,7 @@ def test_latest_snapshot_handles_corrupt_full_data(
         connection.execute("UPDATE risk_snapshots SET full_data = ?", (corrupt_payload,))
 
     assert get_latest_snapshot("session", "user", db_path=db_path) is None
-    assert f"invalid stored risk snapshot ({error_type})" in caplog.text
+    assert "invalid stored risk snapshot" in caplog.text
 
 
 def test_history_skips_legacy_non_finite_summary(tmp_path, caplog):

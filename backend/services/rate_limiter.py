@@ -125,15 +125,7 @@ class LLMRateLimiter:
         self._total_wait_time = 0.0
         self._guaranteed_grants = 0
 
-        logger.info(
-            "[RateLimiter] Initialized: enabled=%s, rpm=%d, burst=%d, "
-            "min_tokens_per_agent=%d, agent_window=%.0fs",
-            self.enabled,
-            self.requests_per_minute,
-            self.burst_capacity,
-            self.min_tokens_per_agent,
-            self.agent_window_seconds,
-        )
+        logger.info("[RateLimiter] Initialized")
 
     @classmethod
     def get_instance(cls) -> "LLMRateLimiter":
@@ -226,13 +218,7 @@ class LLMRateLimiter:
                     self._total_requests += 1
                     self._guaranteed_grants += 1
                     self._record_agent_usage(agent_name)
-                    logger.info(
-                        "[RateLimiter] Guaranteed quota grant for agent=%s "
-                        "(global bucket empty, used %d/%d in window)",
-                        agent_name,
-                        self._prune_agent_window(agent_name, time.monotonic()),
-                        self.min_tokens_per_agent,
-                    )
+                    logger.info("[RateLimiter] Guaranteed quota grant")
                     return True
 
                 # 路径 3: 等待全局桶补充
@@ -244,25 +230,12 @@ class LLMRateLimiter:
 
                 elapsed = time.monotonic() - start_time
                 if elapsed + wait_time > timeout:
-                    logger.warning(
-                        "[RateLimiter] Timeout (agent=%s): elapsed=%.1fs, "
-                        "need=%.1fs, timeout=%.0fs",
-                        agent_name or "unknown",
-                        elapsed,
-                        wait_time,
-                        timeout,
-                    )
+                    logger.warning("[RateLimiter] Timeout")
                     return False
 
                 self._total_waits += 1
                 self._total_wait_time += wait_time
-                logger.info(
-                    "[RateLimiter] Waiting %.1fs (agent=%s, tokens=%.2f, rpm=%d)",
-                    wait_time,
-                    agent_name or "unknown",
-                    self._tokens,
-                    self.requests_per_minute,
-                )
+                logger.info("[RateLimiter] Waiting for capacity")
 
                 # 释放锁再等待，让其他协程有机会获取
                 self._lock.release()

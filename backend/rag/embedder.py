@@ -150,12 +150,7 @@ class _BGEM3Wrapper:
             from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
 
             use_fp16 = self._device != "cpu"
-            logger.info(
-                "Loading bge-m3 (device=%s, fp16=%s, max_length=%d) ...",
-                self._device,
-                use_fp16,
-                self._max_length,
-            )
+            logger.info("Loading bge-m3 ...")
             self._model = BGEM3FlagModel(
                 "BAAI/bge-m3",
                 use_fp16=use_fp16,

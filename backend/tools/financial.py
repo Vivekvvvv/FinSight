@@ -125,10 +125,10 @@ def _fetch_financials_from_sec_companyfacts(ticker: str) -> dict | None:
         sec_payload = get_sec_company_facts_quarterly(ticker, limit=8)
         converted = _convert_sec_companyfacts_payload(sec_payload if isinstance(sec_payload, dict) else {})
         if converted:
-            logger.info(f"[Financials] SEC companyfacts fallback hit for {ticker}")
+            logger.info("[Financials] SEC companyfacts fallback hit")
         return converted
     except Exception as exc:
-        logger.info("[Financials] SEC companyfacts fallback failed for %s: %s", ticker, type(exc).__name__)
+        logger.info("[Financials] SEC companyfacts fallback failed: %s", type(exc).__name__)
         return None
 
 def get_financial_statements(ticker: str) -> dict:
@@ -178,12 +178,12 @@ def get_financial_statements(ticker: str) -> dict:
                     table = getattr(stock, attr)
                     payload = _to_payload(table)
                     if payload:
-                        logger.info(f"[Financials] ✅ 成功获取 {ticker} {table_label} 数据 ({attr})")
+                        logger.info("[Financials] statement fetch succeeded")
                         return payload
                 except Exception as exc:
                     msg = f"{table_label}:{attr}:{type(exc).__name__}"
                     result['warnings'].append(msg)
-                    logger.info("[Financials] 获取 %s 失败 (%s): %s", table_label, attr, type(exc).__name__)
+                    logger.info("[Financials] statement fetch failed: %s", type(exc).__name__)
             return None
 
         result['financials'] = _fetch_with_fallbacks(
@@ -337,12 +337,12 @@ def get_company_info(ticker: str) -> str:
 - Website: {info.get('website', 'N/A')}
 - Description: {description}"""
     except Exception as e:
-        logger.info("yfinance info fetch for '%s' failed: %s", ticker, type(e).__name__)
+        logger.info("yfinance info fetch failed: %s", type(e).__name__)
 
     # 方法2: Finnhub (新增)
     if finnhub_client:
         try:
-            logger.info(f"Trying Finnhub for company info: {ticker}")
+            logger.info("Trying Finnhub for company info")
             profile = finnhub_client.company_profile2(symbol=ticker)
             if profile and 'name' in profile:
                 return f"""Company Profile ({ticker}):
@@ -356,7 +356,7 @@ def get_company_info(ticker: str) -> str:
     
     # 方法3: Alpha Vantage
     try:
-        logger.info(f"Trying Alpha Vantage for company info: {ticker}")
+        logger.info("Trying Alpha Vantage for company info")
         url = "https://www.alphavantage.co/query"
         params = {'function': 'OVERVIEW', 'symbol': ticker, 'apikey': ALPHA_VANTAGE_API_KEY}
         response = _http_get(url, params=params, timeout=10)
@@ -373,7 +373,7 @@ def get_company_info(ticker: str) -> str:
             logger.info("Alpha Vantage overview fetch failed: %s", type(e).__name__)
     
     # 方法4: 网页搜索
-    logger.info(f"Falling back to web search for '{ticker}' company info")
+    logger.info("Falling back to web search for company info")
     return search(f"{ticker} company profile stock information")
 
 
@@ -513,7 +513,7 @@ def get_earnings_estimates(ticker: str) -> Dict[str, Any]:
             result["error"] = "no_earnings_estimate_data"
         return result
     except Exception as e:
-        logger.info("[EarningsEstimates] fetch failed for %s: %s", ticker, type(e).__name__)
+        logger.info("[EarningsEstimates] fetch failed: %s", type(e).__name__)
         result["error"] = f"fetch_failed: {e.__class__.__name__}"
         return result
 
@@ -565,7 +565,7 @@ def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
         try:
             _append_matches(_openfigi_symbol_lookup(company, limit), "openfigi")
         except Exception as e:
-            logger.info("OpenFIGI lookup failed for %s: %s", company, type(e).__name__)
+            logger.info("OpenFIGI lookup failed: %s", type(e).__name__)
 
     if len(matches) < limit and finnhub_client:
         try:
@@ -585,13 +585,13 @@ def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
                 })
             _append_matches(finnhub_matches, "finnhub")
         except Exception as e:
-            logger.info("Finnhub symbol lookup failed for %s: %s", company, type(e).__name__)
+            logger.info("Finnhub symbol lookup failed: %s", type(e).__name__)
 
     if len(matches) < limit and EODHD_API_KEY:
         try:
             _append_matches(_eodhd_symbol_lookup(company, limit), "eodhd")
         except Exception as e:
-            logger.info("EODHD lookup failed for %s: %s", company, type(e).__name__)
+            logger.info("EODHD lookup failed: %s", type(e).__name__)
 
     if len(matches) < limit:
         try:

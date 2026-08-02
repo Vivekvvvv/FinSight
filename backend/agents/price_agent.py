@@ -103,7 +103,7 @@ class PriceAgent(BaseFinancialAgent):
                 _load_option_metrics()
                 return fallback_result
         except Exception as exc:
-            logger.debug("[PriceAgent] search fallback failed: %s", type(exc).__name__)
+            logger.debug("[PriceAgent] search fallback failed")
 
         raise AllSourcesFailedError(f"All sources failed for {ticker}. Last error: {last_error}")
 

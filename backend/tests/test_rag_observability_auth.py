@@ -175,7 +175,7 @@ def test_rag_auth_upstream_error_log_is_redacted(monkeypatch, caplog):
     assert response.status_code == 503
     assert response.json()['detail'] == 'Auth upstream unavailable'
     assert 'private auth upstream detail' not in caplog.text
-    assert 'RuntimeError' in caplog.text
+    assert 'rag access check failed due to upstream auth error' in caplog.text
 
 
 def test_rag_auth_preflight_rate_limit_runs_before_upstream_auth(monkeypatch):

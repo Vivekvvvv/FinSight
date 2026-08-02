@@ -108,7 +108,7 @@ def test_execute_plan_stub_redacts_observability_write_error_log(monkeypatch, ca
 
     assert isinstance(out, dict)
     assert sentinel not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "RAG observability write failed" in caplog.text
 
 
 def test_execute_plan_stub_redacts_reranker_error_log(monkeypatch, caplog):
@@ -140,7 +140,7 @@ def test_execute_plan_stub_redacts_reranker_error_log(monkeypatch, caplog):
 
     assert (out.get("artifacts") or {}).get("rag_context")
     assert sentinel not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "Reranker unavailable; using RRF order" in caplog.text
 
 
 def test_execute_plan_stub_records_rag_observability(monkeypatch):
@@ -308,4 +308,4 @@ def test_execute_plan_stub_redacts_rag_pipeline_error(monkeypatch, caplog):
     assert secret not in str(fake_store.fallback_events)
     assert secret not in str(fake_store.updates)
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "RAG pipeline failed" in caplog.text

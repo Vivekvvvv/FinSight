@@ -54,10 +54,10 @@ async def _resolve_quote_for_portfolio(ticker: str) -> tuple[dict[str, Any] | No
             timeout=_portfolio_quote_timeout_seconds(),
         )
     except TimeoutError:
-        logger.warning("[portfolio] quote timeout for %s", ticker)
+        logger.warning("[portfolio] quote timeout")
         return None, None
     except Exception as exc:
-        logger.warning("[portfolio] quote failed for %s: %s", ticker, type(exc).__name__)
+        logger.warning("[portfolio] quote failed")
         return None, None
 
 
@@ -384,7 +384,7 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
             daily_returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
             returns_matrix.append(daily_returns)
         except Exception as e:
-            logger.warning("获取 %s 历史数据失败: %s", t, type(e).__name__)
+            logger.warning("获取历史数据失败")
             failed.append(t)
 
     valid_tickers = [t for t in tickers if t not in failed]
@@ -406,7 +406,7 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
             result["warnings"] = [f"{t} 数据不足，已跳过" for t in failed]
         return result
     except Exception as e:
-        logger.error("组合优化失败: %s", type(e).__name__)
+        logger.error("组合优化失败")
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 

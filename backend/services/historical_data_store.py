@@ -118,12 +118,12 @@ def _fetch_baostock(ticker: str, start: str, end: str, adjust: str) -> list[dict
         logger.warning("baostock 未安装")
         return []
     except Exception as e:
-        logger.warning("baostock 拉取失败 %s: %s", ticker, type(e).__name__)
+        logger.warning("baostock 拉取失败: %s", type(e).__name__)
         try:
             import baostock as bs
             bs.logout()
         except Exception as logout_exc:
-            logger.debug("baostock logout failed: %s", type(logout_exc).__name__)
+            logger.debug('baostock logout failed')
         return []
 
 
@@ -308,7 +308,7 @@ def fetch_and_cache_kline(
     # 检查缓存
     cached = _read_cache(ticker, start_date, end_date, adjust)
     if cached:
-        logger.debug("kline cache hit: %s %s~%s", ticker, start_date, end_date)
+        logger.debug("kline cache hit")
         return cached
 
     # 从 baostock 拉取
@@ -328,7 +328,7 @@ def fetch_and_cache_kline(
                 for p in kdata if p.get("close")
             ]
         except Exception as exc:
-            logger.warning("historical fallback failed for %s: %s", ticker, type(exc).__name__)
+            logger.warning('historical fallback failed')
             return []
 
     cleaned = _clean(rows)

@@ -31,4 +31,4 @@ def test_fetch_url_content_does_not_log_query_credentials(monkeypatch, caplog, f
     assert web.fetch_url_content(url) is None
     assert secret not in caplog.text
     assert "access_token" not in caplog.text
-    assert "example.com" in caplog.text
+    assert "example.com" not in caplog.text

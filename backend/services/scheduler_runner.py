@@ -37,7 +37,7 @@ def start_interval_scheduler(
         enabled: toggle; if False, returns None.
     """
     if not enabled:
-        logger.info(f"[Scheduler] {job_label} disabled (env).")
+        logger.info("[Scheduler] scheduled job disabled (env).")
         return None
 
     scheduler = BackgroundScheduler()
@@ -50,7 +50,7 @@ def start_interval_scheduler(
         next_run_time=datetime.now(timezone.utc),  # fire once immediately
     )
     scheduler.start()
-    logger.info(f"[Scheduler] {job_label} started: every {interval_minutes} min.")
+    logger.info("[Scheduler] scheduled job started")
     return scheduler
 
 

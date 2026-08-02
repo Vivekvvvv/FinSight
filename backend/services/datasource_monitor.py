@@ -113,7 +113,7 @@ class DataSourceMonitor:
             # 成功后可能恢复健康状态
             if source in self._degraded_sources and m.is_healthy:
                 self._degraded_sources.discard(source)
-                logger.info(f"[Monitor] {source} 已恢复健康状态")
+                logger.info("[Monitor] source 已恢复健康状态")
 
     def record_failure(self, source: DataSourceType, error_msg: str = ""):
         """记录失败请求"""
@@ -130,10 +130,7 @@ class DataSourceMonitor:
             # 连续失败3次触发降级
             if m.consecutive_failures >= 3 and source not in self._degraded_sources:
                 self._degraded_sources.add(source)
-                logger.warning(
-                    f"[Monitor] {source} 连续失败{m.consecutive_failures}次，触发降级。"
-                    f"成功率: {m.success_rate:.1f}% | 错误: {error_msg}"
-                )
+            logger.warning("[Monitor] source degraded")
 
     def should_use_source(self, source: DataSourceType) -> bool:
         """判断是否应该使用该数据源"""

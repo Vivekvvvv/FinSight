@@ -43,7 +43,7 @@ def _serialize_agent_output(output: Any, *, step_name: str) -> dict[str, Any]:
                 payload.setdefault("agent_name", step_name)
                 return payload
         except Exception as exc:
-            logger.debug("agent output model serialization failed: %s", type(exc).__name__)
+            logger.debug("agent output model serialization failed")
 
     summary = getattr(output, "summary", "")
     evidence = getattr(output, "evidence", None) or []
@@ -65,7 +65,7 @@ def _serialize_agent_output(output: Any, *, step_name: str) -> dict[str, Any]:
                 serialized_evidence.append(asdict(item))
                 continue
             except Exception as exc:
-                logger.debug("agent evidence model serialization failed: %s", type(exc).__name__)
+                logger.debug("agent evidence model serialization failed")
         serialized_evidence.append(
             {
                 "text": getattr(item, "text", None) or str(item),
@@ -252,7 +252,7 @@ def build_agent_invokers(*, allowed_agents: Iterable[str], state: Mapping[str, A
         from backend.agents.risk_agent import RiskAgent
         from backend.agents.technical_agent import TechnicalAgent
     except Exception as exc:
-        logger.error("agent adapter failed to import legacy agents: %s", type(exc).__name__)
+        logger.error("agent adapter failed to import legacy agents")
         return {}
 
     llm = None
@@ -296,7 +296,7 @@ def build_agent_invokers(*, allowed_agents: Iterable[str], state: Mapping[str, A
         try:
             agents[name] = cls(llm, cache, tools_module)
         except Exception as exc:
-            logger.error("agent adapter failed to instantiate %s (%s)", name, type(exc).__name__)
+            logger.error("agent adapter failed to instantiate")
             init_errors[name] = f"init_failed:{exc.__class__.__name__}"
 
     invokers: dict[str, Any] = {}

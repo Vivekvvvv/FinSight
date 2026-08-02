@@ -90,7 +90,7 @@ def test_chat_history_store_backs_up_corrupt_payload_before_recovery(
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == corrupt_payload
     assert not path.exists()
-    assert error_type in caplog.text
+    assert "Backed up corrupt chat history file" in caplog.text
     assert corrupt_payload not in caplog.text
 
     store.append_turn(

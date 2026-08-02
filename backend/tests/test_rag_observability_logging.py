@@ -45,7 +45,7 @@ def test_ingest_observability_error_log_is_redacted(monkeypatch, caplog):
 
     assert result == {"count": 1}
     assert "private ingest observability detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[RAGObservability]" in caplog.text
 
 
 def test_search_run_creation_error_log_is_redacted(monkeypatch, caplog):
@@ -74,7 +74,7 @@ def test_search_run_creation_error_log_is_redacted(monkeypatch, caplog):
 
     assert hits == [{"query": "AAPL", "collection": "test", "top_k": 3}]
     assert "private search run creation detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[RAGObservability]" in caplog.text
 
 
 def test_failed_search_recording_error_log_is_redacted(monkeypatch, caplog):
@@ -108,7 +108,7 @@ def test_failed_search_recording_error_log_is_redacted(monkeypatch, caplog):
 
     assert "private failed-search recording detail" not in caplog.text
     assert "private search execution detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[RAGObservability]" in caplog.text
 
 
 def test_completed_search_recording_error_log_is_redacted(monkeypatch, caplog):
@@ -141,4 +141,4 @@ def test_completed_search_recording_error_log_is_redacted(monkeypatch, caplog):
 
     assert hits == [{"id": "hit-1"}]
     assert "private completed-search recording detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[RAGObservability]" in caplog.text

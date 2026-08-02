@@ -78,7 +78,7 @@ class MonitoringStorage:
             """)
 
             conn.commit()
-            logger.info(f"监控数据库初始化完成: {self.db_path}")
+        logger.info("监控数据库初始化完成")
 
     def save_health_snapshot(self, sources: dict[str, dict[str, Any]]) -> None:
         """
@@ -252,7 +252,7 @@ class MonitoringStorage:
             deleted = cursor.rowcount
 
         if deleted > 0:
-            logger.info(f"已清理 {deleted} 条超过 {keep_days} 天的监控记录")
+            logger.info("已清理过期监控记录")
 
         return deleted
 

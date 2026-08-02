@@ -34,7 +34,7 @@ async def emit_event(payload: dict[str, Any]) -> None:
         await emitter(payload)
     except Exception as exc:
         # Never let tracing break the main flow.
-        logger.debug("graph event emission failed: %s", type(exc).__name__)
+        logger.debug("graph event emission failed")
         return
 
 

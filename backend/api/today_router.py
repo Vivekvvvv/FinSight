@@ -119,7 +119,7 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                     email = resolved_user_id if "@" in resolved_user_id else f"{resolved_user_id}@example.com"
                     alert_events = await asyncio.to_thread(deps.subscription_service.list_alert_events, email, limit=10)
                 except Exception as exc:
-                    logger.warning("today alert events unavailable: %s", type(exc).__name__)
+                    logger.warning("today alert events unavailable")
 
             # 计算待复查报告
             watchlist_tickers = [w.get("ticker", "") for w in watchlist_items if w.get("ticker")]
@@ -191,7 +191,7 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
         except Exception as exc:
             # 不再压成 200+空骨架（审计 F/项目规则 3）：空骨架会被前端当正常数据渲染，
             # 后端故障对用户和监控完全不可见；WelcomePage 已有 catch+errorMsg 处理 500。
-            logger.error("今日工作台生成失败: %s", type(exc).__name__)
+            logger.error("今日工作台生成失败")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router

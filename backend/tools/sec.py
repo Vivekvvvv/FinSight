@@ -418,7 +418,7 @@ def get_sec_filings(
             "error": None,
         }
     except Exception as exc:
-        logger.info("[SEC] get_sec_filings failed for %s: %s", normalized_ticker, type(exc).__name__)
+        logger.info("[SEC] get_sec_filings failed: %s", type(exc).__name__)
         return _error_payload(
             normalized_ticker,
             error="sec_fetch_failed",
@@ -495,7 +495,7 @@ def get_sec_risk_factors(ticker: str) -> Dict[str, Any]:
             "message": "Risk factor section extracted." if excerpt else "Risk factor section not found in filing body.",
         }
     except Exception as exc:
-        logger.info("[SEC] get_sec_risk_factors failed for %s: %s", ticker, type(exc).__name__)
+        logger.info("[SEC] get_sec_risk_factors failed: %s", type(exc).__name__)
         return {
             **payload,
             "selected_filing": latest,
@@ -644,7 +644,7 @@ def get_sec_company_facts_quarterly(ticker: str, limit: int = 8) -> Dict[str, An
             result["message"] = "Quarterly company facts response does not contain supported metrics."
         return result
     except Exception as exc:
-        logger.info("[SEC] get_sec_company_facts_quarterly failed for %s: %s", normalized_ticker, type(exc).__name__)
+        logger.info("[SEC] get_sec_company_facts_quarterly failed: %s", type(exc).__name__)
         return _error_payload(
             normalized_ticker,
             error="companyfacts_fetch_failed",

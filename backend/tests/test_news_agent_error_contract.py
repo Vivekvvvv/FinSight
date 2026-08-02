@@ -27,7 +27,7 @@ async def test_news_stream_redacts_finnhub_error(caplog):
     assert failure["message"] == "source_unavailable"
     assert secret not in str(events)
     assert secret not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[NewsAgent] Finnhub stream fetch failed" in caplog.text
 
 
 def test_news_reliability_rejects_non_finite_tool_score():

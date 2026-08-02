@@ -205,10 +205,7 @@ async def ainvoke_with_rate_limit_retry(
                 if attempt >= max_attempts:
                     raise
                 wait = float(sleep_seconds) + random.uniform(0, float(jitter_seconds))
-                logger.info(
-                    "[LLM] Rate limit token acquire retry %d/%d (agent=%s): %s",
-                    attempt, max_attempts, agent_name or "unknown", type(exc).__name__,
-                )
+                logger.info('[LLM] Rate limit token acquire retry')
                 if on_retry:
                     on_retry(attempt, exc)
                 await asyncio.sleep(wait)
@@ -233,15 +230,9 @@ async def ainvoke_with_rate_limit_retry(
 
             # Log with appropriate level
             if is_rate_limit_error(exc):
-                logger.info(
-                    "[LLM] Rate limit retry %d/%d (agent=%s): %s",
-                    attempt, max_attempts, agent_name or "unknown", type(exc).__name__,
-                )
+                logger.info('[LLM] Rate limit retry')
             else:
-                logger.warning(
-                    "[LLM] Execution error retry %d/%d (agent=%s): %s",
-                    attempt, max_attempts, agent_name or "unknown", type(exc).__name__,
-                )
+                logger.warning('[LLM] Execution error retry')
 
             # Rotate to next endpoint when factory is available
             if llm_factory is not None:

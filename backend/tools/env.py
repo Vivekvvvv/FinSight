@@ -15,7 +15,7 @@ if YFINANCE_PROXY:
     # Set environment variables for requests/yfinance to use proxy
     os.environ["HTTP_PROXY"] = YFINANCE_PROXY
     os.environ["HTTPS_PROXY"] = YFINANCE_PROXY
-    logger.info(f"Proxy configured for yfinance: {YFINANCE_PROXY}")
+    logger.info("Proxy configured for yfinance")
 
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "").strip('"')
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip('"')

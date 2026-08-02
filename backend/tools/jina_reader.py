@@ -56,5 +56,5 @@ def fetch_via_jina(url: str, *, timeout: int | None = None) -> Optional[str]:
             return None
         return text[:_JINA_MAX_CHARS]
     except Exception as exc:  # pragma: no cover - best effort fallback
-        logger.debug("[JinaReader] fetch failed for host=%s: %s", _safe_log_host(target), type(exc).__name__)
+        logger.debug("[JinaReader] fetch failed: %s", type(exc).__name__)
         return None

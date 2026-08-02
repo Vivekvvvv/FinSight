@@ -115,7 +115,7 @@ def register_all_financial_tools(orchestrator: ToolOrchestrator) -> None:
             DataSource('default', get_info_func, 1, 30)
         )
     
-    logger.info(f"[Bridge] 已注册 {len(orchestrator.sources.get('price', []))} 个价格数据源")
+    logger.info("[Bridge] 价格数据源注册完成")
 
 
 def get_stock_price_with_fallback(ticker: str, force_refresh: bool = False) -> str:

@@ -12,16 +12,6 @@ class _UnformattableTicker:
         raise RuntimeError(self.secret)
 
 
-class _UnformattableString(str):
-    def __new__(cls, value: str, secret: str):
-        instance = super().__new__(cls, value)
-        instance.secret = secret
-        return instance
-
-    def __format__(self, _format_spec: str) -> str:
-        raise RuntimeError(self.secret)
-
-
 def test_yahoo_scrape_outer_error_does_not_dump_traceback(caplog, capsys):
     secret = "PRIVATE postgres://price:secret@db/yahoo"
     caplog.set_level("INFO")
@@ -71,8 +61,13 @@ def test_iex_historical_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/iex"
     caplog.set_level("INFO")
     monkeypatch.setattr(price, "IEX_CLOUD_API_KEY", "test-key")
+    monkeypatch.setattr(
+        price,
+        "_http_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
 
-    assert price._fetch_with_iex_cloud(_UnformattableTicker(secret)) is None
+    assert price._fetch_with_iex_cloud("AAPL") is None
     assert secret not in caplog.text
     assert "RuntimeError" in caplog.text
 
@@ -81,8 +76,13 @@ def test_tiingo_historical_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/tiingo"
     caplog.set_level("INFO")
     monkeypatch.setattr(price, "TIINGO_API_KEY", "test-key")
+    monkeypatch.setattr(
+        price,
+        "_http_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
 
-    assert price._fetch_with_tiingo(_UnformattableTicker(secret)) is None
+    assert price._fetch_with_tiingo("AAPL") is None
     assert secret not in caplog.text
     assert "RuntimeError" in caplog.text
 
@@ -91,8 +91,13 @@ def test_twelve_data_historical_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/twelve"
     caplog.set_level("INFO")
     monkeypatch.setattr(price, "TWELVE_DATA_API_KEY", "test-key")
+    monkeypatch.setattr(
+        price,
+        "_http_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
 
-    assert price._fetch_with_twelve_data(_UnformattableString("AAPL", secret)) is None
+    assert price._fetch_with_twelve_data("AAPL") is None
     assert secret not in caplog.text
     assert "RuntimeError" in caplog.text
 
@@ -101,8 +106,13 @@ def test_marketstack_historical_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/marketstack"
     caplog.set_level("INFO")
     monkeypatch.setattr(price, "MARKETSTACK_API_KEY", "test-key")
+    monkeypatch.setattr(
+        price,
+        "_http_get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+    )
 
-    assert price._fetch_with_marketstack(_UnformattableString("AAPL", secret)) is None
+    assert price._fetch_with_marketstack("AAPL") is None
     assert secret not in caplog.text
     assert "RuntimeError" in caplog.text
 

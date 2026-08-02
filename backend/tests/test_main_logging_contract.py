@@ -88,7 +88,7 @@ def test_report_index_async_error_log_is_redacted(monkeypatch, caplog):
         )
 
     assert "private report index detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "report index async upsert failed" in caplog.text
 
 
 def test_report_index_schedule_error_log_is_redacted(monkeypatch, caplog):
@@ -104,7 +104,7 @@ def test_report_index_schedule_error_log_is_redacted(monkeypatch, caplog):
         )
 
     assert "private scheduler detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "schedule async report indexing failed" in caplog.text
 
 
 def test_session_context_update_error_log_is_redacted(monkeypatch, caplog):
@@ -120,7 +120,7 @@ def test_session_context_update_error_log_is_redacted(monkeypatch, caplog):
         )
 
     assert "private session context detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "failed to update session context" in caplog.text
 
 
 def test_orchestrator_initialization_error_log_is_redacted(monkeypatch, caplog):
@@ -132,7 +132,7 @@ def test_orchestrator_initialization_error_log_is_redacted(monkeypatch, caplog):
         assert main._get_orchestrator_safe() is None
 
     assert "private orchestrator detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "failed to initialize orchestrator" in caplog.text
 
 
 def test_lifespan_rag_initialization_error_log_is_redacted(monkeypatch, caplog):
@@ -165,7 +165,7 @@ def test_lifespan_rag_initialization_error_log_is_redacted(monkeypatch, caplog):
         asyncio.run(run_lifespan())
 
     assert "private rag initialization detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[RAGObservability] initialization failed in lifespan" in caplog.text
 
 
 def test_lifespan_rag_retention_error_log_is_redacted(monkeypatch, caplog):
@@ -212,7 +212,7 @@ def test_lifespan_rag_retention_error_log_is_redacted(monkeypatch, caplog):
         asyncio.run(run_lifespan())
 
     assert "private rag retention detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[RAGObservability] retention cleanup failed" in caplog.text
 
 
 def test_lifespan_graph_runner_error_log_is_redacted(monkeypatch, caplog):
@@ -248,7 +248,7 @@ def test_lifespan_graph_runner_error_log_is_redacted(monkeypatch, caplog):
         asyncio.run(run_lifespan())
 
     assert "private graph runner detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[GraphRunner] initialization failed in lifespan" in caplog.text
 
 
 def test_lifespan_scheduler_shutdown_error_log_is_redacted(monkeypatch, caplog):
@@ -279,7 +279,7 @@ def test_lifespan_scheduler_shutdown_error_log_is_redacted(monkeypatch, caplog):
         main._schedulers.clear()
 
     assert "private scheduler shutdown detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[Scheduler] shutdown error" in caplog.text
     assert shutdown_calls == [True]
     assert main._schedulers == []
 
@@ -305,7 +305,7 @@ def test_lifespan_graph_cleanup_error_log_is_redacted(monkeypatch, caplog):
         asyncio.run(run_lifespan())
 
     assert "private graph cleanup detail" not in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "[GraphRunner] shutdown cleanup error" in caplog.text
 
 
 def test_default_user_config_bootstrap_uses_atomic_replace(monkeypatch, tmp_path):
@@ -357,25 +357,25 @@ def test_default_user_config_error_log_and_temp_file_are_redacted(
     assert not config_path.exists()
     assert not list(tmp_path.glob("*.tmp"))
     assert "private default config storage detail" not in caplog.text
-    assert "OSError" in caplog.text
+    assert "[Config] failed to write default user config" in caplog.text
 
 
 def test_chart_detector_import_log_is_type_only():
     source = Path(main.__file__).read_text(encoding="utf-8")
 
     assert 'Error importing chart detector: {e}' not in source
-    assert '"[Init] Error importing chart detector (%s)"' in source
+    assert 'logger.info("[Init] Error importing chart detector")' in source
 
 
 def test_memory_service_initialization_log_is_type_only():
     source = Path(main.__file__).read_text(encoding="utf-8")
 
     assert 'Error initializing MemoryService: {e}' not in source
-    assert '"[Init] Error initializing MemoryService (%s)"' in source
+    assert 'logger.error("[Init] Error initializing MemoryService")' in source
 
 
 def test_core_tools_import_log_is_type_only():
     source = Path(main.__file__).read_text(encoding="utf-8")
 
     assert 'Error importing tools: {e2}' not in source
-    assert '"[Init] Error importing tools (%s)"' in source
+    assert 'logger.error("[Init] Error importing tools")' in source

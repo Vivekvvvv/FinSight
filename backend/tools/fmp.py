@@ -57,22 +57,22 @@ def _fmp_request(endpoint: str, params: Optional[dict] = None) -> Optional[Any]:
 
         # FMP 错误响应格式：{"Error Message": "..."}
         if isinstance(data, dict) and "Error Message" in data:
-            logger.info(f"[FMP] API error: {data['Error Message']}")
+            logger.info("[FMP] API returned an error payload")
             return None
 
         return data
 
     except requests.exceptions.Timeout:
-        logger.info(f"[FMP] Request timeout for {endpoint}")
+        logger.info("[FMP] Request timeout")
         return None
     except requests.exceptions.HTTPError as e:
-        logger.info("[FMP] HTTP error for %s: %s", endpoint, type(e).__name__)
+        logger.info("[FMP] HTTP error: %s", type(e).__name__)
         return None
     except requests.exceptions.RequestException as e:
-        logger.info("[FMP] Request error for %s: %s", endpoint, type(e).__name__)
+        logger.info("[FMP] Request error: %s", type(e).__name__)
         return None
     except ValueError as e:
-        logger.info("[FMP] JSON parse error for %s: %s", endpoint, type(e).__name__)
+        logger.info("[FMP] JSON parse error: %s", type(e).__name__)
         return None
 
 
@@ -150,7 +150,7 @@ def get_revenue_product_segmentation(symbol: str) -> list[dict]:
     # 按收入排序
     segments.sort(key=lambda x: x["revenue"], reverse=True)
 
-    logger.info(f"[FMP] revenue_product_segmentation OK for {symbol}: {len(segments)} segments")
+    logger.info("[FMP] revenue_product_segmentation OK: %s segments", len(segments))
     return segments
 
 
@@ -220,7 +220,7 @@ def get_revenue_geographic_segmentation(symbol: str) -> list[dict]:
 
     regions.sort(key=lambda x: x["revenue"], reverse=True)
 
-    logger.info(f"[FMP] revenue_geographic_segmentation OK for {symbol}: {len(regions)} regions")
+    logger.info("[FMP] revenue_geographic_segmentation OK: %s regions", len(regions))
     return regions
 
 
@@ -269,7 +269,7 @@ def get_etf_sector_weights(symbol: str) -> list[dict]:
 
     sectors.sort(key=lambda x: x["weight"], reverse=True)
 
-    logger.info(f"[FMP] etf_sector_weights OK for {symbol}: {len(sectors)} sectors")
+    logger.info("[FMP] etf_sector_weights OK: %s sectors", len(sectors))
     return sectors
 
 
@@ -324,7 +324,7 @@ def get_etf_holdings(symbol: str, limit: int = 50) -> list[dict]:
     holdings.sort(key=lambda x: x["weight"], reverse=True)
 
     result_limit = max(0, safe_int(limit, 50))
-    logger.info(f"[FMP] etf_holdings OK for {symbol}: {len(holdings[:result_limit])} holdings")
+    logger.info("[FMP] etf_holdings OK: %s holdings", len(holdings[:result_limit]))
     return holdings[:result_limit]
 
 
@@ -367,7 +367,7 @@ def get_index_constituents(symbol: str, limit: int = 10) -> list[dict]:
     """
     endpoint = INDEX_CONSTITUENTS_MAP.get(symbol)
     if not endpoint:
-        logger.debug(f"[FMP] Unknown index symbol: {symbol}")
+        logger.debug("[FMP] Unknown index symbol")
         return []
 
     data = _fmp_request(endpoint)
@@ -397,7 +397,7 @@ def get_index_constituents(symbol: str, limit: int = 10) -> list[dict]:
     constituents.sort(key=lambda x: x["symbol"])
 
     result_limit = max(0, safe_int(limit, 10))
-    logger.info(f"[FMP] index_constituents OK for {symbol}: {len(constituents[:result_limit])} constituents")
+    logger.info("[FMP] index_constituents OK: %s constituents", len(constituents[:result_limit]))
     return constituents[:result_limit]
 
 
@@ -436,7 +436,7 @@ def get_company_profile(symbol: str) -> Optional[dict]:
     if not isinstance(profile, dict):
         return None
 
-    logger.info(f"[FMP] company_profile OK for {symbol}")
+    logger.info("[FMP] company_profile OK")
     return profile
 
 

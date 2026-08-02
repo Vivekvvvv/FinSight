@@ -99,4 +99,7 @@ def test_feed_failure_logs_omit_url_credentials(monkeypatch, caplog):
     assert macro_official._fetch_feed(target) == ""
     assert news._fetch_rss_headlines([target]) == ([], False)
     assert secret not in caplog.text
-    assert "feeds.example.com" in caplog.text
+    assert "feeds.example.com" not in caplog.text
+    assert "authoritative feed request failed" in caplog.text
+    assert "official feed request failed: RuntimeError" in caplog.text
+    assert "news RSS request failed: RuntimeError" in caplog.text

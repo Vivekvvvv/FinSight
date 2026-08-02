@@ -64,7 +64,7 @@ class _CrossEncoderWrapper:
                 return self._model
             from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 
-            logger.info("Loading bge-reranker-v2-m3 (max_length=%d) ...", self._max_length)
+            logger.info("Loading bge-reranker-v2-m3 ...")
             self._model = CrossEncoder(
                 "BAAI/bge-reranker-v2-m3",
                 max_length=self._max_length,

@@ -208,11 +208,7 @@ def fetch_via_wayback(url: str, *, timeout: int | None = None) -> Optional[str]:
             return None
         return text[:_WAYBACK_MAX_CHARS]
     except Exception as exc:
-        logger.debug(
-            "[Wayback] fetch failed for host=%s: %s",
-            _normalize_domain(snapshot_url) or "<invalid>",
-            type(exc).__name__,
-        )
+        logger.debug("[Wayback] fetch failed: %s", type(exc).__name__)
         return None
 
 

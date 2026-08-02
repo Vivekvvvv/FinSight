@@ -213,7 +213,8 @@ def test_blocked_target_log_redacts_url_query(monkeypatch, caplog):
     )
 
     assert response is None
-    assert "example.com" in caplog.text
+    assert "example.com" not in caplog.text
+    assert "/path" not in caplog.text
     assert secret not in caplog.text
 
 

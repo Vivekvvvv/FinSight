@@ -29,7 +29,19 @@ class SystemRouterDeps:
 def create_system_router(deps: SystemRouterDeps) -> APIRouter:
     router = APIRouter(tags=["System"])
     started_at = datetime.now(timezone.utc)
-    sensitive_rag_fields = {"query_text", "query_text_redacted", "content_raw", "chunk_text"}
+    sensitive_rag_fields = {
+        "query_text",
+        "query_text_redacted",
+        "query_preview",
+        "query",
+        "fallback_reason",
+        "error_message",
+        "reason_text",
+        "content",
+        "content_raw",
+        "chunk_text",
+        "chunk_preview",
+    }
 
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -263,7 +275,7 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
             "recent_empty_hits_rate_24h": observability.get("recent_empty_hits_rate_24h"),
             "last_run_at": observability.get("last_run_at"),
             "last_fallback_at": observability.get("last_fallback_at"),
-            "observability": observability,
+            "observability": observability if include_raw else _project_rag_observability(observability),
         }
         return {"status": "ok", "data": _redact_rag_payload(payload, include_raw=include_raw), "timestamp": _now()}
 
@@ -283,9 +295,11 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         return {"status": "ok", "data": _redact_rag_payload(item, include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/runs/{run_id}/events")
-    def diagnostics_rag_run_events(run_id: Annotated[str, Path(min_length=1, max_length=256)], request: Request, limit: int = Query(default=500, ge=1, le=2000)):
-        _require_rag_read_access(request)
-        return {"status": "ok", "data": _rag_store().list_events(run_id=run_id, limit=limit), "timestamp": _now()}
+    def diagnostics_rag_run_events(run_id: Annotated[str, Path(min_length=1, max_length=256)], request: Request, limit: int = Query(default=500, ge=1, le=2000), include: str | None = Query(None, max_length=32)):
+        principal = _require_rag_read_access(request)
+        include_raw = _include_raw_allowed(include, principal)
+        payload = _rag_store().list_events(run_id=run_id, limit=limit)
+        return {"status": "ok", "data": _redact_rag_payload(payload, include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/documents")
     def diagnostics_rag_documents(request: Request, run_id: str | None = Query(None, max_length=256), collection: str | None = Query(None, max_length=256), include_deleted: bool = False, limit: int = Query(default=200, ge=1, le=1000), include: str | None = Query(None, max_length=32)):
@@ -300,9 +314,11 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         return {"status": "ok", "data": _redact_rag_payload(_rag_store().list_chunks(run_id=run_id, collection=collection, source_doc_id=source_doc_id, include_deleted=include_deleted, limit=limit), include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/hits")
-    def diagnostics_rag_hits(request: Request, run_id: str | None = Query(None, max_length=256), collection: str | None = Query(None, max_length=256), include_deleted: bool = False, limit: int = Query(default=500, ge=1, le=2000)):
-        _require_rag_read_access(request)
-        return {"status": "ok", "data": _rag_store().list_hits(run_id=run_id, collection=collection, include_deleted=include_deleted, limit=limit), "timestamp": _now()}
+    def diagnostics_rag_hits(request: Request, run_id: str | None = Query(None, max_length=256), collection: str | None = Query(None, max_length=256), include_deleted: bool = False, limit: int = Query(default=500, ge=1, le=2000), include: str | None = Query(None, max_length=32)):
+        principal = _require_rag_read_access(request)
+        include_raw = _include_raw_allowed(include, principal)
+        payload = _rag_store().list_hits(run_id=run_id, collection=collection, include_deleted=include_deleted, limit=limit)
+        return {"status": "ok", "data": _redact_rag_payload(payload, include_raw=include_raw), "timestamp": _now()}
 
     @router.get("/diagnostics/rag/collections")
     def diagnostics_rag_collections(request: Request, limit: int = Query(default=200, ge=1, le=1000)):
@@ -335,8 +351,9 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
         return {"status": "ok", "data": _redact_rag_payload(payload, include_raw=include_raw), "timestamp": _now()}
 
     @router.post("/diagnostics/rag/search-preview")
-    def diagnostics_rag_search_preview(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)):
-        _require_rag_read_access(request)
+    def diagnostics_rag_search_preview(request: Request, payload: Dict[str, Any] = Body(default_factory=dict), include: str | None = Query(None, max_length=32)):
+        principal = _require_rag_read_access(request)
+        include_raw = _include_raw_allowed(include, principal)
         try:
             query = payload.get('query') or ''
             collection = payload.get('collection') or ''
@@ -347,7 +364,8 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
             top_k = safe_int(payload.get('top_k', 10))
             if top_k is None or not 1 <= top_k <= 100:
                 raise ValueError("invalid top_k")
-            return {"status": "ok", "data": _rag_store().search_preview(query=query, collection=collection, top_k=top_k), "timestamp": _now()}
+            result = _rag_store().search_preview(query=query, collection=collection, top_k=top_k)
+            return {"status": "ok", "data": _redact_rag_payload(result, include_raw=include_raw), "timestamp": _now()}
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid RAG diagnostics request") from exc
 
