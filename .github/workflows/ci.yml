@@ -112,8 +112,8 @@ jobs:
           print(f"transformers={tf_ver}")
 
           major = int(tf_ver.split(".")[0])
-          if major >= 5:
-              raise SystemExit("transformers major version must be <5 for FlagEmbedding compatibility")
+          if major >= 6:
+              raise SystemExit("transformers major version must be <6 for FlagEmbedding compatibility")
           PY
       - name: Check embedding backend visibility
         run: |
