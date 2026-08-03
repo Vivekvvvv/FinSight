@@ -41,4 +41,4 @@ def test_pdf_export_escapes_all_client_controlled_paragraph_markup(monkeypatch):
 
     assert result.startswith(b"%PDF")
     assert all("<img" not in text for text in captured)
-    assert sum("&lt;img" in text for text in captured) >= 6
+    assert sum(text.count("&lt;img") for text in captured) >= 6

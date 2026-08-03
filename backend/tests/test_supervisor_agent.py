@@ -83,12 +83,8 @@ class TestIntentClassifierEmbedding:
         assert result.confidence == 0.4
         assert "price" not in result.scores
 
-    @pytest.mark.skipif(
-        not _embedding_available(),
-        reason="sentence-transformers not installed"
-    )
-    def test_price_intent_embedding(self):
-        """测试价格查询 - Embedding 相似度"""
+    def test_price_intent_prefers_rule_fast_path(self):
+        """测试价格查询 - 规则快速路径"""
         test_cases = [
             ("AAPL 价格", ["AAPL"]),
             ("苹果股价多少", ["AAPL"]),
@@ -97,7 +93,7 @@ class TestIntentClassifierEmbedding:
         for query, tickers in test_cases:
             result = self.classifier.classify(query, tickers)
             assert result.intent == AgentIntent.PRICE, f"Failed for: {query}"
-            assert "embedding" in result.method
+            assert result.method == "rule"
 
     @pytest.mark.skipif(
         not _embedding_available(),
