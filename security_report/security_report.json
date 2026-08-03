@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "audit_date": "2026-08-03",
-  "baseline": "688fd54",
+  "baseline": "412906e plus uncommitted container hardening",
   "scope": [
     "python production and development dependencies",
     "node dependencies",
@@ -9,15 +9,21 @@
     "secret scanning of worktree and git history",
     "sql injection and ssrf candidate review",
     "access-control regression tests",
-    "dockerfile and compose configuration"
+    "dockerfile and compose configuration",
+    "frontend and backend image build, runtime probes, and Trivy image scanning"
   ],
   "summary": {
-    "critical": 0,
-    "high_total": 3,
-    "high_open": 0,
+    "critical": 4,
+    "high_total": 22,
+    "high_open": 20,
     "production_python_vulnerabilities": 0,
     "node_vulnerabilities": 0,
     "trivy_filesystem_vulnerabilities": 0,
+    "frontend_image_critical": 0,
+    "frontend_image_high": 0,
+    "backend_image_critical": 4,
+    "backend_image_high": 19,
+    "backend_image_fixable_critical_high": 0,
     "confirmed_secrets": 0,
     "bandit_high": 0,
     "bandit_medium_reviewed": 31,
@@ -63,11 +69,29 @@
     {
       "id": "CONTAINER-002",
       "severity": "medium",
+      "status": "fixed",
+      "location": "Dockerfile and frontend-vue/Dockerfile base image declarations",
+      "evidence": "Python, Node and Nginx images are pinned to the exact digests used by the successful runtime and image scan probes.",
+      "impact": "Mutable base image tags could otherwise drift to unreviewed build inputs.",
+      "remediation": "Implemented digest pinning; update digests only together with image rebuild, runtime probes and Trivy scans."
+    },
+    {
+      "id": "CONTAINER-003",
+      "severity": "critical",
+      "status": "blocked-upstream",
+      "location": "Dockerfile:3 pinned Python 3.11 slim base image (Debian 13.6)",
+      "evidence": "trivy-backend-hardened-final-image.json reports 4 Critical perl-base advisories and 19 High OS-package advisories; every Critical/High entry has an empty FixedVersion. No Python package vulnerabilities remain in the runtime image.",
+      "impact": "Affected base utilities and libraries have potential memory-corruption, archive traversal, arbitrary file modification and denial-of-service paths if their vulnerable functionality becomes attacker-reachable.",
+      "remediation": "Track Debian 13 security updates and rebuild on a corrected digest when available. Retain non-root execution and least privilege. A current bookworm comparison was worse at 6 Critical and 20 High, so no downgrade was made."
+    },
+    {
+      "id": "CONTAINER-004",
+      "severity": "medium",
       "status": "open",
-      "location": "Dockerfile, frontend-vue/Dockerfile, docker-compose.yml",
-      "evidence": "Base image tags are not pinned to digests; Compose lacks uniform runtime hardening controls.",
-      "impact": "Build inputs can drift and compromised processes retain more runtime capability than necessary.",
-      "remediation": "Pin reviewed image digests and add service-specific no-new-privileges, capability and read-only filesystem controls."
+      "location": "docker-compose.yml runtime service controls",
+      "evidence": "Compose does not uniformly set no-new-privileges, capability drops or read-only root filesystems.",
+      "impact": "A compromised process retains more runtime capability than necessary.",
+      "remediation": "Design service-specific controls after enumerating required writable paths for Postgres, backend and Nginx."
     }
   ],
   "tools": {
@@ -76,21 +100,19 @@
     "bandit": "0 high, 31 medium, 5709 low",
     "semgrep": "50 findings reviewed; mutable action tag findings: 0",
     "gitleaks": "6 worktree and 20 history false positives, 0 confirmed secrets",
-    "trivy": "0 filesystem vulnerabilities, 0 secrets, 0 misconfigurations",
-    "project_secret_scanner": "1312 files, 0 findings"
+    "trivy": "filesystem: 0 vulnerabilities, 0 secrets, 0 misconfigurations; frontend image: 0 vulnerabilities, 0 secrets, 0 misconfigurations; backend hardened image: 4 Critical and 19 High OS findings with no FixedVersion, 0 Python package vulnerabilities, 0 secrets, 0 misconfigurations",
+    "project_secret_scanner": "1328 files, 0 findings"
   },
   "verification": {
     "backend_full": "4227 passed, 10 skipped",
     "backend_upgraded_overlay": "4227 passed, 10 skipped, 1 warning",
     "ssrf_and_access_control": "81 passed",
     "frontend": "npm ci, typecheck and build passed",
-    "docker_compose_config": "passed"
+    "docker_compose_config": "passed",
+    "frontend_container": "digest-pinned build passed; nginx uid 101; healthy; HTTP 200",
+    "backend_container": "digest-pinned multi-stage build passed; uid 999; core imports passed; healthy; HTTP 200; /app/data write passed"
   },
   "skipped_tools": [
-    {
-      "name": "docker image build and scan",
-      "reason": "Docker Desktop daemon was not running"
-    },
     {
       "name": "Trivy online misconfiguration checks bundle",
       "reason": "mirror.gcr.io was unreachable; Trivy embedded checks were used"

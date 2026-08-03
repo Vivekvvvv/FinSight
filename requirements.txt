@@ -98,3 +98,7 @@ sentencepiece==0.2.1
 
 # Wikipedia (免费，无需 API key)
 wikipedia==1.4.0
+
+# Python packaging runtime required by torch
+setuptools==83.0.0
+wheel==0.47.0

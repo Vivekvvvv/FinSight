@@ -1,11 +1,11 @@
 # FinSight 安全审计摘要
 
 审计日期：2026-08-03
-审计基线：`688fd54`（工作区包含前端非 root 的未提交修复）
+审计基线：`412906e`（工作区包含容器双阶段构建、基础镜像 digest 固定与运行时收口的未提交修复）
 
 ## 结论
 
-本轮完成了生产 Python 与 Node 依赖实时审计、Python/多语言静态分析、凭据扫描、SQL 注入与 SSRF 候选复核、访问控制回归、Docker 文件系统配置审计，以及测试输出卫生清理。
+本轮完成了生产 Python 与 Node 依赖实时审计、Python/多语言静态分析、凭据扫描、SQL 注入与 SSRF 候选复核、访问控制回归、Docker 文件系统与真实镜像审计、容器运行探针，以及测试输出卫生清理。
 
 在已执行的检查范围内：
 
@@ -14,13 +14,16 @@
 - Trivy 文件系统扫描：0 个依赖漏洞、0 个凭据发现、0 个配置发现。
 - Bandit：0 个 High，31 个 Medium；Medium 均已人工复核为固定 SQL/URL、服务监听或 SSRF 防护字面量。
 - Semgrep：50 个候选已复核；GitHub Actions 可变标签告警已从 26 降至 0。
-- 密钥扫描器：扫描 1312 个文件，0 个发现。
+- 密钥扫描器：扫描 1328 个文件，0 个发现。
 - Gitleaks：工作区 6 个、Git 历史 20 个候选，均为测试哨兵或文档占位符，未发现真实凭据。
 - SSRF 与访问控制相关回归：81 passed。
 - 后端全量回归：4227 passed，10 skipped；升级依赖 overlay 结果相同，另有 1 条 Starlette 弃用预告。
 - 前端 `npm ci`、typecheck、build 均通过。
+- 前端生产镜像：非 root UID 101，健康检查与 HTTP 200 通过；Trivy 为 0 个漏洞、0 个凭据发现、0 个配置发现。
+- 后端生产镜像：非 root UID 999，核心科学计算与 PostgreSQL 依赖导入、健康检查、HTTP 200、`/app/data` 写入均通过。
+- 后端生产镜像：Trivy 为 4 个 Critical、19 个 High；均来自 Debian 13.6 基础层，当前扫描数据库未提供修复版本。Python 依赖层为 0 个漏洞，镜像为 0 个凭据发现、0 个配置发现。
 
-这不表示系统已被证明“绝对安全”。镜像级扫描、运行中容器、服务器 SSH/防火墙和生产环境权限不在本地文件系统审计覆盖范围内。
+这不表示系统已被证明“绝对安全”。本轮验证的是本地构建的临时镜像；现有运行中的正式容器、服务器 SSH/防火墙和生产环境权限不在本次授权范围内。
 
 ## 已完成修复
 
@@ -30,12 +33,29 @@
 - 将 `requirements.in` 与已审计的根锁定清单同步，确保未来重新生成依赖时不会带回 Ragas、LiteLLM、ChromaDB 或旧漏洞版本。
 - 为非安全用途的 MD5/SHA1 调用显式设置 `usedforsecurity=False`，Bandit High 从 9 降至 0。
 - 后端生产镜像改用非 root 用户，并排除测试、文档和脚本进入构建上下文。
-- 前端 Nginx 改用非 root 用户和容器内 8080 端口；宿主端口保持不变，Trivy `DS-0002` 已关闭。
+- 后端生产镜像改为 builder/runtime 双阶段构建，构建工具不再进入 runtime；删除未使用的系统级 `setuptools`、两份 pip 安装器与仅供健康检查使用的 curl，High 从 27 降至 19，Python 镜像依赖漏洞归零。
+- 前端 Nginx 改用非 root 用户和容器内 8080 端口，并补齐 `/run` 写权限；宿主端口保持不变，Trivy `DS-0002` 已关闭。
+- Python、Node 与 Nginx 基础镜像固定到本轮实际验证的完整 digest；由于 Docker Hub 在当前网络不可达，构建验证通过 build arg 使用 AWS Docker Official Images 镜像完成。
+- 同步更新 Python/Vue 切换映射验证器的前端容器端口断言为 8080，修复 `412906e` 中 Compose 已变更但门禁仍检查端口 80 的回归。
 - 26 个 GitHub Actions 引用全部固定到当前官方标签对应的完整 commit SHA，并保留版本注释。
 - 删除测试和评测脚本中的异常原文输出与 `traceback.print_exc()`，新增 AST 回归门禁。
 - 将 smoke 脚本、CI 和文档中的假凭据改为环境变量或明确占位符。
 
 ## 未关闭风险
+
+### Critical：后端基础镜像保留 4 条无修复版本公告
+
+- 证据：`Dockerfile` 固定的 Python 3.11 slim / Debian 13.6 基础层；`trivy-backend-hardened-final-image.json` 命中 `perl-base` 的 4 条 Critical，Trivy 的 `FixedVersion` 均为空。
+- 影响：这些问题涉及正则表达式、归档路径与反序列化处理；只有攻击者能够触发基础层对应 Perl 功能时才形成可利用路径，应用当前没有主动调用 Perl，但镜像内仍存在受影响组件。
+- 建议：持续跟踪 Debian 13 安全更新并在修复版本发布后重建镜像；部署时保持非 root、最小权限和受控输入，降低基础层漏洞的可利用性。
+- 状态：上游暂无可安装修复版本。对照扫描官方 Python 3.11 slim-bookworm 得到 6 Critical / 20 High，风险更高，因此未降级基础镜像。
+
+### High：后端基础镜像保留 19 条无修复版本公告
+
+- 证据：同一镜像扫描中，`util-linux`、`ncurses`、`perl-base`、`gzip` 与 `libacl` 等基础包合计 19 条 High，Trivy 的 `FixedVersion` 均为空。
+- 影响：潜在影响包括内存破坏、路径遍历、任意文件修改与拒绝服务；应用未直接暴露这些命令行工具，但受影响库仍存在于运行层。
+- 建议：保持 digest 固定并定期刷新 Trivy 数据库复扫；Debian 发布修复后更新 digest。不要以删除 dpkg 必需基础包的方式制造不可维护镜像。
+- 状态：上游暂无可安装修复版本；本轮已消除所有具有修复版本的 Critical/High。
 
 ### High：开发依赖 Ragas 保留 2 条公告
 
@@ -52,13 +72,13 @@
 
 ## 覆盖缩减与运行风险
 
-- Docker Desktop daemon 未启动，因此未执行 `docker build`、镜像层 CVE 扫描或运行时容器验证。
 - Trivy 漏洞库从官方 GHCR 实时下载成功；在线 misconfiguration checks bundle 下载失败，扫描回退到 Trivy 0.72.0 内嵌规则。
-- 基础镜像仍使用 tag 而非 digest，无法保证构建输入不可变。
 - 后端改为非 root 后，已有命名卷可能仍由 root 拥有；上线前需在维护窗口迁移 `backend_data`、`backend_logs`、`model_cache` 的属主。
 - Compose 尚未统一设置 `no-new-privileges`、capability drop 或只读根文件系统；需按 Postgres、后端和 Nginx 的写目录分别设计。
+- 本轮只构建并验证了临时 `hardened-verify` 镜像，没有替换当前运行中的正式容器或命名卷。
+- 前端 Nginx 启动要求 Compose DNS 能解析 `backend`；独立探针通过等价 host 映射验证，Compose 部署本身提供该服务名。
 - Starlette TestClient 提示未来迁移到 `httpx2`，当前不影响运行。
 
 ## 原始报告
 
-本地原始扫描产物位于 `C:/tmp/FinSight-security-scan-2/`，包括 pip-audit、npm audit、Bandit、Semgrep、Gitleaks、Trivy 与密钥扫描 JSON。该目录不提交到仓库。
+本地原始扫描产物位于 `C:/tmp/FinSight-security-scan-2/`，包括 pip-audit、npm audit、Bandit、Semgrep、Gitleaks、Trivy、前后端镜像扫描与密钥扫描 JSON。该目录不提交到仓库。

@@ -51,17 +51,17 @@ def validate_python_vue_stack(repo_root: Path) -> list[str]:
         errors.append("docker-compose.yml frontend service must build frontend-vue")
     if '"8000:8000"' in compose or "'8000:8000'" in compose:
         errors.append("docker-compose.yml must not expose backend 8000 by default")
-    if '"5174:80"' in compose or "'5174:80'" in compose:
+    if '"5174:8080"' in compose or "'5174:8080'" in compose:
         errors.append("docker-compose.yml must not expose Vue dev port by default")
     if '"8000:8000"' not in dev_compose and "'8000:8000'" not in dev_compose:
         errors.append("docker-compose.dev.yml must expose backend 8000 for local debugging")
-    if '"5174:80"' not in dev_compose and "'5174:80'" not in dev_compose:
+    if '"5174:8080"' not in dev_compose and "'5174:8080'" not in dev_compose:
         errors.append("docker-compose.dev.yml must expose Vue frontend on 5174 for local debugging")
     if "container_name: finsight-smoke-frontend" not in smoke_compose:
         errors.append("docker-compose.smoke.yml must isolate frontend container name")
     if "ports: !override" not in smoke_compose:
         errors.append("docker-compose.smoke.yml frontend ports must use !override to avoid exposing host port 80")
-    if '"18080:80"' not in smoke_compose and "'18080:80'" not in smoke_compose:
+    if '"18080:8080"' not in smoke_compose and "'18080:8080'" not in smoke_compose:
         errors.append("docker-compose.smoke.yml must expose smoke frontend on host port 18080")
     for volume_name in (
         "finsight_smoke_postgres_data",

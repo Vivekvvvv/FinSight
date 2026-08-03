@@ -2,7 +2,10 @@
 # Stage 1: build (node:20-alpine)  →  Stage 2: serve (nginx:alpine)
 
 # ── Stage 1: Build ────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+ARG NODE_IMAGE=node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+ARG NGINX_IMAGE=nginx:alpine@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752
+
+FROM ${NODE_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -17,7 +20,7 @@ COPY . .
 RUN npm run build
 
 # ── Stage 2: Serve ────────────────────────────────────────────────────────
-FROM nginx:alpine AS runner
+FROM ${NGINX_IMAGE} AS runner
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
@@ -26,6 +29,7 @@ RUN chown -R nginx:nginx \
       /usr/share/nginx/html \
       /var/cache/nginx \
       /var/run \
+      /run \
       /etc/nginx/conf.d
 
 USER nginx

@@ -37,7 +37,7 @@ def test_validator_rejects_spring_default_markers(tmp_path):
         encoding="utf-8",
     )
     (tmp_path / "docker-compose.dev.yml").write_text(
-        'services:\n  backend:\n    ports:\n      - "8000:8000"\n  frontend:\n    ports:\n      - "5174:80"\n',
+        'services:\n  backend:\n    ports:\n      - "8000:8000"\n  frontend:\n    ports:\n      - "5174:8080"\n',
         encoding="utf-8",
     )
     (tmp_path / "docker-compose.smoke.yml").write_text(
@@ -45,7 +45,7 @@ def test_validator_rejects_spring_default_markers(tmp_path):
         '  frontend:\n'
         '    container_name: finsight-smoke-frontend\n'
         '    ports: !override\n'
-        '      - "18080:80"\n'
+        '      - "18080:8080"\n'
         'volumes:\n'
         '  postgres_data:\n'
         '    name: finsight_smoke_postgres_data\n'
@@ -112,7 +112,7 @@ def test_validator_rejects_default_host_port_exposure(tmp_path):
         '    build:\n'
         '      context: ./frontend-vue\n'
         '    ports:\n'
-        '      - "5174:80"\n',
+        '      - "5174:8080"\n',
         encoding="utf-8",
     )
     (tmp_path / "docker-compose.dev.yml").write_text(
@@ -124,7 +124,7 @@ def test_validator_rejects_default_host_port_exposure(tmp_path):
         '  frontend:\n'
         '    container_name: finsight-smoke-frontend\n'
         '    ports:\n'
-        '      - "18080:80"\n'
+        '      - "18080:8080"\n'
         'volumes:\n'
         '  postgres_data:\n'
         '    name: finsight_smoke_postgres_data\n'
@@ -186,11 +186,11 @@ def test_validator_rejects_unsafe_smoke_compose(tmp_path):
         encoding="utf-8",
     )
     (tmp_path / "docker-compose.dev.yml").write_text(
-        'services:\n  backend:\n    ports:\n      - "8000:8000"\n  frontend:\n    ports:\n      - "5174:80"\n',
+        'services:\n  backend:\n    ports:\n      - "8000:8000"\n  frontend:\n    ports:\n      - "5174:8080"\n',
         encoding="utf-8",
     )
     (tmp_path / "docker-compose.smoke.yml").write_text(
-        'services:\n  frontend:\n    ports:\n      - "80:80"\n',
+        'services:\n  frontend:\n    ports:\n      - "80:8080"\n',
         encoding="utf-8",
     )
     (tmp_path / "frontend-vue/nginx.conf").write_text(
