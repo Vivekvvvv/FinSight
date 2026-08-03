@@ -205,6 +205,7 @@ jobs:
           path: |
             frontend-vue/playwright-report/
             frontend-vue/test-results/
+          if-no-files-found: ignore
 
   stage7-e2e-compose:
     name: Stage 7 - Compose Smoke
@@ -243,7 +244,7 @@ jobs:
           exit 1
       - name: Show compose logs
         if: always()
-        run: docker compose logs --no-color
+        run: docker compose logs --no-color | tee compose.log
       - name: Stop compose stack
         if: always()
         run: docker compose down -v
@@ -251,10 +252,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: e2e-compose-artifacts
-          path: |
-            frontend-vue/playwright-report/
-            frontend-vue/test-results/
+          name: compose-smoke-artifacts
+          path: compose.log
+          if-no-files-found: error
 
   stage8-artifact-bundle:
     name: Stage 8 - Bundle Artifacts
@@ -263,15 +263,11 @@ jobs:
     if: always()
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: bundled-artifacts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: backend-coverage-and-reports
-          path: |
-            .coverage
-            coverage.xml
-            htmlcov/
-            tests/retrieval_eval/reports/
-            tests/retrieval_eval/reports/gate_summary.json
-            frontend-vue/playwright-report/
-            frontend-vue/test-results/
-            frontend-vue/dist/
+          name: ci-artifact-bundle
+          path: bundled-artifacts/
+          if-no-files-found: error
