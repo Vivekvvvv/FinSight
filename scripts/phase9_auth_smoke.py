@@ -79,7 +79,7 @@ else:
     check("me-no-key", True, f"API_AUTH_KEYS 未配置，状态码 {code}（记录用）", status_code=code, blocking=False)
 
 # 3. /api/me 无效 key（期望 401/403）
-code, body, ms = req("GET", "/api/me", headers={"X-API-Key": "invalid-smoke-key-12345"})
+code, body, ms = req("GET", "/api/me", headers={"X-API-Key": "invalid"})
 if has_api_keys:
     check("me-invalid-key", code in (401, 403), f"无效 key 时期望 401/403，实际 {code}", status_code=code)
 else:

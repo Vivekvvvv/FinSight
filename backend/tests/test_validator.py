@@ -259,9 +259,7 @@ def run_all_tests():
             test_func()
             results[test_name] = True
         except Exception as e:
-            print(f"❌ {test_name} 测试失败: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ {test_name} 测试失败: {type(e).__name__}")
             results[test_name] = False
     
     print()
@@ -290,4 +288,3 @@ def run_all_tests():
 if __name__ == "__main__":
     success = run_all_tests()
     sys.exit(0 if success else 1)
-

@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-08-03",
+  "baseline": "41b0b86",
+  "scope": [
+    "python production and development dependencies",
+    "node dependencies",
+    "python and multi-language static analysis",
+    "secret scanning of worktree and git history",
+    "sql injection and ssrf candidate review",
+    "access-control regression tests",
+    "dockerfile and compose configuration"
+  ],
+  "summary": {
+    "critical": 0,
+    "high_total": 3,
+    "high_open": 2,
+    "production_python_vulnerabilities": 0,
+    "node_vulnerabilities": 0,
+    "trivy_filesystem_vulnerabilities": 0,
+    "confirmed_secrets": 0,
+    "bandit_high": 0,
+    "bandit_medium_reviewed": 31,
+    "semgrep_findings_reviewed": 77
+  },
+  "findings": [
+    {
+      "id": "CONTAINER-001",
+      "severity": "high",
+      "status": "open",
+      "location": "frontend-vue/Dockerfile: runner stage",
+      "evidence": "Trivy DS-0002: Image user should not be root",
+      "impact": "A compromise of nginx runs with unnecessary container privileges.",
+      "remediation": "Use an unprivileged nginx image or configure port, pid, cache and temporary directories for a non-root USER; update Compose and health checks together."
+    },
+    {
+      "id": "SUPPLY-CHAIN-001",
+      "severity": "high",
+      "status": "open",
+      "location": ".github/workflows/*.yml",
+      "evidence": "26 Semgrep github-actions-mutable-action-tag findings",
+      "impact": "Mutable action tags can resolve to unreviewed code.",
+      "remediation": "Pin actions to audited full commit SHAs and automate reviewed updates."
+    },
+    {
+      "id": "DEV-DEPENDENCY-001",
+      "severity": "high",
+      "status": "mitigated",
+      "location": "requirements-dev.txt: ragas==0.2.15",
+      "evidence": "pip-audit PYSEC-2026-3046 and PYSEC-2026-3047",
+      "impact": "Untrusted multimodal contexts may trigger SSRF or local file reads.",
+      "remediation": "Keep Ragas out of production, use it only in an isolated offline evaluation environment, and upgrade or remove it when a complete upstream fix exists."
+    },
+    {
+      "id": "SQL-001",
+      "severity": "medium",
+      "status": "reviewed-accepted",
+      "location": "backend/rag and backend/services raw SQL call sites",
+      "evidence": "12 Semgrep ERROR candidates and 11 Bandit B608 candidates",
+      "impact": "Future changes could introduce injection if untrusted values reach SQL structure.",
+      "remediation": "Retain parameter binding and identifier allowlists; add focused tests whenever query composition changes."
+    },
+    {
+      "id": "CONTAINER-002",
+      "severity": "medium",
+      "status": "open",
+      "location": "Dockerfile, frontend-vue/Dockerfile, docker-compose.yml",
+      "evidence": "Base image tags are not pinned to digests; Compose lacks uniform runtime hardening controls.",
+      "impact": "Build inputs can drift and compromised processes retain more runtime capability than necessary.",
+      "remediation": "Pin reviewed image digests and add service-specific no-new-privileges, capability and read-only filesystem controls."
+    }
+  ],
+  "tools": {
+    "pip_audit": "production transitive graph: 0 vulnerabilities; development Ragas: 2 advisories",
+    "npm_audit": "0 vulnerabilities via registry.npmjs.org",
+    "bandit": "0 high, 31 medium, 5709 low",
+    "semgrep": "77 findings reviewed",
+    "gitleaks": "6 worktree and 20 history false positives, 0 confirmed secrets",
+    "trivy": "0 filesystem vulnerabilities, 0 secrets, 1 high misconfiguration",
+    "project_secret_scanner": "1312 files, 0 findings"
+  },
+  "verification": {
+    "backend_full": "4227 passed, 10 skipped",
+    "backend_upgraded_overlay": "4227 passed, 10 skipped, 1 warning",
+    "ssrf_and_access_control": "81 passed",
+    "frontend": "npm ci, typecheck and build passed",
+    "docker_compose_config": "passed"
+  },
+  "skipped_tools": [
+    {
+      "name": "docker image build and scan",
+      "reason": "Docker Desktop daemon was not running"
+    },
+    {
+      "name": "Trivy online misconfiguration checks bundle",
+      "reason": "mirror.gcr.io was unreachable; Trivy embedded checks were used"
+    },
+    {
+      "name": "production host audit",
+      "reason": "No production server was in the authorized scope"
+    }
+  ]
+}

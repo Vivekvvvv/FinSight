@@ -181,7 +181,7 @@ def _cache_key(session_id: str, tickers: list[str]) -> str:
     """生成晨报缓存键"""
     sorted_tickers = sorted(set(t.upper() for t in tickers))
     raw = f"{session_id}:{','.join(sorted_tickers)}"
-    digest = hashlib.md5(raw.encode()).hexdigest()[:12]
+    digest = hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()[:12]
     return f"morning_brief_{digest}"
 
 

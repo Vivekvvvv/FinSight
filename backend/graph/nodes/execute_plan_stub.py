@@ -121,7 +121,7 @@ def _build_rag_doc_id(*, thread_id: str, evidence: dict[str, Any], index: int) -
     url = str(evidence.get("url") or "").strip()
     snippet = str(evidence.get("snippet") or "").strip()
     material = f"{thread_id}|{index}|{title}|{url}|{snippet}".encode("utf-8")
-    return hashlib.sha1(material).hexdigest()[:24]
+    return hashlib.sha1(material, usedforsecurity=False).hexdigest()[:24]
 
 
 def _sanitize_collection_segment(value: str) -> str:
@@ -172,7 +172,7 @@ def _parse_datetime(value: Any) -> datetime | None:
 
 def _stable_id(prefix: str, *parts: Any, length: int = 24) -> str:
     material = "|".join(str(part or "") for part in parts).encode("utf-8")
-    return f"{prefix}_{hashlib.sha1(material).hexdigest()[:length]}"
+    return f"{prefix}_{hashlib.sha1(material, usedforsecurity=False).hexdigest()[:length]}"
 
 
 def _resolve_session_id(state: GraphState) -> str:

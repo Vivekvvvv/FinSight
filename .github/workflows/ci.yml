@@ -214,7 +214,7 @@ jobs:
       POSTGRES_DB: finsight_ci
       POSTGRES_USER: finsight_ci
       POSTGRES_PASSWORD: ci_postgres_password
-      OPENAI_COMPATIBLE_API_KEY: sk-ci-placeholder
+      OPENAI_COMPATIBLE_API_KEY: ci-placeholder-key
       OPENAI_COMPATIBLE_API_BASE: https://example.invalid/v1
       OPENAI_COMPATIBLE_MODEL: gpt-4o-mini
       JWT_SECRET: ci-jwt-secret

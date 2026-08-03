@@ -985,6 +985,55 @@ def test_dynamic_log_expressions_match_reviewed_safe_baseline():
     )
 
 
+def _contains_raw_exception_reference(node):
+    exception_names = {"e", "exc", "err", "error", "exception"}
+    if _is_exception_type_expression(node):
+        return False
+    if isinstance(node, ast.Name) and node.id.lower() in exception_names:
+        return True
+    return any(_contains_raw_exception_reference(child) for child in ast.iter_child_nodes(node))
+
+
+def test_test_harnesses_do_not_print_raw_exceptions_or_tracebacks():
+    violations = []
+
+    for root in (_ROOT / "backend" / "tests", _ROOT / "tests"):
+        for path in root.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ExceptHandler) and node.name:
+                    for descendant in ast.walk(node):
+                        if (
+                            isinstance(descendant, ast.Call)
+                            and isinstance(descendant.func, ast.Name)
+                            and descendant.func.id == "str"
+                            and len(descendant.args) == 1
+                            and isinstance(descendant.args[0], ast.Name)
+                            and descendant.args[0].id == node.name
+                        ):
+                            violations.append(
+                                f"{path.relative_to(_ROOT)}:{descendant.lineno}: raw exception serialization"
+                            )
+                if not isinstance(node, ast.Call):
+                    continue
+                rendered_call = ast.unparse(node.func)
+                if rendered_call in {
+                    "traceback.print_exc",
+                    "traceback.print_exception",
+                    "traceback.format_exc",
+                }:
+                    violations.append(f"{path.relative_to(_ROOT)}:{node.lineno}: {rendered_call}")
+                    continue
+                if (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id == "print"
+                    and any(_contains_raw_exception_reference(argument) for argument in node.args)
+                ):
+                    violations.append(f"{path.relative_to(_ROOT)}:{node.lineno}: raw exception print")
+
+    assert violations == []
+
+
 
 SECURITY_HARDENING_ROUNDS_1201_1300 = [
     ("R1201", "backend/agents/base_agent.py", "_llm_analyze failed", "type(exc).__name__"),

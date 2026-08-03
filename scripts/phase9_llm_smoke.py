@@ -1,5 +1,5 @@
 """Phase 9: LLM 最小调用 smoke"""
-import sys, io, urllib.request, json, time
+import sys, io, urllib.request, json, time, os
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -82,7 +82,9 @@ else:
 print()
 print("[via backend /api/chat]")
 BASE_API = "http://localhost:8766"
-API_AUTH = "phase9-test-key-abc123"
+API_AUTH = os.environ.get("API_AUTH_SMOKE_KEY", "")
+if not API_AUTH:
+    raise SystemExit("API_AUTH_SMOKE_KEY is required")
 UID = "api_292e6a1e82c561d4"
 SESSION = f"private:{UID}:default"
 

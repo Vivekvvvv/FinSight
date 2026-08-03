@@ -150,7 +150,7 @@ LANGGRAPH_CHECKPOINTER_ALLOW_MEMORY_FALLBACK=false
 
 # 如果使用 Postgres checkpointer：
 # LANGGRAPH_CHECKPOINTER_BACKEND=postgres
-# LANGGRAPH_CHECKPOINT_POSTGRES_DSN=postgresql://user:pass@host:5432/db
+# LANGGRAPH_CHECKPOINT_POSTGRES_DSN=postgresql://<user>:<password>@<host>:5432/<db>
 # LANGGRAPH_CHECKPOINT_POSTGRES_PIPELINE=false
 ```
 

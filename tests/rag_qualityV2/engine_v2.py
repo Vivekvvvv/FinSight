@@ -481,7 +481,7 @@ def evaluate_case_v2(
             top_k_evidence=top_k_evidence,
         )
     except Exception as exc:
-        metric_errors["embedding_retrieval"] = str(exc)
+        metric_errors["embedding_retrieval"] = type(exc).__name__
         evidence_map = {}
 
     counters = {

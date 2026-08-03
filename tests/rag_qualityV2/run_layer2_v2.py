@@ -220,10 +220,10 @@ def main() -> None:
                     question_type=question_type,
                     answer_len=0,
                     metrics={k: None for k in METRIC_KEYS_V2},
-                    error=str(exc),
+                    error=type(exc).__name__,
                 )
             )
-            print(f"  ✗ {exc}")
+            print(f"  ✗ {type(exc).__name__}")
 
         if (not args.mock) and args.intra_case_delay > 0 and idx < len(cases):
             time.sleep(args.intra_case_delay)

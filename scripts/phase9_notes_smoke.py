@@ -1,10 +1,12 @@
 """Phase 9: Notes 创建 + 图片上传 smoke (non-DEV_MODE)"""
-import sys, io, urllib.request, json, time
+import sys, io, urllib.request, json, time, os
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 BASE = "http://localhost:8766"
-API_KEY = "phase9-test-key-abc123"
+API_KEY = os.environ.get("API_AUTH_SMOKE_KEY", "")
+if not API_KEY:
+    raise SystemExit("API_AUTH_SMOKE_KEY is required")
 UID = "api_292e6a1e82c561d4"
 SESSION = f"private:{UID}:default"
 

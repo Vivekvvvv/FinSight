@@ -2,12 +2,16 @@
 # Python 3.11-slim + all ML deps (bge-m3, FlagEmbedding, torch)
 FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1
+
 # System deps: build-essential for C extensions, libpq for psycopg
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         libpq-dev \
         curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system finsight \
+    && useradd --system --gid finsight --home-dir /app --shell /usr/sbin/nologin finsight
 
 WORKDIR /app
 
@@ -24,12 +28,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create persistent data directories
-RUN mkdir -p data/langgraph data/memory backend/data logs
+RUN mkdir -p data/langgraph data/memory backend/data logs \
+    && chown -R finsight:finsight /app/data /app/backend/data /app/logs
 
 # Model cache stays in a named volume (mounted at runtime)
 ENV HF_HOME=/app/.cache/huggingface
 ENV TORCH_HOME=/app/.cache/torch
-RUN mkdir -p /app/.cache/huggingface /app/.cache/torch
+RUN mkdir -p /app/.cache/huggingface /app/.cache/torch \
+    && chown -R finsight:finsight /app/.cache
+
+USER finsight
 
 # Expose backend port
 EXPOSE 8000

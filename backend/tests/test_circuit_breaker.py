@@ -98,9 +98,7 @@ def run_all_tests():
             func()
             results[name] = True
         except Exception as exc:
-            print(f"[FAIL] {name} 失败: {exc}")
-            import traceback
-            traceback.print_exc()
+            print(f"[FAIL] {name} 失败: {type(exc).__name__}")
             results[name] = False
 
     print()

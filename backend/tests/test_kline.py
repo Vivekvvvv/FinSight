@@ -49,5 +49,4 @@ if __name__ == "__main__":
         test_get_kline_data()
         print("✅ K-line data test passed!")
     except Exception as exc:
-        print(f"❌ K-line data test failed! {exc}")
-
+        print(f"❌ K-line data test failed! {type(exc).__name__}")

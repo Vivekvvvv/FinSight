@@ -11,7 +11,7 @@
 | 项目 | 值 |
 |------|---|
 | 后端 | uvicorn `backend.api.main:app` 127.0.0.1:8766 |
-| 认证 | `DEV_MODE=false`，`API_AUTH_KEYS=phase9-test-key-abc123`（测试值） |
+| 认证 | `DEV_MODE=false`，`API_AUTH_KEYS=<API_AUTH_SMOKE_KEY>`（测试值） |
 | JWT_SECRET | 64字符随机测试值 |
 | LLM | OPENAI_COMPATIBLE_API_KEY 配置但无效（B3 未解除） |
 | 执行时间 | 2026-06-09 |

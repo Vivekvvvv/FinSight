@@ -10,7 +10,7 @@ param(
     [string]$PgHost = "127.0.0.1",
     [int]$PgPort = 5432,
     [string]$PostgresUser = "postgres",
-    [string]$PostgresPassword = "postgres",
+    [string]$PostgresPassword = "",
     [string]$PostgresDb = "postgres",
     [int]$WaitTimeoutSeconds = 120,
     [string]$PythonExe = "python",
@@ -22,6 +22,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($PostgresPassword)) {
+    $PostgresPassword = [guid]::NewGuid().ToString("N")
+}
 
 function Assert-CommandExists {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -114,4 +118,3 @@ finally {
         docker rm -f $ContainerName *> $null
     }
 }
-

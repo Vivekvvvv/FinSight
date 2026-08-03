@@ -347,7 +347,7 @@ class TaskGenerator:
         """Deterministic short hash for per-day task ID stability."""
         day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         material = f"{day}:{seed}"
-        return hashlib.md5(material.encode()).hexdigest()[:12]
+        return hashlib.md5(material.encode(), usedforsecurity=False).hexdigest()[:12]
 
     @staticmethod
     def _task_expiry_iso() -> str:

@@ -102,7 +102,7 @@ def _hash_embedding(text: str, dim: int = _HASH_DIM_DEFAULT) -> list[float]:
     if not tokens:
         return vec
     for token in tokens:
-        digest = hashlib.sha1(token.encode("utf-8")).digest()
+        digest = hashlib.sha1(token.encode("utf-8"), usedforsecurity=False).digest()
         idx = int.from_bytes(digest[:4], "big") % dim
         sign = 1.0 if digest[4] % 2 == 0 else -1.0
         vec[idx] += sign

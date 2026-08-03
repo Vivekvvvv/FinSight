@@ -20,6 +20,10 @@ env/
 
 # Tests & reports
 tmp/
+backend/tests/
+tests/
+docs/
+scripts/
 tests/rag_quality/reports/
 tests/rag_qualityV2/reports/
 tests/retrieval_eval/reports/

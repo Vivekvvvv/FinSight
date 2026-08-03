@@ -43,7 +43,7 @@ def run_api_tests():
         client = TestClient(app)
         results.append(("API 模块导入", True, ""))
     except Exception as e:
-        print(f"\n❌ API 模块导入失败: {e}")
+        print(f"\n❌ API 模块导入失败: {type(e).__name__}")
         return False
     
     # === 健康检查测试 ===
@@ -55,14 +55,14 @@ def run_api_tests():
         passed = response.status_code == 200 and response.json().get("status") == "healthy"
         results.append(("根路径健康检查", passed, f"状态码: {response.status_code}"))
     except Exception as e:
-        results.append(("根路径健康检查", False, str(e)))
+        results.append(("根路径健康检查", False, type(e).__name__))
     
     try:
         response = client.get("/health")
         passed = response.status_code == 200
         results.append(("/health 端点", passed, ""))
     except Exception as e:
-        results.append(("/health 端点", False, str(e)))
+        results.append(("/health 端点", False, type(e).__name__))
     
     # === 对话 API 测试 ===
     print("\n💬 对话 API 测试...")
@@ -81,7 +81,7 @@ def run_api_tests():
             f"意图: {data.get('intent')}"
         ))
     except Exception as e:
-        results.append(("POST /chat/supervisor 基本调用", False, str(e)))
+        results.append(("POST /chat/supervisor 基本调用", False, type(e).__name__))
     
     # 测试多轮对话
     if session_id:
@@ -98,7 +98,7 @@ def run_api_tests():
                 f"意图: {data.get('intent')}"
             ))
         except Exception as e:
-            results.append(("多轮对话", False, str(e)))
+            results.append(("多轮对话", False, type(e).__name__))
     
     # 测试意图识别
     intent_tests = [
@@ -114,7 +114,7 @@ def run_api_tests():
             passed = intent == expected_intent
             results.append((f"意图识别: {desc}", passed, f"意图: {intent}"))
         except Exception as e:
-            results.append((f"意图识别: {desc}", False, str(e)))
+            results.append((f"意图识别: {desc}", False, type(e).__name__))
     
     # === 分析 API 测试 ===
     print("\n📊 分析 API 测试...")
@@ -133,7 +133,7 @@ def run_api_tests():
             f"报告长度: {len(data.get('report', ''))}"
         ))
     except Exception as e:
-        results.append(("POST /analyze quick", False, str(e)))
+        results.append(("POST /analyze quick", False, type(e).__name__))
     
     try:
         response = client.post("/analyze", json={
@@ -143,7 +143,7 @@ def run_api_tests():
         passed = response.status_code == 200
         results.append(("POST /analyze standard", passed, ""))
     except Exception as e:
-        results.append(("POST /analyze standard", False, str(e)))
+        results.append(("POST /analyze standard", False, type(e).__name__))
     
     # === 会话管理测试 ===
     print("\n🔄 会话管理测试...")
@@ -160,21 +160,21 @@ def run_api_tests():
                 f"轮数: {data.get('turns')}"
             ))
         except Exception as e:
-            results.append(("GET /session/{id}", False, str(e)))
+            results.append(("GET /session/{id}", False, type(e).__name__))
         
         try:
             response = client.post(f"/session/{session_id}/reset")
             passed = response.status_code == 200
             results.append(("POST /session/{id}/reset", passed, ""))
         except Exception as e:
-            results.append(("POST /session/{id}/reset", False, str(e)))
+            results.append(("POST /session/{id}/reset", False, type(e).__name__))
         
         try:
             response = client.delete(f"/session/{session_id}")
             passed = response.status_code == 200
             results.append(("DELETE /session/{id}", passed, ""))
         except Exception as e:
-            results.append(("DELETE /session/{id}", False, str(e)))
+            results.append(("DELETE /session/{id}", False, type(e).__name__))
     
     # === 统计 API 测试 ===
     print("\n📈 统计 API 测试...")
@@ -190,7 +190,7 @@ def run_api_tests():
             f"总查询: {data.get('total_queries')}"
         ))
     except Exception as e:
-        results.append(("GET /stats", False, str(e)))
+        results.append(("GET /stats", False, type(e).__name__))
     
     # === 错误处理测试 ===
     print("\n⚠️ 错误处理测试...")
@@ -202,14 +202,14 @@ def run_api_tests():
         passed = response.status_code == 422
         results.append(("空查询验证", passed, f"状态码: {response.status_code}"))
     except Exception as e:
-        results.append(("空查询验证", False, str(e)))
+        results.append(("空查询验证", False, type(e).__name__))
     
     try:
         response = client.get("/session/nonexistent")
         passed = response.status_code == 404
         results.append(("不存在的会话", passed, f"状态码: {response.status_code}"))
     except Exception as e:
-        results.append(("不存在的会话", False, str(e)))
+        results.append(("不存在的会话", False, type(e).__name__))
     
     # === 汇总结果 ===
     print_header("API 测试结果汇总")
@@ -240,4 +240,3 @@ def run_api_tests():
 if __name__ == "__main__":
     success = run_api_tests()
     sys.exit(0 if success else 1)
-

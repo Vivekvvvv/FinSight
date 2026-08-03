@@ -43,7 +43,7 @@ POSTGRES_USER=finsight_smoke
 POSTGRES_PASSWORD=smoke_placeholder_pass
 JWT_SECRET=smoke_placeholder_jwt_secret_64chars_xxxxxxxxxxxxxxxxxxxxxxxxxx
 API_AUTH_KEYS=smoke_placeholder_api_key
-OPENAI_COMPATIBLE_API_KEY=sk-smoke-placeholder
+OPENAI_COMPATIBLE_API_KEY=<OPENAI_COMPATIBLE_API_KEY>
 OPENAI_COMPATIBLE_API_BASE=https://example.invalid/v1
 OPENAI_COMPATIBLE_MODEL=gpt-4o-mini
 ```

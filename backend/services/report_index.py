@@ -35,7 +35,7 @@ def _derive_source_id(item: dict[str, Any]) -> str:
     snippet = _clean_text(item.get("snippet"))
     published_date = _clean_text(item.get("published_date"))
     material = "|".join([url, title, snippet, published_date]) or json.dumps(item, ensure_ascii=False, sort_keys=True)
-    digest = hashlib.sha1(material.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1(material.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
     return f"src_{digest}"
 
 

@@ -1178,7 +1178,7 @@ queries 要求：
             title = str(item.get("title") or "").strip() or None
             source = str(item.get("source") or self._infer_source(url) or "web").strip() or "web"
             seed = url or f"{title or 'doc'}::{content[:120]}::{index}"
-            source_id = f"deepsearch:{hashlib.md5(seed.encode('utf-8')).hexdigest()}"
+            source_id = f"deepsearch:{hashlib.md5(seed.encode('utf-8'), usedforsecurity=False).hexdigest()}"
             metadata = {
                 "origin": "deep_search_agent",
                 "ticker": ticker,
@@ -1245,7 +1245,7 @@ queries 要求：
     def _build_rag_collection(self, *, query: str, ticker: str) -> str:
         normalized_ticker = (ticker or "unknown").strip().lower() or "unknown"
         seed = f"{normalized_ticker}::{query.strip()}"
-        digest = hashlib.md5(seed.encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.md5(seed.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
         return f"session:deepsearch:{normalized_ticker}:{digest}"
 
     def _extract_pdf_text(self, data: bytes) -> str:

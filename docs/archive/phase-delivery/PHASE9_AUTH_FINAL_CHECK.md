@@ -12,7 +12,7 @@
 |------|---|
 | 后端 | uvicorn `backend.api.main:app` localhost:8766 |
 | JWT_SECRET | 测试值（≥64字符随机字符串，非生产） |
-| API_AUTH_KEYS | `phase9-test-key-abc123`（测试值，非生产） |
+| API_AUTH_KEYS | `<API_AUTH_SMOKE_KEY>`（测试值，非生产） |
 | DEV_MODE | `false`（明确设置，覆盖 `.env` 中的 DEV_MODE=1） |
 
 ---

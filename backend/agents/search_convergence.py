@@ -123,7 +123,7 @@ class SearchConvergence:
     def _hash_content(self, content: str) -> str:
         """Generate hash for content"""
         normalized = self._normalize(content)
-        return hashlib.md5(normalized.encode()).hexdigest()
+        return hashlib.md5(normalized.encode(), usedforsecurity=False).hexdigest()
 
     def _normalize(self, text: str) -> str:
         """Normalize text for comparison"""

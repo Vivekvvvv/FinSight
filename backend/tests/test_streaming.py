@@ -69,7 +69,7 @@ async def test_stream_endpoint():
         print("[FAIL] Cannot connect to backend, please ensure it is running")
         return False
     except Exception as e:
-        print(f"[FAIL] Test failed: {e}")
+        print(f"[FAIL] Test failed: {type(e).__name__}")
         return False
 
 

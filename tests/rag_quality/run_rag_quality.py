@@ -434,7 +434,7 @@ def evaluate_cases(
                 scores[mk] = val
                 if err:
                     metric_errors[mk] = err
-                    print(f"\n    ⚠ {mk} 失败: {err}", end="")
+                    print(f"\n    ⚠ {mk} 失败", end="")
 
             result = CaseResult(
                 case_id=case_id,
@@ -455,9 +455,9 @@ def evaluate_cases(
                 doc_type=doc_type,
                 question=question,
                 question_type=question_type,
-                error=str(e),
+                error=type(e).__name__,
             )
-            print(f"✗ {e}")
+            print(f"✗ {type(e).__name__}")
 
         results.append(result)
 
