@@ -7,10 +7,17 @@ from pathlib import Path
 import sys
 
 
+def _strip_inline_comment(line: str) -> str:
+    for index, char in enumerate(line):
+        if char == "#" and index > 0 and line[index - 1].isspace():
+            return line[:index].rstrip()
+    return line
+
+
 def _requirements(path: Path) -> dict[str, str]:
     items: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
+        line = _strip_inline_comment(raw.strip())
         if not line or line.startswith("#") or line.startswith(("-r ", "--")):
             continue
         if "==" not in line:
