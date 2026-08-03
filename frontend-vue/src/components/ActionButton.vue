@@ -44,7 +44,11 @@ function handleClick(event: MouseEvent): void {
     :aria-label="ariaLabel || undefined"
     @click="handleClick"
   >
-    <span v-if="loading" class="spinner" aria-hidden="true" />
+    <span
+      v-if="loading"
+      class="spinner"
+      aria-hidden="true"
+    />
     <span class="label">
       <template v-if="loading">{{ loadingText }}</template>
       <slot v-else />

@@ -129,9 +129,19 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 
 <template>
   <div class="app-shell">
-    <aside class="side-rail" :class="{ open: sidebarOpen }">
-      <button class="brand-lockup" @click="router.push('/welcome')">
-        <img src="/logo.svg" alt="FinSight" class="brand-logo">
+    <aside
+      class="side-rail"
+      :class="{ open: sidebarOpen }"
+    >
+      <button
+        class="brand-lockup"
+        @click="router.push('/welcome')"
+      >
+        <img
+          src="/logo.svg"
+          alt="FinSight"
+          class="brand-logo"
+        >
         <span>
           <strong>FinSight</strong>
           <small>Research Terminal</small>
@@ -156,7 +166,9 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
       </nav>
 
       <div class="rail-card">
-        <p class="rail-kicker">PORTFOLIO</p>
+        <p class="rail-kicker">
+          PORTFOLIO
+        </p>
         <strong>{{ totalValue ? `$${totalValue.toLocaleString('zh-CN', { maximumFractionDigits: 0 })}` : '暂无持仓' }}</strong>
         <span :class="totalPnl >= 0 ? 'pos' : 'neg'">
           {{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toLocaleString('zh-CN', { maximumFractionDigits: 0 }) }}
@@ -168,12 +180,23 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 
     <div class="workspace">
       <header class="terminal-bar">
-        <button class="mobile-menu" type="button" @click="sidebarOpen = !sidebarOpen">菜单</button>
+        <button
+          class="mobile-menu"
+          type="button"
+          @click="sidebarOpen = !sidebarOpen"
+        >
+          菜单
+        </button>
         <div class="route-title">
-          <p class="terminal-kicker">FINSIGHT TERMINAL / {{ routeTitle }}</p>
+          <p class="terminal-kicker">
+            FINSIGHT TERMINAL / {{ routeTitle }}
+          </p>
           <h1>{{ routeTitle }}</h1>
         </div>
-        <div class="ticker-tape" aria-label="市场状态条">
+        <div
+          class="ticker-tape"
+          aria-label="市场状态条"
+        >
           <button
             v-for="item in marketStrip"
             :key="item.symbol"
@@ -196,27 +219,54 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
           <small>{{ sourceStatus.detail }}</small>
         </button>
         <ThemeToggle />
-        <button class="context-button" type="button" @click="contextOpen = true">上下文</button>
+        <button
+          class="context-button"
+          type="button"
+          @click="contextOpen = true"
+        >
+          上下文
+        </button>
       </header>
 
-      <main class="workspace-main" :style="pullStyle">
+      <main
+        class="workspace-main"
+        :style="pullStyle"
+      >
         <!-- 下拉刷新指示器 -->
-        <div v-if="isRefreshing" class="pull-indicator">↻ 刷新中...</div>
+        <div
+          v-if="isRefreshing"
+          class="pull-indicator"
+        >
+          ↻ 刷新中...
+        </div>
         <slot />
       </main>
     </div>
 
-    <aside v-if="contextOpen" class="context-drawer open" aria-label="研究上下文">
+    <aside
+      v-if="contextOpen"
+      class="context-drawer open"
+      aria-label="研究上下文"
+    >
       <div class="drawer-head">
         <div>
-          <p class="rail-kicker">CONTEXT</p>
+          <p class="rail-kicker">
+            CONTEXT
+          </p>
           <strong>研究上下文</strong>
         </div>
-        <button type="button" @click="contextOpen = false">关闭</button>
+        <button
+          type="button"
+          @click="contextOpen = false"
+        >
+          关闭
+        </button>
       </div>
 
       <section class="context-card">
-        <p class="rail-kicker">WATCHLIST</p>
+        <p class="rail-kicker">
+          WATCHLIST
+        </p>
         <button
           v-for="item in watchlist.slice(0, 6)"
           :key="item.ticker"
@@ -227,24 +277,38 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
           <strong>{{ item.ticker }}</strong>
           <span>{{ item.watch_reason || item.name || '研究关注' }}</span>
         </button>
-        <button v-if="watchlist.length === 0" class="empty-action" type="button" @click="router.push('/stocks')">
+        <button
+          v-if="watchlist.length === 0"
+          class="empty-action"
+          type="button"
+          @click="router.push('/stocks')"
+        >
           添加重点标的
         </button>
       </section>
 
       <section class="context-card">
-        <p class="rail-kicker">RESEARCH RULE</p>
+        <p class="rail-kicker">
+          RESEARCH RULE
+        </p>
         <strong>只输出研究动作建议</strong>
         <span class="muted">不提供买入、卖出或收益承诺。所有结论必须可复查。</span>
-        <span v-if="demoStatus?.demo_mode" class="muted demo-note">
+        <span
+          v-if="demoStatus?.demo_mode"
+          class="muted demo-note"
+        >
           当前为 Demo Mode：使用示例数据展示完整研究闭环。
         </span>
       </section>
 
       <section class="context-card data-source-card">
-        <p class="rail-kicker">DATA SOURCE</p>
+        <p class="rail-kicker">
+          DATA SOURCE
+        </p>
         <strong>数据源状态</strong>
-        <p class="muted">这里说明当前看到的是演示数据、真实数据，还是缺少配置。</p>
+        <p class="muted">
+          这里说明当前看到的是演示数据、真实数据，还是缺少配置。
+        </p>
         <StatusBanner
           v-if="contextError"
           variant="warning"
@@ -252,9 +316,20 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
           action-label="重试"
           @action="loadContext"
         />
-        <LoadingState v-if="contextLoading && !demoStatus" label="正在检测数据源状态..." compact />
-        <div v-else-if="sourceComponents.length" class="source-list">
-          <article v-for="item in sourceComponents" :key="item.key" class="source-row">
+        <LoadingState
+          v-if="contextLoading && !demoStatus"
+          label="正在检测数据源状态..."
+          compact
+        />
+        <div
+          v-else-if="sourceComponents.length"
+          class="source-list"
+        >
+          <article
+            v-for="item in sourceComponents"
+            :key="item.key"
+            class="source-row"
+          >
             <div>
               <strong>{{ item.label }}</strong>
               <span>{{ item.detail }}</span>
@@ -269,17 +344,31 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
           hint="状态接口返回后会在这里显示行情、AI、检索等来源。"
           compact
         />
-        <p v-if="missingServices.length" class="missing-list">
+        <p
+          v-if="missingServices.length"
+          class="missing-list"
+        >
           缺失配置：{{ missingServices.join(' / ') }}
         </p>
       </section>
     </aside>
 
-    <div v-if="sidebarOpen" class="mobile-mask" @click="closeSidebar" />
-    <div v-if="contextOpen" class="drawer-mask" @click="contextOpen = false" />
+    <div
+      v-if="sidebarOpen"
+      class="mobile-mask"
+      @click="closeSidebar"
+    />
+    <div
+      v-if="contextOpen"
+      class="drawer-mask"
+      @click="contextOpen = false"
+    />
 
     <!-- 移动端底部导航（<820px） -->
-    <nav class="mobile-bottom-nav" aria-label="移动端导航">
+    <nav
+      class="mobile-bottom-nav"
+      aria-label="移动端导航"
+    >
       <RouterLink
         v-for="item in mobileNavItems"
         :key="item.to"
