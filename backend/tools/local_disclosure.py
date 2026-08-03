@@ -190,7 +190,7 @@ def get_local_market_filings(ticker: str, limit: int = 8) -> dict[str, Any]:
         try:
             raw = search(query)
         except Exception as exc:
-            logger.info("[LocalDisclosure] Search failed for query_chars=%d: %s", len(query or ""), type(exc).__name__)
+            logger.info("[LocalDisclosure] Search failed: %s", type(exc).__name__)
             continue
 
         parsed = _parse_search_text(raw)

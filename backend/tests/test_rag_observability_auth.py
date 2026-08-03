@@ -77,6 +77,30 @@ def test_planner_diagnostics_allows_bearer_user_even_when_api_auth_enabled(monke
             assert response.json()['status'] == 'ok'
 
 
+def test_internal_health_requires_internal_api_key(monkeypatch):
+    main = _configure_auth(monkeypatch)
+    monkeypatch.setenv('DEV_MODE', 'true')
+    monkeypatch.setenv('API_AUTH_KEYS', 'internal-health-key')
+    monkeypatch.setattr(
+        main,
+        '_fetch_supabase_user_identity',
+        lambda token: {'user_id': f'user:{token}', 'email': 'reader@example.com', 'auth_type': 'supabase', 'role': 'reader'},
+    )
+
+    with TestClient(main.app) as client:
+        for path in ('/internal/health', '/admin/health'):
+            missing = client.get(path)
+            invalid = client.get(path, headers={'x-api-key': 'wrong-key'})
+            reader = client.get(path, headers={'Authorization': 'Bearer access-token-reader'})
+            internal = client.get(path, headers={'x-api-key': 'internal-health-key'})
+
+            assert missing.status_code == 403
+            assert invalid.status_code == 403
+            assert reader.status_code == 403
+            assert internal.status_code == 200
+            assert internal.json()['status'] in {'healthy', 'degraded'}
+
+
 def test_rag_diagnostics_read_allows_bearer_user_even_when_api_auth_enabled(monkeypatch):
     main = _configure_auth(monkeypatch)
     monkeypatch.setenv('API_AUTH_ENABLED', 'true')

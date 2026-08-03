@@ -1,4 +1,6 @@
 import ast
+import re
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -26,9 +28,9 @@ SECURITY_HARDENING_ROUNDS_701_800 = [
     ("R717", "backend/api/chart_detector.py", "查询已接收"),
     ("R718", "backend/tools/cn_hk_market.py", "eastmoney request failed"),
     ("R719", "backend/tools/cn_hk_market.py", "quote text request failed"),
-    ("R720", "backend/tools/earnings_transcripts.py", "Search failed for query_chars=%d: %s"),
-    ("R721", "backend/tools/local_disclosure.py", "Search failed for query_chars=%d: %s"),
-    ("R722", "backend/tools/news.py", "Search failed for query_chars=%d: %s"),
+    ("R720", "backend/tools/earnings_transcripts.py", "Search failed: %s"),
+    ("R721", "backend/tools/local_disclosure.py", "Search failed: %s"),
+    ("R722", "backend/tools/news.py", "Search failed: %s"),
     ("R723", "backend/tools/price.py", "Yahoo Finance request failed: %s"),
     ("R724", "backend/llm_config.py", "endpoint cooling down"),
     ("R725", "backend/api/market_router.py", "[API] price cache hit"),
@@ -823,6 +825,164 @@ def test_rounds_1401_through_1500_are_complete_unique_and_source_bound():
     assert len(actual) == len(set(actual)) == 100
     assert actual == expected
     assert len(bindings) == len(set(bindings)) == 100
+
+
+SECURITY_HARDENING_ROUNDS_1501_1507 = [
+    ("R1501", "backend/tools/earnings_transcripts.py", "[Transcript] Search failed: %s", "len(query or '')"),
+    ("R1502", "backend/tools/local_disclosure.py", "[LocalDisclosure] Search failed: %s", "len(query or '')"),
+    ("R1503", "backend/tools/news.py", "  → Search failed: %s", "len(query or '')"),
+    ("R1504", "backend/tools/search.py", "[Search] Exa 搜索成功", "len(query or '')"),
+    ("R1505", "backend/tools/search.py", "[Search] Tavily 搜索成功", "len(query or '')"),
+    ("R1506", "backend/tools/search.py", "[Search] 维基百科获取信息成功", "len(query or '')"),
+    ("R1507", "backend/tools/search.py", "[Search] DuckDuckGo 搜索成功", "len(query or '')"),
+]
+
+
+@pytest.mark.parametrize(
+    ("_round", "relative_path", "message", "forbidden_expression"),
+    SECURITY_HARDENING_ROUNDS_1501_1507,
+    ids=[item[0] for item in SECURITY_HARDENING_ROUNDS_1501_1507],
+)
+def test_round_1501_1507_removes_query_derived_log_expressions(
+    _round,
+    relative_path,
+    message,
+    forbidden_expression,
+):
+    calls = _matching_log_calls(relative_path, message)
+    assert calls, f"missing log call: {relative_path}: {message}"
+
+    for call in calls:
+        logged_expressions = {
+            ast.unparse(argument)
+            for argument in [*call.args[1:], *(keyword.value for keyword in call.keywords)]
+        }
+        assert forbidden_expression not in logged_expressions
+
+
+def test_rounds_1501_through_1507_are_complete_unique_and_source_bound():
+    actual = [item[0] for item in SECURITY_HARDENING_ROUNDS_1501_1507]
+    expected = [f"R{number}" for number in range(1501, 1508)]
+    bindings = [(item[1], item[2], item[3]) for item in SECURITY_HARDENING_ROUNDS_1501_1507]
+
+    assert len(actual) == len(set(actual)) == 7
+    assert actual == expected
+    assert len(bindings) == len(set(bindings)) == 7
+
+
+_SAFE_AGGREGATE_LOG_EXPRESSIONS = {
+    ("backend/orchestration/orchestrator.py", "len(validation.issues)"),
+    ("backend/tools/fmp.py", "len(segments)"),
+    ("backend/tools/fmp.py", "len(regions)"),
+    ("backend/tools/fmp.py", "len(sectors)"),
+    ("backend/tools/fmp.py", "len(holdings[:result_limit])"),
+    ("backend/tools/fmp.py", "len(constituents[:result_limit])"),
+    ("backend/tools/search.py", "len(sources_used)"),
+    ("backend/tools/tencent_provider.py", "len(parts)"),
+    ("backend/tools/web.py", "len(text)"),
+}
+_SAFE_PROVIDER_LOG_EXPRESSIONS = {
+    ("backend/tools/price.py", "source_func.__name__"),
+}
+
+
+def _dynamic_log_expressions():
+    for path in (_ROOT / "backend").rglob("*.py"):
+        if "tests" in path.parts:
+            continue
+        relative_path = path.relative_to(_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in {"debug", "info", "warning", "warn", "error", "exception", "critical"}:
+                continue
+            if not node.args or ast.unparse(node.func.value) != "logger":
+                continue
+
+            expressions = [*node.args[1:], *(keyword.value for keyword in node.keywords)]
+            if isinstance(node.args[0], ast.JoinedStr):
+                expressions.extend(
+                    value.value
+                    for value in node.args[0].values
+                    if isinstance(value, ast.FormattedValue)
+                )
+            for expression in expressions:
+                yield relative_path, node.lineno, expression
+
+
+def _is_exception_type_expression(expression):
+    return (
+        isinstance(expression, ast.Attribute)
+        and expression.attr == "__name__"
+        and isinstance(expression.value, ast.Call)
+        and isinstance(expression.value.func, ast.Name)
+        and expression.value.func.id == "type"
+        and len(expression.value.args) == 1
+        and isinstance(expression.value.args[0], ast.Name)
+        and not expression.value.keywords
+    )
+
+
+def _classify_dynamic_log_expression(relative_path, expression):
+    rendered = ast.unparse(expression)
+    if _is_exception_type_expression(expression):
+        return "exception_type"
+    if rendered in {"resp.status_code", "response.status_code"}:
+        return "http_status"
+    if (relative_path, rendered) in _SAFE_AGGREGATE_LOG_EXPRESSIONS:
+        return "aggregate_count"
+    if (relative_path, rendered) in _SAFE_PROVIDER_LOG_EXPRESSIONS:
+        return "provider_name"
+    return None
+
+
+def test_dynamic_log_expressions_do_not_reference_sensitive_input_names():
+    forbidden_name_parts = {
+        "query",
+        "prompt",
+        "message",
+        "user",
+        "email",
+        "url",
+        "path",
+        "payload",
+        "body",
+        "token",
+        "secret",
+        "ticker",
+        "symbol",
+    }
+    violations = []
+
+    for relative_path, lineno, expression in _dynamic_log_expressions():
+        names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", ast.unparse(expression).lower())
+        if any(part in name for name in names for part in forbidden_name_parts):
+            violations.append(f"{relative_path}:{lineno}: {ast.unparse(expression)}")
+
+    assert violations == []
+
+
+def test_dynamic_log_expressions_match_reviewed_safe_baseline():
+    classifications = Counter()
+    unclassified = []
+
+    for relative_path, lineno, expression in _dynamic_log_expressions():
+        classification = _classify_dynamic_log_expression(relative_path, expression)
+        if classification is None:
+            unclassified.append(f"{relative_path}:{lineno}: {ast.unparse(expression)}")
+        else:
+            classifications[classification] += 1
+
+    assert unclassified == []
+    assert classifications == Counter(
+        {
+            "exception_type": 159,
+            "http_status": 11,
+            "aggregate_count": 9,
+            "provider_name": 1,
+        }
+    )
 
 
 

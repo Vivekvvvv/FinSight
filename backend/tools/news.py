@@ -658,7 +658,7 @@ def _get_index_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
                 all_results.append(results)
             time.sleep(1)
         except Exception as e:
-            logger.info("  → Search failed for query_chars=%d: %s", len(query or ""), type(e).__name__)
+            logger.info("  → Search failed: %s", type(e).__name__)
             continue
     
     if not all_results:

@@ -19,7 +19,7 @@ def test_search_success_log_does_not_include_query(monkeypatch, caplog):
 
     assert "综合搜索结果" in result
     assert secret not in caplog.text
-    assert f"query_chars={len(secret)}" in caplog.text
+    assert "[Search] Exa 搜索成功" in caplog.text
 
 
 def test_search_exa_error_log_is_redacted(monkeypatch, caplog):

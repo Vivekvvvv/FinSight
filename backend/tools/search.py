@@ -94,7 +94,7 @@ def search(query: str) -> str:
         try:
             exa_result = _search_with_exa(query)
             if exa_result and len(exa_result) > 200:  # 确保结果足够长
-                logger.info("[Search] Exa 搜索成功: query_chars=%s", len(query or ""))
+                logger.info("[Search] Exa 搜索成功")
                 # 检查信息充足性 (简单启发式)
                 # 如果是深度查询，且 Exa 返回了丰富内容，直接返回
                 if len(exa_result) > 1000:
@@ -130,7 +130,7 @@ def search(query: str) -> str:
                     'content': tavily_result
                 })
                 sources_used.append('Tavily')
-                logger.info("[Search] Tavily 搜索成功: query_chars=%s", len(query or ""))
+                logger.info("[Search] Tavily 搜索成功")
 
                 # 如果已有两个高质量源，停止搜索
                 if len(sources_used) >= 2:
@@ -166,7 +166,7 @@ def search(query: str) -> str:
                     'content': wiki_result
                 })
                 sources_used.append('Wikipedia')
-                logger.info("[Search] 维基百科获取信息成功: query_chars=%s", len(query or ""))
+                logger.info("[Search] 维基百科获取信息成功")
         except Exception as e:
             logger.info("[Search] 维基百科搜索失败: %s", type(e).__name__)
 
@@ -181,7 +181,7 @@ def search(query: str) -> str:
                     'content': ddgs_result
                 })
                 sources_used.append('DuckDuckGo')
-                logger.info("[Search] DuckDuckGo 搜索成功: query_chars=%s", len(query or ""))
+                logger.info("[Search] DuckDuckGo 搜索成功")
         except Exception as e:
             logger.info("[Search] DuckDuckGo 搜索失败: %s", type(e).__name__)
 
