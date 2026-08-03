@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "audit_date": "2026-08-03",
-  "baseline": "41b0b86",
+  "baseline": "688fd54",
   "scope": [
     "python production and development dependencies",
     "node dependencies",
@@ -14,33 +14,33 @@
   "summary": {
     "critical": 0,
     "high_total": 3,
-    "high_open": 2,
+    "high_open": 0,
     "production_python_vulnerabilities": 0,
     "node_vulnerabilities": 0,
     "trivy_filesystem_vulnerabilities": 0,
     "confirmed_secrets": 0,
     "bandit_high": 0,
     "bandit_medium_reviewed": 31,
-    "semgrep_findings_reviewed": 77
+    "semgrep_findings_reviewed": 50
   },
   "findings": [
     {
       "id": "CONTAINER-001",
       "severity": "high",
-      "status": "open",
+      "status": "fixed",
       "location": "frontend-vue/Dockerfile: runner stage",
-      "evidence": "Trivy DS-0002: Image user should not be root",
+      "evidence": "Initial Trivy DS-0002 finding; final Trivy filesystem scan reports zero misconfigurations.",
       "impact": "A compromise of nginx runs with unnecessary container privileges.",
-      "remediation": "Use an unprivileged nginx image or configure port, pid, cache and temporary directories for a non-root USER; update Compose and health checks together."
+      "remediation": "Implemented USER nginx, container port 8080, writable nginx runtime directories, and synchronized Compose mappings and health checks."
     },
     {
       "id": "SUPPLY-CHAIN-001",
       "severity": "high",
-      "status": "open",
+      "status": "fixed",
       "location": ".github/workflows/*.yml",
-      "evidence": "26 Semgrep github-actions-mutable-action-tag findings",
+      "evidence": "Initial 26 Semgrep github-actions-mutable-action-tag findings; final scan reports zero.",
       "impact": "Mutable action tags can resolve to unreviewed code.",
-      "remediation": "Pin actions to audited full commit SHAs and automate reviewed updates."
+      "remediation": "Pinned all 26 action references to the current official tag commit SHAs and retained version comments."
     },
     {
       "id": "DEV-DEPENDENCY-001",
@@ -71,12 +71,12 @@
     }
   ],
   "tools": {
-    "pip_audit": "production transitive graph: 0 vulnerabilities; development Ragas: 2 advisories",
+    "pip_audit": "requirements.in resolves to 182 production/CI packages with 0 vulnerabilities; development Ragas: 2 advisories",
     "npm_audit": "0 vulnerabilities via registry.npmjs.org",
     "bandit": "0 high, 31 medium, 5709 low",
-    "semgrep": "77 findings reviewed",
+    "semgrep": "50 findings reviewed; mutable action tag findings: 0",
     "gitleaks": "6 worktree and 20 history false positives, 0 confirmed secrets",
-    "trivy": "0 filesystem vulnerabilities, 0 secrets, 1 high misconfiguration",
+    "trivy": "0 filesystem vulnerabilities, 0 secrets, 0 misconfigurations",
     "project_secret_scanner": "1312 files, 0 findings"
   },
   "verification": {

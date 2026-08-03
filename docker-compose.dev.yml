@@ -15,4 +15,4 @@ services:
 
   frontend:
     ports:
-      - "5174:80"
+      - "5174:8080"

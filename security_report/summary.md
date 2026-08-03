@@ -1,7 +1,7 @@
 # FinSight 安全审计摘要
 
 审计日期：2026-08-03
-审计基线：`41b0b86`（工作区包含本轮未提交修复）
+审计基线：`688fd54`（工作区包含前端非 root 的未提交修复）
 
 ## 结论
 
@@ -11,8 +11,9 @@
 
 - 生产 Python 完整传递依赖图：0 个已知漏洞。
 - 前端 npm 依赖：0 个已知漏洞。
-- Trivy 文件系统扫描：0 个依赖漏洞、0 个凭据发现、1 个 High 配置发现。
+- Trivy 文件系统扫描：0 个依赖漏洞、0 个凭据发现、0 个配置发现。
 - Bandit：0 个 High，31 个 Medium；Medium 均已人工复核为固定 SQL/URL、服务监听或 SSRF 防护字面量。
+- Semgrep：50 个候选已复核；GitHub Actions 可变标签告警已从 26 降至 0。
 - 密钥扫描器：扫描 1312 个文件，0 个发现。
 - Gitleaks：工作区 6 个、Git 历史 20 个候选，均为测试哨兵或文档占位符，未发现真实凭据。
 - SSRF 与访问控制相关回归：81 passed。
@@ -26,26 +27,15 @@
 - 升级生产 Python 依赖并移除未使用的 `litellm`、`chromadb`；将仅评测使用的 Ragas 移入开发依赖。
 - 更新前端 lockfile，消除 npm 审计发现的 8 个漏洞。
 - 将 `backend/requirements.txt` 收敛为引用根生产依赖清单，消除第二套旧锁定造成的 12 条 Trivy 公告。
+- 将 `requirements.in` 与已审计的根锁定清单同步，确保未来重新生成依赖时不会带回 Ragas、LiteLLM、ChromaDB 或旧漏洞版本。
 - 为非安全用途的 MD5/SHA1 调用显式设置 `usedforsecurity=False`，Bandit High 从 9 降至 0。
 - 后端生产镜像改用非 root 用户，并排除测试、文档和脚本进入构建上下文。
+- 前端 Nginx 改用非 root 用户和容器内 8080 端口；宿主端口保持不变，Trivy `DS-0002` 已关闭。
+- 26 个 GitHub Actions 引用全部固定到当前官方标签对应的完整 commit SHA，并保留版本注释。
 - 删除测试和评测脚本中的异常原文输出与 `traceback.print_exc()`，新增 AST 回归门禁。
 - 将 smoke 脚本、CI 和文档中的假凭据改为环境变量或明确占位符。
 
 ## 未关闭风险
-
-### High：前端容器仍以 root 运行
-
-- 证据：`frontend-vue/Dockerfile` 的 runner 阶段没有 `USER`；Trivy `DS-0002`。
-- 影响：Nginx 或其配置被利用时，容器内权限高于必要范围。
-- 建议：切换到 `nginxinc/nginx-unprivileged`，监听 8080，并同步 Compose 端口和健康检查；或完整配置非 root Nginx 的 pid/cache/temp 目录权限。
-- 状态：未改。该修复会改变端口与部署契约，需单独验证。
-
-### High：GitHub Actions 使用可变版本标签
-
-- 证据：`.github/workflows/*.yml` 共 26 个 `uses: ...@vN`，Semgrep `github-actions-mutable-action-tag`。
-- 影响：上游标签被重指向或供应链被接管时，CI 可执行非预期代码。
-- 建议：将所有第三方 Action 固定到审核过的完整 commit SHA，并由 Dependabot/Renovate 提交升级。
-- 状态：未改。需要先确定仓库的 Action 更新策略。
 
 ### High：开发依赖 Ragas 保留 2 条公告
 

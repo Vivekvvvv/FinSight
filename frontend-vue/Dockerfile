@@ -22,7 +22,15 @@ FROM nginx:alpine AS runner
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+RUN chown -R nginx:nginx \
+      /usr/share/nginx/html \
+      /var/cache/nginx \
+      /var/run \
+      /etc/nginx/conf.d
+
+USER nginx
+
+EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/ || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/ || exit 1

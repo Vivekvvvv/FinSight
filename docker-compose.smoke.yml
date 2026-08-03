@@ -16,7 +16,7 @@ services:
   frontend:
     container_name: finsight-smoke-frontend
     ports: !override
-      - "18080:80"
+      - "18080:8080"
 
 volumes:
   postgres_data:
