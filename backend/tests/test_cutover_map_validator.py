@@ -171,6 +171,9 @@ def test_validator_rejects_default_host_port_exposure(tmp_path):
     assert any("must not expose Vue dev port" in item for item in errors)
     assert any("docker-compose.dev.yml must expose backend 8000" in item for item in errors)
     assert any("docker-compose.dev.yml must expose Vue frontend" in item for item in errors)
+    assert any("postgres runtime hardening missing" in item for item in errors)
+    assert any("backend runtime hardening missing" in item for item in errors)
+    assert any("frontend runtime hardening missing" in item for item in errors)
 
 
 def test_validator_rejects_unsafe_smoke_compose(tmp_path):

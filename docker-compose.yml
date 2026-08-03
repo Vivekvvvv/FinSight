@@ -19,9 +19,18 @@ services:
 
   # ── PostgreSQL + pgvector ───────────────────────────────────────────────────
   postgres:
-    image: pgvector/pgvector:pg16
+    build:
+      context: .
+      dockerfile: docker/postgres.Dockerfile
+    image: finsight-postgres:pg16-vector082
     container_name: finsight-postgres
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=16m,uid=999,gid=999,mode=3775
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
     environment:
       POSTGRES_DB:       ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_USER:     ${POSTGRES_USER:?POSTGRES_USER is required}
@@ -45,6 +54,14 @@ services:
       dockerfile: Dockerfile
     container_name: finsight-backend
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,uid=999,gid=999,mode=1777
+      - /app/backend/data:rw,noexec,nosuid,nodev,size=64m,uid=999,gid=999,mode=0750
     env_file:
       - path: .env.server    # real secrets on the server (NOT committed)
         required: false
@@ -86,7 +103,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=4)"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -104,6 +121,15 @@ services:
         VITE_API_BASE_URL: ${VITE_VUE_API_BASE_URL:-}
     container_name: finsight-frontend
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=64m,uid=101,gid=101,mode=0755
+      - /run:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101,mode=0755
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,uid=101,gid=101,mode=1777
     ports:
       - "80:8080"
     healthcheck:

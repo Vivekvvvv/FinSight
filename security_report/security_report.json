@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "audit_date": "2026-08-03",
-  "baseline": "412906e plus uncommitted container hardening",
+  "baseline": "91281dd plus uncommitted Compose runtime hardening",
   "scope": [
     "python production and development dependencies",
     "node dependencies",
@@ -13,9 +13,9 @@
     "frontend and backend image build, runtime probes, and Trivy image scanning"
   ],
   "summary": {
-    "critical": 4,
-    "high_total": 22,
-    "high_open": 20,
+    "critical": 23,
+    "high_total": 53,
+    "high_open": 51,
     "production_python_vulnerabilities": 0,
     "node_vulnerabilities": 0,
     "trivy_filesystem_vulnerabilities": 0,
@@ -24,6 +24,9 @@
     "backend_image_critical": 4,
     "backend_image_high": 19,
     "backend_image_fixable_critical_high": 0,
+    "postgres_image_critical": 19,
+    "postgres_image_high": 31,
+    "postgres_image_fixable_critical_high": 0,
     "confirmed_secrets": 0,
     "bandit_high": 0,
     "bandit_medium_reviewed": 31,
@@ -87,11 +90,20 @@
     {
       "id": "CONTAINER-004",
       "severity": "medium",
-      "status": "open",
+      "status": "fixed",
       "location": "docker-compose.yml runtime service controls",
-      "evidence": "Compose does not uniformly set no-new-privileges, capability drops or read-only root filesystems.",
+      "evidence": "All services use read-only root filesystems and no-new-privileges; backend and frontend also drop ALL capabilities. Isolated Postgres, backend, frontend and full-chain probes passed, and final Trivy filesystem configuration scanning reported zero misconfigurations.",
       "impact": "A compromised process retains more runtime capability than necessary.",
-      "remediation": "Design service-specific controls after enumerating required writable paths for Postgres, backend and Nginx."
+      "remediation": "Implemented service-specific tmpfs and persistent-volume write paths, least-privilege controls, and a static regression gate."
+    },
+    {
+      "id": "CONTAINER-005",
+      "severity": "critical",
+      "status": "blocked-upstream",
+      "location": "docker/postgres.Dockerfile pinned pgvector pg16 base image",
+      "evidence": "The cached base scan reported 24 Critical and 67 High findings, including 5 Critical and 36 High with fixes. The hardened derivative upgrades all available packages, removes gosu, and reports 19 Critical and 31 High with no FixedVersion entries.",
+      "impact": "Affected Debian utilities and libraries retain potential memory-corruption, traversal and denial-of-service paths if their vulnerable functionality becomes attacker-reachable.",
+      "remediation": "Recheck the upstream pgvector pg16 image when Docker Hub connectivity returns, update the pinned digest only after a lower-risk scan and pgvector regression, and retain non-root/read-only runtime controls."
     }
   ],
   "tools": {
@@ -100,7 +112,7 @@
     "bandit": "0 high, 31 medium, 5709 low",
     "semgrep": "50 findings reviewed; mutable action tag findings: 0",
     "gitleaks": "6 worktree and 20 history false positives, 0 confirmed secrets",
-    "trivy": "filesystem: 0 vulnerabilities, 0 secrets, 0 misconfigurations; frontend image: 0 vulnerabilities, 0 secrets, 0 misconfigurations; backend hardened image: 4 Critical and 19 High OS findings with no FixedVersion, 0 Python package vulnerabilities, 0 secrets, 0 misconfigurations",
+    "trivy": "filesystem: 0 vulnerabilities, 0 secrets, 0 misconfigurations; frontend image: 0 vulnerabilities, 0 secrets, 0 misconfigurations; backend hardened image: 4 Critical and 19 High OS findings with no FixedVersion, 0 Python package vulnerabilities; PostgreSQL hardened image: 19 Critical and 31 High OS findings with no FixedVersion; all scanned images: 0 secrets and 0 misconfigurations",
     "project_secret_scanner": "1328 files, 0 findings"
   },
   "verification": {
@@ -110,7 +122,9 @@
     "frontend": "npm ci, typecheck and build passed",
     "docker_compose_config": "passed",
     "frontend_container": "digest-pinned build passed; nginx uid 101; healthy; HTTP 200",
-    "backend_container": "digest-pinned multi-stage build passed; uid 999; core imports passed; healthy; HTTP 200; /app/data write passed"
+    "backend_container": "digest-pinned multi-stage build passed; uid 999; core imports passed; healthy; HTTP 200; /app/data write passed",
+    "compose_runtime_hardening": "Postgres initialization and write passed; backend and frontend read-only/no-new-privileges probes passed; cap-drop ALL passed for backend/frontend; full-chain proxied /health returned HTTP 200",
+    "postgres_container": "Pinned pgvector base derivative built; PostgreSQL 16.14; pgvector 0.8.2; uid 999; gosu absent; extension create, vector insert and distance query passed"
   },
   "skipped_tools": [
     {

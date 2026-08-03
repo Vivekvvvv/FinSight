@@ -29,6 +29,24 @@ def _read(repo_root: Path, relative: str) -> str:
     return (repo_root / relative).read_text(encoding="utf-8")
 
 
+def _service_block(compose: str, service: str) -> str:
+    """Extract one top-level Compose service block without requiring a YAML dependency."""
+    lines = compose.splitlines()
+    marker = f"  {service}:"
+    try:
+        start = lines.index(marker)
+    except ValueError:
+        return ""
+
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line.startswith("  ") and not line.startswith("    ") and line.strip().endswith(":"):
+            end = index
+            break
+    return "\n".join(lines[start:end])
+
+
 def validate_python_vue_stack(repo_root: Path) -> list[str]:
     """返回默认 Python + Vue 链路的静态校验错误列表。"""
     errors: list[str] = []
@@ -95,6 +113,42 @@ def validate_python_vue_stack(repo_root: Path) -> list[str]:
         errors.append(".github/workflows/ci.yml artifacts and working directories must use frontend-vue")
     if "frontend-vue/package-lock.json" not in ci_workflow:
         errors.append(".github/workflows/ci.yml must cache frontend-vue dependencies")
+
+    hardening_requirements = {
+        "postgres": (
+            "dockerfile: docker/postgres.Dockerfile",
+            "security_opt:",
+            "no-new-privileges:true",
+            "read_only: true",
+            "/var/run/postgresql:",
+            "/tmp:",
+        ),
+        "backend": (
+            "security_opt:",
+            "no-new-privileges:true",
+            "cap_drop:",
+            "- ALL",
+            "read_only: true",
+            "/tmp:",
+            "/app/backend/data:",
+            'test: ["CMD", "python", "-c"',
+        ),
+        "frontend": (
+            "security_opt:",
+            "no-new-privileges:true",
+            "cap_drop:",
+            "- ALL",
+            "read_only: true",
+            "/var/cache/nginx:",
+            "/run:",
+            "/tmp:",
+        ),
+    }
+    for service, required_tokens in hardening_requirements.items():
+        block = _service_block(compose, service)
+        for token in required_tokens:
+            if token not in block:
+                errors.append(f"docker-compose.yml {service} runtime hardening missing: {token}")
 
     for route in sorted(REQUIRED_VUE_ROUTES):
         if f"path: '{route}'" not in router:
