@@ -9,8 +9,16 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <div class="finsight-loading-state" :class="{ compact }" role="status" aria-live="polite">
-    <span class="loader" aria-hidden="true" />
+  <div
+    class="finsight-loading-state"
+    :class="{ compact }"
+    role="status"
+    aria-live="polite"
+  >
+    <span
+      class="loader"
+      aria-hidden="true"
+    />
     <span>{{ label }}</span>
   </div>
 </template>

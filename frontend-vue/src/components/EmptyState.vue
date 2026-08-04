@@ -21,16 +21,43 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <section class="finsight-empty-state" :class="{ compact }">
-    <div class="empty-mark" aria-hidden="true">{{ icon || '—' }}</div>
+  <section
+    class="finsight-empty-state"
+    :class="{ compact }"
+  >
+    <div
+      class="empty-mark"
+      aria-hidden="true"
+    >
+      {{ icon || '—' }}
+    </div>
     <div class="empty-copy">
       <strong>{{ title }}</strong>
-      <p v-if="hint">{{ hint }}</p>
+      <p v-if="hint">
+        {{ hint }}
+      </p>
       <slot />
     </div>
-    <div v-if="actionLabel || secondaryActionLabel" class="empty-actions">
-      <button v-if="actionLabel" type="button" class="primary" @click="emit('action')">{{ actionLabel }}</button>
-      <button v-if="secondaryActionLabel" type="button" class="secondary" @click="emit('secondaryAction')">{{ secondaryActionLabel }}</button>
+    <div
+      v-if="actionLabel || secondaryActionLabel"
+      class="empty-actions"
+    >
+      <button
+        v-if="actionLabel"
+        type="button"
+        class="primary"
+        @click="emit('action')"
+      >
+        {{ actionLabel }}
+      </button>
+      <button
+        v-if="secondaryActionLabel"
+        type="button"
+        class="secondary"
+        @click="emit('secondaryAction')"
+      >
+        {{ secondaryActionLabel }}
+      </button>
     </div>
   </section>
 </template>

@@ -137,8 +137,16 @@ const chartOption = computed<EChartsOption>(() => {
 
 <template>
   <div class="risk-trend-chart">
-    <VChart v-if="snapshots.length > 0" :option="chartOption" autoresize style="height: 220px" />
-    <div v-else class="risk-trend-empty">
+    <VChart
+      v-if="snapshots.length > 0"
+      :option="chartOption"
+      autoresize
+      style="height: 220px"
+    />
+    <div
+      v-else
+      class="risk-trend-empty"
+    >
       暂无历史数据
     </div>
   </div>

@@ -101,7 +101,11 @@ function fmtTime(value?: string | null): string {
 </script>
 
 <template>
-  <section class="trace-panel" :class="{ compact }" data-testid="execution-trace-panel">
+  <section
+    class="trace-panel"
+    :class="{ compact }"
+    data-testid="execution-trace-panel"
+  >
     <header class="trace-head">
       <div>
         <p>AGENT TRACE</p>
@@ -109,20 +113,42 @@ function fmtTime(value?: string | null): string {
       </div>
       <div class="trace-stats">
         <span>{{ summary.done }}/{{ summary.total }} 完成</span>
-        <span v-if="running" class="pulse">运行中</span>
-        <span v-if="summary.errors" class="danger">{{ summary.errors }} 异常</span>
+        <span
+          v-if="running"
+          class="pulse"
+        >运行中</span>
+        <span
+          v-if="summary.errors"
+          class="danger"
+        >{{ summary.errors }} 异常</span>
       </div>
     </header>
 
-    <div v-if="normalized.length === 0" class="trace-empty">
+    <div
+      v-if="normalized.length === 0"
+      class="trace-empty"
+    >
       提交问题后，这里会展示规划、检索、分析和生成过程。
     </div>
 
-    <div v-else class="phase-stack">
-      <article v-for="phase in phases" :key="phase.name" class="phase-card">
-        <div class="phase-name">{{ phase.name }}</div>
+    <div
+      v-else
+      class="phase-stack"
+    >
+      <article
+        v-for="phase in phases"
+        :key="phase.name"
+        class="phase-card"
+      >
+        <div class="phase-name">
+          {{ phase.name }}
+        </div>
         <ol>
-          <li v-for="event in phase.items" :key="event.id" :class="`s-${event.status}`">
+          <li
+            v-for="event in phase.items"
+            :key="event.id"
+            :class="`s-${event.status}`"
+          >
             <span class="dot" />
             <div>
               <strong>{{ event.title }}</strong>

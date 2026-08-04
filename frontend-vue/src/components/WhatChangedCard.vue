@@ -80,34 +80,75 @@ function handleClick() {
 </script>
 
 <template>
-  <div class="what-changed-card" data-testid="what-changed-card" @click="handleClick">
+  <div
+    class="what-changed-card"
+    data-testid="what-changed-card"
+    @click="handleClick"
+  >
     <div class="card-header">
-      <div class="type-badge" :style="{ borderColor: severityColor }">
+      <div
+        class="type-badge"
+        :style="{ borderColor: severityColor }"
+      >
         <span class="icon">{{ changeTypeIcon }}</span>
         <span class="label">{{ changeTypeName }}</span>
       </div>
-      <div class="severity-badge" data-testid="severity-badge" :style="{ backgroundColor: severityColor }">
+      <div
+        class="severity-badge"
+        data-testid="severity-badge"
+        :style="{ backgroundColor: severityColor }"
+      >
         {{ severityName }}
       </div>
     </div>
 
-    <h3 class="title" data-testid="change-title">{{ item.title }}</h3>
+    <h3
+      class="title"
+      data-testid="change-title"
+    >
+      {{ item.title }}
+    </h3>
 
-    <div v-if="item.symbol" class="symbol-tag">{{ item.symbol }}</div>
+    <div
+      v-if="item.symbol"
+      class="symbol-tag"
+    >
+      {{ item.symbol }}
+    </div>
 
-    <div v-if="item.before !== undefined && item.after !== undefined" class="change-values">
+    <div
+      v-if="item.before !== undefined && item.after !== undefined"
+      class="change-values"
+    >
       <span class="before">{{ item.before }}</span>
       <span class="arrow">→</span>
       <span class="after">{{ item.after }}</span>
-      <span v-if="item.delta" class="delta">{{ item.delta }}</span>
+      <span
+        v-if="item.delta"
+        class="delta"
+      >{{ item.delta }}</span>
     </div>
 
-    <p class="reason">{{ item.reason }}</p>
+    <p class="reason">
+      {{ item.reason }}
+    </p>
 
-    <div v-if="item.evidence" class="evidence-tags">
-      <span v-if="item.evidence.quality_state" class="tag quality">{{ item.evidence.quality_state }}</span>
-      <span v-if="item.evidence.freshness_status" class="tag freshness">{{ item.evidence.freshness_status }}</span>
-      <span v-if="item.evidence.citation_quality" class="tag citation">引用: {{ item.evidence.citation_quality }}</span>
+    <div
+      v-if="item.evidence"
+      class="evidence-tags"
+    >
+      <span
+        v-if="item.evidence.quality_state"
+        class="tag quality"
+      >{{ item.evidence.quality_state }}</span>
+      <span
+        v-if="item.evidence.freshness_status"
+        class="tag freshness"
+      >{{ item.evidence.freshness_status }}</span>
+      <span
+        v-if="item.evidence.citation_quality"
+        class="tag citation"
+      >引用: {{ item.evidence.citation_quality }}</span>
     </div>
 
     <div class="footer">

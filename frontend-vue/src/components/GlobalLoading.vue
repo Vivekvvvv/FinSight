@@ -1,9 +1,14 @@
 <template>
   <Transition name="fade">
-    <div v-if="isLoading" class="global-loading-overlay">
+    <div
+      v-if="isLoading"
+      class="global-loading-overlay"
+    >
       <div class="loading-spinner">
-        <div class="spinner"></div>
-        <p class="loading-text">{{ message }}</p>
+        <div class="spinner" />
+        <p class="loading-text">
+          {{ message }}
+        </p>
       </div>
     </div>
   </Transition>

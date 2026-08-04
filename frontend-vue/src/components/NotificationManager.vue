@@ -140,12 +140,18 @@ onUnmounted(() => {
     </button>
 
     <!-- 已授权提示 -->
-    <div v-if="notificationEnabled" class="notification-enabled">
+    <div
+      v-if="notificationEnabled"
+      class="notification-enabled"
+    >
       ✅ 桌面通知已启用
     </div>
 
     <!-- 已拒绝提示 -->
-    <div v-if="notificationPermission === 'denied'" class="notification-denied">
+    <div
+      v-if="notificationPermission === 'denied'"
+      class="notification-denied"
+    >
       ❌ 桌面通知已被拒绝，请在浏览器设置中允许
     </div>
   </div>

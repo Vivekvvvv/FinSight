@@ -22,17 +22,35 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="finsight-status-banner" :class="`is-${variant}`" role="status">
-    <span class="status-dot" aria-hidden="true" />
+  <div
+    class="finsight-status-banner"
+    :class="`is-${variant}`"
+    role="status"
+  >
+    <span
+      class="status-dot"
+      aria-hidden="true"
+    />
     <div class="status-copy">
       <strong v-if="title">{{ title }}</strong>
       <span v-if="message">{{ message }}</span>
       <slot />
     </div>
-    <button v-if="actionLabel" class="status-action" type="button" @click="emit('action')">
+    <button
+      v-if="actionLabel"
+      class="status-action"
+      type="button"
+      @click="emit('action')"
+    >
       {{ actionLabel }}
     </button>
-    <button v-if="dismissible" class="status-close" type="button" aria-label="关闭提示" @click="emit('dismiss')">
+    <button
+      v-if="dismissible"
+      class="status-close"
+      type="button"
+      aria-label="关闭提示"
+      @click="emit('dismiss')"
+    >
       ×
     </button>
   </div>

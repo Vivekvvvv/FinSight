@@ -137,20 +137,31 @@ function getQualityBadgeLabel(badge: string): string {
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="loading" class="loading-state">
-      <div class="spinner"></div>
+    <div
+      v-if="loading"
+      class="loading-state"
+    >
+      <div class="spinner" />
       <p>加载时间线中...</p>
     </div>
 
     <!-- 空态 -->
-    <div v-else-if="filteredEvents.length === 0" class="empty-state">
-      <div class="empty-icon">📅</div>
+    <div
+      v-else-if="filteredEvents.length === 0"
+      class="empty-state"
+    >
+      <div class="empty-icon">
+        📅
+      </div>
       <h3>暂无事件记录</h3>
       <p>该标的还没有研究活动。开始生成报告或记录笔记，事件将自动出现在时间线中。</p>
     </div>
 
     <!-- 时间线列表 -->
-    <div v-else class="timeline-list">
+    <div
+      v-else
+      class="timeline-list"
+    >
       <div
         v-for="event in filteredEvents"
         :key="event.id"
@@ -163,8 +174,8 @@ function getQualityBadgeLabel(badge: string): string {
           <div
             class="timeline-dot"
             :style="{ backgroundColor: getSeverityColor(event.severity) }"
-          ></div>
-          <div class="timeline-line"></div>
+          />
+          <div class="timeline-line" />
         </div>
 
         <!-- 右侧事件卡片 -->
@@ -178,12 +189,25 @@ function getQualityBadgeLabel(badge: string): string {
             <span class="event-time">{{ formatDate(event.occurred_at) }}</span>
           </div>
 
-          <h4 class="event-title" data-testid="event-title">{{ event.title }}</h4>
+          <h4
+            class="event-title"
+            data-testid="event-title"
+          >
+            {{ event.title }}
+          </h4>
 
-          <p v-if="event.summary" class="event-summary">{{ event.summary }}</p>
+          <p
+            v-if="event.summary"
+            class="event-summary"
+          >
+            {{ event.summary }}
+          </p>
 
           <!-- 质量标识 -->
-          <div v-if="getQualityBadge(event)" class="quality-badges">
+          <div
+            v-if="getQualityBadge(event)"
+            class="quality-badges"
+          >
             <span
               class="quality-badge"
               :class="getQualityBadge(event)"
@@ -193,11 +217,20 @@ function getQualityBadgeLabel(badge: string): string {
           </div>
 
           <!-- 证据指标 -->
-          <div v-if="event.evidence" class="evidence-info">
-            <span v-if="event.evidence.confidence != null" class="evidence-item">
+          <div
+            v-if="event.evidence"
+            class="evidence-info"
+          >
+            <span
+              v-if="event.evidence.confidence != null"
+              class="evidence-item"
+            >
               置信度：{{ (event.evidence.confidence * 100).toFixed(0) }}%
             </span>
-            <span v-if="event.evidence.citation_count" class="evidence-item">
+            <span
+              v-if="event.evidence.citation_count"
+              class="evidence-item"
+            >
               引用：{{ event.evidence.citation_count }} 条
             </span>
           </div>

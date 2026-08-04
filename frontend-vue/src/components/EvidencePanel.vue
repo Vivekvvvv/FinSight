@@ -71,53 +71,98 @@ const citationText = props.citationCount != null ? `${props.citationCount} 条�
 </script>
 
 <template>
-  <div class="evidence" :class="{ compact, 'has-warnings': warnings.length > 0 }">
+  <div
+    class="evidence"
+    :class="{ compact, 'has-warnings': warnings.length > 0 }"
+  >
     <div class="ev-row">
-      <span class="ev-badge" :class="freshness.tone">
-        <span class="ev-dot" :class="{ pulse: freshness.pulse }" />
+      <span
+        class="ev-badge"
+        :class="freshness.tone"
+      >
+        <span
+          class="ev-dot"
+          :class="{ pulse: freshness.pulse }"
+        />
         {{ freshness.label }}
       </span>
 
-      <span v-if="source" class="ev-item">
+      <span
+        v-if="source"
+        class="ev-item"
+      >
         <span class="ev-label">来源</span>
         <span class="ev-val">{{ source }}</span>
       </span>
 
-      <span v-if="asOf" class="ev-item">
+      <span
+        v-if="asOf"
+        class="ev-item"
+      >
         <span class="ev-label">时间</span>
         <span class="ev-val">{{ fmtTime(asOf) }}</span>
       </span>
 
-      <span v-if="fallbackLevel != null" class="ev-item">
+      <span
+        v-if="fallbackLevel != null"
+        class="ev-item"
+      >
         <span class="ev-label">降级</span>
         <span class="ev-val">L{{ fallbackLevel }}</span>
       </span>
 
-      <span v-if="confidencePct != null" class="ev-item">
+      <span
+        v-if="confidencePct != null"
+        class="ev-item"
+      >
         <span class="ev-label">置信度</span>
-        <span class="ev-val conf" :class="confClass">{{ confidencePct }}%</span>
+        <span
+          class="ev-val conf"
+          :class="confClass"
+        >{{ confidencePct }}%</span>
       </span>
 
-      <span v-if="citationText" class="ev-item">
+      <span
+        v-if="citationText"
+        class="ev-item"
+      >
         <span class="ev-val">{{ citationText }}</span>
       </span>
 
-      <span v-if="modelGenerated === true" class="ev-item ev-subtle">
+      <span
+        v-if="modelGenerated === true"
+        class="ev-item ev-subtle"
+      >
         <span class="ev-val">AI 生成</span>
       </span>
 
-      <span v-if="qualityState === 'pass'" class="ev-item ev-pass">
+      <span
+        v-if="qualityState === 'pass'"
+        class="ev-item ev-pass"
+      >
         <span class="ev-val">质检通过</span>
       </span>
     </div>
 
-    <div v-if="!compact && warnings.length > 0" class="ev-warnings">
-      <div v-for="(warning, index) in warnings" :key="index" class="ev-warning" :class="`level-${warning.level}`">
+    <div
+      v-if="!compact && warnings.length > 0"
+      class="ev-warnings"
+    >
+      <div
+        v-for="(warning, index) in warnings"
+        :key="index"
+        class="ev-warning"
+        :class="`level-${warning.level}`"
+      >
         {{ warning.text }}
       </div>
     </div>
 
-    <span v-if="compact && warnings.length > 0" class="ev-compact-warn" :class="`cw-${warnings[0].level}`">
+    <span
+      v-if="compact && warnings.length > 0"
+      class="ev-compact-warn"
+      :class="`cw-${warnings[0].level}`"
+    >
       {{ warnings.length === 1 ? warnings[0].text : `${warnings.length} 条注意事项` }}
     </span>
   </div>

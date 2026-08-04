@@ -96,12 +96,21 @@ const asOfLabel = computed(() => {
 </script>
 
 <template>
-  <span class="data-source-badge" :class="[`tone-${tone}`, { compact }]">
+  <span
+    class="data-source-badge"
+    :class="[`tone-${tone}`, { compact }]"
+  >
     <span class="dot" />
-    <span v-if="!compact" class="label">{{ label }}</span>
+    <span
+      v-if="!compact"
+      class="label"
+    >{{ label }}</span>
     <strong>{{ freshnessLabel }}</strong>
     <span>{{ sourceLabel }}</span>
-    <span v-if="fallbackLevel !== null" class="level">L{{ fallbackLevel }}</span>
+    <span
+      v-if="fallbackLevel !== null"
+      class="level"
+    >L{{ fallbackLevel }}</span>
     <time v-if="asOfLabel && !compact">{{ asOfLabel }}</time>
   </span>
 </template>

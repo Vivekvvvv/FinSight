@@ -14,7 +14,10 @@ const activeLabel = computed(() => options.find((item) => item.value === theme.p
 </script>
 
 <template>
-  <div class="theme-toggle" :title="`当前主题：${activeLabel}`">
+  <div
+    class="theme-toggle"
+    :title="`当前主题：${activeLabel}`"
+  >
     <button
       v-for="option in options"
       :key="option.value"
