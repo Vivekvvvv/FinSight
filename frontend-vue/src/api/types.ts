@@ -157,6 +157,37 @@ export interface ExecutionTraceEvent {
   payload?: Record<string, unknown> | null;
 }
 
+export interface KlinePoint {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number | null;
+}
+
+export interface KlinePayload {
+  symbol?: string;
+  period?: string;
+  interval?: string;
+  kline_data?: KlinePoint[];
+  line_data?: Array<{ time: string; value: number }>;
+  chart_kind?: 'intraday_line';
+  dates?: string[];
+  values?: number[][];
+  source?: string;
+  as_of?: string;
+  freshness_status?: string;
+  fallback_level?: number;
+  error?: string;
+}
+
+export interface KlineResponse {
+  ticker: string;
+  data: KlinePayload;
+  cached: boolean;
+}
+
 export interface DashboardResponse {
   state?: {
     active_asset?: {

@@ -26,6 +26,7 @@ import type {
   WhatChangedResponse,
   ResearchQualityResponse,
   ExecutionTraceEvent,
+  KlineResponse,
   ChatHistoryResponse,
   ScreenerMetaResponse,
   ScreenerRunRequest,
@@ -247,8 +248,13 @@ export const apiClient = {
     return data;
   },
 
-  async getKline(symbol: string, period = '1mo', interval = '1d'): Promise<unknown> {
-    const { data } = await http.get(`/api/kline/${symbol}`, { params: { period, interval } });
+  async getKline(symbol: string, period = '1mo', interval = '1d', signal?: AbortSignal): Promise<KlineResponse> {
+    const { data } = await http.get<KlineResponse>(`/api/kline/${symbol}`, {
+      params: { period, interval },
+      headers: { [SKIP_GLOBAL_LOADING_HEADER]: '1' },
+      signal,
+      timeout: 30_000,
+    });
     return data;
   },
 
@@ -754,13 +760,34 @@ export const apiClient = {
     return data;
   },
 
+  async getTopListHistory(ticker: string, days = 7): Promise<Record<string, unknown>> {
+    const { data } = await http.get<Record<string, unknown>>(`/api/stock/top-list/${encodeURIComponent(ticker)}/history`, {
+      params: { days },
+    });
+    return data;
+  },
+
   async getNorthFlow(): Promise<Record<string, unknown>> {
     const { data } = await http.get<Record<string, unknown>>('/api/market/north-flow');
     return data;
   },
 
+  async getNorthFlowHistory(days = 30): Promise<Record<string, unknown>> {
+    const { data } = await http.get<Record<string, unknown>>('/api/market/north-flow/history', {
+      params: { days },
+    });
+    return data;
+  },
+
   async getMarginTrading(ticker: string): Promise<Record<string, unknown>> {
     const { data } = await http.get<Record<string, unknown>>(`/api/stock/margin/${encodeURIComponent(ticker)}`);
+    return data;
+  },
+
+  async getMarginTradingHistory(ticker: string, days = 30): Promise<Record<string, unknown>> {
+    const { data } = await http.get<Record<string, unknown>>(`/api/stock/margin/${encodeURIComponent(ticker)}/history`, {
+      params: { days },
+    });
     return data;
   },
 };

@@ -70,6 +70,29 @@ const QUOTE = {
   },
 };
 
+const KLINE = {
+  ticker: 'AAPL',
+  cached: false,
+  data: {
+    symbol: 'AAPL',
+    source: 'mock-kline',
+    as_of: '2026-06-17T10:00:00Z',
+    freshness_status: 'live',
+    kline_data: Array.from({ length: 18 }, (_, index) => {
+      const open = 180 + index * 0.7;
+      const close = open + (index % 3 === 0 ? -0.8 : 1.15);
+      return {
+        time: `2026-05-${String(index + 1).padStart(2, '0')} 00:00`,
+        open,
+        high: Math.max(open, close) + 1.2,
+        low: Math.min(open, close) - 1.1,
+        close,
+        volume: 40_000_000 + index * 250_000,
+      };
+    }),
+  },
+};
+
 const REPORTS = {
   success: true,
   count: 1,
@@ -143,7 +166,7 @@ const NOTES = {
   ],
 };
 
-const SCREENER_ITEMS = Array.from({ length: 7 }, (_, index) => ({
+const SCREENER_ITEMS = Array.from({ length: 13 }, (_, index) => ({
   symbol: index === 0 ? 'AAPL' : `MOCK${index}`,
   name: index === 0 ? 'Apple Inc.' : `Mock Company ${index}`,
   sector: 'Technology',
@@ -177,6 +200,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/what-changed**', (route) => json(route, { success: true, as_of: '2026-06-17T10:00:00Z', count: 0, items: [] }));
   await page.route('**/api/research-quality**', (route) => json(route, RESEARCH_QUALITY));
   await page.route('**/api/quote/**', (route) => json(route, QUOTE));
+  await page.route('**/api/kline/**', (route) => json(route, KLINE));
   await page.route('**/api/timeline/**', (route) => json(route, TIMELINE));
   await page.route('**/api/reports/index**', (route) => json(route, REPORTS));
   await page.route('**/api/reports/replay/**', (route) => json(route, { citations: [] }));
@@ -203,11 +227,29 @@ test.beforeEach(async ({ page }) => {
       items: SCREENER_ITEMS,
     }));
   await page.route('**/api/stock/top-list/**', (route) =>
-    json(route, { success: true, ticker: '600519.SS', trade_date: '2026-06-17', reason: '机构净买入', net_buy: 12345678 }));
+    json(route, { success: true, ticker: '600519.SS', trade_date: '2026-06-17', reason: '机构净买入', net_buy: 12345678, source: 'eastmoney' }));
+  await page.route('**/api/stock/top-list/*/history**', (route) =>
+    json(route, { records: [
+      { date: '2026-06-13', net_buy: -3100000 },
+      { date: '2026-06-16', net_buy: 8700000 },
+      { date: '2026-06-17', net_buy: 12345678 },
+    ] }));
   await page.route('**/api/market/north-flow', (route) =>
-    json(route, { success: true, trade_date: '2026-06-17', north_net_inflow: 2345000000, sh_connect: 1200000000, sz_connect: 1145000000 }));
+    json(route, { success: true, trade_date: '2026-06-17', north_net_inflow: 2345000000, sh_connect: 1200000000, sz_connect: 1145000000, source: 'eastmoney' }));
+  await page.route('**/api/market/north-flow/history**', (route) =>
+    json(route, { records: [
+      { date: '2026-06-13', north_flow: -430000000 },
+      { date: '2026-06-16', north_flow: 1800000000 },
+      { date: '2026-06-17', north_flow: 2345000000 },
+    ] }));
   await page.route('**/api/stock/margin/**', (route) =>
-    json(route, { success: true, ticker: '600519.SS', trade_date: '2026-06-17', margin_balance: 456700000, margin_buy: 32000000, margin_repay: 28000000 }));
+    json(route, { success: true, ticker: '600519.SS', trade_date: '2026-06-17', margin_balance: 456700000, margin_buy: 32000000, margin_repay: 28000000, source: 'eastmoney' }));
+  await page.route('**/api/stock/margin/*/history**', (route) =>
+    json(route, { records: [
+      { date: '2026-06-13', margin_balance: 448000000 },
+      { date: '2026-06-16', margin_balance: 452000000 },
+      { date: '2026-06-17', margin_balance: 456700000 },
+    ] }));
 });
 
 function dataSourceStatus() {
@@ -259,8 +301,48 @@ test('/dashboard/AAPL redirect 到 /dossier/AAPL，行情与研究资产可见',
   await expect(page.getByText('AAPL 标的研究档案')).toBeVisible();
   await expect(page.getByTestId('market-overview')).toBeVisible();
   await expect(page.getByRole('heading', { name: '行情概览' })).toBeVisible();
+  const klinePanel = page.getByLabel('标的 K 线');
+  await expect(klinePanel.getByText('AAPL · 日 K')).toBeVisible();
+  await expect(klinePanel.locator('canvas')).toBeVisible();
   await expect(page.getByText('Apple Q3 深度报告', { exact: true })).toBeVisible();
   await expect(page.getByText('AAPL 服务业务复查笔记')).toBeVisible();
+});
+
+test('美股档案兼容标准报价字段并展示真实分时降级', async ({ page }) => {
+  await page.unroute('**/api/quote/**');
+  await page.unroute('**/api/kline/**');
+  await page.route('**/api/quote/WDC', (route) => json(route, {
+    ticker: 'WDC',
+    data: {
+      name: 'Western Digital Corporation',
+      price: 539.02,
+      change: 11.8,
+      change_percent: 2.24,
+      volume: 8_279_896,
+      source: 'nasdaq_quote',
+      freshness_status: 'live',
+    },
+  }));
+  await page.route('**/api/kline/WDC**', (route) => json(route, {
+    ticker: 'WDC',
+    cached: false,
+    data: {
+      source: 'nasdaq_intraday',
+      chart_kind: 'intraday_line',
+      line_data: [
+        { time: '2026-08-04T13:30:00Z', value: 538.5 },
+        { time: '2026-08-04T13:31:00Z', value: 539.02 },
+      ],
+    },
+  }));
+
+  await page.goto('/dossier/WDC');
+  await expect(page.getByText('Western Digital Corporation', { exact: false }).first()).toBeVisible();
+  await expect(page.getByTestId('market-overview').getByText('539.02')).toBeVisible();
+  const panel = page.getByLabel('标的 K 线');
+  await expect(panel.getByText('WDC · 当日分时')).toBeVisible();
+  await expect(panel.getByText('nasdaq_intraday')).toBeVisible();
+  await expect(panel.locator('canvas')).toBeVisible();
 });
 
 test('/research/qa redirect 到 /chat，智能问答模式可用', async ({ page }) => {
@@ -269,6 +351,27 @@ test('/research/qa redirect 到 /chat，智能问答模式可用', async ({ page
 
   await expect(page.getByText('当前模式：智能问答', { exact: false })).toBeVisible();
   await expect(page.getByPlaceholder('问点什么', { exact: false })).toBeVisible();
+});
+
+test('AI 助手 K 线跟随周期和标的更新', async ({ page }) => {
+  const klineRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/kline/')) klineRequests.push(request.url());
+  });
+
+  await page.goto('/chat');
+  const panel = page.getByLabel('标的 K 线');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText('AAPL · 日 K')).toBeVisible();
+  await expect(panel.getByText('mock-kline')).toBeVisible();
+  await expect(panel.locator('canvas')).toBeVisible();
+
+  await panel.getByRole('button', { name: '3M' }).click();
+  await expect.poll(() => klineRequests.some((url) => url.includes('period=3mo'))).toBe(true);
+
+  await page.locator('.controls input').fill('NVDA');
+  await expect.poll(() => klineRequests.some((url) => url.includes('/api/kline/NVDA'))).toBe(true);
+  await expect(panel.getByText('NVDA · 日 K')).toBeVisible();
 });
 
 test('/portfolio/optimize 和 /backtest redirect 到 /portfolio，组合工具区域可见', async ({ page }) => {
@@ -342,13 +445,39 @@ test('7 个核心入口都可访问并保留主导航', async ({ page }) => {
 test('股票发现分页和 A股工具点击都有可见反馈', async ({ page }) => {
   await page.goto('/stocks');
   await expect(page.getByText('第 1 / 2 页')).toBeVisible();
+  await expect(page.locator('.page-size select')).toHaveValue('12');
+  await expect(page.getByText('显示 1-12 / 13')).toBeVisible();
   await page.getByRole('button', { name: '下一页' }).click();
   await expect(page.getByText('第 2 / 2 页')).toBeVisible();
 
   await page.getByRole('button', { name: /A股市场工具/ }).click();
   await page.getByRole('button', { name: /北向资金作为市场情绪背景/ }).click();
   await expect(page.getByRole('heading', { name: '北向资金' })).toBeVisible();
-  await expect(page.getByText('北向净流入')).toBeVisible();
+  const toolResult = page.locator('.tool-result');
+  await expect(toolResult.locator('.tool-metrics').getByText('北向净流入', { exact: true })).toBeVisible();
+  await expect(toolResult.getByText('Live')).toBeVisible();
+  await expect(toolResult.getByText('东方财富')).toBeVisible();
+  await expect(toolResult.getByText('市场净流入')).toBeVisible();
+  await expect(toolResult.getByText('最近 3 期北向净流入')).toBeVisible();
+  await expect(toolResult.locator('.tool-metrics').getByText('2.3B')).toBeVisible();
+
+  await page.getByRole('button', { name: /龙虎榜异动用于发现/ }).click();
+  await expect(page.getByText('资金净流入')).toBeVisible();
+  await page.getByRole('button', { name: '研究 600519.SS' }).click();
+  await page.waitForURL('**/dossier/600519.SS');
+});
+
+test('A股工具历史数据失败时仍保留当前快照', async ({ page }) => {
+  await page.unroute('**/api/market/north-flow/history**');
+  await page.route('**/api/market/north-flow/history**', (route) =>
+    json(route, { detail: 'history unavailable' }, 503));
+  await page.goto('/stocks');
+  await page.getByRole('button', { name: /A股市场工具/ }).click();
+  await page.getByRole('button', { name: /北向资金作为市场情绪背景/ }).click();
+
+  const toolResult = page.locator('.tool-result');
+  await expect(toolResult.locator('.tool-metrics').getByText('2.3B')).toBeVisible();
+  await expect(toolResult.getByText('当前快照可用，历史趋势暂时不可用。')).toBeVisible();
 });
 
 test('报告库空状态给出明确入口', async ({ page }) => {
@@ -428,6 +557,7 @@ test('移动端底部导航不遮挡主要操作', async ({ page }) => {
   await expect(bottomNav).toBeVisible();
   const sendButton = page.getByRole('button', { name: '发送研究任务' });
   await expect(sendButton).toBeVisible();
+  await sendButton.scrollIntoViewIfNeeded();
 
   const navBox = await bottomNav.boundingBox();
   const buttonBox = await sendButton.boundingBox();
@@ -465,4 +595,49 @@ test('组合页移除持仓时按钮有 loading disabled 反馈', async ({ page 
 
   const removingButton = firstPosition.getByRole('button', { name: /移除中/ });
   await expect(removingButton).toBeDisabled();
+});
+
+test('AI answer stays hidden until the execution stream is done', async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.includes('/chat/supervisor/stream')) return originalFetch(input, init);
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            'data: {"type":"pipeline_stage","stage":"planning","status":"start"}',
+            'data: {"type":"token","content":"DEFERRED_FINAL_ANSWER"}',
+            '',
+          ].join('\n')));
+          window.setTimeout(() => {
+            controller.enqueue(encoder.encode([
+              'data: {"type":"pipeline_stage","stage":"planning","status":"done"}',
+              'data: {"type":"done","response":"DEFERRED_FINAL_ANSWER","source":"mock"}',
+              '',
+            ].join('\n')));
+            controller.close();
+          }, 600);
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+      });
+    };
+  });
+
+  await page.goto('/chat');
+  await page.locator('.composer textarea').fill('AAPL deferred response check');
+  await page.locator('.composer button').click();
+
+  await page.waitForTimeout(150);
+  await expect(page.locator('.bubble-body').filter({ hasText: 'DEFERRED_FINAL_ANSWER' })).toHaveCount(0);
+  await expect(page.locator('.composer button')).toBeDisabled();
+
+  await expect(page.locator('.bubble-body').filter({ hasText: 'DEFERRED_FINAL_ANSWER' })).toBeVisible();
+  await expect(page.locator('.trace-toggle strong').last()).toHaveText('5/5');
+  await expect(page.locator('.composer button')).toHaveAttribute('aria-busy', 'false');
 });

@@ -13,6 +13,12 @@ import { reportFriendlyError, toFriendlyError } from '@/utils/error';
 
 type Market = 'US' | 'CN' | 'HK';
 type MarketTool = 'top-list' | 'north-flow' | 'margin';
+type SignalTone = 'positive' | 'negative' | 'neutral';
+
+interface MarketTrendRow {
+  date: string;
+  value: number;
+}
 
 const route = useRoute();
 const router = useRouter();
@@ -20,14 +26,14 @@ const identity = useIdentityStore();
 
 const market = ref<Market>('US');
 const query = ref('');
-const limit = ref(20);
+const limit = ref(120);
 const sortBy = ref('marketCap');
 const sortOrder = ref<'asc' | 'desc'>('desc');
 const minMarketCap = ref('');
 const minPrice = ref('');
 const maxPrice = ref('');
 const minVolume = ref('');
-const pageSize = ref(6);
+const pageSize = ref(12);
 const currentPage = ref(1);
 
 const meta = ref<ScreenerMetaResponse | null>(null);
@@ -52,6 +58,9 @@ const marketToolTicker = ref('600519.SS');
 const marketToolLoading = ref(false);
 const marketToolError = ref<string | null>(null);
 const marketToolData = ref<Record<string, unknown> | null>(null);
+const marketToolHistory = ref<Record<string, unknown>[]>([]);
+const marketToolHistoryLoading = ref(false);
+const marketToolHistoryUnavailable = ref(false);
 
 const markets = computed<Market[]>(() => meta.value?.markets?.length ? meta.value.markets : ['US', 'CN', 'HK']);
 const sortOptions = computed(() => meta.value?.sort_by?.length ? meta.value.sort_by : ['marketCap', 'price', 'volume', 'changesPercentage']);
@@ -61,18 +70,29 @@ const activeToolTitle = computed(() => {
   if (activeMarketTool.value === 'margin') return '融资融券';
   return 'A股市场工具';
 });
+
+function firstValue(data: Record<string, unknown>, keys: string[]): unknown {
+  return keys.map((key) => data[key]).find((value) => value !== null && value !== undefined && value !== '');
+}
+
+function numericValue(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 const marketToolFields = computed(() => {
   const data = marketToolData.value || {};
   if (activeMarketTool.value === 'north-flow') {
     return [
-      ['北向净流入', data.north_flow],
-      ['沪股通', data.sh_flow],
-      ['深股通', data.sz_flow],
-      ['时间', data.time || data.date],
+      ['北向净流入', firstValue(data, ['north_flow', 'north_net_inflow'])],
+      ['沪股通', firstValue(data, ['sh_flow', 'sh_connect'])],
+      ['深股通', firstValue(data, ['sz_flow', 'sz_connect'])],
+      ['时间', firstValue(data, ['time', 'date', 'trade_date'])],
     ];
   }
   if (activeMarketTool.value === 'top-list') {
     return [
+      ['交易日', firstValue(data, ['date', 'trade_date'])],
       ['上榜原因', data.reason],
       ['收盘价', data.close_price],
       ['涨跌幅', data.change_percent == null ? null : `${data.change_percent}%`],
@@ -83,7 +103,7 @@ const marketToolFields = computed(() => {
   }
   if (activeMarketTool.value === 'margin') {
     return [
-      ['日期', data.date],
+      ['日期', firstValue(data, ['date', 'trade_date'])],
       ['融资余额', data.margin_balance],
       ['融资买入', data.margin_buy],
       ['融资偿还', data.margin_repay],
@@ -92,6 +112,78 @@ const marketToolFields = computed(() => {
     ];
   }
   return [];
+});
+const marketToolEvidence = computed<EvidenceInfo>(() => {
+  const data = marketToolData.value || {};
+  const source = String(firstValue(data, ['source', 'data_source']) || 'unknown');
+  const sourceKey = source.toLowerCase();
+  const fallbackLevel = numericValue(firstValue(data, ['fallback_level', 'fallbackLevel']));
+  const isDemo = sourceKey.includes('demo') || sourceKey.includes('mock');
+  const isCached = Boolean(data.cached) || sourceKey.includes('cache');
+  const isFallback = Boolean(data.fallback) || (fallbackLevel !== null && fallbackLevel > 0);
+  const date = firstValue(data, ['as_of', 'updated_at', 'date', 'trade_date']);
+  const time = firstValue(data, ['time']);
+  return {
+    source,
+    asOf: date && time && String(date).length <= 10 ? `${date}T${time}` : String(date || ''),
+    freshnessStatus: isDemo ? 'demo' : isCached ? 'cached' : isFallback ? 'fallback' : source !== 'unknown' ? 'live' : 'unknown',
+    fallbackLevel: isDemo ? 2 : isCached ? 2 : isFallback ? fallbackLevel || 1 : source !== 'unknown' ? 0 : null,
+    cached: isCached,
+    degraded: isDemo || isCached || isFallback,
+  };
+});
+const marketToolSignal = computed<{ tone: SignalTone; label: string; detail: string } | null>(() => {
+  const data = marketToolData.value;
+  if (!data) return null;
+  if (activeMarketTool.value === 'top-list') {
+    const netBuy = numericValue(data.net_buy);
+    if (netBuy === null) return { tone: 'neutral', label: '等待判断', detail: '当前记录缺少净买入数据。' };
+    return netBuy >= 0
+      ? { tone: 'positive', label: '资金净流入', detail: `榜单席位净买入 ${compact(netBuy)}，需结合上榜原因与后续量价复查。` }
+      : { tone: 'negative', label: '资金净流出', detail: `榜单席位净卖出 ${compact(Math.abs(netBuy))}，需核对卖出席位与事件驱动。` };
+  }
+  if (activeMarketTool.value === 'north-flow') {
+    const flow = numericValue(firstValue(data, ['north_flow', 'north_net_inflow']));
+    if (flow === null) return { tone: 'neutral', label: '等待判断', detail: '当前快照缺少北向净流入数据。' };
+    return flow >= 0
+      ? { tone: 'positive', label: '市场净流入', detail: `北向资金净流入 ${compact(flow)}，仅作为市场情绪背景。` }
+      : { tone: 'negative', label: '市场净流出', detail: `北向资金净流出 ${compact(Math.abs(flow))}，不应单独推导个股结论。` };
+  }
+  const buy = numericValue(data.margin_buy);
+  const repay = numericValue(data.margin_repay);
+  if (buy === null || repay === null) return { tone: 'neutral', label: '等待判断', detail: '当前快照缺少融资买入或偿还数据。' };
+  const net = buy - repay;
+  return net >= 0
+    ? { tone: 'positive', label: '杠杆净增加', detail: `融资买入较偿还多 ${compact(net)}，需结合股价与成交量确认。` }
+    : { tone: 'negative', label: '杠杆净减少', detail: `融资偿还较买入多 ${compact(Math.abs(net))}，可能反映风险偏好降温。` };
+});
+const marketToolTrend = computed<MarketTrendRow[]>(() => {
+  const rows = marketToolHistory.value.flatMap((record) => {
+    const date = firstValue(record, ['date', 'trade_date', 'time']);
+    const rawValue = activeMarketTool.value === 'top-list'
+      ? record.net_buy
+      : activeMarketTool.value === 'north-flow'
+        ? firstValue(record, ['north_flow', 'north_net_inflow'])
+        : record.margin_balance;
+    const value = numericValue(rawValue);
+    return date && value !== null ? [{ date: String(date).slice(0, 10), value }] : [];
+  });
+  return rows.sort((left, right) => left.date.localeCompare(right.date)).slice(-6);
+});
+const marketToolTrendLabel = computed(() => {
+  if (activeMarketTool.value === 'top-list') return '净买入';
+  if (activeMarketTool.value === 'north-flow') return '北向净流入';
+  return '融资余额';
+});
+const marketToolTrendDelta = computed(() => {
+  const rows = marketToolTrend.value;
+  if (rows.length < 2) return null;
+  return rows[rows.length - 1].value - rows[rows.length - 2].value;
+});
+const marketToolResearchTicker = computed(() => {
+  if (activeMarketTool.value === 'north-flow') return '';
+  const data = marketToolData.value || {};
+  return String(firstValue(data, ['symbol', 'ticker']) || marketToolTicker.value).trim().toUpperCase();
 });
 const screenerEvidence = computed<EvidenceInfo>(() => {
   const source = response.value?.source || (response.value?.warning ? 'static_market_demo' : 'screener');
@@ -142,6 +234,10 @@ function compact(value: number | null | undefined): string {
   if (Math.abs(value) >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+}
+
+function signedCompact(value: number): string {
+  return `${value > 0 ? '+' : ''}${compact(value)}`;
 }
 
 function money(value: number | null | undefined): string {
@@ -396,28 +492,54 @@ async function activateMarketTool(tool: MarketTool) {
 
 let marketToolSeq = 0;
 
+function loadMarketToolHistory(tool: MarketTool, ticker: string): Promise<Record<string, unknown>> {
+  if (tool === 'top-list') return apiClient.getTopListHistory(ticker, 7);
+  if (tool === 'north-flow') return apiClient.getNorthFlowHistory(30);
+  return apiClient.getMarginTradingHistory(ticker, 30);
+}
+
 async function loadMarketTool() {
   if (!activeMarketTool.value) return;
   const seq = ++marketToolSeq;
+  const tool = activeMarketTool.value;
+  const ticker = marketToolTicker.value.trim() || '600519.SS';
   marketToolLoading.value = true;
   marketToolError.value = null;
   marketToolData.value = null;
+  marketToolHistory.value = [];
+  marketToolHistoryLoading.value = true;
+  marketToolHistoryUnavailable.value = false;
   try {
-    let data: Record<string, unknown>;
-    if (activeMarketTool.value === 'north-flow') {
-      data = await apiClient.getNorthFlow();
-    } else if (activeMarketTool.value === 'top-list') {
-      data = await apiClient.getTopList(marketToolTicker.value.trim() || '600519.SS');
-    } else {
-      data = await apiClient.getMarginTrading(marketToolTicker.value.trim() || '600519.SS');
-    }
+    const currentRequest = tool === 'north-flow'
+      ? apiClient.getNorthFlow()
+      : tool === 'top-list'
+        ? apiClient.getTopList(ticker)
+        : apiClient.getMarginTrading(ticker);
+    const historyRequest = loadMarketToolHistory(tool, ticker).then(
+      (value) => ({ ok: true as const, value }),
+      () => ({ ok: false as const }),
+    );
+    const data = await currentRequest;
     if (seq !== marketToolSeq) return;
     marketToolData.value = data;
+    marketToolLoading.value = false;
+    const historyResult = await historyRequest;
+    if (seq !== marketToolSeq) return;
+    if (historyResult.ok) {
+      marketToolHistory.value = Array.isArray(historyResult.value.records)
+        ? historyResult.value.records.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object'))
+        : [];
+    } else {
+      marketToolHistoryUnavailable.value = true;
+    }
   } catch (error) {
     if (seq !== marketToolSeq) return;
     marketToolError.value = marketToolErrorMessage(error);
   } finally {
-    if (seq === marketToolSeq) marketToolLoading.value = false;
+    if (seq === marketToolSeq) {
+      marketToolLoading.value = false;
+      marketToolHistoryLoading.value = false;
+    }
   }
 }
 
@@ -513,8 +635,10 @@ watch(displayedItems, () => {
         >
           <option :value="10">10</option>
           <option :value="20">20</option>
+          <option :value="30">30</option>
           <option :value="50">50</option>
           <option :value="100">100</option>
+          <option :value="120">120</option>
           <option :value="200">200</option>
         </select>
       </label>
@@ -678,7 +802,7 @@ watch(displayedItems, () => {
               class="ghost"
               @click="goDossier(item.symbol)"
             >
-              查看分析
+              查看档案
             </button>
             <button
               class="ghost"
@@ -831,18 +955,82 @@ watch(displayedItems, () => {
           :label="`正在读取 ${activeToolTitle} 数据...`"
           compact
         />
-        <div
+        <section
           v-else-if="marketToolData"
-          class="tool-metrics"
+          class="tool-result"
         >
-          <div
-            v-for="field in marketToolFields"
-            :key="String(field[0])"
-          >
-            <span>{{ field[0] }}</span>
-            <strong>{{ displayToolValue(field[1]) }}</strong>
+          <div class="tool-context">
+            <DataSourceBadge
+              :evidence="marketToolEvidence"
+              label="工具数据"
+            />
+            <div
+              v-if="marketToolSignal"
+              class="signal-summary"
+              :class="`tone-${marketToolSignal.tone}`"
+            >
+              <strong>{{ marketToolSignal.label }}</strong>
+              <span>{{ marketToolSignal.detail }}</span>
+            </div>
           </div>
-        </div>
+
+          <div class="tool-metrics">
+            <div
+              v-for="field in marketToolFields"
+              :key="String(field[0])"
+            >
+              <span>{{ field[0] }}</span>
+              <strong>{{ displayToolValue(field[1]) }}</strong>
+            </div>
+          </div>
+
+          <div class="tool-trend">
+            <div class="trend-head">
+              <div>
+                <span>RECENT TREND</span>
+                <strong>最近 {{ marketToolTrend.length }} 期{{ marketToolTrendLabel }}</strong>
+              </div>
+              <b
+                v-if="marketToolTrendDelta !== null"
+                :class="marketToolTrendDelta >= 0 ? 'positive' : 'negative'"
+              >较上期 {{ signedCompact(marketToolTrendDelta) }}</b>
+            </div>
+            <div
+              v-if="marketToolTrend.length"
+              class="trend-rows"
+            >
+              <div
+                v-for="row in marketToolTrend"
+                :key="row.date"
+              >
+                <time>{{ row.date }}</time>
+                <span>{{ compact(row.value) }}</span>
+              </div>
+            </div>
+            <p v-else-if="marketToolHistoryLoading">
+              正在读取历史趋势...
+            </p>
+            <p v-else-if="marketToolHistoryUnavailable">
+              当前快照可用，历史趋势暂时不可用。
+            </p>
+            <p v-else>
+              当前数据源暂未返回可比较的历史记录。
+            </p>
+          </div>
+
+          <div
+            v-if="marketToolResearchTicker"
+            class="tool-next-action"
+          >
+            <span>下一步应结合公告、基本面与 K 线复查，不直接据此交易。</span>
+            <button
+              type="button"
+              @click="goDossier(marketToolResearchTicker)"
+            >
+              研究 {{ marketToolResearchTicker }}
+            </button>
+          </div>
+        </section>
         <EmptyState
           v-else
           title="选择工具后会在这里显示结果"
@@ -1187,6 +1375,49 @@ select {
   min-width: 0;
 }
 
+.tool-result {
+  display: grid;
+  gap: 12px;
+}
+
+.tool-context,
+.tool-next-action,
+.trend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.signal-summary {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 3px solid var(--fin-border-strong);
+}
+
+.signal-summary strong {
+  color: var(--fin-text);
+  font-size: 13px;
+}
+
+.signal-summary span,
+.tool-next-action span,
+.tool-trend p {
+  color: var(--fin-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.signal-summary.tone-positive {
+  border-left-color: var(--fin-success);
+}
+
+.signal-summary.tone-negative {
+  border-left-color: var(--fin-danger);
+}
+
 .tool-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1216,6 +1447,96 @@ select {
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-trend {
+  display: grid;
+  gap: 9px;
+  padding: 12px 0;
+  border-top: 1px solid var(--fin-border);
+  border-bottom: 1px solid var(--fin-border);
+}
+
+.trend-head div {
+  display: grid;
+  gap: 2px;
+}
+
+.trend-head span {
+  color: var(--fin-primary);
+  font-family: var(--fin-mono);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.trend-head strong {
+  color: var(--fin-text);
+  font-size: 13px;
+}
+
+.trend-head b {
+  font-family: var(--fin-mono);
+  font-size: 12px;
+}
+
+.trend-head .positive {
+  color: var(--fin-success);
+}
+
+.trend-head .negative {
+  color: var(--fin-danger);
+}
+
+.trend-rows {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border: 1px solid var(--fin-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.trend-rows div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  background: var(--fin-card-inset);
+}
+
+.trend-rows div + div {
+  border-left: 1px solid var(--fin-border);
+}
+
+.trend-rows time {
+  overflow: hidden;
+  color: var(--fin-muted);
+  font-family: var(--fin-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+.trend-rows span {
+  overflow: hidden;
+  color: var(--fin-text);
+  font-family: var(--fin-mono);
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+}
+
+.tool-trend p {
+  margin: 0;
+}
+
+.tool-next-action button {
+  flex: 0 0 auto;
+  border: 1px solid var(--fin-primary);
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: var(--fin-primary);
+  color: var(--fin-bg);
+  cursor: pointer;
+  font-weight: 900;
 }
 
 .compare-basket h3 {
@@ -1282,7 +1603,7 @@ select {
 
 .stock-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1418,6 +1739,12 @@ select {
   justify-content: flex-end;
 }
 
+@media (max-width: 1600px) {
+  .stock-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1280px) {
   .filters,
   .stock-grid {
@@ -1445,6 +1772,29 @@ select {
   .results-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .tool-context,
+  .tool-next-action,
+  .trend-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trend-rows {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .trend-rows div:nth-child(4) {
+    border-left: 0;
+  }
+
+  .trend-rows div:nth-child(n + 4) {
+    border-top: 1px solid var(--fin-border);
+  }
+
+  .tool-next-action button {
+    width: 100%;
   }
 
   .pager button,

@@ -977,7 +977,7 @@ def test_dynamic_log_expressions_match_reviewed_safe_baseline():
     assert unclassified == []
     assert classifications == Counter(
         {
-            "exception_type": 159,
+            "exception_type": 160,
             "http_status": 11,
             "aggregate_count": 9,
             "provider_name": 1,

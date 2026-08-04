@@ -22,6 +22,7 @@ from backend.api.schemas import (
     ChatRequest,
 )
 from backend.api.chat_router import ChatRouterDeps, create_chat_router
+from backend.tools.us_market import fetch_nasdaq_intraday, fetch_nasdaq_quote
 from backend.api.security_config import (
     PRODUCTION_REQUIRED_ENV as _PRODUCTION_REQUIRED_ENV,
     SimpleRateLimiter,
@@ -948,6 +949,8 @@ market_router = create_market_router(
         get_stock_historical_data=globals().get("get_stock_historical_data") or (lambda _ticker, **_kwargs: {"error": "history tool unavailable"}),
         detect_chart_type=(ChartTypeDetector.detect_chart_type if ChartTypeDetector else None),
         logger=logger,
+        get_us_quote=fetch_nasdaq_quote,
+        get_us_intraday=fetch_nasdaq_intraday,
     )
 )
 

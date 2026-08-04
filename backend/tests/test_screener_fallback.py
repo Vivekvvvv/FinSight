@@ -78,6 +78,11 @@ def _eastmoney_full_market_offline(monkeypatch):
     monkeypatch.setattr(_cn_screener, "eastmoney_screen_stocks", lambda **kwargs: None)
 
 
+@pytest.fixture(autouse=True)
+def _nasdaq_public_market_offline(monkeypatch):
+    monkeypatch.setattr(screener, "nasdaq_screen_stocks", lambda **_kwargs: None)
+
+
 def _fake_us_fallback(market, filters, limit, sort_by, sort_order):
     return {
         "success": True,
@@ -110,6 +115,23 @@ def test_screener_uses_fallback_without_fmp_key(monkeypatch):
     assert result["success"] is True
     assert {item["symbol"] for item in result["items"]} >= {"AAPL", "MSFT"}
     assert result["source"] == "static_market_demo"
+
+
+def test_screener_prefers_nasdaq_public_market_without_fmp_key(monkeypatch):
+    monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    expected = {
+        "success": True,
+        "market": "US",
+        "items": [{"symbol": f"REAL{index:03d}"} for index in range(120)],
+        "count": 120,
+        "source": "nasdaq_public_screener",
+    }
+    monkeypatch.setattr(screener, "nasdaq_screen_stocks", lambda **_kwargs: expected)
+
+    result = screener.screen_stocks(market="US", limit=120)
+
+    assert result is expected
+    assert result["count"] == 120
 
 
 def test_screener_invalid_sort_falls_back(monkeypatch):
@@ -216,6 +238,23 @@ def test_screener_hk_static_pool_fills_first_page_when_live_source_is_slow(monke
     assert result["source"] == "static_market_demo"
     assert result["count"] == 10
     assert len({item["symbol"] for item in result["items"]}) == 10
+
+
+@pytest.mark.parametrize(
+    ("market", "expected_symbol"),
+    [
+        ("US", "ADBE"),
+        ("CN", "601919.SS"),
+        ("HK", "1928.HK"),
+    ],
+)
+def test_static_fallback_pools_cover_at_least_thirty_named_symbols(market, expected_symbol):
+    items = screener._static_fallback_items(market, {})
+
+    assert len(items) >= 30
+    assert len({item["symbol"] for item in items}) == len(items)
+    assert expected_symbol in {item["symbol"] for item in items}
+    assert all(item.get("name") and item["name"] != item["symbol"] for item in items)
 
 
 def test_screener_cn_skips_live_source_during_cooldown(monkeypatch):

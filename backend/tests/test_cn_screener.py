@@ -93,6 +93,26 @@ def test_first_page_failure_returns_none(monkeypatch):
     ) is None
 
 
+def test_primary_endpoint_failure_uses_delay_endpoint(monkeypatch):
+    requested_urls: list[str] = []
+
+    def _get(url, *args, **kwargs):
+        requested_urls.append(url)
+        if len(requested_urls) == 1:
+            return _Resp({}, status_code=503)
+        return _Resp({"data": {"diff": _cn_rows()}})
+
+    monkeypatch.setattr(mod, "_http_get", _get)
+
+    result = mod.eastmoney_screen_stocks(
+        market="CN", filters={}, limit=20, page=1, sort_by="marketCap", sort_order="desc",
+    )
+
+    assert result is not None
+    assert result["count"] == 3
+    assert requested_urls == list(mod._EASTMONEY_LIST_URLS)
+
+
 def test_unknown_market_returns_none():
     assert mod.eastmoney_screen_stocks(
         market="US", filters={}, limit=20, page=1, sort_by="marketCap", sort_order="desc",

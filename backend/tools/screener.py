@@ -9,6 +9,7 @@ import yfinance as yf
 from backend.tools.env import ALPHA_VANTAGE_API_KEY, FMP_API_KEY
 from backend.tools.http import _http_get
 from backend.tools.cn_hk_market import fetch_cn_hk_quote_metrics
+from backend.tools.us_screener import nasdaq_screen_stocks
 from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
@@ -565,15 +566,31 @@ _POPULAR_TICKERS: dict[str, list[str]] = {
         "600519.SS", "300750.SZ", "601318.SS", "000333.SZ", "000858.SZ",
         "600036.SS", "601899.SS", "002594.SZ", "600276.SS", "601398.SS",
         "601288.SS", "000651.SZ", "600030.SS", "600900.SS", "601988.SS",
+        "601857.SS", "601088.SS", "600028.SS", "601166.SS", "600887.SS",
+        "601668.SS", "600309.SS", "002415.SZ", "000725.SZ", "601012.SS",
+        "600406.SS", "002475.SZ", "300059.SZ", "600050.SS", "601919.SS",
     ],
     "HK": [
         "0700.HK", "9988.HK", "3690.HK", "1299.HK", "1810.HK",
         "0939.HK", "1398.HK", "0005.HK", "0388.HK", "0883.HK",
         "2318.HK", "0941.HK", "1211.HK", "9618.HK", "1024.HK",
+        "9999.HK", "2020.HK", "2331.HK", "2388.HK", "1109.HK",
+        "0823.HK", "2628.HK", "3968.HK", "2269.HK", "6690.HK",
+        "9866.HK", "9888.HK", "2015.HK", "9992.HK", "1928.HK",
     ],
 }
 
 _FALLBACK_COMPANY_NAMES: dict[str, str] = {
+    "PFE": "Pfizer Inc.",
+    "TMO": "Thermo Fisher Scientific Inc.",
+    "MCD": "McDonald's Corporation",
+    "CSCO": "Cisco Systems, Inc.",
+    "ACN": "Accenture plc",
+    "ABT": "Abbott Laboratories",
+    "DHR": "Danaher Corporation",
+    "NKE": "NIKE, Inc.",
+    "VZ": "Verizon Communications Inc.",
+    "ADBE": "Adobe Inc.",
     "600036.SS": "China Merchants Bank Co., Ltd.",
     "601899.SS": "Zijin Mining Group Co., Ltd.",
     "002594.SZ": "BYD Company Limited",
@@ -584,6 +601,21 @@ _FALLBACK_COMPANY_NAMES: dict[str, str] = {
     "600030.SS": "CITIC Securities Company Limited",
     "600900.SS": "China Yangtze Power Co., Ltd.",
     "601988.SS": "Bank of China Limited",
+    "601857.SS": "PetroChina Company Limited",
+    "601088.SS": "China Shenhua Energy Company Limited",
+    "600028.SS": "China Petroleum & Chemical Corporation",
+    "601166.SS": "Industrial Bank Co., Ltd.",
+    "600887.SS": "Inner Mongolia Yili Industrial Group Co., Ltd.",
+    "601668.SS": "China State Construction Engineering Corporation Limited",
+    "600309.SS": "Wanhua Chemical Group Co., Ltd.",
+    "002415.SZ": "Hangzhou Hikvision Digital Technology Co., Ltd.",
+    "000725.SZ": "BOE Technology Group Co., Ltd.",
+    "601012.SS": "LONGi Green Energy Technology Co., Ltd.",
+    "600406.SS": "NARI Technology Co., Ltd.",
+    "002475.SZ": "Luxshare Precision Industry Co., Ltd.",
+    "300059.SZ": "East Money Information Co., Ltd.",
+    "600050.SS": "China United Network Communications Limited",
+    "601919.SS": "COSCO Shipping Holdings Co., Ltd.",
     "0939.HK": "China Construction Bank Corporation",
     "1398.HK": "Industrial and Commercial Bank of China Limited",
     "0005.HK": "HSBC Holdings plc",
@@ -594,9 +626,31 @@ _FALLBACK_COMPANY_NAMES: dict[str, str] = {
     "1211.HK": "BYD Company Limited",
     "9618.HK": "JD.com, Inc.",
     "1024.HK": "Kuaishou Technology",
+    "9999.HK": "NetEase, Inc.",
+    "2020.HK": "ANTA Sports Products Limited",
+    "2331.HK": "Li Ning Company Limited",
+    "2388.HK": "BOC Hong Kong (Holdings) Limited",
+    "1109.HK": "China Resources Land Limited",
+    "0823.HK": "Link Real Estate Investment Trust",
+    "2628.HK": "China Life Insurance Company Limited",
+    "3968.HK": "China Merchants Bank Co., Ltd.",
+    "2269.HK": "WuXi Biologics (Cayman) Inc.",
+    "6690.HK": "Haier Smart Home Co., Ltd.",
+    "9866.HK": "NIO Inc.",
+    "9888.HK": "Baidu, Inc.",
+    "2015.HK": "Li Auto Inc.",
+    "9992.HK": "Pop Mart International Group Limited",
+    "1928.HK": "Sands China Ltd.",
 }
 
 _FALLBACK_SECTOR_BY_MARKET: dict[str, list[tuple[str, str]]] = {
+    "US": [
+        ("Technology", "Software & Services"),
+        ("Healthcare", "Healthcare & Life Sciences"),
+        ("Consumer Discretionary", "Consumer Products"),
+        ("Communication Services", "Telecom & Media"),
+        ("Industrials", "Industrial Products"),
+    ],
     "CN": [
         ("Financials", "Banks"),
         ("Materials", "Metals & Mining"),
@@ -615,7 +669,7 @@ _FALLBACK_SECTOR_BY_MARKET: dict[str, list[tuple[str, str]]] = {
 
 
 def _ensure_static_fallback_coverage() -> None:
-    for market in ("CN", "HK"):
+    for market in ("US", "CN", "HK"):
         items = _STATIC_FALLBACK_ITEMS.setdefault(market, [])
         seen = {str(item.get("symbol") or "").upper() for item in items}
         sector_cycle = _FALLBACK_SECTOR_BY_MARKET[market]
@@ -1207,8 +1261,17 @@ def screen_stocks(
         return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
 
     if not FMP_API_KEY:
-        logger.warning("FMP_API_KEY is not configured; using yfinance popular fallback")
+        logger.warning("FMP_API_KEY is not configured; using free market sources")
         if market_norm == "US":
+            public_result = nasdaq_screen_stocks(
+                filters=payload_filters,
+                limit=limit_norm,
+                page=page_norm,
+                sort_by=sort_key,
+                sort_order=sort_dir,
+            )
+            if public_result is not None:
+                return public_result
             return _static_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
         return _yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir)
 

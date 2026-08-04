@@ -26,6 +26,8 @@ class MarketRouterDeps:
     get_stock_historical_data: Callable[..., Any]
     detect_chart_type: Callable[[str, str | None], dict[str, Any]] | None
     logger: Any
+    get_us_quote: Callable[[str], dict[str, Any] | None] | None = None
+    get_us_intraday: Callable[[str], dict[str, Any] | None] | None = None
 
 
 _TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^=-]{0,19}$")
@@ -205,9 +207,10 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 if cached_data is not None:
                     deps.logger.info("[API] price cache hit")
                     normalized = parse_quote_payload(cached_data)
-                    result = normalized or cached_data
-                    result = _market_payload(result, "cache", cached=True)
-                    return {"ticker": normalized_ticker, "data": result, "cached": True}
+                    if normalized is not None:
+                        quote_data = {**cached_data, **normalized} if isinstance(cached_data, dict) else normalized
+                        result = _market_payload(quote_data, "cache", cached=True)
+                        return {"ticker": normalized_ticker, "data": result, "cached": True}
 
             if is_cn_symbol(normalized_ticker):
                 cn_quote = fetch_cn_quote(normalized_ticker)
@@ -222,6 +225,14 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 demo = demo_quote(normalized_ticker)
                 if demo:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
+
+            nasdaq_quote = deps.get_us_quote(normalized_ticker) if deps.get_us_quote else None
+            if nasdaq_quote is not None:
+                if orchestrator:
+                    from backend.services.smart_cache import get_smart_cache_ttl
+                    ttl = get_smart_cache_ttl(normalized_ticker, "quote")
+                    orchestrator.cache.set(f"price:{normalized_ticker}", nasdaq_quote, ttl=ttl)
+                return {"ticker": normalized_ticker, "data": _market_payload(nasdaq_quote, "nasdaq_quote"), "cached": False}
 
             quote, raw_payload = resolve_live_quote(normalized_ticker, deps.get_stock_price)
             if quote is not None:
@@ -330,6 +341,10 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 demo = demo_kline(normalized_ticker, period=period, interval=interval)
                 if demo:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
+
+            nasdaq_chart = deps.get_us_intraday(normalized_ticker) if deps.get_us_intraday else None
+            if nasdaq_chart is not None:
+                return {"ticker": normalized_ticker, "data": _market_payload(nasdaq_chart, "nasdaq_intraday"), "cached": False}
 
             kline_data = deps.get_stock_historical_data(normalized_ticker, period=period, interval=interval)
             if kline_data.get("error") and is_demo_mode():

@@ -24,7 +24,10 @@ logger = logging.getLogger(__name__)
 
 _EASTMONEY_USER_AGENT = os.getenv("EASTMONEY_USER_AGENT", "Mozilla/5.0 (FinSight)")
 _EASTMONEY_TIMEOUT = env_int("EASTMONEY_TIMEOUT", 12, minimum=1)
-_EASTMONEY_LIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+_EASTMONEY_LIST_URLS = (
+    "https://push2.eastmoney.com/api/qt/clist/get",
+    "https://push2delay.eastmoney.com/api/qt/clist/get",
+)
 
 # 市场 → Eastmoney fs 板块过滤：沪主板+科创板 / 深主板+创业板；港股主板
 _MARKET_FS = {
@@ -65,26 +68,28 @@ def _fetch_page(*, fs: str, fid: str, po: int, page: int) -> list[dict[str, Any]
         "fs": fs,
         "fields": _FIELDS,
     }
-    try:
-        resp = _http_get(
-            _EASTMONEY_LIST_URL,
-            params=params,
-            timeout=_EASTMONEY_TIMEOUT,
-            headers={"User-Agent": _EASTMONEY_USER_AGENT},
-        )
-        if getattr(resp, "status_code", 0) != 200:
-            return None
-        payload = resp.json()
-        if not isinstance(payload, dict):
-            return None
-        data = payload.get("data")
-        diff = data.get("diff") if isinstance(data, dict) else None
-        if isinstance(diff, list):
-            return [row for row in diff if isinstance(row, dict)]
-        return []
-    except Exception as exc:
-        logger.info("eastmoney screener page failed: %s", type(exc).__name__)
-        return None
+    for url in _EASTMONEY_LIST_URLS:
+        try:
+            resp = _http_get(
+                url,
+                params=params,
+                timeout=_EASTMONEY_TIMEOUT,
+                headers={"User-Agent": _EASTMONEY_USER_AGENT},
+            )
+            if getattr(resp, "status_code", 0) != 200:
+                continue
+            payload = resp.json()
+            if not isinstance(payload, dict):
+                continue
+            data = payload.get("data")
+            diff = data.get("diff") if isinstance(data, dict) else None
+            if isinstance(diff, list):
+                return [row for row in diff if isinstance(row, dict)]
+            if data is not None:
+                return []
+        except Exception as exc:
+            logger.info("eastmoney screener page failed: %s", type(exc).__name__)
+    return None
 
 
 def _to_symbol(code: str, market_id: str, market: str) -> str:

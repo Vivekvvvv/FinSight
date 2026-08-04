@@ -6,6 +6,7 @@ import { useIdentityStore } from '@/stores/identity';
 import DataSourceBadge from '@/components/DataSourceBadge.vue';
 import WhatChangedCard from '@/components/WhatChangedCard.vue';
 import EvidenceTimeline from '@/components/EvidenceTimeline.vue';
+import KlinePanel from '@/components/KlinePanel.vue';
 import LoadingState from '@/components/LoadingState.vue';
 import StatusBanner from '@/components/StatusBanner.vue';
 import type {
@@ -68,13 +69,18 @@ const healthScore = computed(() => qualitySummary.value?.health_score ?? 100);
 const quoteView = computed<QuoteView>(() => {
   const payload = quote.value as { ticker?: string; data?: Record<string, unknown> } | null;
   const raw = payload?.data || {};
+  const price = raw.currentPrice ?? raw.price;
+  const change = raw.regularMarketChange ?? raw.change;
+  const changePercent = raw.regularMarketChangePercent ?? raw.change_percent;
+  const volume = raw.regularMarketVolume ?? raw.volume;
+  const marketCap = raw.marketCap ?? raw.market_cap;
   return {
     name: String(raw.shortName || raw.longName || raw.name || payload?.ticker || symbol.value),
-    price: typeof raw.currentPrice === 'number' ? raw.currentPrice : null,
-    change: typeof raw.regularMarketChange === 'number' ? raw.regularMarketChange : null,
-    changePercent: typeof raw.regularMarketChangePercent === 'number' ? raw.regularMarketChangePercent : null,
-    volume: typeof raw.regularMarketVolume === 'number' ? raw.regularMarketVolume : null,
-    marketCap: typeof raw.marketCap === 'number' ? raw.marketCap : null,
+    price: typeof price === 'number' ? price : null,
+    change: typeof change === 'number' ? change : null,
+    changePercent: typeof changePercent === 'number' ? changePercent : null,
+    volume: typeof volume === 'number' ? volume : null,
+    marketCap: typeof marketCap === 'number' ? marketCap : null,
     freshnessStatus: String(raw.freshness_status || raw.freshnessStatus || 'unknown'),
   };
 });
@@ -415,6 +421,8 @@ watch(() => route.params.symbol, () => {
         </article>
       </div>
     </section>
+
+    <KlinePanel :symbol="symbol" />
 
     <LoadingState
       v-if="loadState === 'loading'"

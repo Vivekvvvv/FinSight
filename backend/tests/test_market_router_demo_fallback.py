@@ -10,19 +10,47 @@ class _NoCache:
     cache = None
 
 
-def _build_client(*, price_payload=None, financials_payload=None, kline_payload=None) -> TestClient:
+class _Logger:
+    def info(self, *_args, **_kwargs):
+        return None
+
+
+class _Cache:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def get(self, _key):
+        return self.payload
+
+
+class _Orchestrator:
+    def __init__(self, payload):
+        self.cache = _Cache(payload)
+
+
+def _build_client(
+    *,
+    price_payload=None,
+    financials_payload=None,
+    kline_payload=None,
+    us_quote=None,
+    us_intraday=None,
+    orchestrator=None,
+) -> TestClient:
     app = FastAPI()
     app.include_router(
         create_market_router(
             MarketRouterDeps(
-                get_orchestrator_safe=lambda: None,
+                get_orchestrator_safe=lambda: orchestrator,
                 get_stock_price=lambda _ticker: price_payload,
                 get_company_news=lambda _ticker: [],
                 get_financial_statements=lambda _ticker: financials_payload,
                 get_financial_statements_summary=lambda _ticker: {},
                 get_stock_historical_data=lambda _ticker, **_kwargs: kline_payload or {"error": "history unavailable"},
                 detect_chart_type=None,
-                logger=_NoCache(),
+                logger=_Logger(),
+                get_us_quote=us_quote,
+                get_us_intraday=us_intraday,
             )
         )
     )
@@ -133,3 +161,69 @@ def test_cn_kline_uses_baostock_when_demo_disabled(monkeypatch):
     data = response.json()["data"]
     assert data["source"] == "baostock"
     assert data["values"][0] == [10, 11, 9, 12]
+
+
+def test_us_quote_uses_nasdaq_before_legacy_chain(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    us_quote = lambda _ticker: {
+            "name": "Western Digital Corporation",
+            "price": 539.02,
+            "change": 11.8,
+            "change_percent": 2.24,
+            "volume": 8_279_896,
+            "source": "nasdaq_quote",
+        }
+
+    with _build_client(price_payload=None, us_quote=us_quote) as client:
+        response = client.get("/api/quote/WDC")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["source"] == "nasdaq_quote"
+    assert data["price"] == 539.02
+
+
+def test_cached_quote_preserves_extended_market_fields(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    cached_quote = {
+        "name": "Western Digital Corporation",
+        "price": "539.02",
+        "change": "11.8",
+        "change_percent": "2.24",
+        "volume": 8_279_896,
+        "market_cap": 188_000_000_000,
+        "source": "nasdaq_quote",
+    }
+
+    with _build_client(orchestrator=_Orchestrator(cached_quote)) as client:
+        response = client.get("/api/quote/WDC")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cached"] is True
+    assert payload["data"]["price"] == 539.02
+    assert payload["data"]["name"] == "Western Digital Corporation"
+    assert payload["data"]["volume"] == 8_279_896
+    assert payload["data"]["market_cap"] == 188_000_000_000
+
+
+def test_us_kline_uses_real_nasdaq_intraday_without_fake_ohlc(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    us_intraday = lambda _ticker: {
+            "symbol": "WDC",
+            "line_data": [
+                {"time": "2026-08-04T13:30:00+00:00", "value": 538.5},
+                {"time": "2026-08-04T13:31:00+00:00", "value": 539.02},
+            ],
+            "chart_kind": "intraday_line",
+            "source": "nasdaq_intraday",
+        }
+
+    with _build_client(kline_payload={"error": "legacy chain should not be used"}, us_intraday=us_intraday) as client:
+        response = client.get("/api/kline/WDC")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["chart_kind"] == "intraday_line"
+    assert data["line_data"][1]["value"] == 539.02
+    assert "open" not in data["line_data"][0]

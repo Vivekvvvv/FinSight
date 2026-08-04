@@ -27,6 +27,7 @@ class _DummyResponse:
 
 def test_screen_stocks_uses_fallback_without_api_key(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    monkeypatch.setattr(screener, "nasdaq_screen_stocks", lambda **_kwargs: None)
 
     def _fail_yfinance(*_args, **_kwargs):
         raise AssertionError("US no-key screener should not wait on yfinance")
@@ -43,6 +44,7 @@ def test_screen_stocks_uses_fallback_without_api_key(monkeypatch):
 
 def test_screen_stocks_static_fallback_fills_first_page(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
+    monkeypatch.setattr(screener, "nasdaq_screen_stocks", lambda **_kwargs: None)
 
     result = screener.screen_stocks(market="US", filters={}, limit=20, page=1)
 

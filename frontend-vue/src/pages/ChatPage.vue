@@ -6,6 +6,7 @@ import { useIdentityStore } from '@/stores/identity';
 import ActionButton from '@/components/ActionButton.vue';
 import EvidencePanel from '@/components/EvidencePanel.vue';
 import ExecutionTracePanel from '@/components/ExecutionTracePanel.vue';
+import KlinePanel from '@/components/KlinePanel.vue';
 import StatusBanner from '@/components/StatusBanner.vue';
 import type { ChatStreamMessage, ExecutionTraceEvent } from '@/api/types';
 import { reportFriendlyError } from '@/utils/error';
@@ -150,7 +151,9 @@ function appendTrace(event: ExecutionTraceEvent) {
 
 function traceSummary(events?: ExecutionTraceEvent[] | null, running = false) {
   const list = events || [];
-  const done = list.filter((event) => event.status === 'done').length;
+  const done = list.filter((event) => (
+    event.status === 'done' || (!running && event.status !== 'error')
+  )).length;
   const errors = list.filter((event) => event.status === 'error').length;
   return {
     done,
@@ -171,6 +174,7 @@ async function send(text?: string): Promise<void> {
   seedTrace(query);
   const userMessage: ChatStreamMessage = { id: `user-${Date.now()}`, role: 'user', content: query, status: 'done' };
   const assistantMessage: ChatStreamMessage = { id: `assistant-${Date.now()}`, role: 'assistant', content: '', status: 'streaming', traceEvents: traceEvents.value };
+  let pendingContent = '';
   messages.value = [...messages.value, userMessage, assistantMessage];
   openTraceMessageId.value = assistantMessage.id;
   input.value = '';
@@ -183,18 +187,23 @@ async function send(text?: string): Promise<void> {
       options: { output_mode: outputMode.value },
     }, {
       onToken: async (token) => {
-        assistantMessage.content += token;
-        messages.value = [...messages.value];
-        await scrollToBottom();
+        pendingContent += token;
       },
       onEvent: (event) => {
         appendTrace(event);
         assistantMessage.traceEvents = traceEvents.value;
         messages.value = [...messages.value];
       },
-      onDone: (evidence) => {
+      onDone: (evidence, payload) => {
+        const finalPayload = payload && typeof payload === 'object'
+          ? payload as Record<string, unknown>
+          : null;
+        assistantMessage.content = pendingContent || String(finalPayload?.response || '');
         assistantMessage.status = 'done';
         assistantMessage.evidence = evidence;
+        traceEvents.value = traceEvents.value.map((event) => (
+          event.status === 'error' ? event : { ...event, status: 'done' }
+        ));
         appendTrace({
           id: `done-${Date.now()}`,
           type: 'done',
@@ -223,6 +232,9 @@ async function send(text?: string): Promise<void> {
         messages.value = [...messages.value];
       },
     }, { signal: streamAbort.signal });
+    if (assistantMessage.status === 'streaming') {
+      throw new Error('流式响应未正常完成');
+    }
   } catch (error) {
     assistantMessage.status = 'error';
     errorMsg.value = reportFriendlyError(error, 'AI 助手暂时无法完成请求，请稍后重试。');
@@ -327,6 +339,8 @@ onUnmounted(() => {
         </button>
       </div>
     </header>
+
+    <KlinePanel :symbol="activeSymbol" />
 
     <div class="chat-grid">
       <main class="page-card chat-thread">
@@ -439,7 +453,7 @@ onUnmounted(() => {
   height: calc(100dvh - 112px);
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 18px;
   overflow: hidden;
 }

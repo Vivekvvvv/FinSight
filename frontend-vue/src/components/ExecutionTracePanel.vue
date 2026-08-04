@@ -13,12 +13,19 @@ const props = withDefaults(defineProps<{
 
 const normalized = computed(() => props.events.map((event, index) => {
   const stage = event.stage || event.type || '';
+  const status = event.status === 'error'
+    ? 'error'
+    : !props.running
+      ? 'done'
+      : event.status === 'start'
+        ? 'running'
+        : event.status || (index === props.events.length - 1 ? 'running' : 'done');
   return {
     ...event,
     id: event.id || `${event.type}-${index}`,
     title: humanTitle(event),
     message: humanMessage(event),
-    status: event.status || (props.running && index === props.events.length - 1 ? 'running' : 'done'),
+    status,
     detail: humanDetail(event, stage),
   };
 }));
