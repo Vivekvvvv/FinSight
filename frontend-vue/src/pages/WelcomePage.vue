@@ -152,15 +152,31 @@ watch(() => identity.sessionId, () => { void refresh(); });
   <section class="page">
     <div class="today-hero page-card">
       <div class="hero-copy">
-        <p class="kicker">TODAY COMMAND CENTER</p>
+        <p class="kicker">
+          TODAY COMMAND CENTER
+        </p>
         <h2>你好，{{ userName }}</h2>
-        <p class="today-date">{{ todayStr }}</p>
-        <p v-if="workspace" class="today-summary">{{ workspace.summary }}</p>
+        <p class="today-date">
+          {{ todayStr }}
+        </p>
+        <p
+          v-if="workspace"
+          class="today-summary"
+        >
+          {{ workspace.summary }}
+        </p>
       </div>
       <div class="hero-actions">
-        <DataSourceBadge :evidence="workspaceEvidence" compact />
+        <DataSourceBadge
+          :evidence="workspaceEvidence"
+          compact
+        />
         <span class="live-dot">LIVE</span>
-        <button class="btn-refresh" :disabled="loading" @click="refresh">
+        <button
+          class="btn-refresh"
+          :disabled="loading"
+          @click="refresh"
+        >
           {{ loading ? '加载中...' : '刷新数据' }}
         </button>
       </div>
@@ -174,19 +190,37 @@ watch(() => identity.sessionId, () => { void refresh(); });
       @action="refresh"
     />
 
-    <LoadingState v-if="loading && !workspace" label="正在加载今日工作台..." />
+    <LoadingState
+      v-if="loading && !workspace"
+      label="正在加载今日工作台..."
+    />
 
     <template v-else-if="workspace">
-      <div class="panel task-panel" data-testid="daily-tasks-panel">
+      <div
+        class="panel task-panel"
+        data-testid="daily-tasks-panel"
+      >
         <div class="panel-header">
           <div>
-            <p class="kicker">TODAY TASKS</p>
-            <h2 class="panel-title">今日任务</h2>
+            <p class="kicker">
+              TODAY TASKS
+            </p>
+            <h2 class="panel-title">
+              今日任务
+            </h2>
           </div>
           <span class="panel-count">{{ dailyTasks.length }}</span>
         </div>
-        <div v-if="dailyTasks.length === 0" class="panel-empty">暂无任务。添加持仓或候选标的后，系统会生成研究复查动作。</div>
-        <div v-else class="tasks-grid">
+        <div
+          v-if="dailyTasks.length === 0"
+          class="panel-empty"
+        >
+          暂无任务。添加持仓或候选标的后，系统会生成研究复查动作。
+        </div>
+        <div
+          v-else
+          class="tasks-grid"
+        >
           <button
             v-for="task in dailyTasks.slice(0, 6)"
             :key="task.id"
@@ -203,66 +237,125 @@ watch(() => identity.sessionId, () => { void refresh(); });
         </div>
       </div>
 
-      <div v-if="whatChanged.length > 0" class="panel what-changed-panel" data-testid="what-changed-panel">
+      <div
+        v-if="whatChanged.length > 0"
+        class="panel what-changed-panel"
+        data-testid="what-changed-panel"
+      >
         <div class="panel-header">
           <div>
-            <p class="kicker">WHAT CHANGED</p>
-            <h2 class="panel-title">今日重要变化</h2>
+            <p class="kicker">
+              WHAT CHANGED
+            </p>
+            <h2 class="panel-title">
+              今日重要变化
+            </h2>
           </div>
           <span class="panel-subtitle">最需要关注的 {{ whatChanged.length }} 个变化</span>
         </div>
         <div class="what-changed-grid">
-          <WhatChangedCard v-for="item in whatChanged" :key="item.id" :item="item" />
+          <WhatChangedCard
+            v-for="item in whatChanged"
+            :key="item.id"
+            :item="item"
+          />
         </div>
       </div>
 
-      <div v-if="qualitySummary.total_reports > 0" class="panel quality-panel">
+      <div
+        v-if="qualitySummary.total_reports > 0"
+        class="panel quality-panel"
+      >
         <div class="panel-header">
           <div>
-            <p class="kicker">RESEARCH QUALITY</p>
-            <h2 class="panel-title">研究库健康度</h2>
+            <p class="kicker">
+              RESEARCH QUALITY
+            </p>
+            <h2 class="panel-title">
+              研究库健康度
+            </h2>
           </div>
-          <button class="panel-link" @click="router.push('/reports')">查看全部</button>
+          <button
+            class="panel-link"
+            @click="router.push('/reports')"
+          >
+            查看全部
+          </button>
         </div>
-        <ResearchQualityOverview :summary="qualitySummary" :top-issues="qualityIssues.slice(0, 3)" />
+        <ResearchQualityOverview
+          :summary="qualitySummary"
+          :top-issues="qualityIssues.slice(0, 3)"
+        />
       </div>
 
       <div class="panel portfolio-panel">
         <div class="panel-header">
           <div>
-            <p class="kicker">PORTFOLIO SNAPSHOT</p>
-            <h2 class="panel-title">持仓快照</h2>
+            <p class="kicker">
+              PORTFOLIO SNAPSHOT
+            </p>
+            <h2 class="panel-title">
+              持仓快照
+            </h2>
           </div>
-          <button class="panel-link" @click="router.push('/portfolio')">管理持仓</button>
+          <button
+            class="panel-link"
+            @click="router.push('/portfolio')"
+          >
+            管理持仓
+          </button>
         </div>
 
         <template v-if="workspace.portfolio_snapshot.position_count === 0">
           <div class="panel-empty">
             还没有持仓记录
-            <button class="link-btn" @click="router.push('/portfolio')">去录入</button>
+            <button
+              class="link-btn"
+              @click="router.push('/portfolio')"
+            >
+              去录入
+            </button>
           </div>
         </template>
 
         <template v-else>
           <div class="summary-cards">
             <div class="sum-card">
-              <div class="sum-label">持仓数量</div>
-              <div class="sum-val">{{ workspace.portfolio_snapshot.position_count }}</div>
+              <div class="sum-label">
+                持仓数量
+              </div>
+              <div class="sum-val">
+                {{ workspace.portfolio_snapshot.position_count }}
+              </div>
             </div>
             <div class="sum-card">
-              <div class="sum-label">总成本</div>
-              <div class="sum-val">${{ fmt(workspace.portfolio_snapshot.total_cost) }}</div>
+              <div class="sum-label">
+                总成本
+              </div>
+              <div class="sum-val">
+                ${{ fmt(workspace.portfolio_snapshot.total_cost) }}
+              </div>
             </div>
-            <div class="sum-card" :class="(workspace.portfolio_snapshot.total_pnl || 0) >= 0 ? 'gain' : 'loss'">
-              <div class="sum-label">总盈亏</div>
+            <div
+              class="sum-card"
+              :class="(workspace.portfolio_snapshot.total_pnl || 0) >= 0 ? 'gain' : 'loss'"
+            >
+              <div class="sum-label">
+                总盈亏
+              </div>
               <div class="sum-val">
                 {{ workspace.portfolio_snapshot.total_pnl == null ? '--' : (workspace.portfolio_snapshot.total_pnl >= 0 ? '+' : '') + '$' + fmt(workspace.portfolio_snapshot.total_pnl) }}
               </div>
             </div>
           </div>
 
-          <div v-if="workspace.portfolio_snapshot.risk_positions.length > 0" class="risk-section">
-            <div class="risk-title">持仓风险提示：亏损超过 5% 的标的</div>
+          <div
+            v-if="workspace.portfolio_snapshot.risk_positions.length > 0"
+            class="risk-section"
+          >
+            <div class="risk-title">
+              持仓风险提示：亏损超过 5% 的标的
+            </div>
             <div
               v-for="position in workspace.portfolio_snapshot.risk_positions.slice(0, 3)"
               :key="position.ticker"
@@ -270,7 +363,10 @@ watch(() => identity.sessionId, () => { void refresh(); });
               @click="router.push(`/dossier/${position.ticker}`)"
             >
               <span class="risk-ticker">{{ position.ticker }}</span>
-              <span v-if="position.name" class="risk-name">{{ position.name }}</span>
+              <span
+                v-if="position.name"
+                class="risk-name"
+              >{{ position.name }}</span>
               <span class="risk-pct">{{ riskPercent(position) }}</span>
             </div>
           </div>
@@ -280,14 +376,32 @@ watch(() => identity.sessionId, () => { void refresh(); });
       <div class="main-grid">
         <div class="panel">
           <div class="panel-header">
-            <h2 class="panel-title">自选清单</h2>
-            <button class="panel-link" @click="router.push('/stocks?tab=watchlist')">管理</button>
+            <h2 class="panel-title">
+              自选清单
+            </h2>
+            <button
+              class="panel-link"
+              @click="router.push('/stocks?tab=watchlist')"
+            >
+              管理
+            </button>
           </div>
-          <div v-if="workspace.watchlist_movers.length === 0" class="panel-empty">
+          <div
+            v-if="workspace.watchlist_movers.length === 0"
+            class="panel-empty"
+          >
             还没有自选标的
-            <button class="link-btn" @click="router.push('/stocks')">去添加</button>
+            <button
+              class="link-btn"
+              @click="router.push('/stocks')"
+            >
+              去添加
+            </button>
           </div>
-          <div v-else class="simple-list">
+          <div
+            v-else
+            class="simple-list"
+          >
             <div
               v-for="item in workspace.watchlist_movers.slice(0, 5)"
               :key="item.ticker"
@@ -295,7 +409,10 @@ watch(() => identity.sessionId, () => { void refresh(); });
               @click="router.push(`/dossier/${item.ticker}`)"
             >
               <span class="si-ticker">{{ item.ticker }}</span>
-              <span v-if="item.name" class="si-name">{{ item.name }}</span>
+              <span
+                v-if="item.name"
+                class="si-name"
+              >{{ item.name }}</span>
               <span class="si-arrow">打开</span>
             </div>
           </div>
@@ -303,27 +420,65 @@ watch(() => identity.sessionId, () => { void refresh(); });
 
         <div class="panel">
           <div class="panel-header">
-            <h2 class="panel-title">最新提醒</h2>
-            <button class="panel-link" @click="router.push('/welcome')">全部</button>
+            <h2 class="panel-title">
+              最新提醒
+            </h2>
+            <button
+              class="panel-link"
+              @click="router.push('/welcome')"
+            >
+              全部
+            </button>
           </div>
-          <div v-if="workspace.alert_feed.length === 0" class="panel-empty">暂无触发提醒</div>
-          <div v-for="event in workspace.alert_feed.slice(0, 4)" :key="event.id" class="alert-item">
+          <div
+            v-if="workspace.alert_feed.length === 0"
+            class="panel-empty"
+          >
+            暂无触发提醒
+          </div>
+          <div
+            v-for="event in workspace.alert_feed.slice(0, 4)"
+            :key="event.id"
+            class="alert-item"
+          >
             <span class="alert-ticker">{{ event.ticker }}</span>
             <div class="alert-body">
-              <div class="alert-title">{{ event.title }}</div>
-              <div class="alert-time">{{ fmtDate(event.triggered_at) }}</div>
+              <div class="alert-title">
+                {{ event.title }}
+              </div>
+              <div class="alert-time">
+                {{ fmtDate(event.triggered_at) }}
+              </div>
             </div>
-            <span class="alert-sev" :class="`sev-${event.severity}`">{{ event.severity }}</span>
+            <span
+              class="alert-sev"
+              :class="`sev-${event.severity}`"
+            >{{ event.severity }}</span>
           </div>
         </div>
 
         <div class="panel">
           <div class="panel-header">
-            <h2 class="panel-title">待复查报告</h2>
-            <button class="panel-link" @click="router.push('/reports')">报告库</button>
+            <h2 class="panel-title">
+              待复查报告
+            </h2>
+            <button
+              class="panel-link"
+              @click="router.push('/reports')"
+            >
+              报告库
+            </button>
           </div>
-          <div v-if="workspace.reports_to_review.length === 0" class="panel-empty">暂无需要复查的报告</div>
-          <div v-else class="report-list">
+          <div
+            v-if="workspace.reports_to_review.length === 0"
+            class="panel-empty"
+          >
+            暂无需要复查的报告
+          </div>
+          <div
+            v-else
+            class="report-list"
+          >
             <div
               v-for="report in workspace.reports_to_review.slice(0, 4)"
               :key="report.report_id"
@@ -332,10 +487,15 @@ watch(() => identity.sessionId, () => { void refresh(); });
             >
               <span class="rep-ticker">{{ report.ticker || '--' }}</span>
               <div class="rep-body">
-                <div class="rep-title">{{ report.title || `${report.report_id.slice(0, 20)}...` }}</div>
+                <div class="rep-title">
+                  {{ report.title || `${report.report_id.slice(0, 20)}...` }}
+                </div>
                 <div class="rep-meta">
                   <span v-if="report.as_of">{{ fmtDate(report.as_of) }}</span>
-                  <span v-if="report.review_status" class="rep-status">{{ report.review_status }}</span>
+                  <span
+                    v-if="report.review_status"
+                    class="rep-status"
+                  >{{ report.review_status }}</span>
                 </div>
               </div>
             </div>
@@ -346,13 +506,25 @@ watch(() => identity.sessionId, () => { void refresh(); });
       <div class="panel full-width">
         <div class="panel-header">
           <div>
-            <p class="kicker">NEXT ACTIONS</p>
-            <h2 class="panel-title">建议操作</h2>
+            <p class="kicker">
+              NEXT ACTIONS
+            </p>
+            <h2 class="panel-title">
+              建议操作
+            </h2>
           </div>
           <span class="panel-count">{{ workspace.next_actions.length }}</span>
         </div>
-        <div v-if="workspace.next_actions.length === 0" class="panel-empty">暂无操作建议</div>
-        <div v-else class="actions-grid">
+        <div
+          v-if="workspace.next_actions.length === 0"
+          class="panel-empty"
+        >
+          暂无操作建议
+        </div>
+        <div
+          v-else
+          class="actions-grid"
+        >
           <div
             v-for="action in workspace.next_actions.slice(0, 6)"
             :key="action.id"
@@ -360,10 +532,16 @@ watch(() => identity.sessionId, () => { void refresh(); });
             :class="`sev-${action.severity}`"
             @click="router.push(integratedRoute(action.target_route))"
           >
-            <div class="ac-icon">{{ severityIcons[action.severity] || 'GO' }}</div>
+            <div class="ac-icon">
+              {{ severityIcons[action.severity] || 'GO' }}
+            </div>
             <div class="ac-body">
-              <div class="ac-title">{{ action.title }}</div>
-              <div class="ac-reason">{{ action.reason }}</div>
+              <div class="ac-title">
+                {{ action.title }}
+              </div>
+              <div class="ac-reason">
+                {{ action.reason }}
+              </div>
             </div>
             <span class="ac-arrow">复查</span>
           </div>

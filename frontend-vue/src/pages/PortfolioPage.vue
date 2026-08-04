@@ -267,13 +267,31 @@ watch(() => identity.sessionId, () => { void refresh(); });
     <!-- 页头 -->
     <div class="page-header">
       <div class="header-left">
-        <h1 class="page-title">持仓组合</h1>
+        <h1 class="page-title">
+          持仓组合
+        </h1>
         <span class="badge-count">{{ positions.length }} 持仓</span>
       </div>
       <div class="header-right">
-        <button class="btn-secondary" @click="showImport = true">导入 CSV</button>
-        <button class="btn-add" @click="addExpanded = !addExpanded">{{ addExpanded ? '收起' : '+ 新增持仓' }}</button>
-        <ActionButton variant="ghost" :loading="loading" loading-text="刷新中..." aria-label="刷新持仓" @click="refresh">
+        <button
+          class="btn-secondary"
+          @click="showImport = true"
+        >
+          导入 CSV
+        </button>
+        <button
+          class="btn-add"
+          @click="addExpanded = !addExpanded"
+        >
+          {{ addExpanded ? '收起' : '+ 新增持仓' }}
+        </button>
+        <ActionButton
+          variant="ghost"
+          :loading="loading"
+          loading-text="刷新中..."
+          aria-label="刷新持仓"
+          @click="refresh"
+        >
           刷新
         </ActionButton>
       </div>
@@ -282,26 +300,47 @@ watch(() => identity.sessionId, () => { void refresh(); });
     <!-- 汇总卡片 -->
     <div class="summary-grid">
       <div class="summary-card">
-        <div class="summary-label">持仓成本</div>
-        <div class="summary-value">¥{{ fmt(totals.cost) }}</div>
+        <div class="summary-label">
+          持仓成本
+        </div>
+        <div class="summary-value">
+          ¥{{ fmt(totals.cost) }}
+        </div>
       </div>
       <div class="summary-card">
-        <div class="summary-label">当前市值</div>
-        <div class="summary-value">{{ totals.value == null ? '行情不可用' : '¥' + fmt(totals.value) }}</div>
+        <div class="summary-label">
+          当前市值
+        </div>
+        <div class="summary-value">
+          {{ totals.value == null ? '行情不可用' : '¥' + fmt(totals.value) }}
+        </div>
       </div>
-      <div class="summary-card" :class="{ gain: (totals.pnl ?? 0) > 0, loss: (totals.pnl ?? 0) < 0 }">
-        <div class="summary-label">总盈亏</div>
+      <div
+        class="summary-card"
+        :class="{ gain: (totals.pnl ?? 0) > 0, loss: (totals.pnl ?? 0) < 0 }"
+      >
+        <div class="summary-label">
+          总盈亏
+        </div>
         <div class="summary-value">
           {{ totals.pnl == null ? '—' : (totals.pnl >= 0 ? '+' : '') + '¥' + fmt(totals.pnl) }}
-          <span v-if="pnlPercent" class="pnl-pct">({{ totals.pnl! >= 0 ? '+' : '' }}{{ pnlPercent }}%)</span>
+          <span
+            v-if="pnlPercent"
+            class="pnl-pct"
+          >({{ totals.pnl! >= 0 ? '+' : '' }}{{ pnlPercent }}%)</span>
         </div>
       </div>
     </div>
 
-    <section class="tool-panel" data-testid="portfolio-tools">
+    <section
+      class="tool-panel"
+      data-testid="portfolio-tools"
+    >
       <div class="tool-panel-head">
         <div>
-          <p class="tool-kicker">PORTFOLIO TOOLS</p>
+          <p class="tool-kicker">
+            PORTFOLIO TOOLS
+          </p>
           <h2>组合工具</h2>
         </div>
         <span>风险透镜 / 组合优化 / 策略回测</span>
@@ -315,44 +354,99 @@ watch(() => identity.sessionId, () => { void refresh(); });
         >
           <strong>{{ tool.title }}</strong>
           <p>{{ tool.summary }}</p>
-          <ActionButton size="sm" @click="openTool(tool.key)">{{ tool.action }}</ActionButton>
+          <ActionButton
+            size="sm"
+            @click="openTool(tool.key)"
+          >
+            {{ tool.action }}
+          </ActionButton>
         </article>
       </div>
     </section>
 
     <!-- 添加持仓表单 -->
     <Transition name="slide-down">
-      <div v-if="addExpanded" class="add-card">
+      <div
+        v-if="addExpanded"
+        class="add-card"
+      >
         <div class="add-fields">
           <div class="field-wrap">
             <label class="field-label">股票代码 *</label>
-            <input v-model="editTicker" placeholder="AAPL" class="input">
+            <input
+              v-model="editTicker"
+              placeholder="AAPL"
+              class="input"
+            >
           </div>
           <div class="field-wrap">
             <label class="field-label">股数 *</label>
-            <input v-model="editShares" placeholder="100" class="input" type="number">
+            <input
+              v-model="editShares"
+              placeholder="100"
+              class="input"
+              type="number"
+            >
           </div>
           <div class="field-wrap">
             <label class="field-label">成本价（可选）</label>
-            <input v-model="editAvgCost" placeholder="182.50" class="input" type="number">
+            <input
+              v-model="editAvgCost"
+              placeholder="182.50"
+              class="input"
+              type="number"
+            >
           </div>
           <div class="field-wrap">
             <label class="field-label">名称（可选）</label>
-            <input v-model="editName" placeholder="苹果公司" class="input">
+            <input
+              v-model="editName"
+              placeholder="苹果公司"
+              class="input"
+            >
           </div>
         </div>
         <div class="add-actions">
-          <ActionButton :loading="savingNew" :disabled="loading" loading-text="保存中..." @click="() => save()">确认保存</ActionButton>
-          <button class="btn-cancel" @click="addExpanded = false">取消</button>
+          <ActionButton
+            :loading="savingNew"
+            :disabled="loading"
+            loading-text="保存中..."
+            @click="() => save()"
+          >
+            确认保存
+          </ActionButton>
+          <button
+            class="btn-cancel"
+            @click="addExpanded = false"
+          >
+            取消
+          </button>
         </div>
       </div>
     </Transition>
 
     <!-- 标签筛选 -->
-    <div v-if="allTags.length" class="tag-bar">
+    <div
+      v-if="allTags.length"
+      class="tag-bar"
+    >
       <span class="tag-bar-label">标签：</span>
-      <button v-for="tag in allTags" :key="tag" class="tag-chip" :class="{ active: activeTag === tag }" @click="toggleTag(tag)">{{ tag }}</button>
-      <button v-if="activeTag" class="tag-clear" @click="activeTag = null">✕ 清除</button>
+      <button
+        v-for="tag in allTags"
+        :key="tag"
+        class="tag-chip"
+        :class="{ active: activeTag === tag }"
+        @click="toggleTag(tag)"
+      >
+        {{ tag }}
+      </button>
+      <button
+        v-if="activeTag"
+        class="tag-clear"
+        @click="activeTag = null"
+      >
+        ✕ 清除
+      </button>
     </div>
 
     <StatusBanner
@@ -364,7 +458,11 @@ watch(() => identity.sessionId, () => { void refresh(); });
     />
 
     <!-- 加载骨架屏 -->
-    <SkeletonLoader v-if="loading && positions.length === 0" type="table" :rows="5" />
+    <SkeletonLoader
+      v-if="loading && positions.length === 0"
+      type="table"
+      :rows="5"
+    />
 
     <!-- 空态 -->
     <EmptyState
@@ -378,8 +476,15 @@ watch(() => identity.sessionId, () => { void refresh(); });
     />
 
     <!-- 持仓列表 -->
-    <ul v-else class="positions">
-      <li v-for="p in filteredPositions" :key="p.ticker" class="pos-card">
+    <ul
+      v-else
+      class="positions"
+    >
+      <li
+        v-for="p in filteredPositions"
+        :key="p.ticker"
+        class="pos-card"
+      >
         <!-- 内联编辑 -->
         <template v-if="editingTicker === p.ticker">
           <div class="edit-header">
@@ -387,18 +492,67 @@ watch(() => identity.sessionId, () => { void refresh(); });
             <span class="edit-badge">编辑中</span>
           </div>
           <div class="edit-grid">
-            <label class="edit-label">股数<input v-model="editForm.shares" type="number" class="input"></label>
-            <label class="edit-label">成本价<input v-model="editForm.avgCost" type="number" class="input" placeholder="可选"></label>
-            <label class="edit-label">名称<input v-model="editForm.name" class="input" placeholder="可选"></label>
-            <label class="edit-label">标签（分号）<input v-model="editForm.tags" class="input" placeholder="科技;美股"></label>
-            <label class="edit-label">行业<input v-model="editForm.sector" class="input" placeholder="科技/金融/消费"></label>
-            <label class="edit-label">币种<input v-model="editForm.currency" class="input" placeholder="USD/CNY/HKD"></label>
-            <label class="edit-label">开仓时间<input v-model="editForm.openedAt" type="date" class="input" placeholder="YYYY-MM-DD"></label>
+            <label class="edit-label">股数<input
+              v-model="editForm.shares"
+              type="number"
+              class="input"
+            ></label>
+            <label class="edit-label">成本价<input
+              v-model="editForm.avgCost"
+              type="number"
+              class="input"
+              placeholder="可选"
+            ></label>
+            <label class="edit-label">名称<input
+              v-model="editForm.name"
+              class="input"
+              placeholder="可选"
+            ></label>
+            <label class="edit-label">标签（分号）<input
+              v-model="editForm.tags"
+              class="input"
+              placeholder="科技;美股"
+            ></label>
+            <label class="edit-label">行业<input
+              v-model="editForm.sector"
+              class="input"
+              placeholder="科技/金融/消费"
+            ></label>
+            <label class="edit-label">币种<input
+              v-model="editForm.currency"
+              class="input"
+              placeholder="USD/CNY/HKD"
+            ></label>
+            <label class="edit-label">开仓时间<input
+              v-model="editForm.openedAt"
+              type="date"
+              class="input"
+              placeholder="YYYY-MM-DD"
+            ></label>
           </div>
-          <label class="edit-label full">备注<textarea v-model="editForm.note" class="input edit-note" rows="2" placeholder="可选" /></label>
+          <label class="edit-label full">备注<textarea
+            v-model="editForm.note"
+            class="input edit-note"
+            rows="2"
+            placeholder="可选"
+          /></label>
           <div class="edit-actions">
-          <ActionButton size="sm" :loading="savingEditTicker === p.ticker" :disabled="loading" loading-text="保存中..." @click="() => saveEdit(p.ticker)">保存</ActionButton>
-            <button class="btn-cancel" :disabled="savingEditTicker === p.ticker" @click="cancelEdit">取消</button>
+            <ActionButton
+              size="sm"
+              :loading="savingEditTicker === p.ticker"
+              :disabled="loading"
+              loading-text="保存中..."
+              @click="() => saveEdit(p.ticker)"
+            >
+              保存
+            </ActionButton>
+            <button
+              class="btn-cancel"
+              :disabled="savingEditTicker === p.ticker"
+              @click="cancelEdit"
+            >
+              取消
+            </button>
           </div>
         </template>
 
@@ -407,8 +561,17 @@ watch(() => identity.sessionId, () => { void refresh(); });
           <div class="pos-main">
             <div class="pos-info">
               <span class="pos-ticker">{{ p.ticker }}</span>
-              <span v-if="p.name" class="pos-name">{{ p.name }}</span>
-              <span v-for="tag in (p.tags || [])" :key="tag" class="wl-tag" :class="{ active: activeTag === tag }" @click="toggleTag(tag)">{{ tag }}</span>
+              <span
+                v-if="p.name"
+                class="pos-name"
+              >{{ p.name }}</span>
+              <span
+                v-for="tag in (p.tags || [])"
+                :key="tag"
+                class="wl-tag"
+                :class="{ active: activeTag === tag }"
+                @click="toggleTag(tag)"
+              >{{ tag }}</span>
               <DataSourceBadge
                 v-if="p.price_source"
                 label="价格源"
@@ -420,18 +583,87 @@ watch(() => identity.sessionId, () => { void refresh(); });
               />
             </div>
             <div class="pos-metrics">
-              <div class="metric"><div class="metric-label">持仓股数</div><div class="metric-val">{{ p.shares }}</div></div>
-              <div class="metric" v-if="p.avg_cost != null"><div class="metric-label">成本价</div><div class="metric-val">¥{{ p.avg_cost }}</div></div>
-              <div class="metric"><div class="metric-label">当前市值</div><div class="metric-val" :class="{ na: p.market_value == null }">{{ p.market_value == null ? '不可用' : '¥' + fmt(p.market_value) }}</div></div>
-              <div class="metric" v-if="p.sector"><div class="metric-label">行业</div><div class="metric-val">{{ p.sector }}</div></div>
-              <div class="metric" v-if="p.currency"><div class="metric-label">币种</div><div class="metric-val">{{ p.currency }}</div></div>
-              <div class="metric" v-if="p.opened_at"><div class="metric-label">开仓时间</div><div class="metric-val">{{ p.opened_at.slice(0, 10) }}</div></div>
+              <div class="metric">
+                <div class="metric-label">
+                  持仓股数
+                </div><div class="metric-val">
+                  {{ p.shares }}
+                </div>
+              </div>
+              <div
+                v-if="p.avg_cost != null"
+                class="metric"
+              >
+                <div class="metric-label">
+                  成本价
+                </div><div class="metric-val">
+                  ¥{{ p.avg_cost }}
+                </div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">
+                  当前市值
+                </div><div
+                  class="metric-val"
+                  :class="{ na: p.market_value == null }"
+                >
+                  {{ p.market_value == null ? '不可用' : '¥' + fmt(p.market_value) }}
+                </div>
+              </div>
+              <div
+                v-if="p.sector"
+                class="metric"
+              >
+                <div class="metric-label">
+                  行业
+                </div><div class="metric-val">
+                  {{ p.sector }}
+                </div>
+              </div>
+              <div
+                v-if="p.currency"
+                class="metric"
+              >
+                <div class="metric-label">
+                  币种
+                </div><div class="metric-val">
+                  {{ p.currency }}
+                </div>
+              </div>
+              <div
+                v-if="p.opened_at"
+                class="metric"
+              >
+                <div class="metric-label">
+                  开仓时间
+                </div><div class="metric-val">
+                  {{ p.opened_at.slice(0, 10) }}
+                </div>
+              </div>
             </div>
           </div>
-          <div v-if="p.note" class="pos-note">{{ p.note }}</div>
+          <div
+            v-if="p.note"
+            class="pos-note"
+          >
+            {{ p.note }}
+          </div>
           <div class="pos-actions">
-            <button class="btn-edit" @click="startEdit(p)">编辑</button>
-            <ActionButton size="sm" variant="danger" :loading="removingTicker === p.ticker" loading-text="移除中..." @click="() => remove(p.ticker)">移除</ActionButton>
+            <button
+              class="btn-edit"
+              @click="startEdit(p)"
+            >
+              编辑
+            </button>
+            <ActionButton
+              size="sm"
+              variant="danger"
+              :loading="removingTicker === p.ticker"
+              loading-text="移除中..."
+              @click="() => remove(p.ticker)"
+            >
+              移除
+            </ActionButton>
           </div>
         </template>
       </li>
@@ -439,30 +671,83 @@ watch(() => identity.sessionId, () => { void refresh(); });
 
     <!-- CSV 导入 Modal -->
     <Teleport to="body">
-      <div v-if="showImport" class="modal-backdrop" @click.self="closeImport">
+      <div
+        v-if="showImport"
+        class="modal-backdrop"
+        @click.self="closeImport"
+      >
         <div class="modal">
           <div class="modal-head">
-            <h2 class="modal-title">导入 CSV</h2>
-            <button class="modal-close" @click="closeImport">✕</button>
+            <h2 class="modal-title">
+              导入 CSV
+            </h2>
+            <button
+              class="modal-close"
+              @click="closeImport"
+            >
+              ✕
+            </button>
           </div>
-          <p class="modal-hint">格式：<code>ticker,shares,avg_cost,name,tags,note</code>（后四列可选，tags 用分号分隔）</p>
+          <p class="modal-hint">
+            格式：<code>ticker,shares,avg_cost,name,tags,note</code>（后四列可选，tags 用分号分隔）
+          </p>
           <div class="file-row">
-            <label class="file-label">选择文件<input ref="csvFile" type="file" accept=".csv,.txt" class="file-input" @change="onFileChange"></label>
+            <label class="file-label">选择文件<input
+              ref="csvFile"
+              type="file"
+              accept=".csv,.txt"
+              class="file-input"
+              @change="onFileChange"
+            ></label>
             <span class="file-hint">或直接粘贴到下方</span>
           </div>
-          <textarea v-model="csvText" class="csv-area" placeholder="AAPL,10,182.5,苹果,科技;美股&#10;TSLA,5,220" rows="6" />
-          <ActionButton :disabled="!csvText.trim() || importingCsv" @click="parseCsv">解析预览</ActionButton>
-          <div v-if="csvParsed" class="preview">
-            <p class="preview-stat">共 {{ csvRows.length }} 行 — <span class="ok">{{ csvValidRows.length }} 可导入</span><span v-if="csvErrorRows.length" class="fail"> · {{ csvErrorRows.length }} 错误</span></p>
+          <textarea
+            v-model="csvText"
+            class="csv-area"
+            placeholder="AAPL,10,182.5,苹果,科技;美股&#10;TSLA,5,220"
+            rows="6"
+          />
+          <ActionButton
+            :disabled="!csvText.trim() || importingCsv"
+            @click="parseCsv"
+          >
+            解析预览
+          </ActionButton>
+          <div
+            v-if="csvParsed"
+            class="preview"
+          >
+            <p class="preview-stat">
+              共 {{ csvRows.length }} 行 — <span class="ok">{{ csvValidRows.length }} 可导入</span><span
+                v-if="csvErrorRows.length"
+                class="fail"
+              > · {{ csvErrorRows.length }} 错误</span>
+            </p>
             <ul class="preview-list">
-              <li v-for="(row, i) in csvRows" :key="i" :class="row.error ? 'row-err' : 'row-ok'">
+              <li
+                v-for="(row, i) in csvRows"
+                :key="i"
+                :class="row.error ? 'row-err' : 'row-ok'"
+              >
                 <span v-if="row.error">⚠ {{ row.error }}</span>
                 <span v-else>✓ {{ row.ticker }} · {{ row.shares }} 股{{ row.avg_cost != null ? ` · 成本 ${row.avg_cost}` : '' }}</span>
               </li>
             </ul>
             <div class="modal-actions">
-              <ActionButton :disabled="!csvValidRows.length" :loading="importingCsv" loading-text="导入中..." @click="() => confirmImport()">确认导入 {{ csvValidRows.length }} 条</ActionButton>
-              <button class="btn-cancel" @click="closeImport">取消</button>
+              <ActionButton
+                :disabled="!csvValidRows.length"
+                :loading="importingCsv"
+                loading-text="导入中..."
+                @click="() => confirmImport()"
+              >
+                确认导入 {{ csvValidRows.length }} 条
+              </ActionButton>
+              <button
+                class="btn-cancel"
+                @click="closeImport"
+              >
+                取消
+              </button>
             </div>
           </div>
         </div>

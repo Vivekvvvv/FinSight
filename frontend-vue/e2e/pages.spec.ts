@@ -359,6 +359,34 @@ test('报告库空状态给出明确入口', async ({ page }) => {
   await expect(page.getByRole('button', { name: '前往 AI 助手' })).toBeVisible();
 });
 
+test('Markdown 预览不会执行或注入不可信内容', async ({ page }) => {
+  await page.goto('/notes');
+
+  await page.evaluate(() => {
+    (window as Window & { markdownPreviewExecuted?: boolean }).markdownPreviewExecuted = false;
+  });
+
+  const payload = [
+    '<script>window.markdownPreviewExecuted = true</script>',
+    '<img src=x onerror="window.markdownPreviewExecuted = true">',
+    '[unsafe](javascript:window.markdownPreviewExecuted=true)',
+    '[quoted](https://example.com/&quot; onmouseover=&quot;window.markdownPreviewExecuted=true)',
+  ].join('\n\n');
+
+  await page.getByPlaceholder('记录你的假设、证据、反证和下一步验证动作…').fill(payload);
+  await page.locator('.markdown-editor .toolbar-btn').last().click();
+
+  const preview = page.locator('.markdown-editor .preview-pane');
+  await expect(preview).toBeVisible();
+  await expect(preview.locator('script')).toHaveCount(0);
+  await expect(preview.locator('[onerror], [onmouseover]')).toHaveCount(0);
+  await expect(preview.locator('a[href^="javascript:"]')).toHaveCount(0);
+  await expect(preview.locator('a').first()).toHaveAttribute('href', '#');
+  await expect.poll(() => page.evaluate(
+    () => Boolean((window as Window & { markdownPreviewExecuted?: boolean }).markdownPreviewExecuted),
+  )).toBe(false);
+});
+
 test('组合管理空持仓状态可直接添加或导入', async ({ page }) => {
   await page.route('**/api/portfolio/summary**', (route) =>
     json(route, { success: true, session_id: SESSION_ID, count: 0, positions: [], total_value: 0, total_cost: 0, total_pnl: 0 }));

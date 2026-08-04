@@ -445,11 +445,16 @@ watch(displayedItems, () => {
   <section class="stocks-page">
     <div class="hero page-card">
       <div>
-        <p class="kicker">STOCK DISCOVERY</p>
+        <p class="kicker">
+          STOCK DISCOVERY
+        </p>
         <h2>股票发现中心</h2>
         <p>从市场筛选可研究标的，一键加入自选、创建研究笔记或进入档案；这里只提供研究入口，不提供买卖建议。</p>
       </div>
-      <DataSourceBadge class="hero-source" :evidence="screenerEvidence" />
+      <DataSourceBadge
+        class="hero-source"
+        :evidence="screenerEvidence"
+      />
       <div class="hero-stat">
         <strong>{{ displayedItems.length }}</strong>
         <span>当前候选</span>
@@ -457,31 +462,55 @@ watch(displayedItems, () => {
     </div>
 
     <section class="filters page-card">
-      <div class="market-tabs" aria-label="市场切换">
-        <button v-for="m in markets" :key="m" :class="{ active: market === m }" @click="selectMarket(m)">
+      <div
+        class="market-tabs"
+        aria-label="市场切换"
+      >
+        <button
+          v-for="m in markets"
+          :key="m"
+          :class="{ active: market === m }"
+          @click="selectMarket(m)"
+        >
           {{ m }}
         </button>
       </div>
       <label>
         搜索
-        <input v-model="query" placeholder="代码、名称、行业">
+        <input
+          v-model="query"
+          placeholder="代码、名称、行业"
+        >
       </label>
       <label>
         排序
-        <select v-model="sortBy" @change="run">
-          <option v-for="opt in sortOptions" :key="opt" :value="opt">{{ opt }}</option>
+        <select
+          v-model="sortBy"
+          @change="run"
+        >
+          <option
+            v-for="opt in sortOptions"
+            :key="opt"
+            :value="opt"
+          >{{ opt }}</option>
         </select>
       </label>
       <label>
         顺序
-        <select v-model="sortOrder" @change="run">
+        <select
+          v-model="sortOrder"
+          @change="run"
+        >
           <option value="desc">从高到低</option>
           <option value="asc">从低到高</option>
         </select>
       </label>
       <label>
         数量
-        <select v-model.number="limit" @change="run">
+        <select
+          v-model.number="limit"
+          @change="run"
+        >
           <option :value="10">10</option>
           <option :value="20">20</option>
           <option :value="50">50</option>
@@ -491,25 +520,66 @@ watch(displayedItems, () => {
       </label>
       <label>
         最小市值
-        <input v-model="minMarketCap" inputmode="numeric" placeholder="如 10000000000" @keyup.enter="run">
+        <input
+          v-model="minMarketCap"
+          inputmode="numeric"
+          placeholder="如 10000000000"
+          @keyup.enter="run"
+        >
       </label>
       <label>
         价格区间
         <div class="range-fields">
-          <input v-model="minPrice" inputmode="decimal" placeholder="最低" @keyup.enter="run">
-          <input v-model="maxPrice" inputmode="decimal" placeholder="最高" @keyup.enter="run">
+          <input
+            v-model="minPrice"
+            inputmode="decimal"
+            placeholder="最低"
+            @keyup.enter="run"
+          >
+          <input
+            v-model="maxPrice"
+            inputmode="decimal"
+            placeholder="最高"
+            @keyup.enter="run"
+          >
         </div>
       </label>
       <label>
         最小成交量
-        <input v-model="minVolume" inputmode="numeric" placeholder="如 1000000" @keyup.enter="run">
+        <input
+          v-model="minVolume"
+          inputmode="numeric"
+          placeholder="如 1000000"
+          @keyup.enter="run"
+        >
       </label>
-      <ActionButton :loading="loading" loading-text="筛选中..." @click="run">运行筛选</ActionButton>
+      <ActionButton
+        :loading="loading"
+        loading-text="筛选中..."
+        @click="run"
+      >
+        运行筛选
+      </ActionButton>
     </section>
 
-    <p v-if="response?.capability_note" class="notice">{{ response.capability_note }}</p>
-    <p v-if="response?.warning" class="notice warn">覆盖提示：{{ warningLabel(response.warning) }}</p>
-    <p v-if="actionMsg" class="notice success">{{ actionMsg }}</p>
+    <p
+      v-if="response?.capability_note"
+      class="notice"
+    >
+      {{ response.capability_note }}
+    </p>
+    <p
+      v-if="response?.warning"
+      class="notice warn"
+    >
+      覆盖提示：{{ warningLabel(response.warning) }}
+    </p>
+    <p
+      v-if="actionMsg"
+      class="notice success"
+    >
+      {{ actionMsg }}
+    </p>
     <StatusBanner
       v-if="errorMsg"
       variant="error"
@@ -518,7 +588,10 @@ watch(displayedItems, () => {
       @dismiss="errorMsg = null"
     />
 
-    <LoadingState v-if="loading && displayedItems.length === 0" label="正在筛选候选股票..." />
+    <LoadingState
+      v-if="loading && displayedItems.length === 0"
+      label="正在筛选候选股票..."
+    />
     <EmptyState
       v-else-if="displayedItems.length === 0"
       title="暂无候选股票"
@@ -526,14 +599,22 @@ watch(displayedItems, () => {
       compact
     />
 
-    <section v-else class="results-shell">
+    <section
+      v-else
+      class="results-shell"
+    >
       <div class="results-head page-card">
         <div>
-          <p class="kicker">RESULTS</p>
+          <p class="kicker">
+            RESULTS
+          </p>
           <h3>候选列表</h3>
           <span>显示 {{ pageStart }}-{{ pageEnd }} / {{ displayedItems.length }}，减少长页面滚动。</span>
         </div>
-        <div class="pager" aria-label="候选股票分页">
+        <div
+          class="pager"
+          aria-label="候选股票分页"
+        >
           <label class="page-size">
             每页
             <select v-model.number="pageSize">
@@ -542,14 +623,30 @@ watch(displayedItems, () => {
               <option :value="12">12</option>
             </select>
           </label>
-          <button type="button" :disabled="currentPage <= 1" @click="prevPage">上一页</button>
+          <button
+            type="button"
+            :disabled="currentPage <= 1"
+            @click="prevPage"
+          >
+            上一页
+          </button>
           <strong>第 {{ currentPage }} / {{ totalPages }} 页</strong>
-          <button type="button" :disabled="currentPage >= totalPages" @click="nextPage">下一页</button>
+          <button
+            type="button"
+            :disabled="currentPage >= totalPages"
+            @click="nextPage"
+          >
+            下一页
+          </button>
         </div>
       </div>
 
       <div class="stock-grid">
-        <article v-for="item in pagedItems" :key="item.symbol" class="stock-card page-card">
+        <article
+          v-for="item in pagedItems"
+          :key="item.symbol"
+          class="stock-card page-card"
+        >
           <div class="stock-head">
             <div>
               <span class="symbol">{{ item.symbol }}</span>
@@ -571,111 +668,239 @@ watch(displayedItems, () => {
             <div><span>Beta</span><strong>{{ money(item.beta) }}</strong></div>
           </div>
           <div class="actions">
-            <button :disabled="addedWatchlist.has(item.symbol)" @click="addToWatchlist(item)">
+            <button
+              :disabled="addedWatchlist.has(item.symbol)"
+              @click="addToWatchlist(item)"
+            >
               {{ addedWatchlist.has(item.symbol) ? '已加入' : '加入自选' }}
             </button>
-            <button class="ghost" @click="goDossier(item.symbol)">查看分析</button>
-            <button class="ghost" @click="addWatchlistAndNote(item)">自选+笔记</button>
-            <button class="ghost" @click="openImport(item)">持仓</button>
-            <button class="ghost" @click="addToCompare(item)">对比</button>
+            <button
+              class="ghost"
+              @click="goDossier(item.symbol)"
+            >
+              查看分析
+            </button>
+            <button
+              class="ghost"
+              @click="addWatchlistAndNote(item)"
+            >
+              自选+笔记
+            </button>
+            <button
+              class="ghost"
+              @click="openImport(item)"
+            >
+              持仓
+            </button>
+            <button
+              class="ghost"
+              @click="addToCompare(item)"
+            >
+              对比
+            </button>
           </div>
         </article>
       </div>
     </section>
 
-    <section v-if="displayedItems.length" class="workflow-bar page-card">
+    <section
+      v-if="displayedItems.length"
+      class="workflow-bar page-card"
+    >
       <div>
-        <p class="kicker">RESEARCH WORKFLOW</p>
+        <p class="kicker">
+          RESEARCH WORKFLOW
+        </p>
         <h3>候选池批量动作</h3>
         <span>把当前筛选结果转成可复查的研究资产，而不是交易建议。</span>
       </div>
-      <ActionButton :loading="batchBusy" loading-text="处理中..." @click="batchAddWatchlist">
+      <ActionButton
+        :loading="batchBusy"
+        loading-text="处理中..."
+        @click="batchAddWatchlist"
+      >
         批量加入发现池
       </ActionButton>
-      <ActionButton variant="secondary" :disabled="batchBusy" @click="batchCreateNotes">
+      <ActionButton
+        variant="secondary"
+        :disabled="batchBusy"
+        @click="batchCreateNotes"
+      >
         批量创建初始笔记
       </ActionButton>
     </section>
 
-    <section v-if="compareBasket.length" class="compare-basket page-card">
+    <section
+      v-if="compareBasket.length"
+      class="compare-basket page-card"
+    >
       <div>
-        <p class="kicker">COMPARE BASKET</p>
+        <p class="kicker">
+          COMPARE BASKET
+        </p>
         <h3>对比篮子</h3>
       </div>
-      <button v-for="item in compareBasket" :key="item.symbol" type="button" @click="goDossier(item.symbol)">
+      <button
+        v-for="item in compareBasket"
+        :key="item.symbol"
+        type="button"
+        @click="goDossier(item.symbol)"
+      >
         {{ item.symbol }}
       </button>
     </section>
 
     <section class="market-tools page-card">
-      <button class="tools-head" type="button" @click="showChinaTools = !showChinaTools">
+      <button
+        class="tools-head"
+        type="button"
+        @click="showChinaTools = !showChinaTools"
+      >
         <span>
           <strong>A股市场工具</strong>
           <em>龙虎榜、北向资金、融资融券已下沉为辅助入口</em>
         </span>
         <b>{{ showChinaTools ? '收起' : '展开' }}</b>
       </button>
-      <div v-if="showChinaTools" class="tools-grid">
-        <button type="button" :class="{ active: activeMarketTool === 'top-list' }" @click="activateMarketTool('top-list')">
+      <div
+        v-if="showChinaTools"
+        class="tools-grid"
+      >
+        <button
+          type="button"
+          :class="{ active: activeMarketTool === 'top-list' }"
+          @click="activateMarketTool('top-list')"
+        >
           <strong>龙虎榜异动</strong>
           <span>用于发现短期异动候选，后续进入标的研究复查。</span>
         </button>
-        <button type="button" :class="{ active: activeMarketTool === 'north-flow' }" @click="activateMarketTool('north-flow')">
+        <button
+          type="button"
+          :class="{ active: activeMarketTool === 'north-flow' }"
+          @click="activateMarketTool('north-flow')"
+        >
           <strong>北向资金</strong>
           <span>作为市场情绪背景，不单独占据主导航。</span>
         </button>
-        <button type="button" :class="{ active: activeMarketTool === 'margin' }" @click="activateMarketTool('margin')">
+        <button
+          type="button"
+          :class="{ active: activeMarketTool === 'margin' }"
+          @click="activateMarketTool('margin')"
+        >
           <strong>融资融券</strong>
           <span>用于观察杠杆变化，结论沉淀到报告或笔记。</span>
         </button>
       </div>
-      <div v-if="activeMarketTool" class="tool-detail">
+      <div
+        v-if="activeMarketTool"
+        class="tool-detail"
+      >
         <div class="tool-detail-head">
           <div>
-            <p class="kicker">A-SHARE TOOL</p>
+            <p class="kicker">
+              A-SHARE TOOL
+            </p>
             <h3>{{ activeToolTitle }}</h3>
           </div>
-          <label v-if="activeMarketTool !== 'north-flow'" class="tool-symbol">
+          <label
+            v-if="activeMarketTool !== 'north-flow'"
+            class="tool-symbol"
+          >
             A股代码
-            <input v-model="marketToolTicker" placeholder="如 600519.SS" @keyup.enter="loadMarketTool">
+            <input
+              v-model="marketToolTicker"
+              placeholder="如 600519.SS"
+              @keyup.enter="loadMarketTool"
+            >
           </label>
-          <ActionButton :loading="marketToolLoading" loading-text="加载中..." @click="loadMarketTool">
+          <ActionButton
+            :loading="marketToolLoading"
+            loading-text="加载中..."
+            @click="loadMarketTool"
+          >
             刷新工具数据
           </ActionButton>
         </div>
-        <StatusBanner v-if="marketToolError" variant="warning" :message="marketToolError" />
-        <LoadingState v-else-if="marketToolLoading" :label="`正在读取 ${activeToolTitle} 数据...`" compact />
-        <div v-else-if="marketToolData" class="tool-metrics">
-          <div v-for="field in marketToolFields" :key="String(field[0])">
+        <StatusBanner
+          v-if="marketToolError"
+          variant="warning"
+          :message="marketToolError"
+        />
+        <LoadingState
+          v-else-if="marketToolLoading"
+          :label="`正在读取 ${activeToolTitle} 数据...`"
+          compact
+        />
+        <div
+          v-else-if="marketToolData"
+          class="tool-metrics"
+        >
+          <div
+            v-for="field in marketToolFields"
+            :key="String(field[0])"
+          >
             <span>{{ field[0] }}</span>
             <strong>{{ displayToolValue(field[1]) }}</strong>
           </div>
         </div>
-        <EmptyState v-else title="选择工具后会在这里显示结果" hint="选择上方工具并点击刷新，不会跳转到新页面。" compact />
+        <EmptyState
+          v-else
+          title="选择工具后会在这里显示结果"
+          hint="选择上方工具并点击刷新，不会跳转到新页面。"
+          compact
+        />
       </div>
     </section>
 
-    <div v-if="importing" class="modal-backdrop" @click.self="importing = null">
+    <div
+      v-if="importing"
+      class="modal-backdrop"
+      @click.self="importing = null"
+    >
       <section class="import-modal page-card">
         <div class="modal-head">
           <div>
-            <p class="kicker">IMPORT POSITION</p>
+            <p class="kicker">
+              IMPORT POSITION
+            </p>
             <h3>导入 {{ importing.symbol }} 到持仓</h3>
           </div>
-          <button class="icon-btn" @click="importing = null">×</button>
+          <button
+            class="icon-btn"
+            @click="importing = null"
+          >
+            ×
+          </button>
         </div>
-        <p class="modal-copy">持仓导入需要你确认数量和成本价；FinSight 只记录研究资产，不提供交易指令。</p>
+        <p class="modal-copy">
+          持仓导入需要你确认数量和成本价；FinSight 只记录研究资产，不提供交易指令。
+        </p>
         <label>
           数量
-          <input v-model="importShares" inputmode="decimal">
+          <input
+            v-model="importShares"
+            inputmode="decimal"
+          >
         </label>
         <label>
           成本价
-          <input v-model="importAvgCost" inputmode="decimal">
+          <input
+            v-model="importAvgCost"
+            inputmode="decimal"
+          >
         </label>
         <div class="modal-actions">
-          <button class="secondary" @click="importing = null">取消</button>
-          <button class="primary" :disabled="importBusy" @click="confirmImport">
+          <button
+            class="secondary"
+            @click="importing = null"
+          >
+            取消
+          </button>
+          <button
+            class="primary"
+            :disabled="importBusy"
+            @click="confirmImport"
+          >
             {{ importBusy ? '导入中...' : '确认导入' }}
           </button>
         </div>

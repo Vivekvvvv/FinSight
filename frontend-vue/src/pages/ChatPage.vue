@@ -294,14 +294,19 @@ onUnmounted(() => {
   <section class="chat-page">
     <header class="page-card chat-hero">
       <div>
-        <p class="kicker">RESEARCH COPILOT</p>
+        <p class="kicker">
+          RESEARCH COPILOT
+        </p>
         <h2>对话式研究与报告生成</h2>
         <p>当前模式：{{ modeLabel }}。输出报告、复查风险、解释证据变化；右侧实时展示执行过程。</p>
       </div>
       <div class="controls">
         <label>
           标的
-          <input v-model="activeSymbol" placeholder="AAPL">
+          <input
+            v-model="activeSymbol"
+            placeholder="AAPL"
+          >
         </label>
         <label>
           输出模式
@@ -311,31 +316,60 @@ onUnmounted(() => {
             <option value="investment_report">深度报告</option>
           </select>
         </label>
-        <button @click="exportMarkdown">导出 MD</button>
-        <button v-if="messages.length > 1" @click="clearChat">清空</button>
+        <button @click="exportMarkdown">
+          导出 MD
+        </button>
+        <button
+          v-if="messages.length > 1"
+          @click="clearChat"
+        >
+          清空
+        </button>
       </div>
     </header>
 
     <div class="chat-grid">
       <main class="page-card chat-thread">
-        <div ref="threadEl" class="thread-scroll">
-          <article v-for="item in messages" :key="item.id" class="message" :class="item.role">
-            <div class="avatar">{{ item.role === 'user' ? 'YOU' : 'AI' }}</div>
+        <div
+          ref="threadEl"
+          class="thread-scroll"
+        >
+          <article
+            v-for="item in messages"
+            :key="item.id"
+            class="message"
+            :class="item.role"
+          >
+            <div class="avatar">
+              {{ item.role === 'user' ? 'YOU' : 'AI' }}
+            </div>
             <div class="message-body">
               <div class="message-meta">
                 <strong>{{ item.role === 'user' ? identity.email || '研究员' : 'FinSight' }}</strong>
-                <span v-if="item.status === 'streaming'" class="running">
+                <span
+                  v-if="item.status === 'streaming'"
+                  class="running"
+                >
                   <span class="thinking-dots">思考中</span>
                 </span>
-                <span v-if="item.status === 'error'" class="failed">失败</span>
+                <span
+                  v-if="item.status === 'error'"
+                  class="failed"
+                >失败</span>
               </div>
-              <pre class="bubble-body">{{ item.content || (item.status === 'streaming' ? '' : '') }}<span v-if="item.status === 'streaming'" class="cursor-blink">|</span></pre>
+              <pre class="bubble-body">{{ item.content || (item.status === 'streaming' ? '' : '') }}<span
+                v-if="item.status === 'streaming'"
+                class="cursor-blink"
+              >|</span></pre>
               <EvidencePanel
                 v-if="item.role === 'assistant' && item.status === 'done' && item.evidence"
                 v-bind="item.evidence"
                 compact
               />
-              <div v-if="item.role === 'assistant' && item.traceEvents?.length" class="inline-trace">
+              <div
+                v-if="item.role === 'assistant' && item.traceEvents?.length"
+                class="inline-trace"
+              >
                 <button
                   class="trace-toggle"
                   type="button"
@@ -356,8 +390,18 @@ onUnmounted(() => {
           </article>
         </div>
 
-        <div v-if="messages.length <= 1" class="suggestions">
-          <button v-for="item in suggestions" :key="item" :disabled="sending" @click="send(item)">{{ item }}</button>
+        <div
+          v-if="messages.length <= 1"
+          class="suggestions"
+        >
+          <button
+            v-for="item in suggestions"
+            :key="item"
+            :disabled="sending"
+            @click="send(item)"
+          >
+            {{ item }}
+          </button>
         </div>
 
         <StatusBanner
@@ -375,12 +419,16 @@ onUnmounted(() => {
             @keydown.ctrl.enter.prevent="send()"
             @keydown.meta.enter.prevent="send()"
           />
-          <ActionButton :disabled="!input.trim()" :loading="sending" loading-text="执行中..." @click="send()">
+          <ActionButton
+            :disabled="!input.trim()"
+            :loading="sending"
+            loading-text="执行中..."
+            @click="send()"
+          >
             发送研究任务
           </ActionButton>
         </footer>
       </main>
-
     </div>
   </section>
 </template>

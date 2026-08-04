@@ -188,41 +188,84 @@ const previewHtml = computed(() => {
 <template>
   <div class="markdown-editor">
     <!-- 工具栏 -->
-    <div v-if="!readonly" class="toolbar">
-      <button @click="insertBold" class="toolbar-btn" title="粗体">
+    <div
+      v-if="!readonly"
+      class="toolbar"
+    >
+      <button
+        class="toolbar-btn"
+        title="粗体"
+        @click="insertBold"
+      >
         <strong>B</strong>
       </button>
-      <button @click="insertItalic" class="toolbar-btn" title="斜体">
+      <button
+        class="toolbar-btn"
+        title="斜体"
+        @click="insertItalic"
+      >
         <em>I</em>
       </button>
-      <button @click="insertHeading" class="toolbar-btn" title="标题">
+      <button
+        class="toolbar-btn"
+        title="标题"
+        @click="insertHeading"
+      >
         H
       </button>
-      <span class="toolbar-sep"></span>
-      <button @click="insertList" class="toolbar-btn" title="列表">
+      <span class="toolbar-sep" />
+      <button
+        class="toolbar-btn"
+        title="列表"
+        @click="insertList"
+      >
         •
       </button>
-      <button @click="insertLink" class="toolbar-btn" title="链接">
+      <button
+        class="toolbar-btn"
+        title="链接"
+        @click="insertLink"
+      >
         🔗
       </button>
-      <button @click="insertCode" class="toolbar-btn" title="代码">
+      <button
+        class="toolbar-btn"
+        title="代码"
+        @click="insertCode"
+      >
         &lt;/&gt;
       </button>
-      <button @click="insertCodeBlock" class="toolbar-btn" title="代码块">
+      <button
+        class="toolbar-btn"
+        title="代码块"
+        @click="insertCodeBlock"
+      >
         { }
       </button>
-      <span class="toolbar-sep"></span>
-      <button @click="triggerImageUpload" class="toolbar-btn" title="上传图片">
+      <span class="toolbar-sep" />
+      <button
+        class="toolbar-btn"
+        title="上传图片"
+        @click="triggerImageUpload"
+      >
         🖼️
       </button>
-      <span class="toolbar-sep"></span>
-      <button @click="showPreview = !showPreview" class="toolbar-btn" :class="{ active: showPreview }" title="预览">
+      <span class="toolbar-sep" />
+      <button
+        class="toolbar-btn"
+        :class="{ active: showPreview }"
+        title="预览"
+        @click="showPreview = !showPreview"
+      >
         👁️
       </button>
     </div>
 
     <!-- 编辑区 -->
-    <div class="editor-container" :class="{ 'split-view': showPreview }">
+    <div
+      class="editor-container"
+      :class="{ 'split-view': showPreview }"
+    >
       <textarea
         ref="textarea"
         v-model="localContent"
@@ -232,10 +275,16 @@ const previewHtml = computed(() => {
         @drop="handleDrop"
         @dragover="handleDragOver"
         @paste="handlePaste"
-      ></textarea>
+      />
 
       <!-- 预览区 -->
-      <div v-if="showPreview" class="preview-pane" v-html="previewHtml"></div>
+      <!-- eslint-disable vue/no-v-html -- previewHtml escapes all input before adding fixed markup and allowlisted URLs. -->
+      <div
+        v-if="showPreview"
+        class="preview-pane"
+        v-html="previewHtml"
+      />
+      <!-- eslint-enable vue/no-v-html -->
     </div>
   </div>
 </template>

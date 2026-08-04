@@ -64,7 +64,11 @@ function fillDemo(role: 'admin' | 'user') {
   <main class="login-terminal">
     <section class="hero-panel">
       <div class="brand-row">
-        <img src="/logo.svg" alt="FinSight" class="login-logo">
+        <img
+          src="/logo.svg"
+          alt="FinSight"
+          class="login-logo"
+        >
         <div>
           <strong>FinSight</strong>
           <span>Research Terminal</span>
@@ -78,7 +82,9 @@ function fillDemo(role: 'admin' | 'user') {
       </div>
 
       <div class="hero-copy">
-        <p class="eyebrow">Evidence-driven financial research</p>
+        <p class="eyebrow">
+          Evidence-driven financial research
+        </p>
         <h1>把市场、持仓、报告和证据压缩成每天能行动的研究工作台。</h1>
         <p class="subcopy">
           FinSight 不是交易按钮，而是一套可复查的研究基础设施：它告诉你发生了什么、为什么重要、该去哪里复核。
@@ -86,14 +92,20 @@ function fillDemo(role: 'admin' | 'user') {
       </div>
 
       <div class="stat-grid">
-        <article v-for="[value, label] in stats" :key="label">
+        <article
+          v-for="[value, label] in stats"
+          :key="label"
+        >
           <strong>{{ value }}</strong>
           <span>{{ label }}</span>
         </article>
       </div>
 
       <div class="capability-strip">
-        <span v-for="item in capabilities" :key="item">{{ item }}</span>
+        <span
+          v-for="item in capabilities"
+          :key="item"
+        >{{ item }}</span>
       </div>
 
       <div class="market-footer">
@@ -106,34 +118,68 @@ function fillDemo(role: 'admin' | 'user') {
 
     <section class="auth-panel">
       <div class="auth-card">
-        <p class="eyebrow">Secure workspace</p>
+        <p class="eyebrow">
+          Secure workspace
+        </p>
         <h2>进入研究空间</h2>
-        <p class="auth-note">公开演示默认走本地身份；生产环境请配置 JWT、API key 与有效 LLM key。</p>
+        <p class="auth-note">
+          公开演示默认走本地身份；生产环境请配置 JWT、API key 与有效 LLM key。
+        </p>
 
         <form @submit.prevent="handleLogin">
           <label>
             <span>邮箱</span>
-            <input v-model="email" type="email" autocomplete="email" placeholder="your@email.com">
+            <input
+              v-model="email"
+              type="email"
+              autocomplete="email"
+              placeholder="your@email.com"
+            >
           </label>
           <label>
             <span>密码</span>
-            <input v-model="password" type="password" autocomplete="current-password" placeholder="••••••••">
+            <input
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="••••••••"
+            >
           </label>
 
-          <p v-if="errorMsg" class="error-box">{{ errorMsg }}</p>
+          <p
+            v-if="errorMsg"
+            class="error-box"
+          >
+            {{ errorMsg }}
+          </p>
 
-          <button class="primary-action" type="submit" :disabled="loading">
+          <button
+            class="primary-action"
+            type="submit"
+            :disabled="loading"
+          >
             {{ loading ? '正在登录...' : '登录并进入工作台' }}
           </button>
         </form>
 
         <div class="demo-actions">
-          <button @click="fillDemo('admin')">填入管理员演示账号</button>
-          <button @click="fillDemo('user')">填入普通用户演示账号</button>
-          <button class="ghost-action" @click="enterGuest">匿名体验</button>
+          <button @click="fillDemo('admin')">
+            填入管理员演示账号
+          </button>
+          <button @click="fillDemo('user')">
+            填入普通用户演示账号
+          </button>
+          <button
+            class="ghost-action"
+            @click="enterGuest"
+          >
+            匿名体验
+          </button>
         </div>
 
-        <p class="risk-note">仅供学习与研究复查，不构成投资建议。</p>
+        <p class="risk-note">
+          仅供学习与研究复查，不构成投资建议。
+        </p>
       </div>
     </section>
   </main>

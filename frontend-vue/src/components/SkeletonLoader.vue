@@ -1,63 +1,106 @@
 <template>
   <div class="skeleton-loader">
     <!-- 卡片骨架 -->
-    <div v-if="type === 'card'" class="skeleton-card">
+    <div
+      v-if="type === 'card'"
+      class="skeleton-card"
+    >
       <div class="skeleton-header">
-        <div class="skeleton-avatar"></div>
+        <div class="skeleton-avatar" />
         <div class="skeleton-title-group">
-          <div class="skeleton-line skeleton-title"></div>
-          <div class="skeleton-line skeleton-subtitle"></div>
+          <div class="skeleton-line skeleton-title" />
+          <div class="skeleton-line skeleton-subtitle" />
         </div>
       </div>
       <div class="skeleton-content">
-        <div v-for="i in 3" :key="i" class="skeleton-line"></div>
+        <div
+          v-for="i in 3"
+          :key="i"
+          class="skeleton-line"
+        />
       </div>
     </div>
 
     <!-- 表格骨架 -->
-    <div v-else-if="type === 'table'" class="skeleton-table">
+    <div
+      v-else-if="type === 'table'"
+      class="skeleton-table"
+    >
       <div class="skeleton-table-header">
-        <div v-for="i in columns" :key="i" class="skeleton-line"></div>
+        <div
+          v-for="i in columns"
+          :key="i"
+          class="skeleton-line"
+        />
       </div>
-      <div v-for="row in rows" :key="row" class="skeleton-table-row">
-        <div v-for="col in columns" :key="col" class="skeleton-line"></div>
+      <div
+        v-for="row in rows"
+        :key="row"
+        class="skeleton-table-row"
+      >
+        <div
+          v-for="col in columns"
+          :key="col"
+          class="skeleton-line"
+        />
       </div>
     </div>
 
     <!-- 列表骨架 -->
-    <div v-else-if="type === 'list'" class="skeleton-list">
-      <div v-for="i in count" :key="i" class="skeleton-list-item">
-        <div class="skeleton-avatar-small"></div>
+    <div
+      v-else-if="type === 'list'"
+      class="skeleton-list"
+    >
+      <div
+        v-for="i in count"
+        :key="i"
+        class="skeleton-list-item"
+      >
+        <div class="skeleton-avatar-small" />
         <div class="skeleton-text-group">
-          <div class="skeleton-line"></div>
-          <div class="skeleton-line skeleton-line-short"></div>
+          <div class="skeleton-line" />
+          <div class="skeleton-line skeleton-line-short" />
         </div>
       </div>
     </div>
 
     <!-- 图表骨架 -->
-    <div v-else-if="type === 'chart'" class="skeleton-chart">
+    <div
+      v-else-if="type === 'chart'"
+      class="skeleton-chart"
+    >
       <div class="skeleton-chart-header">
-        <div class="skeleton-line skeleton-title"></div>
-        <div class="skeleton-line skeleton-subtitle"></div>
+        <div class="skeleton-line skeleton-title" />
+        <div class="skeleton-line skeleton-subtitle" />
       </div>
       <div class="skeleton-chart-body">
         <div class="skeleton-bars">
-          <div v-for="i in 8" :key="i" class="skeleton-bar" :style="{ height: `${Math.random() * 60 + 20}%` }"></div>
+          <div
+            v-for="i in 8"
+            :key="i"
+            class="skeleton-bar"
+            :style="{ height: `${Math.random() * 60 + 20}%` }"
+          />
         </div>
       </div>
     </div>
 
     <!-- 文本骨架（默认） -->
-    <div v-else class="skeleton-text">
-      <div v-for="i in lines" :key="i" class="skeleton-line" :class="{ 'skeleton-line-short': i === lines }"></div>
+    <div
+      v-else
+      class="skeleton-text"
+    >
+      <div
+        v-for="i in lines"
+        :key="i"
+        class="skeleton-line"
+        :class="{ 'skeleton-line-short': i === lines }"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { withDefaults } from 'vue';
-
 interface Props {
   type?: 'card' | 'table' | 'list' | 'chart' | 'text';
   lines?: number;

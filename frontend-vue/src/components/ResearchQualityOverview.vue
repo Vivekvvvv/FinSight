@@ -1,10 +1,17 @@
 <template>
   <div class="research-quality-overview">
     <!-- 健康分数卡片 -->
-    <div class="health-score-card" :class="healthLevelClass">
+    <div
+      class="health-score-card"
+      :class="healthLevelClass"
+    >
       <div class="score-circle">
-        <div class="score-value">{{ summary.health_score }}</div>
-        <div class="score-label">健康分</div>
+        <div class="score-value">
+          {{ summary.health_score }}
+        </div>
+        <div class="score-label">
+          健康分
+        </div>
       </div>
       <div class="health-stats">
         <div class="stat-item">
@@ -15,11 +22,17 @@
           <span class="stat-label">复查率</span>
           <span class="stat-value">{{ (summary.reviewed_rate * 100).toFixed(0) }}%</span>
         </div>
-        <div class="stat-item warning" v-if="summary.stale_reports > 0">
+        <div
+          v-if="summary.stale_reports > 0"
+          class="stat-item warning"
+        >
           <span class="stat-label">过期报告</span>
           <span class="stat-value">{{ summary.stale_reports }}</span>
         </div>
-        <div class="stat-item error" v-if="summary.blocked_reports > 0">
+        <div
+          v-if="summary.blocked_reports > 0"
+          class="stat-item error"
+        >
           <span class="stat-label">阻断报告</span>
           <span class="stat-value">{{ summary.blocked_reports }}</span>
         </div>
@@ -27,8 +40,13 @@
     </div>
 
     <!-- 质量问题列表 -->
-    <div class="quality-issues" v-if="topIssues.length > 0">
-      <h3 class="issues-title">质量问题 ({{ topIssues.length }})</h3>
+    <div
+      v-if="topIssues.length > 0"
+      class="quality-issues"
+    >
+      <h3 class="issues-title">
+        质量问题 ({{ topIssues.length }})
+      </h3>
       <div class="issues-list">
         <div
           v-for="issue in topIssues"
@@ -38,14 +56,24 @@
           @click="handleIssueClick(issue)"
         >
           <div class="issue-header">
-            <span class="issue-badge" :class="`badge-${issue.severity}`">
+            <span
+              class="issue-badge"
+              :class="`badge-${issue.severity}`"
+            >
               {{ severityLabel(issue.severity) }}
             </span>
             <span class="issue-type-badge">{{ issueTypeLabel(issue.issue_type) }}</span>
           </div>
-          <div class="issue-title">{{ issue.title }}</div>
-          <div class="issue-reason">{{ issue.reason }}</div>
-          <div class="issue-meta" v-if="issue.related_symbol">
+          <div class="issue-title">
+            {{ issue.title }}
+          </div>
+          <div class="issue-reason">
+            {{ issue.reason }}
+          </div>
+          <div
+            v-if="issue.related_symbol"
+            class="issue-meta"
+          >
             <span class="meta-tag">{{ issue.related_symbol }}</span>
           </div>
         </div>
@@ -53,15 +81,31 @@
     </div>
 
     <!-- 空态 -->
-    <div class="empty-state" v-if="topIssues.length === 0 && summary.total_reports > 0">
-      <div class="empty-icon">✓</div>
-      <div class="empty-message">研究库健康，无需特别关注</div>
+    <div
+      v-if="topIssues.length === 0 && summary.total_reports > 0"
+      class="empty-state"
+    >
+      <div class="empty-icon">
+        ✓
+      </div>
+      <div class="empty-message">
+        研究库健康，无需特别关注
+      </div>
     </div>
 
-    <div class="empty-state" v-if="summary.total_reports === 0">
-      <div class="empty-icon">📚</div>
-      <div class="empty-message">尚无研究报告</div>
-      <div class="empty-hint">生成报告后，这里会显示研究库健康度分析</div>
+    <div
+      v-if="summary.total_reports === 0"
+      class="empty-state"
+    >
+      <div class="empty-icon">
+        📚
+      </div>
+      <div class="empty-message">
+        尚无研究报告
+      </div>
+      <div class="empty-hint">
+        生成报告后，这里会显示研究库健康度分析
+      </div>
     </div>
   </div>
 </template>

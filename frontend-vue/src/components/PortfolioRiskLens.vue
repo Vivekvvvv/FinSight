@@ -119,18 +119,20 @@ function formatCurrency(value: number) {
 <template>
   <div class="portfolio-risk-lens">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-xl font-semibold">持仓风险透镜</h2>
+      <h2 class="text-xl font-semibold">
+        持仓风险透镜
+      </h2>
       <div class="flex gap-2">
         <button
-          @click="toggleTrends"
           class="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600"
+          @click="toggleTrends"
         >
           {{ showTrends ? '隐藏趋势图' : '显示趋势图' }}
         </button>
         <button
-          @click="loadRiskLens"
           :disabled="loading"
           class="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          @click="loadRiskLens"
         >
           {{ loading ? '加载中...' : '刷新' }}
         </button>
@@ -138,20 +140,25 @@ function formatCurrency(value: number) {
     </div>
 
     <!-- Trend Charts Section -->
-    <div v-if="showTrends" class="mb-6 bg-white border rounded-lg p-4">
+    <div
+      v-if="showTrends"
+      class="mb-6 bg-white border rounded-lg p-4"
+    >
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold text-gray-800">历史趋势</h3>
+        <h3 class="font-semibold text-gray-800">
+          历史趋势
+        </h3>
         <div class="flex gap-2">
           <button
             v-for="d in [7, 30, 90]"
             :key="d"
-            @click="changeDays(d)"
             :class="[
               'px-3 py-1 text-xs rounded',
               selectedDays === d
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
+            @click="changeDays(d)"
           >
             {{ d }} 天
           </button>
@@ -160,7 +167,9 @@ function formatCurrency(value: number) {
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <div class="text-sm text-gray-600 mb-2">风险评分趋势</div>
+          <div class="text-sm text-gray-600 mb-2">
+            风险评分趋势
+          </div>
           <RiskTrendChart
             :snapshots="history"
             metric="risk_score"
@@ -169,7 +178,9 @@ function formatCurrency(value: number) {
           />
         </div>
         <div>
-          <div class="text-sm text-gray-600 mb-2">持仓市值趋势</div>
+          <div class="text-sm text-gray-600 mb-2">
+            持仓市值趋势
+          </div>
           <RiskTrendChart
             :snapshots="history"
             metric="total_value"
@@ -178,7 +189,9 @@ function formatCurrency(value: number) {
           />
         </div>
         <div>
-          <div class="text-sm text-gray-600 mb-2">集中度风险数量</div>
+          <div class="text-sm text-gray-600 mb-2">
+            集中度风险数量
+          </div>
           <RiskTrendChart
             :snapshots="history"
             metric="concentration_risk_count"
@@ -187,7 +200,9 @@ function formatCurrency(value: number) {
           />
         </div>
         <div>
-          <div class="text-sm text-gray-600 mb-2">亏损持仓数量</div>
+          <div class="text-sm text-gray-600 mb-2">
+            亏损持仓数量
+          </div>
           <RiskTrendChart
             :snapshots="history"
             metric="loss_positions_count"
@@ -198,37 +213,70 @@ function formatCurrency(value: number) {
       </div>
     </div>
 
-    <div v-if="loading" class="text-gray-500 py-8 text-center">
+    <div
+      v-if="loading"
+      class="text-gray-500 py-8 text-center"
+    >
       加载中...
     </div>
 
-    <div v-else-if="errorMsg" class="bg-red-50 border border-red-200 rounded px-4 py-3 text-red-700">
+    <div
+      v-else-if="errorMsg"
+      class="bg-red-50 border border-red-200 rounded px-4 py-3 text-red-700"
+    >
       {{ errorMsg }}
     </div>
 
-    <div v-else-if="!riskLens || !riskLens.success" class="text-gray-500 py-8 text-center">
+    <div
+      v-else-if="!riskLens || !riskLens.success"
+      class="text-gray-500 py-8 text-center"
+    >
       暂无数据
     </div>
 
-    <div v-else class="space-y-6">
+    <div
+      v-else
+      class="space-y-6"
+    >
       <!-- Risk Score Overview -->
       <div class="bg-white border rounded-lg p-6">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-sm text-gray-600 mb-1">风险评分</div>
-            <div class="text-4xl font-bold" :class="riskScoreColor">{{ riskLens.risk_score }}</div>
-            <div class="text-sm mt-1" :class="riskScoreColor">{{ riskScoreLabel }}</div>
+            <div class="text-sm text-gray-600 mb-1">
+              风险评分
+            </div>
+            <div
+              class="text-4xl font-bold"
+              :class="riskScoreColor"
+            >
+              {{ riskLens.risk_score }}
+            </div>
+            <div
+              class="text-sm mt-1"
+              :class="riskScoreColor"
+            >
+              {{ riskScoreLabel }}
+            </div>
           </div>
           <div class="text-right">
-            <div class="text-sm text-gray-600 mb-1">总市值</div>
-            <div class="text-2xl font-semibold">{{ formatCurrency(riskLens.total_value) }}</div>
+            <div class="text-sm text-gray-600 mb-1">
+              总市值
+            </div>
+            <div class="text-2xl font-semibold">
+              {{ formatCurrency(riskLens.total_value) }}
+            </div>
           </div>
         </div>
       </div>
 
       <!-- Concentration Risk -->
-      <div v-if="riskLens.concentration_risk.length > 0" class="bg-white border rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">集中度风险</h3>
+      <div
+        v-if="riskLens.concentration_risk.length > 0"
+        class="bg-white border rounded-lg p-4"
+      >
+        <h3 class="font-semibold mb-3 text-gray-800">
+          集中度风险
+        </h3>
         <div class="space-y-2">
           <div
             v-for="risk in riskLens.concentration_risk"
@@ -236,20 +284,32 @@ function formatCurrency(value: number) {
             class="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer"
             @click="$router.push(risk.target_route)"
           >
-            <span class="px-2 py-0.5 text-xs rounded-full" :class="getSeverityClass(risk.severity)">
+            <span
+              class="px-2 py-0.5 text-xs rounded-full"
+              :class="getSeverityClass(risk.severity)"
+            >
               {{ risk.severity }}
             </span>
             <div class="flex-1">
-              <div class="font-medium text-sm">{{ risk.title }}</div>
-              <div class="text-xs text-gray-600 mt-1">{{ risk.reason }}</div>
+              <div class="font-medium text-sm">
+                {{ risk.title }}
+              </div>
+              <div class="text-xs text-gray-600 mt-1">
+                {{ risk.reason }}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Loss Positions -->
-      <div v-if="riskLens.loss_positions.length > 0" class="bg-white border rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">亏损持仓</h3>
+      <div
+        v-if="riskLens.loss_positions.length > 0"
+        class="bg-white border rounded-lg p-4"
+      >
+        <h3 class="font-semibold mb-3 text-gray-800">
+          亏损持仓
+        </h3>
         <div class="space-y-2">
           <div
             v-for="risk in riskLens.loss_positions"
@@ -257,20 +317,32 @@ function formatCurrency(value: number) {
             class="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer"
             @click="$router.push(risk.target_route)"
           >
-            <span class="px-2 py-0.5 text-xs rounded-full" :class="getSeverityClass(risk.severity)">
+            <span
+              class="px-2 py-0.5 text-xs rounded-full"
+              :class="getSeverityClass(risk.severity)"
+            >
               {{ risk.severity }}
             </span>
             <div class="flex-1">
-              <div class="font-medium text-sm">{{ risk.title }}</div>
-              <div class="text-xs text-gray-600 mt-1">{{ risk.reason }}</div>
+              <div class="font-medium text-sm">
+                {{ risk.title }}
+              </div>
+              <div class="text-xs text-gray-600 mt-1">
+                {{ risk.reason }}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Stale Research -->
-      <div v-if="riskLens.stale_research.length > 0" class="bg-white border rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">过期研究</h3>
+      <div
+        v-if="riskLens.stale_research.length > 0"
+        class="bg-white border rounded-lg p-4"
+      >
+        <h3 class="font-semibold mb-3 text-gray-800">
+          过期研究
+        </h3>
         <div class="space-y-2">
           <div
             v-for="risk in riskLens.stale_research"
@@ -278,20 +350,32 @@ function formatCurrency(value: number) {
             class="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer"
             @click="$router.push(risk.target_route)"
           >
-            <span class="px-2 py-0.5 text-xs rounded-full" :class="getSeverityClass(risk.severity)">
+            <span
+              class="px-2 py-0.5 text-xs rounded-full"
+              :class="getSeverityClass(risk.severity)"
+            >
               {{ risk.severity }}
             </span>
             <div class="flex-1">
-              <div class="font-medium text-sm">{{ risk.title }}</div>
-              <div class="text-xs text-gray-600 mt-1">{{ risk.reason }}</div>
+              <div class="font-medium text-sm">
+                {{ risk.title }}
+              </div>
+              <div class="text-xs text-gray-600 mt-1">
+                {{ risk.reason }}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Missing Coverage -->
-      <div v-if="riskLens.missing_coverage.length > 0" class="bg-white border rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">缺失研究覆盖</h3>
+      <div
+        v-if="riskLens.missing_coverage.length > 0"
+        class="bg-white border rounded-lg p-4"
+      >
+        <h3 class="font-semibold mb-3 text-gray-800">
+          缺失研究覆盖
+        </h3>
         <div class="space-y-2">
           <div
             v-for="risk in riskLens.missing_coverage"
@@ -299,20 +383,32 @@ function formatCurrency(value: number) {
             class="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer"
             @click="$router.push(risk.target_route)"
           >
-            <span class="px-2 py-0.5 text-xs rounded-full" :class="getSeverityClass(risk.severity)">
+            <span
+              class="px-2 py-0.5 text-xs rounded-full"
+              :class="getSeverityClass(risk.severity)"
+            >
               {{ risk.severity }}
             </span>
             <div class="flex-1">
-              <div class="font-medium text-sm">{{ risk.title }}</div>
-              <div class="text-xs text-gray-600 mt-1">{{ risk.reason }}</div>
+              <div class="font-medium text-sm">
+                {{ risk.title }}
+              </div>
+              <div class="text-xs text-gray-600 mt-1">
+                {{ risk.reason }}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Sector Exposure -->
-      <div v-if="riskLens.sector_exposure.length > 0" class="bg-white border rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">行业暴露</h3>
+      <div
+        v-if="riskLens.sector_exposure.length > 0"
+        class="bg-white border rounded-lg p-4"
+      >
+        <h3 class="font-semibold mb-3 text-gray-800">
+          行业暴露
+        </h3>
         <div class="space-y-2">
           <div
             v-for="exp in riskLens.sector_exposure"
@@ -329,8 +425,13 @@ function formatCurrency(value: number) {
       </div>
 
       <!-- Currency Exposure -->
-      <div v-if="riskLens.currency_exposure.length > 1" class="bg-white border rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">币种暴露</h3>
+      <div
+        v-if="riskLens.currency_exposure.length > 1"
+        class="bg-white border rounded-lg p-4"
+      >
+        <h3 class="font-semibold mb-3 text-gray-800">
+          币种暴露
+        </h3>
         <div class="space-y-2">
           <div
             v-for="exp in riskLens.currency_exposure"
@@ -347,8 +448,13 @@ function formatCurrency(value: number) {
       </div>
 
       <!-- Market Exposure -->
-      <div v-if="riskLens.market_exposure.length > 1" class="bg-white border rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">市场暴露</h3>
+      <div
+        v-if="riskLens.market_exposure.length > 1"
+        class="bg-white border rounded-lg p-4"
+      >
+        <h3 class="font-semibold mb-3 text-gray-800">
+          市场暴露
+        </h3>
         <div class="space-y-2">
           <div
             v-for="exp in riskLens.market_exposure"
@@ -365,8 +471,13 @@ function formatCurrency(value: number) {
       </div>
 
       <!-- Next Actions -->
-      <div v-if="riskLens.next_actions.length > 0" class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h3 class="font-semibold mb-3 text-gray-800">复查动作</h3>
+      <div
+        v-if="riskLens.next_actions.length > 0"
+        class="bg-blue-50 border border-blue-200 rounded-lg p-4"
+      >
+        <h3 class="font-semibold mb-3 text-gray-800">
+          复查动作
+        </h3>
         <div class="space-y-2">
           <div
             v-for="action in riskLens.next_actions.slice(0, 5)"
@@ -374,12 +485,19 @@ function formatCurrency(value: number) {
             class="flex items-start gap-3 p-3 bg-white rounded-lg hover:shadow cursor-pointer"
             @click="$router.push(action.target_route)"
           >
-            <span class="px-2 py-0.5 text-xs rounded-full" :class="getSeverityClass(action.severity)">
+            <span
+              class="px-2 py-0.5 text-xs rounded-full"
+              :class="getSeverityClass(action.severity)"
+            >
               {{ action.severity }}
             </span>
             <div class="flex-1">
-              <div class="font-medium text-sm">{{ action.title }}</div>
-              <div class="text-xs text-gray-600 mt-1">{{ action.reason }}</div>
+              <div class="font-medium text-sm">
+                {{ action.title }}
+              </div>
+              <div class="text-xs text-gray-600 mt-1">
+                {{ action.reason }}
+              </div>
             </div>
           </div>
         </div>

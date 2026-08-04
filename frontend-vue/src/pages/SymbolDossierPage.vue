@@ -280,20 +280,38 @@ watch(() => route.params.symbol, () => {
   <section class="dossier-page">
     <header class="dossier-hero">
       <div>
-        <p class="eyebrow">Symbol Research Dossier</p>
+        <p class="eyebrow">
+          Symbol Research Dossier
+        </p>
         <h1>{{ symbol }} 标的研究档案</h1>
         <p class="subtitle">
           把今日变化、证据时间线、研究报告、笔记和研究质量收束到一个复查视图。这里只给研究动作建议，不构成投资建议。
         </p>
       </div>
-      <DataSourceBadge class="dossier-source" :evidence="dossierEvidence" />
-      <form class="symbol-search" @submit.prevent="submitSymbol">
-        <input v-model="symbolInput" aria-label="输入股票代码" placeholder="AAPL / NVDA / MSFT">
-        <button type="submit">打开档案</button>
+      <DataSourceBadge
+        class="dossier-source"
+        :evidence="dossierEvidence"
+      />
+      <form
+        class="symbol-search"
+        @submit.prevent="submitSymbol"
+      >
+        <input
+          v-model="symbolInput"
+          aria-label="输入股票代码"
+          placeholder="AAPL / NVDA / MSFT"
+        >
+        <button type="submit">
+          打开档案
+        </button>
       </form>
     </header>
 
-    <StatusBanner v-if="errorMsg" variant="warning" :message="errorMsg" />
+    <StatusBanner
+      v-if="errorMsg"
+      variant="warning"
+      :message="errorMsg"
+    />
 
     <section class="metric-grid">
       <article class="metric-card market-metric">
@@ -331,21 +349,49 @@ watch(() => route.params.symbol, () => {
     </section>
 
     <section class="action-strip">
-      <button type="button" @click="routeTo(`/dossier/${symbol}`)">行情与证据</button>
-      <button type="button" @click="routeTo(`/reports?ticker=${symbol}`)">相关报告</button>
-      <button type="button" @click="routeTo(`/notes?ticker=${symbol}`)">研究笔记</button>
-      <button type="button" @click="routeTo(`/chat?symbol=${symbol}&mode=qa`)">打开问答</button>
+      <button
+        type="button"
+        @click="routeTo(`/dossier/${symbol}`)"
+      >
+        行情与证据
+      </button>
+      <button
+        type="button"
+        @click="routeTo(`/reports?ticker=${symbol}`)"
+      >
+        相关报告
+      </button>
+      <button
+        type="button"
+        @click="routeTo(`/notes?ticker=${symbol}`)"
+      >
+        研究笔记
+      </button>
+      <button
+        type="button"
+        @click="routeTo(`/chat?symbol=${symbol}&mode=qa`)"
+      >
+        打开问答
+      </button>
     </section>
 
-    <section class="panel market-panel" data-testid="market-overview">
+    <section
+      class="panel market-panel"
+      data-testid="market-overview"
+    >
       <div class="panel-head">
         <div>
-          <p class="eyebrow">Market</p>
+          <p class="eyebrow">
+            Market
+          </p>
           <h2>行情概览</h2>
         </div>
         <span class="freshness-pill">{{ quoteLoading ? 'loading' : quoteView.freshnessStatus }}</span>
       </div>
-      <p v-if="quoteLoading || quoteError" class="market-hint">
+      <p
+        v-if="quoteLoading || quoteError"
+        class="market-hint"
+      >
         {{ quoteLoading ? 'Quote loading in background. Research data is available first.' : quoteError }}
       </p>
       <div class="market-grid">
@@ -370,31 +416,61 @@ watch(() => route.params.symbol, () => {
       </div>
     </section>
 
-    <LoadingState v-if="loadState === 'loading'" :label="`正在汇总 ${symbol} 的研究档案...`" />
+    <LoadingState
+      v-if="loadState === 'loading'"
+      :label="`正在汇总 ${symbol} 的研究档案...`"
+    />
 
-    <div v-else class="dossier-grid">
+    <div
+      v-else
+      class="dossier-grid"
+    >
       <section class="panel panel-wide">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">What Changed</p>
+            <p class="eyebrow">
+              What Changed
+            </p>
             <h2>优先复查变化</h2>
           </div>
-          <button type="button" @click="loadDossier">刷新</button>
+          <button
+            type="button"
+            @click="loadDossier"
+          >
+            刷新
+          </button>
         </div>
-        <div v-if="whatChanged.length" class="changes-grid">
-          <WhatChangedCard v-for="item in whatChanged" :key="item.id" :item="item" />
+        <div
+          v-if="whatChanged.length"
+          class="changes-grid"
+        >
+          <WhatChangedCard
+            v-for="item in whatChanged"
+            :key="item.id"
+            :item="item"
+          />
         </div>
-        <div v-else class="empty-state">暂无需要优先复查的变化。</div>
+        <div
+          v-else
+          class="empty-state"
+        >
+          暂无需要优先复查的变化。
+        </div>
       </section>
 
       <section class="panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Conflict Review</p>
+            <p class="eyebrow">
+              Conflict Review
+            </p>
             <h2>证据冲突与旧结论复查</h2>
           </div>
         </div>
-        <div v-if="conflictReviews.length" class="conflict-list">
+        <div
+          v-if="conflictReviews.length"
+          class="conflict-list"
+        >
           <button
             v-for="item in conflictReviews"
             :key="item.id"
@@ -410,7 +486,10 @@ watch(() => route.params.symbol, () => {
             </div>
           </button>
         </div>
-        <div v-else class="empty-state">
+        <div
+          v-else
+          class="empty-state"
+        >
           暂未发现新证据挑战旧结论。继续观察，不输出买卖建议。
         </div>
       </section>
@@ -418,11 +497,16 @@ watch(() => route.params.symbol, () => {
       <section class="panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Research Quality</p>
+            <p class="eyebrow">
+              Research Quality
+            </p>
             <h2>质量复查</h2>
           </div>
         </div>
-        <div v-if="qualityIssues.length" class="issue-list">
+        <div
+          v-if="qualityIssues.length"
+          class="issue-list"
+        >
           <button
             v-for="issue in qualityIssues.slice(0, 5)"
             :key="issue.id"
@@ -435,37 +519,62 @@ watch(() => route.params.symbol, () => {
             <em>{{ severityLabel(issue.severity) }} · {{ issue.reason }}</em>
           </button>
         </div>
-        <div v-else class="empty-state">暂无质量阻断项。</div>
+        <div
+          v-else
+          class="empty-state"
+        >
+          暂无质量阻断项。
+        </div>
       </section>
 
       <section class="panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Latest Assets</p>
+            <p class="eyebrow">
+              Latest Assets
+            </p>
             <h2>最新报告与笔记</h2>
           </div>
         </div>
-        <article v-if="latestReport" class="asset-card" @click="routeTo(`/reports?highlight=${latestReport.report_id}`)">
+        <article
+          v-if="latestReport"
+          class="asset-card"
+          @click="routeTo(`/reports?highlight=${latestReport.report_id}`)"
+        >
           <span>报告</span>
           <strong>{{ latestReport.title || `${symbol} 研究报告` }}</strong>
           <em>{{ fmtDate(latestReport.generated_at) }} · 置信度 {{ latestReport.confidence_score ?? '-' }}</em>
         </article>
-        <article v-if="latestNote" class="asset-card" @click="routeTo(`/notes?ticker=${symbol}`)">
+        <article
+          v-if="latestNote"
+          class="asset-card"
+          @click="routeTo(`/notes?ticker=${symbol}`)"
+        >
           <span>笔记</span>
           <strong>{{ latestNote.title }}</strong>
           <em>{{ fmtDate(latestNote.updated_at) }} · {{ latestNote.tags.join(', ') || '未标记' }}</em>
         </article>
-        <div v-if="!latestReport && !latestNote" class="empty-state">还没有沉淀报告或笔记。</div>
+        <div
+          v-if="!latestReport && !latestNote"
+          class="empty-state"
+        >
+          还没有沉淀报告或笔记。
+        </div>
       </section>
 
       <section class="panel panel-wide">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Evidence Timeline</p>
+            <p class="eyebrow">
+              Evidence Timeline
+            </p>
             <h2>最近证据事件</h2>
           </div>
         </div>
-        <EvidenceTimeline :events="timelineEvents" :loading="false" />
+        <EvidenceTimeline
+          :events="timelineEvents"
+          :loading="false"
+        />
       </section>
     </div>
   </section>

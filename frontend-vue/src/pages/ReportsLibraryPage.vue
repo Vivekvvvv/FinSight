@@ -346,58 +346,110 @@ watch(displayed, () => {
     <!-- ── 页头 ── -->
     <div class="page-header">
       <div class="header-left">
-        <h1 class="page-title">报告库</h1>
+        <h1 class="page-title">
+          报告库
+        </h1>
         <span class="badge-count">
           {{ displayed.length ? pageStart + 1 : 0 }}-{{ pageEnd }} / {{ displayed.length }} 份
         </span>
       </div>
       <div class="header-right">
-        <button class="btn-compare" :class="{ active: compareMode }" @click="compareMode ? exitCompare() : (compareMode = true)">
+        <button
+          class="btn-compare"
+          :class="{ active: compareMode }"
+          @click="compareMode ? exitCompare() : (compareMode = true)"
+        >
           {{ compareMode ? '退出对比' : '⚖ 版本对比' }}
         </button>
-        <ActionButton variant="ghost" :loading="loading" loading-text="刷新中..." @click="refresh">
+        <ActionButton
+          variant="ghost"
+          :loading="loading"
+          loading-text="刷新中..."
+          @click="refresh"
+        >
           刷新
         </ActionButton>
       </div>
     </div>
 
-    <section class="report-tools" data-testid="report-tools">
+    <section
+      class="report-tools"
+      data-testid="report-tools"
+    >
       <article>
         <span>生成报告</span>
         <strong>AI 研究报告</strong>
         <p>从报告库发起生成，产物回流到这里复查、收藏和对比。</p>
-        <ActionButton size="sm" @click="startReportTool('generate')">进入生成</ActionButton>
+        <ActionButton
+          size="sm"
+          @click="startReportTool('generate')"
+        >
+          进入生成
+        </ActionButton>
       </article>
       <article>
         <span>财报分析</span>
         <strong>财务复查入口</strong>
         <p>财报拆解不再单独占页面，作为报告库的生成工具使用。</p>
-        <ActionButton size="sm" @click="startReportTool('financials')">分析财报</ActionButton>
+        <ActionButton
+          size="sm"
+          @click="startReportTool('financials')"
+        >
+          分析财报
+        </ActionButton>
       </article>
     </section>
 
     <!-- ── 对比模式提示栏 ── -->
-    <div v-if="compareMode" class="compare-bar">
+    <div
+      v-if="compareMode"
+      class="compare-bar"
+    >
       <div class="compare-hint">
         <span class="select-label">A：</span>
-        <strong v-if="compareA" class="sel-name">{{ compareA.ticker || compareA.report_id.slice(0, 8) }} — {{ compareA.title?.slice(0,30) }}</strong>
-        <span v-else class="sel-empty">点击报告选择 A</span>
+        <strong
+          v-if="compareA"
+          class="sel-name"
+        >{{ compareA.ticker || compareA.report_id.slice(0, 8) }} — {{ compareA.title?.slice(0,30) }}</strong>
+        <span
+          v-else
+          class="sel-empty"
+        >点击报告选择 A</span>
         <span class="vs">vs</span>
         <span class="select-label">B：</span>
-        <strong v-if="compareB" class="sel-name">{{ compareB.ticker || compareB.report_id.slice(0, 8) }} — {{ compareB.title?.slice(0,30) }}</strong>
-        <span v-else class="sel-empty">点击报告选择 B</span>
+        <strong
+          v-if="compareB"
+          class="sel-name"
+        >{{ compareB.ticker || compareB.report_id.slice(0, 8) }} — {{ compareB.title?.slice(0,30) }}</strong>
+        <span
+          v-else
+          class="sel-empty"
+        >点击报告选择 B</span>
       </div>
-      <ActionButton :disabled="!compareA || !compareB" :loading="compareLoading" loading-text="对比中..." @click="runCompare">
+      <ActionButton
+        :disabled="!compareA || !compareB"
+        :loading="compareLoading"
+        loading-text="对比中..."
+        @click="runCompare"
+      >
         开始对比
       </ActionButton>
     </div>
 
     <!-- ── 对比结果 ── -->
     <Transition name="slide-down">
-      <div v-if="compareResult" class="compare-result">
+      <div
+        v-if="compareResult"
+        class="compare-result"
+      >
         <div class="cr-head">
           <span class="cr-title">📊 对比结果</span>
-          <button class="btn-close-sm" @click="compareResult = null">✕</button>
+          <button
+            class="btn-close-sm"
+            @click="compareResult = null"
+          >
+            ✕
+          </button>
         </div>
         <div class="cr-meta">
           <div class="cr-report">
@@ -412,66 +464,149 @@ watch(displayed, () => {
           </div>
         </div>
         <div class="cr-grid">
-          <div v-if="compareResult.diff?.confidence_score" class="diff-card">
-            <div class="diff-label">置信度</div>
+          <div
+            v-if="compareResult.diff?.confidence_score"
+            class="diff-card"
+          >
+            <div class="diff-label">
+              置信度
+            </div>
             <div class="diff-vals">
               <span>A: {{ compareResult.diff.confidence_score.a != null ? Math.round(compareResult.diff.confidence_score.a * 100) + '%' : '—' }}</span>
               <span>B: {{ compareResult.diff.confidence_score.b != null ? Math.round(compareResult.diff.confidence_score.b * 100) + '%' : '—' }}</span>
-              <span v-if="compareResult.diff.confidence_score.delta != null"
-                :class="compareResult.diff.confidence_score.delta > 0 ? 'pos' : 'neg'">
+              <span
+                v-if="compareResult.diff.confidence_score.delta != null"
+                :class="compareResult.diff.confidence_score.delta > 0 ? 'pos' : 'neg'"
+              >
                 {{ compareResult.diff.confidence_score.delta > 0 ? '▲' : '▼' }}
                 {{ Math.abs(Math.round(compareResult.diff.confidence_score.delta * 100)) }}%
               </span>
             </div>
           </div>
-          <div v-if="compareResult.diff?.citation_count" class="diff-card">
-            <div class="diff-label">引用数量</div>
+          <div
+            v-if="compareResult.diff?.citation_count"
+            class="diff-card"
+          >
+            <div class="diff-label">
+              引用数量
+            </div>
             <div class="diff-vals">
               <span>A: {{ compareResult.diff.citation_count.a }}</span>
               <span>B: {{ compareResult.diff.citation_count.b }}</span>
             </div>
           </div>
-          <div v-if="compareResult.diff?.data_freshness" class="diff-card">
-            <div class="diff-label">数据截至时间</div>
+          <div
+            v-if="compareResult.diff?.data_freshness"
+            class="diff-card"
+          >
+            <div class="diff-label">
+              数据截至时间
+            </div>
             <div class="diff-vals small">
               <span>A: {{ fmtDate(compareResult.diff.data_freshness.a) || '—' }}</span>
               <span>B: {{ fmtDate(compareResult.diff.data_freshness.b) || '—' }}</span>
             </div>
           </div>
-          <div v-if="compareResult.diff?.sentiment?.changed" class="diff-card">
-            <div class="diff-label">观点变化</div>
+          <div
+            v-if="compareResult.diff?.sentiment?.changed"
+            class="diff-card"
+          >
+            <div class="diff-label">
+              观点变化
+            </div>
             <div class="diff-vals">
               <span>{{ compareResult.diff.sentiment.a || '—' }}</span>
               <span class="arrow">→</span>
               <span class="changed">{{ compareResult.diff.sentiment.b || '—' }}</span>
             </div>
           </div>
-          <div v-if="compareResult.diff?.risks" class="diff-card">
-            <div class="diff-label">风险变化</div>
+          <div
+            v-if="compareResult.diff?.risks"
+            class="diff-card"
+          >
+            <div class="diff-label">
+              风险变化
+            </div>
             <div class="diff-vals">
-              <span class="pos" v-if="compareResult.diff.risks.removed?.length">-{{ compareResult.diff.risks.removed.length }} 消除</span>
-              <span class="neg" v-if="compareResult.diff.risks.added?.length">+{{ compareResult.diff.risks.added.length }} 新增</span>
+              <span
+                v-if="compareResult.diff.risks.removed?.length"
+                class="pos"
+              >-{{ compareResult.diff.risks.removed.length }} 消除</span>
+              <span
+                v-if="compareResult.diff.risks.added?.length"
+                class="neg"
+              >+{{ compareResult.diff.risks.added.length }} 新增</span>
               <span>{{ compareResult.diff.risks.unchanged_count }} 不变</span>
             </div>
           </div>
-          <div v-if="compareResult.diff?.risks?.added?.length || compareResult.diff?.risks?.removed?.length" class="diff-card full">
-            <div class="diff-label">风险详情</div>
+          <div
+            v-if="compareResult.diff?.risks?.added?.length || compareResult.diff?.risks?.removed?.length"
+            class="diff-card full"
+          >
+            <div class="diff-label">
+              风险详情
+            </div>
             <div class="risk-lists">
-              <div v-if="compareResult.diff.risks.added?.length" class="risk-group">
-                <div class="rg-label neg">新增风险</div>
-                <div v-for="r in compareResult.diff.risks.added" :key="r" class="risk-item neg">{{ r }}</div>
+              <div
+                v-if="compareResult.diff.risks.added?.length"
+                class="risk-group"
+              >
+                <div class="rg-label neg">
+                  新增风险
+                </div>
+                <div
+                  v-for="r in compareResult.diff.risks.added"
+                  :key="r"
+                  class="risk-item neg"
+                >
+                  {{ r }}
+                </div>
               </div>
-              <div v-if="compareResult.diff.risks.removed?.length" class="risk-group">
-                <div class="rg-label pos">消除风险</div>
-                <div v-for="r in compareResult.diff.risks.removed" :key="r" class="risk-item pos">{{ r }}</div>
+              <div
+                v-if="compareResult.diff.risks.removed?.length"
+                class="risk-group"
+              >
+                <div class="rg-label pos">
+                  消除风险
+                </div>
+                <div
+                  v-for="r in compareResult.diff.risks.removed"
+                  :key="r"
+                  class="risk-item pos"
+                >
+                  {{ r }}
+                </div>
               </div>
             </div>
           </div>
-          <div v-if="compareResult.diff?.summary" class="diff-card full">
-            <div class="diff-label">摘要对比</div>
+          <div
+            v-if="compareResult.diff?.summary"
+            class="diff-card full"
+          >
+            <div class="diff-label">
+              摘要对比
+            </div>
             <div class="diff-summary-grid">
-              <div><div class="cr-ab a" style="margin-bottom:6px">A</div><p class="diff-sum-text">{{ compareResult.diff.summary.a || '—' }}</p></div>
-              <div><div class="cr-ab b" style="margin-bottom:6px">B</div><p class="diff-sum-text">{{ compareResult.diff.summary.b || '—' }}</p></div>
+              <div>
+                <div
+                  class="cr-ab a"
+                  style="margin-bottom:6px"
+                >
+                  A
+                </div><p class="diff-sum-text">
+                  {{ compareResult.diff.summary.a || '—' }}
+                </p>
+              </div>
+              <div>
+                <div
+                  class="cr-ab b"
+                  style="margin-bottom:6px"
+                >
+                  B
+                </div><p class="diff-sum-text">
+                  {{ compareResult.diff.summary.b || '—' }}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -479,18 +614,34 @@ watch(displayed, () => {
     </Transition>
 
     <!-- ── Research Quality (Phase 4.5) ── -->
-    <div v-if="showQuality && items.length > 0" class="quality-section">
+    <div
+      v-if="showQuality && items.length > 0"
+      class="quality-section"
+    >
       <div class="quality-header">
-        <h2 class="quality-title">📊 研究库健康度</h2>
-        <button class="btn-toggle" @click="showQuality = false">收起</button>
+        <h2 class="quality-title">
+          📊 研究库健康度
+        </h2>
+        <button
+          class="btn-toggle"
+          @click="showQuality = false"
+        >
+          收起
+        </button>
       </div>
       <ResearchQualityOverview
         :summary="qualitySummary"
         :top-issues="qualityIssues"
       />
     </div>
-    <div v-if="!showQuality && items.length > 0" class="quality-collapsed">
-      <button class="btn-expand" @click="showQuality = true">
+    <div
+      v-if="!showQuality && items.length > 0"
+      class="quality-collapsed"
+    >
+      <button
+        class="btn-expand"
+        @click="showQuality = true"
+      >
         📊 查看研究库健康度 ({{ qualitySummary.health_score }} 分)
       </button>
     </div>
@@ -499,29 +650,81 @@ watch(displayed, () => {
     <div class="toolbar">
       <div class="search-wrap">
         <span class="search-icon">⌕</span>
-        <input v-model="searchQ" class="search-input" placeholder="搜索标题、代码、摘要…">
+        <input
+          v-model="searchQ"
+          class="search-input"
+          placeholder="搜索标题、代码、摘要…"
+        >
       </div>
-      <input v-model="tickerFilter" placeholder="Ticker" class="input ticker-input" @keyup.enter="refresh">
-      <select v-model="sortBy" class="input sort-select" @change="refresh">
-        <option v-for="o in SORT_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+      <input
+        v-model="tickerFilter"
+        placeholder="Ticker"
+        class="input ticker-input"
+        @keyup.enter="refresh"
+      >
+      <select
+        v-model="sortBy"
+        class="input sort-select"
+        @change="refresh"
+      >
+        <option
+          v-for="o in SORT_OPTIONS"
+          :key="o.value"
+          :value="o.value"
+        >
+          {{ o.label }}
+        </option>
       </select>
-      <select v-model="reviewStatusFilter" class="input review-select" @change="refresh">
-        <option v-for="o in REVIEW_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+      <select
+        v-model="reviewStatusFilter"
+        class="input review-select"
+        @change="refresh"
+      >
+        <option
+          v-for="o in REVIEW_OPTIONS"
+          :key="o.value"
+          :value="o.value"
+        >
+          {{ o.label }}
+        </option>
       </select>
       <label class="fav-check">
-        <input v-model="favoriteOnly" type="checkbox" class="check-native" @change="refresh">
-        <span class="check-box" :class="{ checked: favoriteOnly }" />
+        <input
+          v-model="favoriteOnly"
+          type="checkbox"
+          class="check-native"
+          @change="refresh"
+        >
+        <span
+          class="check-box"
+          :class="{ checked: favoriteOnly }"
+        />
         仅收藏
       </label>
     </div>
 
     <!-- ── 标签筛选栏 ── -->
-    <div v-if="allTags.length" class="tag-bar">
+    <div
+      v-if="allTags.length"
+      class="tag-bar"
+    >
       <span class="tag-bar-label">标签：</span>
-      <button v-for="tag in allTags" :key="tag" class="tag-chip" :class="{ active: activeTag === tag }" @click="activeTag = activeTag === tag ? null : tag">
+      <button
+        v-for="tag in allTags"
+        :key="tag"
+        class="tag-chip"
+        :class="{ active: activeTag === tag }"
+        @click="activeTag = activeTag === tag ? null : tag"
+      >
         {{ tag }}
       </button>
-      <button v-if="activeTag" class="tag-clear" @click="activeTag = null">✕ 清除</button>
+      <button
+        v-if="activeTag"
+        class="tag-clear"
+        @click="activeTag = null"
+      >
+        ✕ 清除
+      </button>
     </div>
 
     <StatusBanner
@@ -540,7 +743,10 @@ watch(displayed, () => {
     />
 
     <!-- ── 加载 ── -->
-    <LoadingState v-if="loading" label="正在加载报告库..." />
+    <LoadingState
+      v-if="loading"
+      label="正在加载报告库..."
+    />
 
     <!-- ── 空态 ── -->
     <EmptyState
@@ -556,9 +762,18 @@ watch(displayed, () => {
       hint="可以清空筛选条件，或换一个 ticker / 关键词。"
       compact
     />
-    <div v-else-if="displayed.length > pageSize" class="pager top-pager">
+    <div
+      v-else-if="displayed.length > pageSize"
+      class="pager top-pager"
+    >
       <span class="pager-summary">第 {{ currentPage }} / {{ totalPages }} 页，显示 {{ pageStart + 1 }}-{{ pageEnd }} 条</span>
-      <button class="pager-btn" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">上一页</button>
+      <button
+        class="pager-btn"
+        :disabled="currentPage <= 1"
+        @click="goPage(currentPage - 1)"
+      >
+        上一页
+      </button>
       <div class="pager-pages">
         <button
           v-for="page in totalPages"
@@ -570,11 +785,20 @@ watch(displayed, () => {
           {{ page }}
         </button>
       </div>
-      <button class="pager-btn" :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">下一页</button>
+      <button
+        class="pager-btn"
+        :disabled="currentPage >= totalPages"
+        @click="goPage(currentPage + 1)"
+      >
+        下一页
+      </button>
     </div>
 
     <!-- ── 报告列表 ── -->
-    <div v-if="!loading && items.length > 0 && displayed.length > 0" class="report-list">
+    <div
+      v-if="!loading && items.length > 0 && displayed.length > 0"
+      class="report-list"
+    >
       <div
         v-for="r in pagedReports"
         :key="r.report_id"
@@ -583,13 +807,21 @@ watch(displayed, () => {
         @click="compareMode ? toggleCompareSelect(r) : openSidebar(r)"
       >
         <!-- 对比标签 -->
-        <div v-if="compareMode && isSelected(r)" class="compare-badge" :class="selectedLabel(r)?.toLowerCase()">
+        <div
+          v-if="compareMode && isSelected(r)"
+          class="compare-badge"
+          :class="selectedLabel(r)?.toLowerCase()"
+        >
           {{ selectedLabel(r) }}
         </div>
 
         <!-- 左侧操作 -->
         <div class="card-left">
-          <button class="star" :class="{ on: r.is_favorite }" @click="e => toggleFav(r, e)">
+          <button
+            class="star"
+            :class="{ on: r.is_favorite }"
+            @click="e => toggleFav(r, e)"
+          >
             {{ r.is_favorite ? '★' : '☆' }}
           </button>
         </div>
@@ -598,21 +830,43 @@ watch(displayed, () => {
         <div class="report-body">
           <!-- 行1：Ticker + depth + quality + review -->
           <div class="report-row1">
-            <span v-if="r.ticker" class="report-ticker">{{ r.ticker }}</span>
-            <span v-if="r.analysis_depth" class="depth-badge">{{ r.analysis_depth }}</span>
-            <span v-if="r.quality_state === 'pass'" class="quality-pass">✓ 质检</span>
-            <span v-if="r.quality_state === 'block'" class="quality-block">✗ 质检</span>
+            <span
+              v-if="r.ticker"
+              class="report-ticker"
+            >{{ r.ticker }}</span>
+            <span
+              v-if="r.analysis_depth"
+              class="depth-badge"
+            >{{ r.analysis_depth }}</span>
+            <span
+              v-if="r.quality_state === 'pass'"
+              class="quality-pass"
+            >✓ 质检</span>
+            <span
+              v-if="r.quality_state === 'block'"
+              class="quality-block"
+            >✗ 质检</span>
             <span
               v-if="r.review_status"
               class="review-badge"
               :style="{ background: `color-mix(in srgb, ${REVIEW_LABELS[r.review_status]?.color || 'var(--fin-muted)'} 13%, transparent)`, color: REVIEW_LABELS[r.review_status]?.color || 'var(--fin-muted)' }"
             >{{ REVIEW_LABELS[r.review_status]?.label }}</span>
-            <h3 class="report-title">{{ r.title || '(无标题)' }}</h3>
-            <span v-if="r.citation_count" class="cite-badge">引用 {{ r.citation_count }}</span>
+            <h3 class="report-title">
+              {{ r.title || '(无标题)' }}
+            </h3>
+            <span
+              v-if="r.citation_count"
+              class="cite-badge"
+            >引用 {{ r.citation_count }}</span>
           </div>
 
           <!-- 摘要 -->
-          <p v-if="r.summary" class="report-summary">{{ r.summary }}</p>
+          <p
+            v-if="r.summary"
+            class="report-summary"
+          >
+            {{ r.summary }}
+          </p>
 
           <!-- EvidencePanel -->
           <EvidencePanel
@@ -629,33 +883,83 @@ watch(displayed, () => {
           />
 
           <!-- 标签 -->
-          <div v-if="(r.tags || []).length" class="report-tags">
-            <span v-for="t in r.tags" :key="t" class="tag-pill" @click.stop="activeTag = t">{{ t }}</span>
+          <div
+            v-if="(r.tags || []).length"
+            class="report-tags"
+          >
+            <span
+              v-for="t in r.tags"
+              :key="t"
+              class="tag-pill"
+              @click.stop="activeTag = t"
+            >{{ t }}</span>
           </div>
 
           <!-- 底栏 -->
           <div class="report-footer">
             <span class="report-date">{{ fmtDate(r.generated_at) }}</span>
-            <span v-if="r.last_viewed_at" class="last-viewed">查看于 {{ fmtDate(r.last_viewed_at) }}</span>
-            <span v-if="r.user_note" class="has-note">📝</span>
-            <div class="report-actions" @click.stop>
+            <span
+              v-if="r.last_viewed_at"
+              class="last-viewed"
+            >查看于 {{ fmtDate(r.last_viewed_at) }}</span>
+            <span
+              v-if="r.user_note"
+              class="has-note"
+            >📝</span>
+            <div
+              class="report-actions"
+              @click.stop
+            >
               <!-- 复查状态菜单 -->
               <select
                 class="status-select"
                 :value="r.review_status || 'new'"
                 @change="e => setReviewStatus(r, (e.target as HTMLSelectElement).value, e)"
               >
-                <option v-for="o in REVIEW_OPTIONS.slice(1)" :key="o.value" :value="o.value">{{ o.label }}</option>
+                <option
+                  v-for="o in REVIEW_OPTIONS.slice(1)"
+                  :key="o.value"
+                  :value="o.value"
+                >
+                  {{ o.label }}
+                </option>
               </select>
-              <button class="btn-action" title="编辑标签" @click="e => openTagEdit(r, e)">🏷</button>
-              <button class="btn-action" title="导出 Markdown" @click="e => exportMarkdown(r, e)">↓ MD</button>
-              <button class="btn-action" title="重新分析" @click="e => reanalyze(r, e)">↺</button>
+              <button
+                class="btn-action"
+                title="编辑标签"
+                @click="e => openTagEdit(r, e)"
+              >
+                🏷
+              </button>
+              <button
+                class="btn-action"
+                title="导出 Markdown"
+                @click="e => exportMarkdown(r, e)"
+              >
+                ↓ MD
+              </button>
+              <button
+                class="btn-action"
+                title="重新分析"
+                @click="e => reanalyze(r, e)"
+              >
+                ↺
+              </button>
             </div>
           </div>
         </div>
       </div>
-      <div v-if="displayed.length > pageSize" class="pager">
-        <button class="pager-btn" :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">上一页</button>
+      <div
+        v-if="displayed.length > pageSize"
+        class="pager"
+      >
+        <button
+          class="pager-btn"
+          :disabled="currentPage <= 1"
+          @click="goPage(currentPage - 1)"
+        >
+          上一页
+        </button>
         <div class="pager-pages">
           <button
             v-for="page in totalPages"
@@ -667,23 +971,55 @@ watch(displayed, () => {
             {{ page }}
           </button>
         </div>
-        <button class="pager-btn" :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">下一页</button>
+        <button
+          class="pager-btn"
+          :disabled="currentPage >= totalPages"
+          @click="goPage(currentPage + 1)"
+        >
+          下一页
+        </button>
       </div>
     </div>
 
     <!-- ── 标签编辑 Modal ── -->
     <Teleport to="body">
-      <div v-if="tagEditItem" class="modal-backdrop" @click.self="tagEditItem = null">
+      <div
+        v-if="tagEditItem"
+        class="modal-backdrop"
+        @click.self="tagEditItem = null"
+      >
         <div class="modal-sm">
           <div class="modal-head">
             <span class="modal-title">编辑标签 — {{ tagEditItem.ticker || tagEditItem.report_id.slice(0, 8) }}</span>
-            <button class="btn-close-sm" @click="tagEditItem = null">✕</button>
+            <button
+              class="btn-close-sm"
+              @click="tagEditItem = null"
+            >
+              ✕
+            </button>
           </div>
-          <p class="modal-hint">逗号分隔，例如：AI芯片, 财报后复盘, 待跟踪</p>
-          <input v-model="tagInput" class="input full" placeholder="AI芯片, 高风险" @keyup.enter="saveTagEdit">
+          <p class="modal-hint">
+            逗号分隔，例如：AI芯片, 财报后复盘, 待跟踪
+          </p>
+          <input
+            v-model="tagInput"
+            class="input full"
+            placeholder="AI芯片, 高风险"
+            @keyup.enter="saveTagEdit"
+          >
           <div class="modal-actions">
-            <button class="btn-primary" @click="saveTagEdit">保存</button>
-            <button class="btn-cancel" @click="tagEditItem = null">取消</button>
+            <button
+              class="btn-primary"
+              @click="saveTagEdit"
+            >
+              保存
+            </button>
+            <button
+              class="btn-cancel"
+              @click="tagEditItem = null"
+            >
+              取消
+            </button>
           </div>
         </div>
       </div>
@@ -691,26 +1027,62 @@ watch(displayed, () => {
 
     <!-- ── 报告详情侧边栏 ── -->
     <Teleport to="body">
-      <div v-if="sidebarItem && !compareMode" class="sidebar-backdrop" @click.self="closeSidebar">
+      <div
+        v-if="sidebarItem && !compareMode"
+        class="sidebar-backdrop"
+        @click.self="closeSidebar"
+      >
         <aside class="sidebar">
           <div class="sidebar-head">
             <div class="sidebar-meta-top">
-              <span v-if="sidebarItem.ticker" class="sidebar-ticker">{{ sidebarItem.ticker }}</span>
-              <span v-if="sidebarItem.analysis_depth" class="depth-badge">{{ sidebarItem.analysis_depth }}</span>
-              <span v-if="sidebarItem.review_status" class="review-badge"
-                :style="{ background: `color-mix(in srgb, ${REVIEW_LABELS[sidebarItem.review_status]?.color || 'var(--fin-muted)'} 13%, transparent)`, color: REVIEW_LABELS[sidebarItem.review_status]?.color || 'var(--fin-muted)' }">
+              <span
+                v-if="sidebarItem.ticker"
+                class="sidebar-ticker"
+              >{{ sidebarItem.ticker }}</span>
+              <span
+                v-if="sidebarItem.analysis_depth"
+                class="depth-badge"
+              >{{ sidebarItem.analysis_depth }}</span>
+              <span
+                v-if="sidebarItem.review_status"
+                class="review-badge"
+                :style="{ background: `color-mix(in srgb, ${REVIEW_LABELS[sidebarItem.review_status]?.color || 'var(--fin-muted)'} 13%, transparent)`, color: REVIEW_LABELS[sidebarItem.review_status]?.color || 'var(--fin-muted)' }"
+              >
                 {{ REVIEW_LABELS[sidebarItem.review_status]?.label }}
               </span>
             </div>
             <div class="sidebar-head-actions">
-              <button v-if="sidebarItem.ticker" class="btn-action" @click="router.push(`/dossier/${sidebarItem.ticker}`)">时间线</button>
-              <button class="btn-action" @click="e => exportMarkdown(sidebarItem!, e)">↓ MD</button>
-              <button class="btn-action" @click="e => reanalyze(sidebarItem!, e)">↺ 刷新</button>
-              <button class="sidebar-close" @click="closeSidebar">✕</button>
+              <button
+                v-if="sidebarItem.ticker"
+                class="btn-action"
+                @click="router.push(`/dossier/${sidebarItem.ticker}`)"
+              >
+                时间线
+              </button>
+              <button
+                class="btn-action"
+                @click="e => exportMarkdown(sidebarItem!, e)"
+              >
+                ↓ MD
+              </button>
+              <button
+                class="btn-action"
+                @click="e => reanalyze(sidebarItem!, e)"
+              >
+                ↺ 刷新
+              </button>
+              <button
+                class="sidebar-close"
+                @click="closeSidebar"
+              >
+                ✕
+              </button>
             </div>
           </div>
 
-          <h3 class="sidebar-title">{{ sidebarItem.title || '(无标题)' }}</h3>
+          <h3 class="sidebar-title">
+            {{ sidebarItem.title || '(无标题)' }}
+          </h3>
 
           <!-- 完整 EvidencePanel -->
           <EvidencePanel
@@ -724,36 +1096,78 @@ watch(displayed, () => {
             :model-generated="true"
           />
 
-          <LoadingState v-if="sidebarLoading" label="正在加载报告内容..." compact />
+          <LoadingState
+            v-if="sidebarLoading"
+            label="正在加载报告内容..."
+            compact
+          />
 
           <!-- 报告全文 / 摘要 -->
-          <div v-else class="sidebar-sections">
-            <div v-if="sidebarReplay?.report?.content || sidebarItem.summary" class="sidebar-section">
-              <div class="section-title">摘要</div>
-              <p class="sidebar-summary">{{ sidebarReplay?.report?.content || sidebarItem.summary }}</p>
+          <div
+            v-else
+            class="sidebar-sections"
+          >
+            <div
+              v-if="sidebarReplay?.report?.content || sidebarItem.summary"
+              class="sidebar-section"
+            >
+              <div class="section-title">
+                摘要
+              </div>
+              <p class="sidebar-summary">
+                {{ sidebarReplay?.report?.content || sidebarItem.summary }}
+              </p>
             </div>
 
             <!-- 标签 -->
             <div class="sidebar-section">
               <div class="section-title">
                 标签
-                <button class="tag-edit-btn" @click="e => openTagEdit(sidebarItem!, e)">编辑</button>
+                <button
+                  class="tag-edit-btn"
+                  @click="e => openTagEdit(sidebarItem!, e)"
+                >
+                  编辑
+                </button>
               </div>
               <div class="sidebar-tags">
-                <span v-for="t in (sidebarItem.tags || [])" :key="t" class="tag-pill">{{ t }}</span>
-                <span v-if="!(sidebarItem.tags || []).length" class="no-tags">暂无标签</span>
+                <span
+                  v-for="t in (sidebarItem.tags || [])"
+                  :key="t"
+                  class="tag-pill"
+                >{{ t }}</span>
+                <span
+                  v-if="!(sidebarItem.tags || []).length"
+                  class="no-tags"
+                >暂无标签</span>
               </div>
             </div>
 
             <!-- 引用来源 -->
-            <div v-if="sidebarReplay?.citations?.length" class="sidebar-section">
-              <div class="section-title">引用来源 ({{ sidebarReplay.citations.length }})</div>
+            <div
+              v-if="sidebarReplay?.citations?.length"
+              class="sidebar-section"
+            >
+              <div class="section-title">
+                引用来源 ({{ sidebarReplay.citations.length }})
+              </div>
               <ul class="citations-list">
-                <li v-for="(c, i) in sidebarReplay.citations.slice(0, 8)" :key="i" class="citation-item">
+                <li
+                  v-for="(c, i) in sidebarReplay.citations.slice(0, 8)"
+                  :key="i"
+                  class="citation-item"
+                >
                   <span class="cite-num">{{ i + 1 }}</span>
                   <div class="cite-body">
-                    <div class="cite-title">{{ c.title || c.source_id }}</div>
-                    <div v-if="c.snippet" class="cite-snippet">{{ c.snippet }}</div>
+                    <div class="cite-title">
+                      {{ c.title || c.source_id }}
+                    </div>
+                    <div
+                      v-if="c.snippet"
+                      class="cite-snippet"
+                    >
+                      {{ c.snippet }}
+                    </div>
                     <div class="cite-meta">
                       <span v-if="c.published_date">{{ fmtDate(c.published_date) }}</span>
                       <span v-if="c.confidence != null"> · 可信度 {{ Math.round(c.confidence * 100) }}%</span>
@@ -764,8 +1178,13 @@ watch(displayed, () => {
             </div>
 
             <!-- 版本链接 -->
-            <div v-if="sidebarItem.previous_report_id" class="sidebar-section">
-              <div class="section-title">版本历史</div>
+            <div
+              v-if="sidebarItem.previous_report_id"
+              class="sidebar-section"
+            >
+              <div class="section-title">
+                版本历史
+              </div>
               <div class="version-link">
                 <span class="vl-label">上一版本：</span>
                 <span class="vl-id">{{ sidebarItem.previous_report_id.slice(0, 16) }}…</span>
@@ -777,17 +1196,33 @@ watch(displayed, () => {
           <div class="note-section">
             <div class="note-label">
               <span>个人备注</span>
-              <span v-if="noteSaving" class="note-saving">保存中…</span>
+              <span
+                v-if="noteSaving"
+                class="note-saving"
+              >保存中…</span>
             </div>
-            <textarea v-model="noteText" class="note-area" placeholder="记录投资判断、复核意见、待跟踪问题…" rows="5" @input="onNoteInput" />
+            <textarea
+              v-model="noteText"
+              class="note-area"
+              placeholder="记录投资判断、复核意见、待跟踪问题…"
+              rows="5"
+              @input="onNoteInput"
+            />
           </div>
 
           <!-- 跳转 -->
           <div class="sidebar-nav-btns">
-            <button v-if="sidebarItem.ticker" class="btn-nav" @click="router.push(`/dossier/${sidebarItem.ticker}`)">
+            <button
+              v-if="sidebarItem.ticker"
+              class="btn-nav"
+              @click="router.push(`/dossier/${sidebarItem.ticker}`)"
+            >
               查看 {{ sidebarItem.ticker }} 标的档案
             </button>
-            <button class="btn-nav outline" @click="e => { reanalyze(sidebarItem!, e); closeSidebar(); }">
+            <button
+              class="btn-nav outline"
+              @click="e => { reanalyze(sidebarItem!, e); closeSidebar(); }"
+            >
               发起 Chat 追问
             </button>
           </div>

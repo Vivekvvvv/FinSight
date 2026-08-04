@@ -205,13 +205,26 @@ watch(() => identity.sessionId, () => { void refresh(); });
   <section class="notes-page">
     <header class="hero">
       <div>
-        <p class="eyebrow">Research Notebook</p>
+        <p class="eyebrow">
+          Research Notebook
+        </p>
         <h1>研究笔记</h1>
-        <p class="subtitle">把报告假设、事件观察和人工判断沉淀下来，避免研究过程只停留在一次性输出。</p>
+        <p class="subtitle">
+          把报告假设、事件观察和人工判断沉淀下来，避免研究过程只停留在一次性输出。
+        </p>
       </div>
       <div class="hero-actions">
-        <ActionButton variant="ghost" :loading="loading" loading-text="刷新中..." @click="refresh">刷新</ActionButton>
-        <ActionButton @click="createNew">新建笔记</ActionButton>
+        <ActionButton
+          variant="ghost"
+          :loading="loading"
+          loading-text="刷新中..."
+          @click="refresh"
+        >
+          刷新
+        </ActionButton>
+        <ActionButton @click="createNew">
+          新建笔记
+        </ActionButton>
       </div>
     </header>
 
@@ -233,12 +246,32 @@ watch(() => identity.sessionId, () => { void refresh(); });
     <div class="workspace">
       <aside class="notes-list">
         <div class="filters">
-          <input v-model="query" class="input" placeholder="搜索标题或正文…" @keyup.enter="refresh">
-          <input v-model="tickerFilter" class="input" placeholder="按 ticker 筛选，如 AAPL" @keyup.enter="refresh">
-          <ActionButton variant="secondary" :loading="loading" loading-text="筛选中..." @click="refresh">应用筛选</ActionButton>
+          <input
+            v-model="query"
+            class="input"
+            placeholder="搜索标题或正文…"
+            @keyup.enter="refresh"
+          >
+          <input
+            v-model="tickerFilter"
+            class="input"
+            placeholder="按 ticker 筛选，如 AAPL"
+            @keyup.enter="refresh"
+          >
+          <ActionButton
+            variant="secondary"
+            :loading="loading"
+            loading-text="筛选中..."
+            @click="refresh"
+          >
+            应用筛选
+          </ActionButton>
         </div>
 
-        <LoadingState v-if="loading && notes.length === 0" label="正在加载研究笔记..." />
+        <LoadingState
+          v-if="loading && notes.length === 0"
+          label="正在加载研究笔记..."
+        />
         <EmptyState
           v-else-if="!loading && filteredNotes.length === 0"
           title="暂无研究笔记"
@@ -253,29 +286,69 @@ watch(() => identity.sessionId, () => { void refresh(); });
           :class="{ active: selected?.note_id === note.note_id }"
           @click="openNote(note)"
         >
-          <div class="note-card-title">{{ note.title }}</div>
+          <div class="note-card-title">
+            {{ note.title }}
+          </div>
           <div class="note-card-meta">
-            <span v-if="note.ticker" class="ticker">{{ note.ticker }}</span>
+            <span
+              v-if="note.ticker"
+              class="ticker"
+            >{{ note.ticker }}</span>
             <span>{{ fmtDate(note.updated_at) }}</span>
           </div>
-          <div v-if="note.tags.length" class="tag-row">
-            <span v-for="tag in note.tags.slice(0, 3)" :key="tag" class="tag">{{ tag }}</span>
+          <div
+            v-if="note.tags.length"
+            class="tag-row"
+          >
+            <span
+              v-for="tag in note.tags.slice(0, 3)"
+              :key="tag"
+              class="tag"
+            >{{ tag }}</span>
           </div>
-          <p class="note-snippet">{{ note.content || '空白笔记' }}</p>
+          <p class="note-snippet">
+            {{ note.content || '空白笔记' }}
+          </p>
         </button>
       </aside>
 
       <main class="editor-panel">
         <div class="editor-header">
           <div>
-            <p class="editor-kicker">{{ selected ? '编辑笔记' : '新建笔记' }}</p>
+            <p class="editor-kicker">
+              {{ selected ? '编辑笔记' : '新建笔记' }}
+            </p>
             <h2>{{ selected?.title || '未命名笔记' }}</h2>
           </div>
           <div class="editor-actions">
-            <button class="secondary-btn" :disabled="!ticker.trim()" @click="goDashboard">查看标的</button>
-            <button class="secondary-btn" :disabled="!ticker.trim()" @click="router.push(`/dossier/${ticker.trim().toUpperCase()}`)">查看时间线</button>
-            <ActionButton v-if="selected" variant="danger" :loading="saving" loading-text="删除中..." @click="deleteSelected">删除</ActionButton>
-            <ActionButton :loading="saving || uploading" :loading-text="uploading ? '上传中...' : '保存中...'" @click="saveNote">
+            <button
+              class="secondary-btn"
+              :disabled="!ticker.trim()"
+              @click="goDashboard"
+            >
+              查看标的
+            </button>
+            <button
+              class="secondary-btn"
+              :disabled="!ticker.trim()"
+              @click="router.push(`/dossier/${ticker.trim().toUpperCase()}`)"
+            >
+              查看时间线
+            </button>
+            <ActionButton
+              v-if="selected"
+              variant="danger"
+              :loading="saving"
+              loading-text="删除中..."
+              @click="deleteSelected"
+            >
+              删除
+            </ActionButton>
+            <ActionButton
+              :loading="saving || uploading"
+              :loading-text="uploading ? '上传中...' : '保存中...'"
+              @click="saveNote"
+            >
               保存
             </ActionButton>
           </div>
@@ -284,15 +357,27 @@ watch(() => identity.sessionId, () => { void refresh(); });
         <div class="form-grid">
           <label class="field">
             <span>标题</span>
-            <input v-model="title" class="input" placeholder="例如：AAPL 财报后复盘">
+            <input
+              v-model="title"
+              class="input"
+              placeholder="例如：AAPL 财报后复盘"
+            >
           </label>
           <label class="field">
             <span>Ticker</span>
-            <input v-model="ticker" class="input" placeholder="AAPL">
+            <input
+              v-model="ticker"
+              class="input"
+              placeholder="AAPL"
+            >
           </label>
           <label class="field wide">
             <span>标签</span>
-            <input v-model="tagsInput" class="input" placeholder="逗号分隔，例如 财报,风险,待验证">
+            <input
+              v-model="tagsInput"
+              class="input"
+              placeholder="逗号分隔，例如 财报,风险,待验证"
+            >
           </label>
         </div>
 
