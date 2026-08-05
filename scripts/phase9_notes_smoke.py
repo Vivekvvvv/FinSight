@@ -113,3 +113,5 @@ print("=== 汇总 ===")
 passes = sum(1 for _, r, _ in results if r == "PASS")
 fails  = sum(1 for _, r, _ in results if r == "FAIL")
 print(f"PASS: {passes}  FAIL: {fails}")
+
+raise SystemExit(1 if fails else 0)

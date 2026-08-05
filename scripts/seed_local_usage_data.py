@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.services.memory import MemoryService
-from backend.services.portfolio_store import save_suggestion, update_position
+from backend.services.portfolio_store import get_positions, list_suggestions, save_suggestion, update_position
 from backend.services.report_index import ReportIndexStore
 from backend.services.research_notes import create_note, list_notes
 from backend.services.subscription_service import SubscriptionService
@@ -27,6 +27,10 @@ def iso(days: int = 0, hours: int = 0) -> str:
 
 
 def seed_portfolio() -> None:
+    existing_tickers = {
+        str(position.get("ticker") or "").strip().upper()
+        for position in get_positions(SESSION_ID)
+    }
     positions = [
         {
             "ticker": "AAPL",
@@ -85,26 +89,33 @@ def seed_portfolio() -> None:
         },
     ]
     for pos in positions:
+        if pos["ticker"] in existing_tickers:
+            continue
         update_position(SESSION_ID, **pos)
 
-    save_suggestion(
-        "seed_rebalance_20260630",
-        SESSION_ID,
-        {
-            "title": "月底仓位复盘",
-            "summary": "组合偏科技成长，建议把单一高波动敞口控制在可承受范围内，并保留现金缓冲。",
-            "actions": [
-                {"ticker": "NVDA", "action": "trim_watch", "reason": "涨跌幅弹性较大，等待财报后再决定是否加仓。"},
-                {"ticker": "600519.SS", "action": "hold", "reason": "防御属性强，但需继续观察消费数据。"},
-                {"ticker": "0700.HK", "action": "hold_watch", "reason": "回购提供支撑，等待港股流动性确认。"},
-            ],
-            "created_by": "local_seed",
-        },
-    )
+    suggestion_id = "seed_rebalance_20260630"
+    existing_suggestions = {item.get("suggestion_id") for item in list_suggestions(SESSION_ID, limit=100)}
+    if suggestion_id not in existing_suggestions:
+        save_suggestion(
+            suggestion_id,
+            SESSION_ID,
+            {
+                "title": "月底仓位复盘",
+                "summary": "组合偏科技成长，建议把单一高波动敞口控制在可承受范围内，并保留现金缓冲。",
+                "actions": [
+                    {"ticker": "NVDA", "action": "trim_watch", "reason": "涨跌幅弹性较大，等待财报后再决定是否加仓。"},
+                    {"ticker": "600519.SS", "action": "hold", "reason": "防御属性强，但需继续观察消费数据。"},
+                    {"ticker": "0700.HK", "action": "hold_watch", "reason": "回购提供支撑，等待港股流动性确认。"},
+                ],
+                "created_by": "local_seed",
+            },
+        )
 
 
 def seed_watchlist() -> None:
     memory = MemoryService()
+    profile = memory.get_user_profile(USER_ID)
+    existing_tickers = {str(ticker).strip().upper() for ticker in profile.watchlist}
     items = [
         ("AAPL", "Apple Inc.", ["核心", "财报"], "等待下一次业绩电话会验证服务收入质量。", "核心跟踪", 1, "active"),
         ("MSFT", "Microsoft", ["云", "AI"], "关注 Azure 与 Copilot 的增长拆分。", "核心跟踪", 2, "active"),
@@ -114,6 +125,8 @@ def seed_watchlist() -> None:
         ("9988.HK", "阿里巴巴", ["港股", "电商"], "观察云业务和股东回报变化。", "港股观察", 4, "new"),
     ]
     for ticker, name, tags, note, group, priority, status in items:
+        if ticker in existing_tickers:
+            continue
         memory.add_to_watchlist(
             USER_ID,
             ticker,
@@ -125,14 +138,26 @@ def seed_watchlist() -> None:
             watch_reason=note,
             research_status=status,
         )
-    memory.set_preference(USER_ID, "default_symbol", "AAPL")
-    memory.set_preference(USER_ID, "market_focus", ["US", "CN", "HK"])
-    memory.set_preference(USER_ID, "risk_style", "balanced")
+    preferences = profile.preferences if isinstance(profile.preferences, dict) else {}
+    defaults = {
+        "default_symbol": "AAPL",
+        "market_focus": ["US", "CN", "HK"],
+        "risk_style": "balanced",
+    }
+    for key, value in defaults.items():
+        if key not in preferences:
+            memory.set_preference(USER_ID, key, value)
 
 
 def seed_notes() -> None:
-    existing = list_notes(SESSION_ID, USER_ID, limit=200)
-    existing_titles = {item.get("title") for item in existing}
+    existing_titles: set[str | None] = set()
+    offset = 0
+    while True:
+        batch = list_notes(SESSION_ID, USER_ID, limit=200, offset=offset)
+        existing_titles.update(item.get("title") for item in batch)
+        if len(batch) < 200:
+            break
+        offset += len(batch)
     notes = [
         (
             "AAPL 服务收入复查",
@@ -170,17 +195,17 @@ def report_payload(report_id: str, ticker: str, title: str, summary: str, tags: 
         "report_id": report_id,
         "session_id": SESSION_ID,
         "ticker": ticker,
-        "title": title,
-        "summary": summary,
+        "title": f"[本地示例] {title}",
+        "summary": f"本地示例数据：{summary}",
         "tags": tags,
         "generated_at": generated_at,
         "as_of": generated_at,
         "freshness_status": "cached",
         "confidence_score": confidence,
-        "source_type": "ai_generated",
+        "source_type": "local_seed",
         "quality_state": "pass",
         "meta": {
-            "source_type": "ai_generated",
+            "source_type": "local_seed",
             "analysis_depth": "report",
             "source_trigger": "seeded_local_usage",
             "as_of": generated_at,
@@ -192,14 +217,14 @@ def report_payload(report_id: str, ticker: str, title: str, summary: str, tags: 
         "citations": [
             {
                 "title": f"{ticker} 公司资料",
-                "url": f"https://example.com/research/{ticker.lower()}",
+                "url": f"https://example.invalid/research/{ticker.lower()}",
                 "snippet": "本地种子数据仅用于展示报告库使用痕迹。",
                 "published_date": generated_at[:10],
                 "confidence": 0.7,
             },
             {
                 "title": "组合复盘记录",
-                "url": f"https://example.com/portfolio/{ticker.lower()}",
+                "url": f"https://example.invalid/portfolio/{ticker.lower()}",
                 "snippet": "结合持仓、笔记和关注列表生成的本地复盘摘要。",
                 "published_date": generated_at[:10],
                 "confidence": 0.68,
@@ -210,6 +235,10 @@ def report_payload(report_id: str, ticker: str, title: str, summary: str, tags: 
 
 def seed_reports() -> None:
     store = ReportIndexStore()
+    existing_ids = {
+        str(report.get("report_id") or "").strip()
+        for report in store.list_reports(session_id=SESSION_ID, limit=500, include_blocked=True)
+    }
     reports = [
         report_payload(
             "seed_report_aapl_quality_202606",
@@ -240,14 +269,34 @@ def seed_reports() -> None:
         ),
     ]
     for report in reports:
+        if report["report_id"] in existing_ids:
+            continue
         store.upsert_report(session_id=SESSION_ID, report=report, include_blocked=True)
 
 
 def seed_subscriptions() -> None:
     service = SubscriptionService()
-    service.subscribe(EMAIL, "AAPL", ["price_change", "news", "report"], price_threshold=3.0, risk_threshold="medium")
-    service.subscribe(EMAIL, "NVDA", ["price_change", "risk"], price_threshold=5.0, risk_threshold="high")
-    service.subscribe(EMAIL, "600519.SS", ["news", "report"], risk_threshold="medium")
+    existing_tickers = {
+        str(subscription.get("ticker") or "").strip().upper()
+        for subscription in service.get_subscriptions(email=EMAIL)
+    }
+    subscriptions = [
+        ("AAPL", ["price_change", "news", "report"], {"price_threshold": 3.0, "risk_threshold": "medium"}),
+        ("NVDA", ["price_change", "risk"], {"price_threshold": 5.0, "risk_threshold": "high"}),
+        ("600519.SS", ["news", "report"], {"risk_threshold": "medium"}),
+    ]
+    for ticker, alert_types, options in subscriptions:
+        if ticker not in existing_tickers:
+            service.subscribe(EMAIL, ticker, alert_types, **options)
+    existing_events = service.list_alert_events(EMAIL, limit=50)
+    has_seed_event = any(
+        event.get("ticker") == "NVDA"
+        and event.get("event_type") == "price_change"
+        and (event.get("metadata") or {}).get("source") == "local_seed"
+        for event in existing_events
+    )
+    if has_seed_event:
+        return
     service.record_alert_event(
         EMAIL,
         "NVDA",

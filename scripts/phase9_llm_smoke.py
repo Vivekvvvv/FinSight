@@ -125,3 +125,5 @@ passes = sum(1 for _, r, _ in RESULTS if r == "PASS")
 fails  = sum(1 for _, r, _ in RESULTS if r == "FAIL")
 skips  = sum(1 for _, r, _ in RESULTS if r == "SKIP")
 print(f"PASS: {passes}  FAIL: {fails}  SKIP: {skips}")
+
+raise SystemExit(1 if fails else 0)

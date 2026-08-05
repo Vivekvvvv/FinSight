@@ -1,5 +1,8 @@
 """Phase 9: 密钥存在性检查 — 不打印真实值"""
-import re, sys, io
+import io
+from pathlib import Path
+import re
+import sys
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -7,7 +10,7 @@ KEYS = [
     # P0 安全
     ("JWT_SECRET",                    "P0-security"),
     ("API_AUTH_KEYS",                 "P0-security"),
-    ("DEV_MODE",                      "P0-security"),
+    ("DEV_MODE",                      "security-default-safe"),
     # LLM
     ("OPENAI_API_KEY",                "LLM"),
     ("OPENAI_COMPATIBLE_API_KEY",     "LLM"),
@@ -31,7 +34,7 @@ KEYS = [
     ("POSTGRES_PASSWORD",             "DB"),
     ("POSTGRES_DB",                   "DB"),
     # 应用
-    ("CORS_ORIGINS",                  "app"),
+    ("CORS_ALLOW_ORIGINS",            "app"),
     ("RAG_BACKEND",                   "app-optional"),
     ("RAG_EMBEDDING",                 "app-optional"),
     ("UPLOAD_DIR",                    "app-optional"),
@@ -46,10 +49,28 @@ KEYS = [
     ("SUPABASE_ANON_KEY",             "supabase-optional"),
 ]
 
-PLACEHOLDERS = {"your_key_here", "your-secret-here", "changeme", "placeholder", "xxx"}
+PLACEHOLDERS = {
+    "your_key_here",
+    "your-secret-here",
+    "changeme",
+    "placeholder",
+    "replace_me_long_random_secret",
+    "replace_me_internal_api_key",
+    "sk-replace_me",
+    "xxx",
+}
 
-with open(".env.server", encoding="utf-8", errors="replace") as f:
-    lines = f.readlines()
+
+def parse_env_value(raw_value):
+    value = raw_value.strip()
+    if value[:1] in {'"', "'"}:
+        closing_quote = value.find(value[0], 1)
+        if closing_quote >= 0:
+            return value[1:closing_quote]
+    return re.split(r"\s+#", value, maxsplit=1)[0].strip()
+
+env_path = Path(".env.server")
+lines = env_path.read_text(encoding="utf-8", errors="replace").splitlines() if env_path.exists() else []
 
 env = {}
 for line in lines:
@@ -58,10 +79,12 @@ for line in lines:
         continue
     m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=(.*)', line)
     if m:
-        k, v = m.group(1), m.group(2).strip().strip('"').strip("'")
+        k, v = m.group(1), parse_env_value(m.group(2))
         env[k] = v
 
 print(f"=== Phase 9 密钥存在性检查 ===")
+if not env_path.exists():
+    print(".env.server 不存在；按全部变量缺失处理。")
 print(f"Total vars in .env.server: {len(env)}")
 print()
 
@@ -77,8 +100,15 @@ for key, category in KEYS:
         # 额外检测：JWT_SECRET 需要足够长
         if key == "JWT_SECRET" and l < 32:
             status = f"PRESENT_BUT_SHORT (len={l}, need>=32)"
-        elif key == "API_AUTH_KEYS" and l < 8:
-            status = f"PRESENT_BUT_SHORT (len={l})"
+        elif key == "API_AUTH_KEYS":
+            auth_keys = [item.strip() for item in val.split(",") if item.strip()]
+            shortest = min((len(item) for item in auth_keys), default=0)
+            if any(item.lower() in PLACEHOLDERS for item in auth_keys):
+                status = "EMPTY/PLACEHOLDER"
+            elif shortest < 8:
+                status = f"PRESENT_BUT_SHORT (shortest_len={shortest})"
+            else:
+                status = f"PRESENT (len={l})"
         else:
             status = f"PRESENT (len={l})"
     results[key] = (status, category)
@@ -86,7 +116,7 @@ for key, category in KEYS:
 
 print()
 # 统计阻塞项
-blocking = [k for k, (s, c) in results.items() if c.startswith("P0") and "PRESENT" not in s]
+blocking = [k for k, (s, c) in results.items() if c.startswith("P0") and not s.startswith("PRESENT (len=")]
 llm_ok = any("PRESENT" in results.get(k, ("",))[0] for k in [
     "OPENAI_API_KEY", "OPENAI_COMPATIBLE_API_KEY", "GEMINI_PROXY_API_KEY", "DEEPSEEK_API_KEY"
 ])
@@ -99,3 +129,5 @@ if blocking:
         print(f"  BLOCKING: {b}")
 else:
     print("  无阻塞项 — 所有 P0 密钥已就绪")
+
+raise SystemExit(1 if blocking else 0)

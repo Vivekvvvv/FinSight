@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import EmptyState from '@/components/EmptyState.vue';
@@ -108,9 +108,13 @@ async function loadContext() {
   contextLoading.value = false;
 }
 
-onMounted(() => {
-  void loadContext();
-});
+watch(
+  () => [identity.ready, identity.sessionId, identity.userId] as const,
+  ([ready]) => {
+    if (ready) void loadContext();
+  },
+  { immediate: true },
+);
 
 watch(
   () => route.query.drawer,

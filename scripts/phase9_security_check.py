@@ -3,7 +3,25 @@ import re, sys, io, os
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-PLACEHOLDERS = {"your_key_here", "your-secret-here", "changeme", "placeholder", "xxx", ""}
+PLACEHOLDERS = {
+    "your_key_here",
+    "your-secret-here",
+    "changeme",
+    "placeholder",
+    "replace_me_long_random_secret",
+    "replace_me_internal_api_key",
+    "xxx",
+    "",
+}
+
+
+def parse_env_value(raw_value):
+    value = raw_value.strip()
+    if value[:1] in {'"', "'"}:
+        closing_quote = value.find(value[0], 1)
+        if closing_quote >= 0:
+            return value[1:closing_quote]
+    return re.split(r"\s+#", value, maxsplit=1)[0].strip()
 
 def load_env(path):
     env = {}
@@ -15,7 +33,7 @@ def load_env(path):
                     continue
                 m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=(.*)', line)
                 if m:
-                    k, v = m.group(1), m.group(2).strip().strip('"').strip("'")
+                    k, v = m.group(1), parse_env_value(m.group(2))
                     env[k] = v
     except FileNotFoundError:
         pass
@@ -35,7 +53,7 @@ print("=== Phase 9 安全配置检查 ===\n")
 
 # 1. DEV_MODE 必须为 false 或未设置
 dev_mode = env.get("DEV_MODE", "").lower()
-if dev_mode in ("1", "true", "yes"):
+if dev_mode in ("1", "true", "yes", "on"):
     check("DEV_MODE", "FAIL", f"DEV_MODE={env.get('DEV_MODE')} 在生产中必须为 false 或未设置", blocking=True)
 else:
     check("DEV_MODE", "PASS", f"未设置或为 false（默认 false）")
@@ -51,21 +69,47 @@ else:
 
 # 3. API_AUTH_KEYS 存在
 api_keys = env.get("API_AUTH_KEYS", "")
-if not api_keys or api_keys.lower() in PLACEHOLDERS:
+api_key_items = [item.strip() for item in api_keys.split(",") if item.strip()]
+if not api_keys or any(item.lower() in PLACEHOLDERS for item in api_key_items):
     check("API_AUTH_KEYS", "FAIL", "缺失或为空 — API 无访问控制", blocking=True)
+elif min((len(item) for item in api_key_items), default=0) < 8:
+    shortest = min((len(item) for item in api_key_items), default=0)
+    check("API_AUTH_KEYS", "FAIL", f"最短 key 长度 {shortest}，每个 key 需 >=8 字符", blocking=True)
 else:
-    check("API_AUTH_KEYS", "PASS", f"已配置（长度 {len(api_keys)}）")
+    check("API_AUTH_KEYS", "PASS", f"已配置 {len(api_key_items)} 个 key")
 
 # 4. CORS 不使用通配符
-cors = env.get("CORS_ORIGINS", "")
-if cors == "*":
-    check("CORS_ORIGINS", "FAIL", "使用 * 通配符，允许任意来源跨域", blocking=True)
+cors = env.get("CORS_ALLOW_ORIGINS", "")
+cors_origins = {origin.strip() for origin in cors.split(",") if origin.strip()}
+if "*" in cors_origins:
+    check("CORS_ALLOW_ORIGINS", "FAIL", "使用 * 通配符，允许任意来源跨域", blocking=True)
 elif not cors:
-    check("CORS_ORIGINS", "WARN", "未配置，将使用代码默认值（需确认不含 *）")
+    check("CORS_ALLOW_ORIGINS", "WARN", "未配置，将使用代码默认值（需确认不含 *）")
 else:
-    check("CORS_ORIGINS", "PASS", f"已配置（不含通配符）: len={len(cors)}")
+    check("CORS_ALLOW_ORIGINS", "PASS", f"已配置（不含通配符）: len={len(cors)}")
 
 # 5. 前端 API base 不指向 localhost（生产用）
+cors_regex = env.get("CORS_ALLOW_ORIGIN_REGEX", "").strip()
+if cors_regex:
+    try:
+        compiled_cors_regex = re.compile(cors_regex)
+        allows_untrusted_origin = any(
+            compiled_cors_regex.fullmatch(origin)
+            for origin in (
+                "https://untrusted-origin.example",
+                "http://untrusted-origin.example:4321",
+            )
+        )
+    except re.error:
+        check("CORS_ALLOW_ORIGIN_REGEX", "FAIL", "invalid regex", blocking=True)
+    else:
+        check(
+            "CORS_ALLOW_ORIGIN_REGEX",
+            "FAIL" if allows_untrusted_origin else "PASS",
+            "regex accepts arbitrary origin" if allows_untrusted_origin else "configured restricted regex",
+            blocking=allows_untrusted_origin,
+        )
+
 vite_base = env.get("VITE_API_BASE_URL", "")
 if "localhost" in vite_base or "127.0.0.1" in vite_base:
     check("VITE_API_BASE_URL", "WARN", f"指向 localhost ({vite_base})，生产需改为实际域名")
@@ -158,3 +202,5 @@ if blocking:
     print("BLOCKING ITEMS:")
     for n, d in blocking:
         print(f"  - {n}: {d}")
+
+raise SystemExit(1 if blocking else 0)

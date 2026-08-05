@@ -8,10 +8,41 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SECRET_PATTERNS = [
-    re.compile(r"(?<![A-Za-z0-9_-])sk-(?!test-|primary-|backup-|a-|b-|very-secret-|secret-example-|x{8,})[A-Za-z0-9_-]{16,}"),
-    re.compile(r"(?im)^\s*(JWT_SECRET|API_AUTH_KEYS)\s*=\s*(?!change-me|example|your-|placeholder|dummy)['\"]?[A-Za-z0-9_.:/+-]{24,}"),
+    re.compile(r"(?<![A-Za-z0-9_-])sk-(?!test-|very-secret-|secret-example-|x{8,})[A-Za-z0-9_-]{16,}"),
+    re.compile(r"(?<![A-Za-z0-9_])gh[pousr]_[A-Za-z0-9]{36,}"),
+    re.compile(r"(?<![A-Za-z0-9_])github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"(?<![A-Za-z0-9_])npm_[A-Za-z0-9]{36,}"),
+    re.compile(r"(?<![A-Z0-9])AKIA[0-9A-Z]{16}(?![A-Z0-9])"),
+    re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----"),
+    re.compile(r"(?im)^\s*(JWT_SECRET|API_AUTH_KEYS)\s*=\s*(?!change-me|example|your-|placeholder|dummy|replace_me|smoke_placeholder)['\"]?[A-Za-z0-9_.:/+-]{24,}"),
 ]
-SCAN_SUFFIXES = {".py", ".ts", ".vue", ".md", ".yml", ".yaml", ".json", ".toml", ".txt"}
+SCAN_SUFFIXES = {
+    ".cfg",
+    ".cmd",
+    ".conf",
+    ".css",
+    ".html",
+    ".ini",
+    ".js",
+    ".jsx",
+    ".json",
+    ".key",
+    ".md",
+    ".mjs",
+    ".cjs",
+    ".ps1",
+    ".pem",
+    ".py",
+    ".sh",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".vue",
+    ".yaml",
+    ".yml",
+}
+SCAN_FILENAMES = {".npmrc", "dockerfile", "makefile", "procfile"}
 SKIP_PARTS = {
     ".git",
     ".venv",
@@ -21,10 +52,8 @@ SKIP_PARTS = {
     "playwright-report",
     "__pycache__",
     ".pytest_cache",
-    "data",
-    "logs",
-    "archive",
 }
+TOP_LEVEL_SKIP_DIRS = {"data", "logs"}
 
 
 def run(cmd: list[str], cwd: Path = ROOT) -> int:
@@ -49,7 +78,7 @@ def python_executable() -> str:
 
 def tracked_files() -> list[Path]:
     completed = subprocess.run(
-        ["git", "ls-files"],
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=str(ROOT),
         shell=False,
         text=True,
@@ -58,28 +87,39 @@ def tracked_files() -> list[Path]:
         capture_output=True,
     )
     if completed.returncode != 0:
-        print("Cannot list tracked files; falling back to empty scan set.")
-        return []
-    return [ROOT / item for item in completed.stdout.splitlines() if item.strip()]
+        raise RuntimeError("cannot list tracked files")
+    return [ROOT / item for item in completed.stdout.split("\0") if item]
 
 
 def scan_secrets() -> int:
     print("\n$ secret-scan")
     failures: list[str] = []
-    for path in tracked_files():
+    try:
+        paths = tracked_files()
+    except RuntimeError as exc:
+        print(f"Secret scan failed: {exc}")
+        return 1
+    for path in paths:
         if not path.is_file():
             continue
         relative = path.relative_to(ROOT)
-        if any(part in SKIP_PARTS for part in relative.parts):
-            continue
-        if path.name in {".env", ".env.server", "user_config.json"}:
+        normalized_name = path.name.lower()
+        is_env_file = normalized_name.startswith(".env")
+        is_local_env = is_env_file and not normalized_name.endswith(".example")
+        if is_local_env or normalized_name == "user_config.json":
             failures.append(f"{relative}: local config file must not be committed")
             continue
-        if path.suffix.lower() not in SCAN_SUFFIXES:
+        if (
+            any(part in SKIP_PARTS for part in relative.parts)
+            or relative.parts[0] in TOP_LEVEL_SKIP_DIRS
+        ) and not is_env_file:
+            continue
+        if not is_env_file and path.suffix.lower() not in SCAN_SUFFIXES and normalized_name not in SCAN_FILENAMES:
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
+        except OSError as exc:
+            failures.append(f"{relative}: cannot read file ({type(exc).__name__})")
             continue
         for pattern in SECRET_PATTERNS:
             if pattern.search(text):

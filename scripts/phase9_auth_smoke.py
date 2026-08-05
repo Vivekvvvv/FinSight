@@ -37,7 +37,17 @@ def check(name, condition, detail, status_code=None, blocking=True):
 print("=== Phase 9 Auth / API Key Smoke ===\n")
 
 # --- 读取 API_AUTH_KEYS（如有）---
+def parse_env_value(raw_value):
+    value = raw_value.strip()
+    if value[:1] in {'"', "'"}:
+        closing_quote = value.find(value[0], 1)
+        if closing_quote >= 0:
+            return value[1:closing_quote]
+    return re.split(r"\s+#", value, maxsplit=1)[0].strip()
+
+
 def load_env_key(env_file, key):
+    resolved = None
     try:
         with open(env_file, encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -46,24 +56,49 @@ def load_env_key(env_file, key):
                     continue
                 m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=(.*)', line)
                 if m and m.group(1) == key:
-                    return m.group(2).strip().strip('"').strip("'")
+                    resolved = parse_env_value(m.group(2))
     except:
         pass
-    return None
+    return resolved
 
 api_keys_raw = load_env_key(".env.server", "API_AUTH_KEYS")
 jwt_secret   = load_env_key(".env.server", "JWT_SECRET")
 dev_mode     = load_env_key(".env.server", "DEV_MODE") or "false"
 
-has_api_keys = bool(api_keys_raw and api_keys_raw not in ("", "your_key_here"))
-has_jwt      = bool(jwt_secret and jwt_secret not in ("", "your_key_here"))
-first_api_key = api_keys_raw.split(",")[0].strip() if has_api_keys else None
+placeholders = {
+    "your_key_here",
+    "your-secret-here",
+    "changeme",
+    "placeholder",
+    "replace_me_long_random_secret",
+    "replace_me_internal_api_key",
+    "xxx",
+    "",
+}
+api_key_items = [item.strip() for item in (api_keys_raw or "").split(",") if item.strip()]
+has_api_keys = bool(api_key_items) and all(
+    item.lower() not in placeholders and len(item) >= 8
+    for item in api_key_items
+)
+has_jwt = bool(
+    jwt_secret
+    and jwt_secret.lower() not in placeholders
+    and len(jwt_secret) >= 32
+)
+first_api_key = api_key_items[0] if has_api_keys else None
 
 print(f"Config snapshot:")
 print(f"  JWT_SECRET:    {'PRESENT' if has_jwt else 'MISSING'}")
 print(f"  API_AUTH_KEYS: {'PRESENT' if has_api_keys else 'MISSING'}")
 print(f"  DEV_MODE:      {dev_mode}")
 print()
+
+check(
+    "api-auth-keys-valid",
+    not api_keys_raw or has_api_keys,
+    "configured API_AUTH_KEYS must contain only non-placeholder keys with len >= 8",
+    blocking=True,
+)
 
 # 1. 健康检查（无 auth 要求）
 code, body, ms = req("GET", "/api/health")
@@ -92,16 +127,22 @@ if has_api_keys and first_api_key:
     if code == 200:
         try:
             data = json.loads(body)
-            user_id = data.get("user_id") or data.get("sub") or data.get("username") or "unknown"
+            user_id = data.get("user_id") or data.get("sub") or data.get("username")
+            check(
+                "me-valid-key-payload",
+                bool(user_id),
+                "authenticated identity is present" if user_id else "authenticated identity is missing",
+                blocking=True,
+            )
             print(f"    → user_id={user_id}")
-        except:
-            pass
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError, TypeError):
+            check("me-valid-key-payload", False, "unable to parse authenticated identity", blocking=True)
 else:
     print(f"  [SKIP] me-valid-key: API_AUTH_KEYS 未配置，跳过")
     RESULTS.append(("me-valid-key", "SKIP", "API_AUTH_KEYS 未配置", False))
 
 # 5. DEV_MODE 验证
-if dev_mode.lower() in ("1", "true", "yes"):
+if dev_mode.lower() in ("1", "true", "yes", "on"):
     check("dev-mode-off", False, f"DEV_MODE={dev_mode} 在生产中不可接受", blocking=True)
 else:
     check("dev-mode-off", True, f"DEV_MODE 未启用（值={dev_mode}）")
@@ -117,8 +158,8 @@ if code == 200:
         is_default = (data.get("user_id") == "default_user" or data.get("sub") == "default_user")
         check("no-dev-bypass", not is_default,
               "无 token 时不应返回 default_user（dev bypass）", status_code=code, blocking=True)
-    except:
-        check("no-dev-bypass", True, "无法解析响应，记录用", blocking=False)
+    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError, TypeError):
+        check("no-dev-bypass", False, "unable to parse /api/me identity response", blocking=True)
 else:
     # 401 = 正常，没有 dev bypass
     check("no-dev-bypass", code in (401, 403),
@@ -136,3 +177,5 @@ if blockers:
     print("BLOCKING:")
     for n, d in blockers:
         print(f"  - {n}: {d}")
+
+raise SystemExit(1 if blockers else 0)

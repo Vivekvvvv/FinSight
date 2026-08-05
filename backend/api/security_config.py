@@ -16,12 +16,24 @@ logger = logging.getLogger(__name__)
 PRODUCTION_REQUIRED_ENV = (
     "OPENAI_COMPATIBLE_API_KEY",
     "OPENAI_COMPATIBLE_API_BASE",
+    "OPENAI_COMPATIBLE_MODEL",
     "POSTGRES_DB",
     "POSTGRES_USER",
     "POSTGRES_PASSWORD",
     "JWT_SECRET",
     "API_AUTH_KEYS",
 )
+_SECRET_PLACEHOLDERS = {
+    "your_key_here",
+    "your-secret-here",
+    "changeme",
+    "placeholder",
+    "replace_me_internal_api_key",
+    "replace_me_long_random_secret",
+    "replace_me_strong_password",
+    "sk-replace_me",
+    "xxx",
+}
 
 
 def env_int(key: str, default: int) -> int:
@@ -123,6 +135,21 @@ def validate_production_runtime_config() -> None:
     missing = missing_production_env()
     if missing:
         raise SystemExit("Missing required production environment variables: " + ", ".join(missing))
+    api_keys = parse_api_keys()
+    if any(len(key) < 8 or key.lower() in _SECRET_PLACEHOLDERS for key in api_keys):
+        raise SystemExit("Invalid API_AUTH_KEYS: each key must be non-placeholder and at least 8 characters")
+    jwt_secret = str(os.getenv("JWT_SECRET") or "").strip()
+    if len(jwt_secret) < 32 or jwt_secret.lower() in _SECRET_PLACEHOLDERS:
+        raise SystemExit("Invalid JWT_SECRET: must be non-placeholder and at least 32 characters")
+    postgres_password = str(os.getenv("POSTGRES_PASSWORD") or "").strip()
+    if postgres_password.lower() in _SECRET_PLACEHOLDERS:
+        raise SystemExit("Invalid POSTGRES_PASSWORD: placeholder value is not allowed")
+    llm_api_key = str(os.getenv("OPENAI_COMPATIBLE_API_KEY") or "").strip()
+    if llm_api_key.lower() in _SECRET_PLACEHOLDERS:
+        raise SystemExit("Invalid OPENAI_COMPATIBLE_API_KEY: placeholder value is not allowed")
+    llm_api_base = str(os.getenv("OPENAI_COMPATIBLE_API_BASE") or "").strip().lower()
+    if "example.invalid" in llm_api_base:
+        raise SystemExit("Invalid OPENAI_COMPATIBLE_API_BASE: example.invalid is not a runtime endpoint")
 
 
 class SimpleRateLimiter:

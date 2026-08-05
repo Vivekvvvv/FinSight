@@ -10,11 +10,12 @@ from fastapi.testclient import TestClient
 def _set_prod_env(monkeypatch, *, role: str = "user") -> None:
     monkeypatch.setenv("DEV_MODE", "0")
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_BASE", "https://example.invalid/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_BASE", "https://llm.test/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "test-model")
     monkeypatch.setenv("POSTGRES_DB", "test")
     monkeypatch.setenv("POSTGRES_USER", "test")
     monkeypatch.setenv("POSTGRES_PASSWORD", "test")
-    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    monkeypatch.setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
     monkeypatch.setenv("API_AUTH_KEYS", "release-key-1")
     monkeypatch.setenv(
         "API_AUTH_PRINCIPALS",

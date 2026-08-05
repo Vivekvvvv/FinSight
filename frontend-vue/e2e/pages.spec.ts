@@ -284,6 +284,27 @@ test('侧边栏只保留 7 个核心入口', async ({ page }) => {
   await expectShellNav(page);
 });
 
+test('身份初始化后侧边栏刷新为用户持仓', async ({ page }) => {
+  const resolvedSession = `user:${USER_ID}:vue-shadow`;
+  await page.route('**/api/portfolio/summary**', (route) => {
+    const sessionId = new URL(route.request().url()).searchParams.get('session_id');
+    if (sessionId === resolvedSession) return json(route, { ...PORTFOLIO_SUMMARY, session_id: resolvedSession });
+    return json(route, {
+      success: true,
+      session_id: sessionId,
+      count: 0,
+      positions: [],
+      total_value: 0,
+      total_cost: 0,
+      total_pnl: 0,
+    });
+  });
+
+  await page.goto('/welcome');
+
+  await expect(page.locator('.rail-card').getByText('$5,700')).toBeVisible();
+});
+
 test('/workbench redirect 到 /welcome，今日任务与持仓风险仍可见', async ({ page }) => {
   await page.goto('/workbench');
   await page.waitForURL('**/welcome');

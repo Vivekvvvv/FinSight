@@ -17,7 +17,26 @@ def log(name, ok, detail, ms=None, blocking=True):
     return ok
 
 # ─── 环境变量读取 ───────────────────────────────────────────────────────────
-PLACEHOLDERS = {"your_key_here", "your-secret-here", "changeme", "placeholder", "xxx", ""}
+PLACEHOLDERS = {
+    "your_key_here",
+    "your-secret-here",
+    "changeme",
+    "placeholder",
+    "replace_me_long_random_secret",
+    "replace_me_internal_api_key",
+    "sk-replace_me",
+    "xxx",
+    "",
+}
+
+
+def parse_env_value(raw_value):
+    value = raw_value.strip()
+    if value[:1] in {'"', "'"}:
+        closing_quote = value.find(value[0], 1)
+        if closing_quote >= 0:
+            return value[1:closing_quote]
+    return re.split(r"\s+#", value, maxsplit=1)[0].strip()
 
 def load_env(path):
     env = {}
@@ -29,7 +48,7 @@ def load_env(path):
                     continue
                 m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=(.*)', line)
                 if m:
-                    env[m.group(1)] = m.group(2).strip().strip('"').strip("'")
+                    env[m.group(1)] = parse_env_value(m.group(2))
     except FileNotFoundError:
         pass
     return env
@@ -42,13 +61,19 @@ def present(key):
 
 JWT_SECRET    = env.get("JWT_SECRET", "")
 API_AUTH_KEYS = env.get("API_AUTH_KEYS", "")
+DEV_MODE      = env.get("DEV_MODE", "")
 LLM_KEY       = env.get("OPENAI_COMPATIBLE_API_KEY", "")
 LLM_BASE      = env.get("OPENAI_COMPATIBLE_API_BASE", "")
 LLM_MODEL     = env.get("OPENAI_COMPATIBLE_MODEL", "")
+api_key_items = [item.strip() for item in API_AUTH_KEYS.split(",") if item.strip()]
 
 has_jwt  = bool(JWT_SECRET) and JWT_SECRET.lower() not in PLACEHOLDERS and len(JWT_SECRET) >= 32
-has_keys = bool(API_AUTH_KEYS) and API_AUTH_KEYS.lower() not in PLACEHOLDERS
+has_keys = bool(api_key_items) and all(
+    item.lower() not in PLACEHOLDERS and len(item) >= 8
+    for item in api_key_items
+)
 has_llm  = bool(LLM_KEY) and LLM_KEY.lower() not in PLACEHOLDERS
+dev_mode_off = DEV_MODE.strip().lower() not in {"1", "true", "yes", "on"}
 
 print("=" * 60)
 print("  Phase 9 最小发布确认 Smoke")
@@ -75,6 +100,7 @@ print()
 
 # ─── 2. 密钥存在性 ──────────────────────────────────────────────────────────
 print("[2] 密钥存在性检查")
+log("B0-DEV_MODE",      dev_mode_off, f"value={DEV_MODE or '(default false)'}", blocking=True)
 log("B1-JWT_SECRET",    has_jwt,  f"len={len(JWT_SECRET)}" if JWT_SECRET else "MISSING/EMPTY", blocking=True)
 log("B2-API_AUTH_KEYS", has_keys, f"len={len(API_AUTH_KEYS)}" if API_AUTH_KEYS else "MISSING/EMPTY", blocking=True)
 log("B3-LLM_KEY",       has_llm,  f"len={len(LLM_KEY)}" if LLM_KEY else "MISSING/EMPTY", blocking=True)
@@ -97,6 +123,7 @@ else:
 print("[3] 启动后端（uvicorn :8899）")
 env_override = {
     **os.environ,
+    **env,
     "DEV_MODE": "false",
     "JWT_SECRET": SMOKE_JWT,
     "API_AUTH_KEYS": SMOKE_KEYS,
@@ -162,10 +189,17 @@ log("health",     code == 200, f"HTTP {code}", ms)
 
 # /api/me 无 key → guest
 req_no_key = urllib.request.Request(BASE + "/api/me")
-with urllib.request.urlopen(req_no_key, timeout=5) as r:
-    no_key_data = json.loads(r.read())
-no_dev_bypass = no_key_data.get("user_id") != "default_user"
-log("no-dev-bypass", no_dev_bypass, f"user_id={no_key_data.get('user_id')}", blocking=True)
+try:
+    with urllib.request.urlopen(req_no_key, timeout=5) as r:
+        no_key_code = r.status
+except urllib.error.HTTPError as exc:
+    no_key_code = exc.code
+log(
+    "no-dev-bypass",
+    no_key_code in (401, 403),
+    f"HTTP {no_key_code}",
+    blocking=True,
+)
 
 # /api/me 有效 key → api_key 身份
 code, data, ms = api("GET", "/api/me")
@@ -302,3 +336,5 @@ else:
     for n, d in blockers:
         print(f"    - {n}: {d}")
 print("=" * 60)
+
+raise SystemExit(1 if blockers else 0)

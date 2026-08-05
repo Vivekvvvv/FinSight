@@ -9,11 +9,12 @@ from fastapi.testclient import TestClient
 
 def _set_required_production_env(monkeypatch):
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_BASE", "https://example.invalid/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_BASE", "https://llm.test/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "test-model")
     monkeypatch.setenv("POSTGRES_DB", "test")
     monkeypatch.setenv("POSTGRES_USER", "test")
     monkeypatch.setenv("POSTGRES_PASSWORD", "test")
-    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    monkeypatch.setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
 
 
 def test_security_gate_rejects_missing_api_key_when_enabled(monkeypatch):
@@ -44,6 +45,91 @@ def test_security_gate_returns_503_when_auth_enabled_without_keys(monkeypatch):
         main._validate_production_runtime_config()
 
     assert "API_AUTH_KEYS" in str(exc_info.value)
+
+
+def test_security_gate_rejects_missing_llm_model(monkeypatch):
+    from backend.api import main
+
+    monkeypatch.setenv("DEV_MODE", "0")
+    _set_required_production_env(monkeypatch)
+    monkeypatch.setenv("API_AUTH_KEYS", "release-key-1")
+    monkeypatch.delenv("OPENAI_COMPATIBLE_MODEL", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main._validate_production_runtime_config()
+
+    assert "OPENAI_COMPATIBLE_MODEL" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("api_keys", ["x", "release-key-1,REPLACE_ME_INTERNAL_API_KEY"])
+def test_security_gate_rejects_weak_or_placeholder_api_keys(monkeypatch, api_keys):
+    from backend.api import main
+
+    monkeypatch.setenv("DEV_MODE", "0")
+    _set_required_production_env(monkeypatch)
+    monkeypatch.setenv("API_AUTH_KEYS", api_keys)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main._validate_production_runtime_config()
+
+    assert "Invalid API_AUTH_KEYS" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("jwt_secret", ["x", "REPLACE_ME_LONG_RANDOM_SECRET"])
+def test_security_gate_rejects_weak_or_placeholder_jwt_secret(monkeypatch, jwt_secret):
+    from backend.api import main
+
+    monkeypatch.setenv("DEV_MODE", "0")
+    _set_required_production_env(monkeypatch)
+    monkeypatch.setenv("API_AUTH_KEYS", "release-key-1")
+    monkeypatch.setenv("JWT_SECRET", jwt_secret)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main._validate_production_runtime_config()
+
+    assert "Invalid JWT_SECRET" in str(exc_info.value)
+
+
+def test_security_gate_rejects_repository_postgres_password_placeholder(monkeypatch):
+    from backend.api import main
+
+    monkeypatch.setenv("DEV_MODE", "0")
+    _set_required_production_env(monkeypatch)
+    monkeypatch.setenv("API_AUTH_KEYS", "release-key-1")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "REPLACE_ME_STRONG_PASSWORD")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main._validate_production_runtime_config()
+
+    assert "Invalid POSTGRES_PASSWORD" in str(exc_info.value)
+
+
+def test_security_gate_rejects_repository_llm_key_placeholder(monkeypatch):
+    from backend.api import main
+
+    monkeypatch.setenv("DEV_MODE", "0")
+    _set_required_production_env(monkeypatch)
+    monkeypatch.setenv("API_AUTH_KEYS", "release-key-1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-REPLACE_ME")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main._validate_production_runtime_config()
+
+    assert "Invalid OPENAI_COMPATIBLE_API_KEY" in str(exc_info.value)
+
+
+def test_security_gate_rejects_repository_llm_base_placeholder(monkeypatch):
+    from backend.api import main
+
+    monkeypatch.setenv("DEV_MODE", "0")
+    _set_required_production_env(monkeypatch)
+    monkeypatch.setenv("API_AUTH_KEYS", "release-key-1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_BASE", "https://example.invalid/v1")
+
+    with pytest.raises(SystemExit) as exc_info:
+        main._validate_production_runtime_config()
+
+    assert "Invalid OPENAI_COMPATIBLE_API_BASE" in str(exc_info.value)
 
 
 def test_security_gate_allowlisted_path_bypasses_auth(monkeypatch):
