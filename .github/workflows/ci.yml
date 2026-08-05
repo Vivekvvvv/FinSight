@@ -216,9 +216,9 @@ jobs:
       POSTGRES_USER: finsight_ci
       POSTGRES_PASSWORD: ci_postgres_password
       OPENAI_COMPATIBLE_API_KEY: ci-placeholder-key
-      OPENAI_COMPATIBLE_API_BASE: https://example.invalid/v1
+      OPENAI_COMPATIBLE_API_BASE: http://127.0.0.1:9/v1
       OPENAI_COMPATIBLE_MODEL: gpt-4o-mini
-      JWT_SECRET: ci-jwt-secret
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef
       API_AUTH_KEYS: ci-e2e-token
       API_AUTH_DEFAULT_USER_ID: ci-user
       API_AUTH_DEFAULT_EMAIL: ci-user@example.invalid

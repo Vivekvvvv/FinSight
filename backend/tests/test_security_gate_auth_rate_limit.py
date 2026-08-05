@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -15,6 +17,38 @@ def _set_required_production_env(monkeypatch):
     monkeypatch.setenv("POSTGRES_USER", "test")
     monkeypatch.setenv("POSTGRES_PASSWORD", "test")
     monkeypatch.setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
+
+
+def _compose_smoke_env() -> dict[str, str]:
+    workflow_path = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    job = re.search(
+        r"(?ms)^  stage7-e2e-compose:\s*$\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\s*$|\Z)",
+        workflow,
+    )
+    assert job, "stage7-e2e-compose job is missing"
+    env_block = re.search(
+        r"(?ms)^    env:\s*$\n(?P<body>.*?)(?=^    [a-zA-Z0-9_-]+:\s*$|\Z)",
+        job.group("body"),
+    )
+    assert env_block, "stage7-e2e-compose env block is missing"
+    return {
+        key: value.strip().strip('"\'')
+        for key, value in re.findall(
+            r"(?m)^      ([A-Z][A-Z0-9_]+):\s*(\S.*?)\s*$",
+            env_block.group("body"),
+        )
+    }
+
+
+def test_compose_smoke_env_passes_production_runtime_validation(monkeypatch):
+    from backend.api.security_config import validate_production_runtime_config
+
+    monkeypatch.setenv("DEV_MODE", "0")
+    for key, value in _compose_smoke_env().items():
+        monkeypatch.setenv(key, value)
+
+    validate_production_runtime_config()
 
 
 def test_security_gate_rejects_missing_api_key_when_enabled(monkeypatch):
