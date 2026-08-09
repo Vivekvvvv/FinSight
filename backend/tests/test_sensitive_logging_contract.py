@@ -55,16 +55,16 @@ SECURITY_HARDENING_ROUNDS_701_800 = [
     ("R744", "backend/services/risk_snapshot_scheduler.py", "Failed to snapshot portfolio: %s"),
     ("R745", "backend/dashboard/data_service.py", "[DataService] Finnhub request failed"),
     ("R746", "backend/dashboard/peer_service.py", "[PeerService] Finnhub request failed"),
-    ("R747", "backend/handlers/chat_handler.py", "[ChatHandler] ticker lookup failed"),
-    ("R748", "backend/handlers/chat_handler.py", "Direct price fetch failed: %s"),
-    ("R749", "backend/handlers/chat_handler.py", "[ChatHandler] Kline fallback failed"),
-    ("R750", "backend/handlers/chat_handler.py", "NewsAgent failed: %s"),
-    ("R751", "backend/handlers/chat_handler.py", "DeepSearch news failed: %s"),
-    ("R752", "backend/handlers/chat_handler.py", "Company news fetch failed: %s"),
-    ("R753", "backend/handlers/chat_handler.py", "Financial report query failed: %s"),
-    ("R754", "backend/handlers/chat_handler.py", "News sentiment fetch failed: %s"),
-    ("R755", "backend/handlers/chat_handler.py", "Company info fetch failed: %s"),
-    ("R756", "backend/handlers/chat_handler.py", "Composition search failed: %s"),
+    ("R747", "backend/api/chat_router.py", "[chat/supervisor] failed"),
+    ("R748", "backend/api/chat_router.py", "[chat/add-chart-data] failed"),
+    ("R749", "backend/api/chat_router.py", "[chat/supervisor] report build failed"),
+    ("R750", "backend/agents/base_agent.py", "Rate limit timeout in _identify_gaps"),
+    ("R751", "backend/agents/base_agent.py", "Rate limit timeout in _llm_analyze"),
+    ("R752", "backend/agents/base_agent.py", "Rate limit timeout in _update_summary"),
+    ("R753", "backend/agents/deep_search_agent.py", "[DeepSearch] All document fetches failed; falling back to search snippets"),
+    ("R754", "backend/agents/deep_search_agent.py", "[DeepSearch] All outer retries exhausted"),
+    ("R755", "backend/agents/deep_search_agent.py", "[DeepSearch] Failed to record RAG observability"),
+    ("R756", "backend/agents/deep_search_agent.py", "[DeepSearch] LLM call failed"),
     ("R757", "backend/api/dashboard_router.py", "[Dashboard] Resolved asset"),
     ("R758", "backend/api/morning_brief_router.py", "[MorningBrief] price fetch failed"),
     ("R759", "backend/api/morning_brief_router.py", "[MorningBrief] news fetch failed"),
@@ -470,7 +470,7 @@ SECURITY_HARDENING_ROUNDS_1001_1100 = [
     ("R1047", "backend/graph/nodes/synthesize.py", "[Synthesize] scrubbed unverified future claim", "claim"),
     ("R1048", "backend/graph/trace.py", "trace span data extraction failed", "node_name"),
     ("R1049", "backend/graph/trace.py", "LangFuse span update failed", "node_name"),
-    ("R1050", "backend/handlers/followup_handler.py", "[Followup] LLM invoke failed: %s", "action"),
+    ("R1050", "backend/agents/deep_search_agent.py", "[DeepSearch] All document fetches failed; falling back to search snippets", "type(exc).__name__"),
     ("R1051", "backend/rag/chunker.py", 'Chunking failed, falling back to whole doc', "doc_type"),
     ("R1052", "backend/rag/embedder.py", "Loading bge-m3 ...", "self._device"),
     ("R1053", "backend/rag/embedder.py", "Loading bge-m3 ...", "use_fp16"),
@@ -692,8 +692,8 @@ def test_rounds_1101_through_1200_are_complete_unique_and_source_bound():
     assert len(bindings) == len(set(bindings)) == 100
 
 SECURITY_HARDENING_ROUNDS_1401_1500 = [
-    ('R1401', 'backend/handlers/chat_handler.py', '[ChatHandler] Streaming LLM enhancement failed', 'type(exc).__name__'),
-    ('R1402', 'backend/handlers/followup_handler.py', '[Followup] streaming LLM fallback failed', 'type(exc).__name__'),
+    ('R1401', 'backend/agents/base_agent.py', 'Rate limit timeout in _identify_gaps', 'type(e).__name__'),
+    ('R1402', 'backend/agents/base_agent.py', 'Rate limit timeout in _llm_analyze', 'query'),
     ('R1403', 'backend/llm_config.py', '[Config] Corrupt user_config.json moved to a backup', 'type(exc).__name__'),
     ('R1404', 'backend/llm_config.py', '[Config] Failed to read user_config.json', 'type(exc).__name__'),
     ('R1405', 'backend/llm_config.py', '[LLM Rotation] endpoint cooling down', "len(reason or '')"),
@@ -977,7 +977,7 @@ def test_dynamic_log_expressions_match_reviewed_safe_baseline():
     assert unclassified == []
     assert classifications == Counter(
         {
-            "exception_type": 160,
+            "exception_type": 138,
             "http_status": 11,
             "aggregate_count": 9,
             "provider_name": 1,
@@ -1268,10 +1268,10 @@ SECURITY_HARDENING_ROUNDS_1301_1400 = [
     ("R1394", "backend/graph/trace.py", "trace preview serialization failed", "type(exc).__name__"),
     ("R1395", "backend/graph/trace.py", "trace span data extraction failed", "type(exc).__name__"),
     ("R1396", "backend/graph/trace.py", "LangFuse span update failed", "type(exc).__name__"),
-    ("R1397", "backend/handlers/chat_handler.py", "[ChatHandler] 检查闲聊/建议意图", "len(query or '')"),
-    ("R1398", "backend/handlers/chat_handler.py", "[ChatHandler] request handling failed", "type(e).__name__"),
-    ("R1399", "backend/handlers/chat_handler.py", "[ChatHandler] ticker lookup failed", "type(e).__name__"),
-    ("R1400", "backend/handlers/chat_handler.py", "[ChatHandler] Kline fallback failed", "type(e).__name__"),
+    ("R1397", "backend/agents/base_agent.py", "Rate limit timeout in _identify_gaps", "query"),
+    ("R1398", "backend/agents/base_agent.py", "Rate limit timeout in _llm_analyze", "ticker"),
+    ("R1399", "backend/agents/base_agent.py", "Rate limit timeout in _update_summary", "action"),
+    ("R1400", "backend/agents/base_agent.py", "Tool-aware search failed", "method_name"),
 ]
 
 

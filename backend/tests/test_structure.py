@@ -69,25 +69,6 @@ def test_conversation_module():
         pytest.fail(f"conversation 模块测试失败: {e}")
 
 
-def test_handlers_module():
-    """测试 handlers 模块"""
-    try:
-        from backend.handlers import ChatHandler, FollowupHandler
-        
-        # 测试实例化
-        chat_handler = ChatHandler()
-        assert chat_handler is not None
-        
-        # NOTE: ReportHandler 已废弃，移除测试
-        
-        followup_handler = FollowupHandler()
-        assert followup_handler is not None
-        
-        print("✅ handlers 模块测试通过")
-    except Exception as e:
-        pytest.fail(f"handlers 模块测试失败: {e}")
-
-
 def test_prompts_module():
     """测试 prompts 模块"""
     try:
@@ -115,7 +96,6 @@ def test_directory_structure():
         "backend",
         "backend/orchestration",
         "backend/conversation", 
-        "backend/handlers",
         "backend/prompts",
         "backend/tests",
         "backend/api",
@@ -146,7 +126,6 @@ def run_all_tests():
         ("backend 包", test_backend_package),
         ("orchestration 模块", test_orchestration_module),
         ("conversation 模块", test_conversation_module),
-        ("handlers 模块", test_handlers_module),
         ("prompts 模块", test_prompts_module),
     ]
 

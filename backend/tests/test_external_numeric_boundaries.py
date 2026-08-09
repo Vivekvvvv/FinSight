@@ -84,7 +84,7 @@ NUMERIC_BOUNDARY_ROUNDS = [
     ("R385", "backend/tools/price.py", '"low": _safe_float_value(row[low_key])'),
     ("R386", "backend/tools/price.py", '"volume": _safe_float_value(row.get(volume_key))'),
     ("R387", "backend/dashboard/data_service.py", "parsed = safe_float(value)"),
-    ("R388", "backend/dashboard/data_service.py", "parsed_half_life = safe_float(half_life_hours)"),
+    ("R388", "backend/dashboard/news_ranking.py", "parsed_half_life = safe_float(half_life_hours)"),
     ("R389", "backend/api/market_router.py", "confidence = safe_float(confidence_raw) or 0.0"),
     ("R390", "backend/agents/risk_agent.py", "safe_float(signal.severity) or 0.0"),
     ("R391", "backend/agents/price_agent.py", "pct = safe_float(change_pct)"),
