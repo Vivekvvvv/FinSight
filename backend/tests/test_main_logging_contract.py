@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from backend.api import main
+from backend.api import session_context as session_context_module
 
 
 def _configure_minimal_lifespan(monkeypatch):
@@ -79,7 +80,7 @@ def test_report_index_async_error_log_is_redacted(monkeypatch, caplog):
         def upsert_report(**_kwargs):
             raise RuntimeError("private report index detail")
 
-    monkeypatch.setattr(main, "get_report_index_store", lambda: FailingStore())
+    monkeypatch.setattr(session_context_module, "get_report_index_store", lambda: FailingStore())
     with caplog.at_level(logging.ERROR, logger="backend.api.main"):
         main._index_report_async(
             session_id="private:user:thread",
@@ -111,7 +112,7 @@ def test_session_context_update_error_log_is_redacted(monkeypatch, caplog):
     def fail_context(_thread_id):
         raise RuntimeError("private session context detail")
 
-    monkeypatch.setattr(main, "_get_session_context", fail_context)
+    monkeypatch.setattr(session_context_module, "_get_session_context", fail_context)
     with caplog.at_level(logging.ERROR, logger="backend.api.main"):
         main._update_session_context(
             thread_id="private:user:thread",
@@ -127,7 +128,7 @@ def test_orchestrator_initialization_error_log_is_redacted(monkeypatch, caplog):
     def fail_orchestrator():
         raise RuntimeError("private orchestrator detail")
 
-    monkeypatch.setattr(main, "get_global_orchestrator", fail_orchestrator)
+    monkeypatch.setattr(session_context_module, "get_global_orchestrator", fail_orchestrator)
     with caplog.at_level(logging.ERROR, logger="backend.api.main"):
         assert main._get_orchestrator_safe() is None
 

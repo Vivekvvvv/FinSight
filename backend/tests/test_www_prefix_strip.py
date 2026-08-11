@@ -69,7 +69,8 @@ def test_other_source_domain_normalizers_remove_only_exact_www_prefix():
 
 
 def test_report_builder_domain_checks_ignore_url_userinfo():
-    from backend.graph.report_builder import _canonicalize_url_for_citation_match, _is_suspicious_citation_item
+    from backend.graph.report_builder import _canonicalize_url_for_citation_match
+    from backend.graph.report_citations import _is_suspicious_citation_item
 
     item = {
         "url": "https://sec.gov@evil.xyz/article",
@@ -82,7 +83,7 @@ def test_report_builder_domain_checks_ignore_url_userinfo():
 
 
 def test_feed_failure_logs_omit_url_credentials(monkeypatch, caplog):
-    from backend.tools import authoritative_feeds, macro_official, news
+    from backend.tools import authoritative_feeds, macro_official, news, news_rss_tools
 
     secret = "PRIVATE_RSS_PASSWORD"
     target = f"https://user:{secret}@feeds.example.com/private.xml"
@@ -92,7 +93,7 @@ def test_feed_failure_logs_omit_url_credentials(monkeypatch, caplog):
 
     monkeypatch.setattr(authoritative_feeds, "_http_get", _fail)
     monkeypatch.setattr(macro_official, "_http_get", _fail)
-    monkeypatch.setattr(news, "_rss_get", _fail)
+    monkeypatch.setattr(news_rss_tools, "_rss_get", _fail)
     caplog.set_level(logging.DEBUG)
 
     assert authoritative_feeds._fetch_feed(target) == ""

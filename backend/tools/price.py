@@ -28,6 +28,29 @@ from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
+from backend.tools.price_history_providers import (
+    _fetch_with_yahoo_scrape_historical,
+    _fetch_with_iex_cloud,
+    _fetch_with_tiingo,
+    _fetch_with_twelve_data,
+    _fetch_with_marketstack,
+    _fetch_with_massive_io,
+    _map_to_stooq_symbol,
+    _fetch_with_stooq_history,
+    _fallback_price_value,
+    _safe_float_value,
+)
+
+from backend.tools.price_portfolio import (
+    _normalize_positions,
+    _download_close_frame,
+    _compute_beta,
+    get_factor_exposure,
+    run_portfolio_stress_test,
+    get_performance_comparison,
+)
+
+
 def _fetch_with_alpha_vantage(ticker: str):
     """优先方案：使用 Alpha Vantage API 获取实时股价"""
     logger.info("  - Attempting Alpha Vantage API...")
@@ -62,7 +85,6 @@ def _fetch_with_alpha_vantage(ticker: str):
         logger.info("  - Alpha Vantage exception: %s", type(e).__name__)
         return None
 
-
 def _fetch_with_finnhub(ticker: str):
     """新增：使用 Finnhub API 获取实时股价"""
     if not finnhub_client:
@@ -81,7 +103,6 @@ def _fetch_with_finnhub(ticker: str):
     except Exception as e:
         logger.info("  - Finnhub quote exception: %s", type(e).__name__)
         return None
-
 
 def _fetch_with_yfinance(ticker: str):
     """尝试使用 yfinance 获取价格"""
@@ -105,8 +126,6 @@ def _fetch_with_yfinance(ticker: str):
     except Exception as e:
         logger.info("  - yfinance exception: %s", type(e).__name__)
         return None
-
-
 
 def _fetch_with_twelve_data_price(ticker: str):
     """备用方案：使用 Twelve Data 获取实时价格"""
@@ -157,7 +176,6 @@ def _fetch_with_twelve_data_price(ticker: str):
         logger.info("  - Twelve Data price exception: %s", type(e).__name__)
         return None
 
-
 def _fetch_yahoo_api_v8(ticker: str):
     """Yahoo Finance API v8 - 免费 JSON API，无需 API key，比爬虫更稳定"""
     logger.info("  - Attempting Yahoo Finance API v8...")
@@ -195,8 +213,6 @@ def _fetch_yahoo_api_v8(ticker: str):
         logger.info("  - Yahoo API v8 exception: %s", type(e).__name__)
         return None
 
-
-
 def _scrape_google_finance(ticker: str):
     """Google Finance 爬虫 - 免费，无需 API key"""
     logger.info("  - Attempting Google Finance...")
@@ -232,8 +248,6 @@ def _scrape_google_finance(ticker: str):
         logger.info("  - Google Finance exception: %s", type(e).__name__)
         return None
 
-
-
 def _scrape_cnbc(ticker: str):
     """CNBC 爬虫 - 免费，实时性好"""
     logger.info("  - Attempting CNBC...")
@@ -261,8 +275,6 @@ def _scrape_cnbc(ticker: str):
     except Exception as e:
         logger.info("  - CNBC exception: %s", type(e).__name__)
         return None
-
-
 
 def _fetch_with_pandas_datareader(ticker: str):
     """pandas_datareader - 免费，支持多数据源"""
@@ -295,7 +307,6 @@ def _fetch_with_pandas_datareader(ticker: str):
         logger.info("  - pandas_datareader exception: %s", type(e).__name__)
         return None
 
-
 def _scrape_yahoo_finance(ticker: str):
     """备用方案：直接爬取 Yahoo Finance 页面"""
     logger.info("  - Attempting to scrape Yahoo Finance...")
@@ -327,8 +338,6 @@ def _scrape_yahoo_finance(ticker: str):
     except Exception as e:
         logger.info("  - Yahoo scraping exception: %s", type(e).__name__)
         return None
-
-
 
 def _fetch_index_price(ticker: str):
     """
@@ -367,7 +376,6 @@ def _fetch_index_price(ticker: str):
         logger.debug("stooq price fallback failed: %s", type(exc).__name__)
     return None
 
-
 def _search_for_price(ticker: str):
     """最后手段：使用搜索引擎并用正则表达式解析价格"""
     logger.info("  - Attempting to find price via search...")
@@ -394,7 +402,6 @@ def _search_for_price(ticker: str):
     except Exception as e:
         logger.info("  - Search price exception: %s", type(e).__name__)
         return None
-
 
 def _fetch_with_stooq_price(ticker: str):
     """
@@ -424,7 +431,6 @@ def _fetch_with_stooq_price(ticker: str):
         logger.info("  - Stooq price exception: %s", type(e).__name__)
         return None
 
-
 def _to_yahoo_cn_symbol(ticker: str) -> str:
     """将裸 A股代码转换为 Yahoo Finance 格式（加交易所后缀）。
 
@@ -445,7 +451,6 @@ def _to_yahoo_cn_symbol(ticker: str) -> str:
         if t.startswith('8'):
             return f"{t}.BJ"
     return t
-
 
 def get_stock_price(ticker: str) -> str:
     """
@@ -552,590 +557,6 @@ def get_stock_price(ticker: str) -> str:
 # ============================================
 # 公司信息获取
 # ============================================
-
-
-def _fetch_with_yahoo_scrape_historical(ticker: str, period: str = "1y") -> dict:
-    """
-    策略 4: 改进的 Yahoo Finance 网页抓取（2024最新方法）
-    使用多个备用URL和更完善的请求头
-    """
-    try:
-        logger.info("[get_stock_historical_data] 尝试从 Yahoo Finance 网页抓取...")
-        
-        # 根据 period 计算需要的天数
-        period_days = {
-            "1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180,
-            "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "max": 10000
-        }
-        days = period_days.get(period, 365)
-        
-        # 改进的请求头（模拟真实浏览器）
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/csv,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "Referer": f"https://finance.yahoo.com/quote/{ticker}/history",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "same-origin"
-        }
-        
-        # 尝试多个 Yahoo Finance URL（备用方案）
-        urls = [
-            f"https://query1.finance.yahoo.com/v7/finance/download/{ticker}",
-            f"https://query2.finance.yahoo.com/v7/finance/download/{ticker}",
-        ]
-        
-        for url in urls:
-            try:
-                params = {
-                    "period1": int((datetime.now() - timedelta(days=days)).timestamp()),
-                    "period2": int(datetime.now().timestamp()),
-                    "interval": "1d",
-                    "events": "history",
-                    "includeAdjustedClose": "true"
-                }
-                
-                response = _http_get(url, params=params, headers=headers, timeout=20, allow_redirects=True)
-                
-                if response.status_code == 200 and len(response.text) > 100:  # 确保有实际数据
-                    # 解析 CSV 数据
-                    import io
-                    import csv
-                    csv_data = io.StringIO(response.text)
-                    reader = csv.DictReader(csv_data)
-                    
-                    kline_data = []
-                    for row in reader:
-                        try:
-                            # 跳过无效行
-                            if not row.get('Date') or not row.get('Close'):
-                                continue
-                            kline_data.append({
-                                "time": row['Date'],
-                                "open": _safe_float_value(row['Open']),
-                                "high": _safe_float_value(row['High']),
-                                "low": _safe_float_value(row['Low']),
-                                "close": _safe_float_value(row['Close']),
-                                "volume": _safe_float_value(row.get('Volume')) or 0.0,
-                            })
-                        except (ValueError, KeyError) as e:
-                            continue  # 跳过无效行
-                    
-                    if kline_data:
-                        logger.info("[get_stock_historical_data] Yahoo Finance 网页抓取成功")
-                        return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "yahoo_scrape"}
-            except Exception as e:
-                logger.info(
-                    "[get_stock_historical_data] Yahoo Finance request failed: %s",
-                    type(e).__name__,
-                )
-                continue
-        
-        return None
-    except Exception as e:
-        logger.info("[get_stock_historical_data] Yahoo Finance 网页抓取失败: %s", type(e).__name__)
-        return None
-
-
-
-def _fetch_with_iex_cloud(ticker: str, period: str = "1y") -> dict:
-    """
-    策略 5a: 使用 IEX Cloud API (免费额度: 50万次/月)
-    文档: https://iexcloud.io/docs/api/
-    """
-    try:
-        if not IEX_CLOUD_API_KEY:
-            return None
-            
-        logger.info("[get_stock_historical_data] 尝试使用 IEX Cloud...")
-        
-        # IEX Cloud API 端点
-        # 根据 period 计算时间范围
-        period_days = {
-            "1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180,
-            "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "max": 10000
-        }
-        days = period_days.get(period, 365)
-        
-        # IEX Cloud 使用不同的时间范围参数
-        if days <= 5:
-            range_param = "5d"
-        elif days <= 30:
-            range_param = "1m"
-        elif days <= 90:
-            range_param = "3m"
-        elif days <= 365:
-            range_param = "1y"
-        elif days <= 730:
-            range_param = "2y"
-        elif days <= 1825:
-            range_param = "5y"
-        else:
-            range_param = "max"
-        
-        # IEX Cloud 不支持指数代码（如 ^IXIC），只支持股票代码
-        # 如果ticker以^开头，跳过IEX Cloud
-        if ticker.startswith('^'):
-            return None
-        
-        url = f"https://cloud.iexapis.com/stable/stock/{ticker}/chart/{range_param}"
-        params = {
-            "token": IEX_CLOUD_API_KEY,
-            "chartCloseOnly": "false"
-        }
-        
-        response = _http_get(url, params=params, timeout=20)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if isinstance(data, list) and len(data) > 0:
-                kline_data = []
-                for item in data:
-                    kline_data.append({
-                        "time": item.get('date', item.get('label', '')),
-                        "open": _safe_float_value(item.get('open')),
-                        "high": _safe_float_value(item.get('high')),
-                        "low": _safe_float_value(item.get('low')),
-                        "close": _safe_float_value(item.get('close')),
-                        "volume": _safe_float_value(item.get('volume')),
-                    })
-                
-                if kline_data:
-                    logger.info("[get_stock_historical_data] IEX Cloud 成功获取数据")
-                    return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "iex_cloud"}
-        
-        return None
-    except Exception as e:
-        logger.info("[get_stock_historical_data] IEX Cloud 失败: %s", type(e).__name__)
-        return None
-
-
-
-def _fetch_with_tiingo(ticker: str, period: str = "1y") -> dict:
-    """
-    策略 5b: 使用 Tiingo API (免费额度: 每日500次)
-    文档: https://api.tiingo.com/documentation/general/overview
-    """
-    try:
-        if not TIINGO_API_KEY:
-            return None
-            
-        logger.info("[get_stock_historical_data] 尝试使用 Tiingo...")
-        
-        # Tiingo API 端点
-        period_days = {
-            "1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180,
-            "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "max": 10000
-        }
-        days = period_days.get(period, 365)
-        
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-        
-        # Tiingo 不支持指数代码（如 ^IXIC），需要特殊处理
-        # 如果ticker以^开头，跳过Tiingo（因为Tiingo不支持指数）
-        if ticker.startswith('^'):
-            return None
-        
-        url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices"
-        params = {
-            "startDate": start_date.strftime('%Y-%m-%d'),
-            "endDate": end_date.strftime('%Y-%m-%d'),
-            "format": "json"
-        }
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Token {TIINGO_API_KEY}"
-        }
-        
-        response = _http_get(url, params=params, headers=headers, timeout=20)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if isinstance(data, list) and len(data) > 0:
-                kline_data = []
-                for item in data:
-                    kline_data.append({
-                        "time": item.get('date', '')[:10],  # 只取日期部分
-                        "open": _safe_float_value(item.get('open')),
-                        "high": _safe_float_value(item.get('high')),
-                        "low": _safe_float_value(item.get('low')),
-                        "close": _safe_float_value(item.get('close')),
-                        "volume": _safe_float_value(item.get('volume')),
-                    })
-                
-                if kline_data:
-                    logger.info("[get_stock_historical_data] Tiingo 成功获取数据")
-                    return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "tiingo"}
-        elif response.status_code == 404:
-            # Tiingo 可能不支持该ticker（如指数），返回None让其他数据源处理
-            logger.info("[get_stock_historical_data] Tiingo 不支持该证券，跳过")
-            return None
-        
-        return None
-    except Exception as e:
-        logger.info("[get_stock_historical_data] Tiingo 失败: %s", type(e).__name__)
-        return None
-
-
-
-def _fetch_with_twelve_data(ticker: str, period: str = "1y") -> dict:
-    """
-    策略 5c: 使用 Twelve Data API (免费额度，轻量回退)
-    文档: https://twelvedata.com/docs#time-series
-    """
-    try:
-        if not TWELVE_DATA_API_KEY:
-            return None
-
-        # Twelve Data 对指数支持有限，避免 "^" 前缀的指数
-        if ticker.startswith('^'):
-            return None
-
-        logger.info("[get_stock_historical_data] 尝试使用 Twelve Data...")
-
-        period_days = {
-            "1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180,
-            "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "max": 10000
-        }
-        days = period_days.get(period, 365)
-        outputsize = max(2, min(5000, days + 2))  # 轻量控制输出，兼顾免费额度
-
-        params = {
-            "symbol": ticker,
-            "interval": "1day",
-            "outputsize": outputsize,
-            "apikey": TWELVE_DATA_API_KEY,
-            "order": "desc",
-        }
-        response = _http_get("https://api.twelvedata.com/time_series", params=params, timeout=20)
-
-        if response.status_code != 200:
-            return None
-
-        data = response.json()
-        if data.get("status") != "ok":
-            # status != ok 时通常返回 message
-            message = data.get("message") or data.get("error")
-            if message:
-                logger.info("[get_stock_historical_data] Twelve Data 状态异常")
-            return None
-
-        values = data.get("values") or []
-        if not values:
-            return None
-
-        kline_data = []
-        for item in values:
-            kline_data.append({
-                "time": item.get("datetime", "")[:10],
-                "open": _safe_float_value(item.get("open")),
-                "high": _safe_float_value(item.get("high")),
-                "low": _safe_float_value(item.get("low")),
-                "close": _safe_float_value(item.get("close")),
-                "volume": _safe_float_value(item.get("volume")),
-            })
-
-        if kline_data:
-            # Twelve Data 默认倒序，翻转为时间正序
-            kline_data = list(reversed(kline_data))
-            as_of = values[0].get("datetime", "")[:19]
-            logger.info("[get_stock_historical_data] Twelve Data 成功获取数据")
-            return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "twelve_data", "as_of": as_of}
-
-        return None
-    except Exception as e:
-        logger.info("[get_stock_historical_data] Twelve Data 失败: %s", type(e).__name__)
-        return None
-
-
-
-def _fetch_with_marketstack(ticker: str, period: str = "1y") -> dict:
-    """
-    策略 5d: 使用 Marketstack API (免费额度: 1000次/月)
-    文档: https://marketstack.com/documentation
-    """
-    try:
-        if not MARKETSTACK_API_KEY:
-            return None
-            
-        logger.info("[get_stock_historical_data] 尝试使用 Marketstack...")
-        
-        # Marketstack API 端点
-        url = "http://api.marketstack.com/v1/eod"
-        
-        # Marketstack 不支持指数代码（如 ^IXIC），需要特殊处理
-        # 如果ticker以^开头，跳过Marketstack（因为Marketstack不支持指数）
-        if ticker.startswith('^'):
-            return None
-        
-        # 计算日期范围
-        period_days = {
-            "1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180,
-            "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "max": 10000
-        }
-        days = period_days.get(period, 365)
-        
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-        
-        params = {
-            "access_key": MARKETSTACK_API_KEY,
-            "symbols": ticker,
-            "date_from": start_date.strftime('%Y-%m-%d'),
-            "date_to": end_date.strftime('%Y-%m-%d'),
-            "limit": 10000  # 最大限制
-        }
-        
-        response = _http_get(url, params=params, timeout=20)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if "error" in data:
-                logger.info("[get_stock_historical_data] Marketstack 返回错误")
-                return None
-            
-            if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
-                kline_data = []
-                for item in data["data"]:
-                    kline_data.append({
-                        "time": item.get('date', '')[:10],  # 只取日期部分
-                        "open": _safe_float_value(item.get('open')),
-                        "high": _safe_float_value(item.get('high')),
-                        "low": _safe_float_value(item.get('low')),
-                        "close": _safe_float_value(item.get('close')),
-                        "volume": _safe_float_value(item.get('volume')),
-                    })
-                
-                if kline_data:
-                    logger.info("[get_stock_historical_data] Marketstack 成功获取数据")
-                    return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "marketstack"}
-        
-        return None
-    except Exception as e:
-        logger.info("[get_stock_historical_data] Marketstack 失败: %s", type(e).__name__)
-        return None
-
-
-
-def _fetch_with_massive_io(ticker: str, period: str = "1y") -> dict:
-    """
-    策略 5e: 使用 Massive.com (原 Polygon.io) API
-    """
-    try:
-        if not MASSIVE_API_KEY:
-            logger.info(f"[get_stock_historical_data] Massive.com API key 未配置")
-            return None
-            
-        logger.info("[get_stock_historical_data] 尝试使用 Massive.com...")
-        
-        # Massive.com (原 Polygon.io) API 端点
-        # 注意：Polygon.io 已更名为 Massive.com，但 API 端点仍为 api.polygon.io
-        # API 格式: /v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}/{from}/{to}
-        # 日期必须作为路径参数，不能作为查询参数
-        
-        # 计算日期范围
-        period_days = {
-            "1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180,
-            "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "max": 10000
-        }
-        days = period_days.get(period, 365)
-        
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-        
-        # 日期作为路径参数
-        url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
-        
-        params = {
-            "adjusted": "true",
-            "sort": "asc",
-            "limit": 50000,
-            "apikey": MASSIVE_API_KEY  # Massive.com API key 作为查询参数
-        }
-        
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        response = _http_get(url, params=params, headers=headers, timeout=20)
-        
-        if response.status_code == 200:
-            data = response.json()
-            # Massive.com API 可能返回 'OK' 或 'DELAYED' 状态，只要 results 有数据就可以使用
-            # DELAYED 状态表示数据有延迟，但仍然可以使用
-            if data.get('status') in ('OK', 'DELAYED') and 'results' in data:
-                results = data.get('results', [])
-                if len(results) > 0:
-                    kline_data = []
-                    for item in results:
-                        timestamp = item['t'] / 1000  # 转换为秒
-                        date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
-                        kline_data.append({
-                            "time": date_str,
-                            "open": _safe_float_value(item.get('o')),
-                            "high": _safe_float_value(item.get('h')),
-                            "low": _safe_float_value(item.get('l')),
-                            "close": _safe_float_value(item.get('c')),
-                            "volume": _safe_float_value(item.get('v')),
-                        })
-                    
-                    if kline_data:
-                        logger.info("[get_stock_historical_data] Massive.com 成功获取数据")
-                        return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "massive"}
-            else:
-                logger.info("[get_stock_historical_data] Massive.com 返回空数据或错误")
-        else:
-            logger.info(f"[get_stock_historical_data] Massive.com HTTP 错误: {response.status_code}")
-        
-        return None
-    except Exception as e:
-        logger.info("[get_stock_historical_data] Massive.com 失败: %s", type(e).__name__)
-        return None
-
-
-
-def _map_to_stooq_symbol(ticker: str) -> Optional[str]:
-    """
-    将 ticker 映射到 Stooq 格式。
-    注意：Stooq 不支持加密货币和 A 股，返回 None 跳过。
-    """
-    upper = ticker.upper()
-
-    # 不支持的 ticker 类型 - 返回 None 跳过
-    # 加密货币
-    if any(crypto in upper for crypto in ['BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'SOL', 'DOGE', 'ADA']):
-        return None
-    # A 股指数和股票
-    if upper.endswith('.SS') or upper.endswith('.SZ') or upper.startswith('000') or upper.startswith('600') or upper.startswith('300'):
-        return None
-    # 商品期货（Stooq 格式不同）
-    if '=' in upper:
-        return None
-
-    # 已知的指数映射
-    mapping = {
-        "^IXIC": "^ndq",
-        "^GSPC": "^spx",
-        "^DJI": "^dji",
-        "^RUT": "^rut",
-        "^VIX": "^vix",
-    }
-    if upper in mapping:
-        return mapping[upper]
-    if upper.startswith("^"):
-        return upper.lower()
-    return f"{upper}.us"
-
-
-
-def _fetch_with_stooq_history(ticker: str, period: str = "1y", interval: str = "1d") -> Optional[dict]:
-    """
-    免 Key 回退：使用 stooq 获取日线数据（支持部分指数和美股，代码带 .us）。
-    """
-    try:
-        import requests  # type: ignore
-        import csv
-        from datetime import date, timedelta
-
-        symbol = _map_to_stooq_symbol(ticker)
-        if not symbol:
-            return None
-
-        days_map = {
-            "1d": 5, "5d": 10, "1mo": 40, "3mo": 120, "6mo": 200,
-            "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "max": 3650
-        }
-        days = days_map.get(period, 365)
-        end = date.today()
-        start = end - timedelta(days=days)
-        url = f"https://stooq.pl/q/d/l/?s={symbol}&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d"
-        resp = _http_get(url, timeout=8)
-        if resp.status_code != 200 or not resp.text:
-            return None
-
-        lines = resp.text.strip().splitlines()
-        reader = csv.DictReader(lines)
-        data = []
-        for row in reader:
-            try:
-                date_key = "Date" if "Date" in row else ("Data" if "Data" in row else None)
-                open_key = "Open" if "Open" in row else ("Otwarcie" if "Otwarcie" in row else None)
-                high_key = "High" if "High" in row else ("Najwyzszy" if "Najwyzszy" in row else None)
-                low_key = "Low" if "Low" in row else ("Najnizszy" if "Najnizszy" in row else None)
-                close_key = "Close" if "Close" in row else ("Zamkniecie" if "Zamkniecie" in row else None)
-                volume_key = "Volume" if "Volume" in row else ("Wolumen" if "Wolumen" in row else None)
-                if not all([date_key, open_key, high_key, low_key, close_key]):
-                    continue
-                close_val = _safe_float_value(row[close_key])
-                if close_val is None or close_val <= 0 or close_val > 1e8:
-                    continue
-                data.append(
-                    {
-                        "time": f"{row[date_key]} 00:00",
-                        "open": _safe_float_value(row[open_key]),
-                        "high": _safe_float_value(row[high_key]),
-                        "low": _safe_float_value(row[low_key]),
-                        "close": close_val,
-                        "volume": _safe_float_value(row.get(volume_key)) or 0.0,
-                    }
-                )
-            except Exception:
-                continue
-
-        if data:
-            logger.info("[get_stock_historical_data] Stooq 成功获取数据")
-            if interval.endswith("h"):
-                # stooq 只有日线。此前用最近 10 日收盘伪造 OHLC 全等的"小时"平线
-                # 冒充 1h 数据，下游波动率/振幅/量能指标会得到静默错误结果；
-                # 如实返回 None 让降级链走真正的分时源或明确失败（R7）。
-                return None
-            return {"kline_data": data, "period": period, "interval": "1d", "source": "stooq"}
-        return None
-    except Exception as e:
-        logger.info("[get_stock_historical_data] Stooq 失败: %s", type(e).__name__)
-        return None
-
-
-
-def _fallback_price_value(ticker: str) -> Optional[float]:
-    """
-    简单兜底：尝试用 stooq 价格接口或搜索提取一个最新价，用于生成平滑序列。
-    """
-    try:
-        symbol = _map_to_stooq_symbol(ticker)
-        if symbol:
-            url = f"https://stooq.pl/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=json"
-            resp = _http_get(url, timeout=6)
-            if resp.status_code == 200:
-                data = resp.json().get("symbols") or []
-                if data:
-                    close = data[0].get("close")
-                    if close not in (None, "N/D"):
-                        return _safe_float_value(close)
-    except Exception as exc:
-        logger.debug("historical stooq price fallback failed: %s", type(exc).__name__)
-
-    # 搜索兜底
-    try:
-        search_result = search(f"{ticker} index level today")
-        m = re.search(r"(\\d{3,6}(?:,\\d{3})*(?:\\.\\d+)?)", search_result or "")
-        if m:
-            val = _safe_float_value(m.group(1).replace(",", ""))
-            if val is None:
-                return None
-            if val <= 0 or val > 1e8:
-                return None
-            return val
-    except Exception:
-        pass
-    return None
-
-
 
 def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "1d") -> dict:
     """
@@ -1542,12 +963,6 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
     # 所有策略都失败，返回错误
     return {"error": f"Failed to fetch historical data for {ticker}: All data sources failed. Please try again later or check your internet connection."}
 
-
-
-def _safe_float_value(value: Any) -> Optional[float]:
-    return safe_float(value)
-
-
 def _nearest_strike_iv(option_df: Any, target_strike: float) -> Optional[float]:
     if option_df is None or getattr(option_df, "empty", True):
         return None
@@ -1564,7 +979,6 @@ def _nearest_strike_iv(option_df: Any, target_strike: float) -> Optional[float]:
         return safe_float(value)
     except Exception:
         return None
-
 
 def get_option_chain_metrics(ticker: str, expiry: Optional[str] = None) -> Dict[str, Any]:
     """Free option-chain derived signals via yfinance: IV / PCR / skew."""
@@ -1650,428 +1064,6 @@ def get_option_chain_metrics(ticker: str, expiry: Optional[str] = None) -> Dict[
         logger.info("[Options] get_option_chain_metrics failed: %s", type(e).__name__)
         result["error"] = f"fetch_failed:{e.__class__.__name__}"
         return result
-
-
-def _normalize_positions(positions: Any) -> List[Dict[str, Any]]:
-    parsed: List[Dict[str, Any]] = []
-    if not isinstance(positions, list):
-        return parsed
-
-    for item in positions:
-        if not isinstance(item, dict):
-            continue
-        ticker = str(item.get("ticker") or item.get("symbol") or "").strip().upper()
-        if not ticker:
-            continue
-        weight = _safe_float_value(item.get("weight"))
-        quantity = _safe_float_value(item.get("quantity"))
-        parsed.append({"ticker": ticker, "weight": weight, "quantity": quantity})
-
-    if not parsed:
-        return []
-
-    weight_sum = sum((entry["weight"] or 0.0) for entry in parsed if entry["weight"] is not None)
-    if weight_sum > 0:
-        for entry in parsed:
-            raw_weight = entry["weight"] or 0.0
-            entry["weight"] = float(raw_weight / weight_sum)
-        return parsed
-
-    qty_sum = sum(abs(entry["quantity"] or 0.0) for entry in parsed if entry["quantity"] is not None)
-    if qty_sum > 0:
-        for entry in parsed:
-            raw_qty = abs(entry["quantity"] or 0.0)
-            entry["weight"] = float(raw_qty / qty_sum)
-        return parsed
-
-    equal_weight = 1.0 / float(len(parsed))
-    for entry in parsed:
-        entry["weight"] = equal_weight
-    return parsed
-
-
-def _download_close_frame(symbols: List[str], lookback_days: int) -> Optional[pd.DataFrame]:
-    if not symbols:
-        return None
-    period_days = max(lookback_days, 30)
-    period = f"{period_days}d"
-
-    try:
-        raw = yf.download(
-            tickers=symbols if len(symbols) > 1 else symbols[0],
-            period=period,
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-            threads=False,
-        )
-    except Exception:
-        return None
-
-    if raw is None or getattr(raw, "empty", True):
-        return None
-
-    try:
-        if isinstance(raw.columns, pd.MultiIndex):
-            level0 = set(raw.columns.get_level_values(0))
-            if "Close" in level0:
-                close_df = raw["Close"].copy()
-            elif "Adj Close" in level0:
-                close_df = raw["Adj Close"].copy()
-            else:
-                return None
-            if isinstance(close_df, pd.Series):
-                close_df = close_df.to_frame(name=symbols[0])
-            return close_df.dropna(how="all")
-
-        if "Close" in raw.columns:
-            return raw[["Close"]].rename(columns={"Close": symbols[0]}).dropna(how="all")
-        if "Adj Close" in raw.columns:
-            return raw[["Adj Close"]].rename(columns={"Adj Close": symbols[0]}).dropna(how="all")
-    except Exception:
-        return None
-    return None
-
-
-def _compute_beta(portfolio_returns: pd.Series, factor_returns: pd.Series) -> Optional[float]:
-    joined = pd.concat([portfolio_returns, factor_returns], axis=1).dropna()
-    if joined.empty or len(joined) < 20:
-        return None
-    p = joined.iloc[:, 0]
-    f = joined.iloc[:, 1]
-    variance = f.var()
-    if variance is None or variance <= 1e-12:
-        return None
-    covariance = p.cov(f)
-    if covariance is None:
-        return None
-    return float(covariance / variance)
-
-
-def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, Any]:
-    """Estimate simple portfolio factor beta exposures from free yfinance history."""
-    normalized = _normalize_positions(positions)
-    result: Dict[str, Any] = {
-        "source": "yfinance_factor_model",
-        "as_of": datetime.now().isoformat(),
-        "lookback_days": int(lookback_days),
-        "positions": normalized,
-        "factor_beta": {},
-        "annualized_volatility": None,
-        "max_drawdown": None,
-        "market_r2": None,
-        "observation_count": 0,
-        "error": None,
-    }
-    if not normalized:
-        result["error"] = "positions_required"
-        return result
-
-    factor_map = {
-        "market": "SPY",
-        "growth": "QQQ",
-        "small_cap": "IWM",
-        "rates": "TLT",
-        "gold": "GLD",
-        "usd": "UUP",
-    }
-
-    portfolio_symbols = [item["ticker"] for item in normalized]
-    all_symbols = list(dict.fromkeys(portfolio_symbols + list(factor_map.values())))
-    close_df = _download_close_frame(all_symbols, lookback_days=lookback_days)
-    if close_df is None or close_df.empty:
-        result["error"] = "historical_data_unavailable"
-        return result
-
-    returns = close_df.pct_change().dropna(how="all")
-    if returns.empty:
-        result["error"] = "insufficient_returns_data"
-        return result
-
-    available_symbols = [sym for sym in portfolio_symbols if sym in returns.columns]
-    if not available_symbols:
-        result["error"] = "portfolio_symbols_missing_in_history"
-        return result
-
-    weighted_series: List[pd.Series] = []
-    for position in normalized:
-        symbol = position["ticker"]
-        if symbol not in returns.columns:
-            continue
-        weight = safe_float(position.get("weight")) or 0.0
-        weighted_series.append(returns[symbol] * weight)
-
-    if not weighted_series:
-        result["error"] = "portfolio_returns_unavailable"
-        return result
-
-    portfolio_returns = sum(weighted_series)
-    portfolio_returns = portfolio_returns.dropna()
-    if portfolio_returns.empty:
-        result["error"] = "portfolio_returns_empty"
-        return result
-
-    factor_beta: Dict[str, Optional[float]] = {}
-    for factor_name, factor_symbol in factor_map.items():
-        if factor_symbol not in returns.columns:
-            factor_beta[factor_name] = None
-            continue
-        beta = _compute_beta(portfolio_returns, returns[factor_symbol])
-        factor_beta[factor_name] = round(beta, 4) if beta is not None else None
-
-    ann_vol = float(portfolio_returns.std() * (252 ** 0.5))
-    cumulative = (1.0 + portfolio_returns).cumprod()
-    drawdown_series = cumulative / cumulative.cummax() - 1.0
-    max_drawdown = float(drawdown_series.min()) if not drawdown_series.empty else None
-
-    market_symbol = factor_map["market"]
-    market_r2 = None
-    if market_symbol in returns.columns:
-        joined = pd.concat([portfolio_returns, returns[market_symbol]], axis=1).dropna()
-        if len(joined) >= 20:
-            corr = joined.iloc[:, 0].corr(joined.iloc[:, 1])
-            if corr is not None:
-                market_r2 = float(corr ** 2)
-
-    result.update(
-        {
-            "factor_beta": factor_beta,
-            "annualized_volatility": round(ann_vol, 4),
-            "max_drawdown": round(max_drawdown, 4) if max_drawdown is not None else None,
-            "market_r2": round(market_r2, 4) if market_r2 is not None else None,
-            "observation_count": int(len(portfolio_returns)),
-        }
-    )
-    return result
-
-
-def run_portfolio_stress_test(
-    positions: Any,
-    scenarios: Optional[Dict[str, Dict[str, float]]] = None,
-    lookback_days: int = 252,
-) -> Dict[str, Any]:
-    """Run lightweight factor-based stress tests (free, no paid risk engine)."""
-    factor_payload = get_factor_exposure(positions, lookback_days=lookback_days)
-    result: Dict[str, Any] = {
-        "source": "factor_stress_model",
-        "as_of": datetime.now().isoformat(),
-        "lookback_days": int(lookback_days),
-        "factor_exposure": factor_payload,
-        "scenarios": [],
-        "worst_case_return": None,
-        "error": None,
-    }
-    if factor_payload.get("error"):
-        result["error"] = f"factor_exposure_error:{factor_payload.get('error')}"
-        return result
-
-    factor_beta = factor_payload.get("factor_beta")
-    if not isinstance(factor_beta, dict):
-        result["error"] = "missing_factor_beta"
-        return result
-
-    scenario_map = scenarios or {
-        "equity_selloff": {
-            "market": -0.10,
-            "growth": -0.14,
-            "small_cap": -0.16,
-            "rates": 0.04,
-            "gold": 0.02,
-            "usd": 0.02,
-        },
-        "rate_shock_up": {
-            "market": -0.04,
-            "growth": -0.08,
-            "small_cap": -0.06,
-            "rates": -0.09,
-            "gold": -0.03,
-            "usd": 0.03,
-        },
-        "volatility_spike": {
-            "market": -0.06,
-            "growth": -0.09,
-            "small_cap": -0.10,
-            "rates": 0.03,
-            "gold": 0.01,
-            "usd": 0.01,
-        },
-    }
-
-    annualized_vol = _safe_float_value(factor_payload.get("annualized_volatility")) or 0.0
-    scenarios_out: List[Dict[str, Any]] = []
-    for scenario_name, shocks in scenario_map.items():
-        if not isinstance(shocks, dict):
-            continue
-        projected_return = 0.0
-        used_factors: Dict[str, float] = {}
-        for factor_name, shock in shocks.items():
-            beta = _safe_float_value(factor_beta.get(factor_name))
-            shock_value = _safe_float_value(shock)
-            if beta is None or shock_value is None:
-                continue
-            used_factors[factor_name] = round(beta * shock_value, 4)
-            projected_return += beta * shock_value
-
-        if "volatility" in scenario_name.lower():
-            projected_return -= 0.25 * annualized_vol
-        elif projected_return < 0:
-            projected_return -= 0.10 * annualized_vol
-        else:
-            projected_return -= 0.05 * annualized_vol
-
-        projected_drawdown = min(0.0, projected_return * 1.2)
-        scenarios_out.append(
-            {
-                "name": scenario_name,
-                "projected_return": round(float(projected_return), 4),
-                "projected_drawdown": round(float(projected_drawdown), 4),
-                "factor_contribution": used_factors,
-            }
-        )
-
-    if not scenarios_out:
-        result["error"] = "no_valid_scenarios"
-        return result
-
-    worst_case = min(item["projected_return"] for item in scenarios_out)
-    result.update(
-        {
-            "scenarios": sorted(scenarios_out, key=lambda item: item["projected_return"]),
-            "worst_case_return": round(float(worst_case), 4),
-        }
-    )
-    return result
-
-
-def get_performance_comparison(tickers: Union[dict, list]) -> str:
-    """Compare YTD and 1-Year performance for a labeled ticker map.
-
-    Args:
-        tickers: 支持两种格式:
-            - dict: {"Apple": "AAPL", "Tesla": "TSLA"}
-            - list: ["AAPL", "TSLA"]
-    """
-    # 兼容 list 输入：将 list 转换为 dict 格式
-    if isinstance(tickers, list):
-        tickers = {t: t for t in tickers}
-
-    data: Dict[str, Dict[str, str]] = {}
-    notes: List[str] = []
-    now = datetime.now()
-
-    def _calc_from_hist(hist: pd.DataFrame):
-        if hist is None or hist.empty or 'Close' not in hist.columns:
-            return None
-        hist = hist.copy()
-        try:
-            hist.index = hist.index.tz_localize(None)
-        except Exception:
-            pass
-        end_price = _safe_float_value(hist['Close'].iloc[-1])
-        if end_price is None or end_price <= 0:
-            return None
-        start_of_year = datetime(now.year, 1, 1)
-        ytd_hist = hist[hist.index >= start_of_year]
-        perf_ytd = None
-        if not ytd_hist.empty:
-            start_price_ytd = _safe_float_value(ytd_hist['Close'].iloc[0])
-            if start_price_ytd is not None and start_price_ytd > 0:
-                perf_ytd = ((end_price - start_price_ytd) / start_price_ytd) * 100
-        one_year_ago = now - timedelta(days=365)
-        one_year_hist = hist[hist.index >= one_year_ago]
-        perf_1y = None
-        if not one_year_hist.empty:
-            start_price_1y = _safe_float_value(one_year_hist['Close'].iloc[0])
-            if start_price_1y is not None and start_price_1y > 0:
-                perf_1y = ((end_price - start_price_1y) / start_price_1y) * 100
-        coverage_start = hist.index.min() if not hist.empty else None
-        return end_price, perf_ytd, perf_1y, coverage_start
-
-    def _calc_from_kline(kline_data: List[Dict[str, Any]]):
-        if not kline_data:
-            return None
-        df = pd.DataFrame(kline_data)
-        if 'time' not in df.columns or 'close' not in df.columns:
-            return None
-        df['time'] = pd.to_datetime(df['time'], errors='coerce')
-        df = df.dropna(subset=['time']).sort_values('time')
-        if df.empty:
-            return None
-        end_price = _safe_float_value(df['close'].iloc[-1])
-        if end_price is None or end_price <= 0:
-            return None
-        start_of_year = datetime(now.year, 1, 1)
-        ytd_df = df[df['time'] >= start_of_year]
-        perf_ytd = None
-        if not ytd_df.empty:
-            start_price_ytd = _safe_float_value(ytd_df['close'].iloc[0])
-            if start_price_ytd is not None and start_price_ytd > 0:
-                perf_ytd = ((end_price - start_price_ytd) / start_price_ytd) * 100
-        one_year_ago = now - timedelta(days=365)
-        one_year_df = df[df['time'] >= one_year_ago]
-        perf_1y = None
-        if not one_year_df.empty:
-            start_price_1y = _safe_float_value(one_year_df['close'].iloc[0])
-            if start_price_1y is not None and start_price_1y > 0:
-                perf_1y = ((end_price - start_price_1y) / start_price_1y) * 100
-        coverage_start = df['time'].iloc[0]
-        return end_price, perf_ytd, perf_1y, coverage_start
-
-    for name, ticker in tickers.items():
-        time.sleep(0.3)
-        perf = None
-        fallback_used = False
-        error_note = ""
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="2y")
-            perf = _calc_from_hist(hist)
-            if perf is None:
-                error_note = "yfinance returned empty data"
-                raise ValueError(error_note)
-        except Exception as e:
-            error_note = type(e).__name__
-            try:
-                fallback = get_stock_historical_data(ticker, period="2y", interval="1d")
-                kline = fallback.get("kline_data") if isinstance(fallback, dict) else None
-                perf = _calc_from_kline(kline or [])
-                fallback_used = perf is not None
-                if not perf and isinstance(fallback, dict) and fallback.get("error"):
-                    error_note = fallback.get("error")
-            except Exception as fb_e:
-                error_note = f"{error_note}; fallback failed: {type(fb_e).__name__}"
-
-        if not perf:
-            data[name] = {"Current": "N/A", "YTD": "N/A", "1-Year": "N/A"}
-            notes.append(f"{name}: data unavailable ({error_note})")
-            continue
-
-        end_price, perf_ytd, perf_1y, coverage_start = perf
-        data[name] = {
-            "Current": f"{end_price:,.2f}",
-            "YTD": f"{perf_ytd:+.2f}%" if perf_ytd is not None else "N/A",
-            "1-Year": f"{perf_1y:+.2f}%" if perf_1y is not None else "N/A",
-        }
-        missing = []
-        if perf_ytd is None:
-            missing.append("YTD")
-        if perf_1y is None:
-            missing.append("1-Year")
-        if missing and coverage_start is not None:
-            notes.append(f"{name}: limited history from {coverage_start:%Y-%m-%d} (missing {', '.join(missing)})")
-        if fallback_used:
-            notes.append(f"{name}: used fallback price history")
-
-    if not data:
-        return "Unable to fetch performance data for any ticker."
-
-    header = f"{'Ticker':<25} {'Current Price':<15} {'YTD %':<12} {'1-Year %':<12}\n" + "-" * 67 + "\n"
-    rows = [
-        f"{name:<25} {metrics['Current']:<15} {metrics['YTD']:<12} {metrics['1-Year']:<12}"
-        for name, metrics in data.items()
-    ]
-    note_text = f"\n\nNotes:\n- " + "\n- ".join(notes) if notes else ""
-    return "Performance Comparison:\n\n" + header + "\n".join(rows) + note_text
 
 
 

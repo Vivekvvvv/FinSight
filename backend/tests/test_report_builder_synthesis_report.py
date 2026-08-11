@@ -3,10 +3,10 @@
 import backend.graph.report_builder as report_builder_module
 from backend.graph.report_builder import (
     _count_content_chars,
-    _is_suspicious_citation_item,
     _sanitize_deep_search_summary,
     build_report_payload,
 )
+from backend.graph.report_citations import _is_suspicious_citation_item
 
 
 def test_build_report_payload_redacts_fallback_error(monkeypatch, caplog):

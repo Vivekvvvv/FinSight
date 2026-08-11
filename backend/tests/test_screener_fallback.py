@@ -61,6 +61,8 @@ for _module_name, _module in _ORIGINAL_MODULES.items():
     else:
         sys.modules[_module_name] = _module
 
+from backend.tools import screener_providers
+
 
 import pytest
 
@@ -146,7 +148,7 @@ def test_screener_invalid_sort_falls_back(monkeypatch):
 def test_screener_cn_without_key_uses_yfinance_popular(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
     monkeypatch.setattr(
-        screener,
+        screener_providers,
         "fetch_cn_hk_quote_metrics",
         lambda symbol, **_kwargs: {
             "symbol": symbol,
@@ -170,7 +172,7 @@ def test_screener_cn_without_key_uses_yfinance_popular(monkeypatch):
 def test_screener_hk_without_key_uses_yfinance_popular(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
     monkeypatch.setattr(
-        screener,
+        screener_providers,
         "fetch_cn_hk_quote_metrics",
         lambda symbol, **_kwargs: {
             "symbol": symbol,
@@ -193,7 +195,7 @@ def test_screener_hk_without_key_uses_yfinance_popular(monkeypatch):
 def test_screener_cn_uses_tencent_quote_when_available(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
     monkeypatch.setattr(
-        screener,
+        screener_providers,
         "fetch_cn_hk_quote_metrics",
         lambda symbol, **_kwargs: {
             "symbol": symbol,
@@ -213,8 +215,10 @@ def test_screener_cn_uses_tencent_quote_when_available(monkeypatch):
 
 def test_screener_cn_static_pool_fills_first_page_when_live_source_is_slow(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
-    monkeypatch.setattr(screener, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", {"CN": 0.0, "HK": 0.0})
-    monkeypatch.setattr(screener, "fetch_cn_hk_quote_metrics", lambda *_args, **_kwargs: None)
+    _live_until = {"CN": 0.0, "HK": 0.0}
+    monkeypatch.setattr(screener_providers, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", _live_until)
+    monkeypatch.setattr(screener, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", _live_until)
+    monkeypatch.setattr(screener_providers, "fetch_cn_hk_quote_metrics", lambda *_args, **_kwargs: None)
 
     result = screener.screen_stocks(market="CN", limit=10)
 
@@ -228,8 +232,10 @@ def test_screener_cn_static_pool_fills_first_page_when_live_source_is_slow(monke
 
 def test_screener_hk_static_pool_fills_first_page_when_live_source_is_slow(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
-    monkeypatch.setattr(screener, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", {"CN": 0.0, "HK": 0.0})
-    monkeypatch.setattr(screener, "fetch_cn_hk_quote_metrics", lambda *_args, **_kwargs: None)
+    _live_until = {"CN": 0.0, "HK": 0.0}
+    monkeypatch.setattr(screener_providers, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", _live_until)
+    monkeypatch.setattr(screener, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", _live_until)
+    monkeypatch.setattr(screener_providers, "fetch_cn_hk_quote_metrics", lambda *_args, **_kwargs: None)
 
     result = screener.screen_stocks(market="HK", limit=10)
 
@@ -259,12 +265,12 @@ def test_static_fallback_pools_cover_at_least_thirty_named_symbols(market, expec
 
 def test_screener_cn_skips_live_source_during_cooldown(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
-    monkeypatch.setattr(screener, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", {"CN": 999999999.0, "HK": 0.0})
+    monkeypatch.setattr(screener_providers, "_CN_HK_LIVE_UNAVAILABLE_UNTIL", {"CN": 999999999.0, "HK": 0.0})
 
     def _fail_quote(*_args, **_kwargs):
         raise AssertionError("CN live source should be skipped while cooldown is active")
 
-    monkeypatch.setattr(screener, "fetch_cn_hk_quote_metrics", _fail_quote)
+    monkeypatch.setattr(screener_providers, "fetch_cn_hk_quote_metrics", _fail_quote)
 
     result = screener.screen_stocks(market="CN", limit=10)
 
@@ -275,7 +281,7 @@ def test_screener_cn_skips_live_source_during_cooldown(monkeypatch):
 
 def test_screener_fallback_result_keeps_items_and_results_alias(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "")
-    monkeypatch.setattr(screener.yf, "Ticker", lambda _symbol: _FakeTicker())
+    monkeypatch.setattr(screener_providers.yf, "Ticker", lambda _symbol: _FakeTicker())
 
     result = screener._yfinance_popular_stocks("US", {}, 1, "marketCap", "desc")
 

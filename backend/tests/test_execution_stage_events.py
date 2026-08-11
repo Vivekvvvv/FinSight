@@ -9,6 +9,7 @@ def _run(coro):
 
 def test_planner_stub_emits_pipeline_and_plan_events(monkeypatch):
     planner_mod = importlib.import_module("backend.graph.nodes.planner")
+    planner_emit_mod = importlib.import_module("backend.graph.nodes.planner_emit")
 
     monkeypatch.setenv("LANGGRAPH_PLANNER_MODE", "stub")
     events: list[dict] = []
@@ -17,6 +18,7 @@ def test_planner_stub_emits_pipeline_and_plan_events(monkeypatch):
         events.append(payload)
 
     monkeypatch.setattr(planner_mod, "emit_event", _fake_emit)
+    monkeypatch.setattr(planner_emit_mod, "emit_event", _fake_emit)
 
     state = {
         "query": "AAPL outlook",

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from backend.tools import screener
+from backend.tools import screener_providers
 
 import pytest
 
@@ -55,14 +56,14 @@ def test_screen_stocks_static_fallback_fills_first_page(monkeypatch):
 
 
 def test_yfinance_empty_result_uses_static_popular_fallback(monkeypatch):
-    monkeypatch.setattr(screener, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(screener_providers, "ALPHA_VANTAGE_API_KEY", "")
 
     class _BrokenTicker:
         @property
         def fast_info(self):
             raise RuntimeError("network unavailable")
 
-    monkeypatch.setattr(screener.yf, "Ticker", lambda _symbol: _BrokenTicker())
+    monkeypatch.setattr(screener_providers.yf, "Ticker", lambda _symbol: _BrokenTicker())
 
     result = screener._yfinance_popular_stocks("US", {}, 3, "marketCap", "desc")
 
@@ -83,9 +84,9 @@ def test_yfinance_fallback_error_is_redacted(monkeypatch, caplog):
             raise RuntimeError(secret)
         return []
 
-    monkeypatch.setattr(screener, "_alpha_vantage_screen_stocks", lambda *_args: None)
-    monkeypatch.setattr(screener, "_static_fallback_items", _fail_then_empty)
-    monkeypatch.setattr(screener.yf, "Ticker", lambda _symbol: (_ for _ in ()).throw(RuntimeError("offline")))
+    monkeypatch.setattr(screener_providers, "_alpha_vantage_screen_stocks", lambda *_args: None)
+    monkeypatch.setattr(screener_providers, "_static_fallback_items", _fail_then_empty)
+    monkeypatch.setattr(screener_providers.yf, "Ticker", lambda _symbol: (_ for _ in ()).throw(RuntimeError("offline")))
 
     result = screener._yfinance_popular_stocks("US", {}, 3, "marketCap", "desc")
 
@@ -164,7 +165,7 @@ def test_screen_stocks_fmp_error_log_is_redacted(monkeypatch, caplog):
 def test_screen_stocks_applies_cn_market_filter(monkeypatch):
     monkeypatch.setattr(screener, "FMP_API_KEY", "demo-key")
     monkeypatch.setattr(
-        screener,
+        screener_providers,
         "fetch_cn_hk_quote_metrics",
         lambda symbol, **_kwargs: {
             "symbol": symbol,

@@ -1,6 +1,7 @@
 import pandas as pd
 
 import backend.dashboard.data_service as data_service
+import backend.dashboard.data_fetchers as data_fetchers
 
 
 class _EmptyTicker:
@@ -51,6 +52,7 @@ def test_market_chart_error_log_is_redacted(monkeypatch, caplog):
         raise RuntimeError(secret)
 
     monkeypatch.setattr(data_service, "_load_ohlcv_frame", fail_load)
+    monkeypatch.setattr(data_fetchers, "_load_ohlcv_frame", fail_load)
 
     assert data_service.fetch_market_chart("AAPL") is None
     assert secret not in caplog.text
@@ -149,6 +151,7 @@ def test_fetch_news_outer_error_log_is_redacted(monkeypatch, caplog):
     monkeypatch.setattr(news, "get_company_news", lambda _symbol, _limit: [])
     monkeypatch.setattr(news, "get_market_news_headlines", lambda _limit: [])
     monkeypatch.setattr(data_service, "_rank_news_items", fail_ranking)
+    monkeypatch.setattr(data_fetchers, "_rank_news_items", fail_ranking)
 
     payload = data_service.fetch_news("AAPL")
 
@@ -346,6 +349,7 @@ def test_fetch_valuation_error_log_is_redacted(monkeypatch, caplog):
 
     monkeypatch.setattr(yfinance, "Ticker", fail_ticker)
     monkeypatch.setattr(data_service, "_fetch_valuation_from_finnhub", lambda _symbol: None)
+    monkeypatch.setattr(data_fetchers, "_fetch_valuation_from_finnhub", lambda _symbol: None)
 
     assert data_service.fetch_valuation("AAPL") is None
     assert secret not in caplog.text
@@ -367,7 +371,17 @@ def test_fetch_financial_statements_error_log_is_redacted(monkeypatch, caplog):
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
+        data_fetchers,
+        "_fetch_financial_statements_from_sec_companyfacts",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
         data_service,
+        "_fetch_financial_statements_from_finnhub",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        data_fetchers,
         "_fetch_financial_statements_from_finnhub",
         lambda *_args, **_kwargs: None,
     )
@@ -384,6 +398,7 @@ def test_technical_indicators_error_log_is_redacted(monkeypatch, caplog):
         raise RuntimeError(secret)
 
     monkeypatch.setattr(data_service, "_load_ohlcv_frame", fail_load)
+    monkeypatch.setattr(data_fetchers, "_load_ohlcv_frame", fail_load)
 
     assert data_service.fetch_technical_indicators("AAPL") is None
     assert secret not in caplog.text
@@ -397,6 +412,7 @@ def test_indicator_series_error_log_is_redacted(monkeypatch, caplog):
         raise ConnectionError(secret)
 
     monkeypatch.setattr(data_service, "_load_ohlcv_frame", fail_load)
+    monkeypatch.setattr(data_fetchers, "_load_ohlcv_frame", fail_load)
 
     assert data_service.fetch_indicator_series("AAPL") is None
     assert secret not in caplog.text

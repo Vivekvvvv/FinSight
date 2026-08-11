@@ -147,12 +147,12 @@ def test_kline_rejects_oversized_query_parameters_before_fetch(path, parameter):
         (
             "/api/stock/top-list/600519.SS/history",
             "start_date",
-            "backend.tools.tencent_provider.fetch_cn_top_list_history",
+            "backend.tools.tencent_history_providers.fetch_cn_top_list_history",
         ),
         (
             "/api/stock/top-list/600519.SS/history",
             "end_date",
-            "backend.tools.tencent_provider.fetch_cn_top_list_history",
+            "backend.tools.tencent_history_providers.fetch_cn_top_list_history",
         ),
         (
             "/api/market/north-flow",
@@ -199,7 +199,7 @@ def test_market_date_queries_are_rejected_before_provider(
         (
             "/api/stock/top-list/600519.SS/history",
             {"start_date": "2024-01-02", "end_date": "2024-01-01"},
-            "backend.tools.tencent_provider.fetch_cn_top_list_history",
+            "backend.tools.tencent_history_providers.fetch_cn_top_list_history",
         ),
         (
             "/api/market/historical/AAPL",

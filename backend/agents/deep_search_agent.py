@@ -22,6 +22,7 @@ except ImportError:
 from langchain_core.messages import HumanMessage
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceItem
 from backend.agents.search_convergence import SearchConvergence
+from backend.agents.deep_search_helpers import _extract_json, _clean_degraded_text, _low_signal_text, _degraded_fact_from_doc
 from backend.orchestration.trace_schema import create_trace_event
 from backend.security.ssrf import is_safe_url
 from backend.security.pinned_http import safe_pinned_request
@@ -1393,67 +1394,17 @@ queries 要求：
         return ""
 
     def _extract_json(self, text: str) -> Dict[str, Any]:
-        if not text:
-            return {}
-        match = re.search(r"\{.*\}", text, flags=re.S)
-        if not match:
-            return {}
-        try:
-            return json_loads_strict(match.group(0))
-        except (json.JSONDecodeError, ValueError):
-            return {}
+        return _extract_json(text)
 
     def _clean_degraded_text(self, text: str) -> str:
-        cleaned = str(text or "")
-        cleaned = re.sub(r"https?://\S+", "", cleaned)
-        cleaned = re.sub(r"\s+", " ", cleaned).strip()
-        noise_tokens = (
-            "SummaryRatingsFinancialsTechnicals",
-            "MarketWatch",
-            "Privacy Policy",
-            "Terms of Use",
-            "Cookie",
-            "Subscribe",
-            "Sign in",
-            "Login",
-            "注册",
-            "登录",
-            "免责声明",
-        )
-        for token in noise_tokens:
-            cleaned = cleaned.replace(token, " ")
-        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
-        return cleaned
+        return _clean_degraded_text(text)
 
     def _low_signal_text(self, text: str) -> bool:
-        if not text:
-            return True
-        stripped = text.strip()
-        if len(stripped) < 20:
-            return True
-        alpha_num = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", stripped))
-        if alpha_num < 15:
-            return True
-        if re.search(r"[A-Za-z]{25,}", stripped):
-            return True
-        return False
+        return _low_signal_text(text)
 
     def _degraded_fact_from_doc(self, doc: Dict[str, Any]) -> str:
-        title = self._clean_degraded_text(str(doc.get("title") or "")).strip()
-        snippet = self._clean_degraded_text(str(doc.get("snippet") or doc.get("content") or "")).strip()
-        if not snippet:
-            snippet = self._clean_degraded_text(str(doc.get("content") or "")).strip()
-        if self._low_signal_text(snippet):
-            return ""
+        return _degraded_fact_from_doc(doc)
 
-        if len(snippet) > 140:
-            snippet = snippet[:140].rstrip(" ,.;，。；") + "…"
-
-        idx_ref = doc.get("_idx_ref")
-        ref = f"[{idx_ref}]" if idx_ref else ""
-        if title:
-            return f"- {title}：{snippet} {ref}".strip()
-        return f"- {snippet} {ref}".strip()
 
     def _build_degraded_summary(self, docs: List[Dict[str, Any]]) -> str:
         """Build a degraded summary from doc titles/snippets when LLM is unavailable."""

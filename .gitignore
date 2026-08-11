@@ -205,3 +205,6 @@ docs/DEPLOYMENT.md
 deploy.bat
 deploy*.bat
 deploy*.sh
+
+# Playwright CLI session artifacts
+.playwright-cli/

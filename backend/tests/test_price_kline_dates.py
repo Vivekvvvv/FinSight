@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 
 def test_massive_kline_dates_use_utc(monkeypatch):
-    from backend.tools import price as price_module
+    from backend.tools import price_history_providers as price_module
 
     monkeypatch.setattr(price_module, "MASSIVE_API_KEY", "test-key")
 
@@ -37,7 +37,7 @@ def test_massive_kline_dates_use_utc(monkeypatch):
 
 def test_stooq_hourly_request_returns_none_not_fabricated_bars(monkeypatch):
     """R7 回归：stooq 只有日线，小时请求不得伪造 OHLC 全等平线冒充 1h 数据。"""
-    from backend.tools import price as price_module
+    from backend.tools import price_history_providers as price_module
 
     csv_text = (
         "Date,Open,High,Low,Close,Volume\n"

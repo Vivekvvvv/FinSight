@@ -16,14 +16,14 @@ STRICT_JSON_ENTRYPOINTS = [
     ("R202", "backend/api/main.py", "payload = json_loads_strict(response.read().decode", 1),
     ("R203", "backend/graph/nodes/execute_plan_stub.py", "parsed = json_loads_strict(output)", 1),
     ("R204", "backend/graph/nodes/execute_plan_stub.py", "output = json_loads_strict(output)", 1),
-    ("R205", "backend/graph/nodes/synthesize.py", "obj = json_loads_strict(cleaned)", 1),
+    ("R205", "backend/graph/nodes/synthesize_format.py", "obj = json_loads_strict(cleaned)", 1),
     ("R206", "backend/graph/nodes/synthesize.py", "payload = json_loads_strict(_extract_json_object", 1),
-    ("R207", "backend/graph/nodes/synthesize.py", "obj = json_loads_strict(raw_text)", 1),
+    ("R207", "backend/graph/nodes/synthesize_format.py", "obj = json_loads_strict(raw_text)", 1),
     ("R208", "backend/graph/nodes/synthesize.py", "out = json_loads_strict(out)", 1),
     ("R209", "backend/graph/nodes/synthesize.py", "out = json_loads_strict(out)", 2),
     ("R210", "backend/graph/nodes/synthesize.py", "facts_out = json_loads_strict(facts_out)", 1),
     ("R211", "backend/graph/nodes/synthesize.py", "payload = json_loads_strict(_extract_json_object", 2),
-    ("R212", "backend/graph/report_builder.py", "obj = json_loads_strict(candidate)", 1),
+    ("R212", "backend/graph/report_text_tools.py", "obj = json_loads_strict(candidate)", 1),
     ("R213", "backend/orchestration/plan.py", "data = json_load_strict(f)", 1),
     ("R214", "backend/rag/hybrid_service.py", "metadata = json_loads_strict(metadata)", 1),
     ("R215", "backend/security/auth.py", "mappings = json_loads_strict(mappings_raw)", 1),
@@ -31,16 +31,16 @@ STRICT_JSON_ENTRYPOINTS = [
     ("R217", "backend/tools/tencent_provider.py", "data_list = json_loads_strict(match.group(1))", 1),
     ("R218", "backend/tools/tencent_provider.py", "buy_data = json_loads_strict(buy_match.group(1))", 1),
     ("R219", "backend/tools/tencent_provider.py", "sell_data = json_loads_strict(sell_match.group(1))", 1),
-    ("R220", "backend/tools/tencent_provider.py", "data_list = json_loads_strict(match.group(1))", 2),
+    ("R220", "backend/tools/tencent_history_providers.py", "data_list = json_loads_strict(match.group(1))", 1),
     ("R221", "backend/tools/tencent_provider.py", "data = json_loads_strict(match.group(1))", 1),
-    ("R222", "backend/tools/tencent_provider.py", "data = json_loads_strict(resp.text)", 1),
+    ("R222", "backend/tools/tencent_history_providers.py", "data = json_loads_strict(resp.text)", 1),
     ("R223", "backend/tools/wayback.py", "else json_loads_strict(resp.text)", 1),
     ("R224", "backend/tools/wayback.py", "else json_loads_strict(resp.text)", 2),
-    ("R302", "backend/agents/deep_search_agent.py", "return json_loads_strict(match.group(0))", 1),
+    ("R302", "backend/agents/deep_search_helpers.py", "return json_loads_strict(match.group(0))", 1),
     ("R303", "backend/api/config_router.py", "saved_config = json_load_strict(file_obj)", 1),
     ("R304", "backend/api/config_router.py", "existing = json_load_strict(file_obj)", 1),
     ("R305", "backend/dashboard/scorers.py", "parsed = json_loads_strict(text)", 1),
-    ("R306", "backend/graph/nodes/planner.py", "return json_loads_strict(candidate, strict=False)", 1),
+    ("R306", "backend/graph/nodes/planner_json.py", "return json_loads_strict(candidate, strict=False)", 1),
     ("R307", "backend/llm_config.py", "payload = json_load_strict(f)", 1),
     ("R308", "backend/rag/observability_runtime.py", "return json_loads_strict(value)", 1),
     ("R309", "backend/rag/observability_store.py", "return json_loads_strict(value)", 1),
@@ -126,7 +126,7 @@ def test_report_line_does_not_flatten_non_standard_json():
 
 
 def test_synthesize_line_does_not_flatten_non_standard_json():
-    from backend.graph.nodes.synthesize import _normalize_llm_section_line
+    from backend.graph.nodes.synthesize_format import _normalize_llm_section_line
 
     line = '{"event": NaN, "impact": "private"}'
     assert _normalize_llm_section_line(line) == line

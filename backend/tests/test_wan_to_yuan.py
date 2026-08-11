@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from backend.tools import tencent_provider as mod
+from backend.tools import tencent_history_providers as hist_mod
 from backend.tools.tencent_provider import _wan_to_yuan
 
 
@@ -36,9 +37,9 @@ class _Resp:
 
 
 def test_north_flow_history_survives_placeholder_row(monkeypatch):
-    monkeypatch.setattr(mod, "_http_get", lambda *a, **k: _Resp())
+    monkeypatch.setattr(hist_mod, "_http_get", lambda *a, **k: _Resp())
 
-    records = mod.fetch_north_flow_history(days=3)
+    records = hist_mod.fetch_north_flow_history(days=3)
 
     # 修复前：占位行 safe_float("-")*10000 崩溃 → except → 整批返回 []
     assert len(records) == 3, "一行占位不应丢弃整个多日序列"

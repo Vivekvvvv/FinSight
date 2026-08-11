@@ -16,8 +16,43 @@ from backend.report.quality_engine import evaluate_runtime_report_quality
 from backend.report.validator import ReportValidator
 from backend.utils.strict_json import json_loads_strict
 
-
 logger = logging.getLogger(__name__)
+
+from backend.graph.report_text_tools import (
+    _env_int,
+    _now_iso,
+    _safe_str,
+    _to_json_compatible,
+    _sanitize_deep_search_summary,
+    _flatten_json_like_line,
+    _sanitize_report_text_block,
+    _harden_report_payload,
+    _parse_iso_datetime,
+    _freshness_hours,
+    _count_content_chars,
+    _to_bullets,
+    _normalize_line_for_dedupe,
+    _dedupe_markdown_lines,
+    _extract_deep_research_points,
+)
+
+from backend.graph.report_grounding import (
+    _GROUNDING_CLAIM_PATTERNS,
+    _normalize_for_grounding,
+    _extract_grounding_claims,
+    _build_grounding_corpus,
+    _is_claim_grounded,
+    _compute_grounding_stats,
+)
+
+from backend.graph.report_citations import (
+    _build_citations,
+    _build_filing_section_citations,
+    _build_internal_citation_key,
+    _build_internal_citation_url,
+    _canonicalize_url_for_citation_match,
+    _safe_confidence,
+)
 
 
 _AGENT_TITLE_MAP: dict[str, str] = {
@@ -28,418 +63,6 @@ _AGENT_TITLE_MAP: dict[str, str] = {
     "macro_agent": "宏观分析",
     "deep_search_agent": "深度搜索",
 }
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return int(str(raw).strip())
-    except Exception:
-        return default
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _safe_str(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    if hasattr(value, "isoformat"):
-        try:
-            return value.isoformat()
-        except Exception:
-            pass
-    return str(value)
-
-
-def _to_json_compatible(value: Any) -> Any:
-    try:
-        return json.loads(
-            json.dumps(value, ensure_ascii=False, default=str, allow_nan=False)
-        )
-    except Exception:
-        if isinstance(value, float) and not math.isfinite(value):
-            return None
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            return value
-        if isinstance(value, list):
-            return [_to_json_compatible(item) for item in value]
-        if isinstance(value, dict):
-            return {str(k): _to_json_compatible(v) for k, v in value.items()}
-        return _safe_str(value)
-
-
-def _sanitize_deep_search_summary(summary: str, agent_name: str) -> str:
-    if agent_name != "deep_search_agent":
-        return summary
-    text = _safe_str(summary)
-    if not text.strip():
-        return text
-
-    noise_markers = (
-        "SummaryRatingsFinancialsTechnicals",
-        "MarketWatch",
-        "Privacy Policy",
-        "Terms of Use",
-    )
-    noisy = any(marker in text for marker in noise_markers)
-    if not noisy:
-        loop_heading = re.compile(r"^\s*深度补充说明（第\d+轮）\s*$", flags=re.M)
-        if loop_heading.search(text):
-            seen_loop_bodies: set[str] = set()
-            out_lines: list[str] = []
-            lines = text.splitlines()
-            i = 0
-            while i < len(lines):
-                line = _safe_str(lines[i]).strip()
-                if not line:
-                    out_lines.append("")
-                    i += 1
-                    continue
-                if loop_heading.match(line):
-                    i += 1
-                    body: list[str] = []
-                    while i < len(lines):
-                        nxt = _safe_str(lines[i]).strip()
-                        if loop_heading.match(nxt):
-                            break
-                        body.append(_safe_str(lines[i]))
-                        i += 1
-                    body_text = "\n".join(body).strip()
-                    body_key = re.sub(r"\s+", " ", body_text)
-                    if body_key and body_key not in seen_loop_bodies:
-                        seen_loop_bodies.add(body_key)
-                        out_lines.append("## 深度补充说明")
-                        out_lines.extend(body)
-                    continue
-                out_lines.append(_safe_str(lines[i]))
-                i += 1
-            return "\n".join(out_lines).strip()
-
-        return text
-
-    cleaned = re.sub(r"https?://\S+", "", text)
-    for marker in noise_markers:
-        cleaned = cleaned.replace(marker, " ")
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if len(cleaned) > 500:
-        cleaned = cleaned[:500].rstrip(" ,.;，。；") + "…"
-
-    return (
-        f"深度研究摘要（质量保护模式）：{cleaned}\n\n"
-        "注意：建议结合财报、公告或权威媒体原文复核关键结论。"
-    )
-
-
-def _flatten_json_like_line(line: str) -> str:
-    text = _safe_str(line).strip()
-    if not text:
-        return ""
-
-    was_bullet = text.startswith("- ")
-    candidate = text[2:].strip() if was_bullet else text
-    if not (candidate.startswith("{") and candidate.endswith("}")):
-        return text
-
-    try:
-        obj = json_loads_strict(candidate)
-    except Exception:
-        return text
-    if not isinstance(obj, dict):
-        return text
-
-    event = _safe_str(obj.get("event")).strip()
-    impact = _safe_str(obj.get("impact")).strip()
-    if event and impact:
-        merged = f"{event}：{impact}"
-        return f"- {merged}" if was_bullet else merged
-
-    risk = _safe_str(obj.get("risk")).strip()
-    detail = _safe_str(obj.get("detail")).strip()
-    if risk and detail:
-        merged = f"{risk}：{detail}"
-        return f"- {merged}" if was_bullet else merged
-
-    title = _safe_str(obj.get("title") or obj.get("name")).strip()
-    summary = _safe_str(obj.get("summary") or obj.get("reason") or obj.get("value")).strip()
-    if title and summary:
-        merged = f"{title}：{summary}"
-        return f"- {merged}" if was_bullet else merged
-
-    pairs: list[str] = []
-    for key, value in obj.items():
-        key_text = _safe_str(key).strip()
-        value_text = _safe_str(value).strip()
-        if not key_text or not value_text:
-            continue
-        pairs.append(f"{key_text}: {value_text}")
-        if len(pairs) >= 3:
-            break
-    if not pairs:
-        return text
-    merged = "；".join(pairs)
-    return f"- {merged}" if was_bullet else merged
-
-
-def _sanitize_report_text_block(text: str, *, max_lines: int = 24, max_chars: int = 4000) -> str:
-    raw = _safe_str(text)
-    if not raw.strip():
-        return ""
-
-    out_lines: list[str] = []
-    for line in raw.splitlines():
-        normalized = _flatten_json_like_line(line)
-        normalized = re.sub(r"\s+", " ", normalized).strip()
-        if not normalized:
-            continue
-        if any(marker in normalized for marker in ("<inputs>", "</inputs>", "```", "待实现", "TBD", "TODO")):
-            continue
-        out_lines.append(normalized)
-        if len(out_lines) >= max_lines:
-            break
-
-    if not out_lines:
-        return ""
-
-    normalized_text = "\n".join(out_lines)
-    if len(normalized_text) > max_chars:
-        normalized_text = normalized_text[:max_chars].rstrip(" ,.;，。；") + "…"
-    return normalized_text
-
-
-def _harden_report_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        return payload
-
-    sections = payload.get("sections")
-    if not isinstance(sections, list):
-        sections = []
-
-    repaired_sections: list[dict[str, Any]] = []
-    for section in sections:
-        if not isinstance(section, dict):
-            continue
-        contents = section.get("contents")
-        if not isinstance(contents, list):
-            contents = []
-
-        repaired_contents: list[dict[str, Any]] = []
-        for content in contents:
-            if not isinstance(content, dict):
-                continue
-            content_type = _safe_str(content.get("type") or "text").strip() or "text"
-            text = _safe_str(content.get("content") or "")
-            if content_type == "text" and text:
-                if re.search(r"^\s*-?\s*\{[^\n]*\}\s*$", text, flags=re.M):
-                    text = _sanitize_report_text_block(text, max_lines=20, max_chars=2200) or text
-            if content_type == "text" and not text.strip():
-                text = "（该部分暂无结构化内容）"
-
-            repaired_contents.append(
-                {
-                    "type": content_type,
-                    "content": text,
-                    "citation_refs": content.get("citation_refs") if isinstance(content.get("citation_refs"), list) else [],
-                    "metadata": content.get("metadata") if isinstance(content.get("metadata"), dict) else {},
-                }
-            )
-
-        if not repaired_contents:
-            repaired_contents = [{"type": "text", "content": "（该部分暂无结构化内容）", "citation_refs": [], "metadata": {}}]
-
-        repaired = dict(section)
-        repaired["contents"] = repaired_contents
-        repaired_sections.append(repaired)
-
-    payload["sections"] = repaired_sections
-
-    summary = _safe_str(payload.get("summary") or "")
-    if re.search(r"^\s*\{[^\n]*\}\s*$", summary):
-        summary = _sanitize_report_text_block(summary, max_lines=2, max_chars=420)
-    if not summary.strip():
-        for section in repaired_sections:
-            for content in section.get("contents") or []:
-                if not isinstance(content, dict):
-                    continue
-                if _safe_str(content.get("type") or "") != "text":
-                    continue
-                candidate = _safe_str(content.get("content") or "").strip()
-                if candidate:
-                    summary = candidate[:400]
-                    break
-            if summary:
-                break
-    payload["summary"] = summary or "（暂无摘要）"
-
-    synthesis_report = _safe_str(payload.get("synthesis_report") or "")
-    if not synthesis_report.strip():
-        lines = ["## 投资摘要", f"- {payload['summary']}"]
-        for section in repaired_sections[:6]:
-            section_title = _safe_str(section.get("title") or "")
-            if not section_title:
-                continue
-            lines.append(f"## {section_title}")
-            first_text = ""
-            for content in section.get("contents") or []:
-                if isinstance(content, dict) and _safe_str(content.get("type") or "") == "text":
-                    first_text = _safe_str(content.get("content") or "").strip()
-                    if first_text:
-                        break
-            lines.append(f"- {first_text[:240] or '（暂无内容）'}")
-        synthesis_report = "\n".join(lines)
-    elif re.search(r"^\s*-?\s*\{[^\n]*\}\s*$", synthesis_report, flags=re.M):
-        synthesis_report = _sanitize_report_text_block(synthesis_report, max_lines=120, max_chars=12000) or synthesis_report
-    payload["synthesis_report"] = synthesis_report
-
-    risks = payload.get("risks")
-    if isinstance(risks, list):
-        cleaned_risks = [_safe_str(item).strip() for item in risks if _safe_str(item).strip()]
-        payload["risks"] = cleaned_risks or ["报告已自动降级生成，建议结合原始数据复核。"]
-    else:
-        payload["risks"] = ["报告已自动降级生成，建议结合原始数据复核。"]
-
-    return payload
-
-
-def _parse_iso_datetime(value: str) -> datetime | None:
-    if not value or not isinstance(value, str):
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    # Accept a few common formats.
-    try:
-        if text.endswith("Z"):
-            text = text[:-1] + "+00:00"
-        return datetime.fromisoformat(text)
-    except Exception:
-        return None
-
-
-def _freshness_hours(published_date: str | None) -> float:
-    if not published_date:
-        return 24.0
-    dt = _parse_iso_datetime(str(published_date))
-    if not dt:
-        return 24.0
-    # naive 串按 UTC 基准取 now（多数新闻源给无 Z 的 UTC 时间）；裸 datetime.now()
-    # 是本地墙钟，东八区会把 freshness 系统性放大 8 小时
-    now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now(timezone.utc).replace(tzinfo=None)
-    delta = now - dt
-    return max(0.0, delta.total_seconds() / 3600.0)
-
-
-def _count_content_chars(markdown: str) -> int:
-    """
-    Roughly align with frontend `countContentChars()`:
-    Chinese chars + English words/numbers, after stripping common markdown syntax.
-    """
-    if not markdown:
-        return 0
-    text = str(markdown)
-    text = re.sub(r"```[\s\S]*?```", "", text)
-    text = re.sub(r"`[^`]*`", "", text)
-    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
-    # links → keep link text
-    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
-    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"(\*{1,3}|_{1,3})(.*?)\1", r"\2", text)
-    text = re.sub(r"~~.*?~~", "", text)
-    text = re.sub(r"^[\s]*[-*+]\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^[\s]*\d+\.\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^>+\s?", "", text, flags=re.MULTILINE)
-    text = re.sub(r"---+|===+|\*\*\*+", "", text)
-    text = text.replace("|", " ")
-    # Ignore raw URLs (they should not count towards "content length").
-    text = re.sub(r"https?://\S+", "", text)
-    text = re.sub(r"[:\-]+", " ", text)
-    chinese = len(re.findall(r"[\u4e00-\u9fff\u3400-\u4dbf]", text))
-    words = len(re.findall(r"[a-zA-Z0-9]+", text))
-    return chinese + words
-
-
-def _to_bullets(text: str, *, limit: int = 8) -> list[str]:
-    if not isinstance(text, str) or not text.strip():
-        return []
-    lines: list[str] = []
-    for raw in text.splitlines():
-        line = _safe_str(raw).strip()
-        if not line:
-            continue
-        line = line.lstrip("-").strip()
-        if not line:
-            continue
-        lines.append(line[:220])
-        if len(lines) >= limit:
-            break
-    return lines
-
-
-def _normalize_line_for_dedupe(line: str) -> str:
-    normalized = _safe_str(line)
-    normalized = re.sub(r"\[[0-9]+\]", "", normalized)
-    normalized = re.sub(r"\s+", " ", normalized).strip().lower()
-    normalized = normalized.lstrip("- ")
-    return normalized
-
-
-def _dedupe_markdown_lines(text: str, *, keep_heading_repeats: bool = False) -> str:
-    if not isinstance(text, str) or not text.strip():
-        return ""
-
-    seen: set[str] = set()
-    output: list[str] = []
-    for raw in text.splitlines():
-        line = _safe_str(raw)
-        stripped = line.strip()
-        if not stripped:
-            if output and output[-1] == "":
-                continue
-            output.append("")
-            continue
-
-        if stripped.startswith("##") and keep_heading_repeats:
-            output.append(stripped)
-            continue
-
-        key = _normalize_line_for_dedupe(stripped)
-        if key and key in seen:
-            continue
-        if key:
-            seen.add(key)
-        output.append(stripped)
-
-    return "\n".join(output).strip()
-
-
-def _extract_deep_research_points(summary: str, *, limit: int = 6) -> list[str]:
-    text = _safe_str(summary).strip()
-    if not text:
-        return []
-
-    cleaned = _sanitize_deep_search_summary(text, "deep_search_agent")
-    points: list[str] = []
-    for raw in cleaned.splitlines():
-        line = _safe_str(raw).strip()
-        if not line:
-            continue
-        if line.startswith("##"):
-            continue
-        line = line.lstrip("- ").strip()
-        if not line:
-            continue
-        if len(line) > 220:
-            line = line[:220].rstrip(" ,.;，。；") + "..."
-        points.append(line)
-        if len(points) >= limit:
-            break
-    return points
-
 
 def _extend_synthesis_report_if_short(
     *,
@@ -527,275 +150,6 @@ def _extend_synthesis_report_if_short(
     return _dedupe_markdown_lines(text).strip() + "\n"
 
 
-@dataclass
-class _CitationBuild:
-    citations: list[dict[str, Any]]
-    id_by_url: dict[str, str]
-    id_by_internal_key: dict[str, str]
-
-
-_TRACKING_QUERY_KEYS = {
-    "fbclid",
-    "gclid",
-    "igshid",
-    "mc_cid",
-    "mc_eid",
-    "ref",
-    "ref_src",
-    "source",
-    "sourceid",
-    "utm_campaign",
-    "utm_content",
-    "utm_id",
-    "utm_medium",
-    "utm_name",
-    "utm_source",
-    "utm_term",
-}
-
-
-_FILING_SECTION_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"\bItem\s+(\d+[A-Za-z]?)\b", flags=re.IGNORECASE),
-    re.compile(r"\bNote\s+(\d+[A-Za-z]?)\b", flags=re.IGNORECASE),
-    re.compile(r"\bPart\s+([IVX]+)\b", flags=re.IGNORECASE),
-]
-
-
-def _detect_filing_section_ref(item: dict[str, Any]) -> str | None:
-    text = " ".join(
-        [
-            _safe_str(item.get("title") or ""),
-            _safe_str(item.get("snippet") or ""),
-            _safe_str((item.get("metadata") or {}).get("section") if isinstance(item.get("metadata"), dict) else ""),
-        ]
-    )
-    if not text:
-        return None
-    for pattern in _FILING_SECTION_PATTERNS:
-        m = pattern.search(text)
-        if not m:
-            continue
-        key = pattern.pattern.lower()
-        value = m.group(1).upper()
-        if "item" in key:
-            return f"Item {value}"
-        if "note" in key:
-            return f"Note {value}"
-        if "part" in key:
-            return f"Part {value}"
-    return None
-
-
-def _build_filing_section_citations(citations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    section_map: dict[str, list[str]] = {}
-    for item in citations:
-        if not isinstance(item, dict):
-            continue
-        section = _safe_str(item.get("section_ref") or "").strip()
-        source_id = _safe_str(item.get("source_id") or "").strip()
-        if not section or not source_id:
-            continue
-        section_map.setdefault(section, [])
-        if source_id not in section_map[section]:
-            section_map[section].append(source_id)
-
-    ordered = sorted(section_map.items(), key=lambda kv: kv[0])
-    return [{"section": section, "source_ids": source_ids} for section, source_ids in ordered]
-
-
-def _safe_confidence(value: Any, default: float = 0.7) -> float:
-    """Convert confidence to float safely — handles 'high'/'medium'/'low' strings."""
-    if value is None:
-        return default
-    # docstring 承诺处理 high/medium/low，但旧实现只 float()，三者都抛
-    # ValueError 塌成 default（0.7）→ 信号丢失。补 label 映射兑现契约；数字
-    # 字符串（"0.85"）不在 map，仍走下面的 float()（R65）。
-    if isinstance(value, str):
-        label = value.strip().lower()
-        label_map = {"high": 0.9, "medium": 0.6, "low": 0.3}
-        if label in label_map:
-            return label_map[label]
-    try:
-        parsed = float(value)
-        return parsed if math.isfinite(parsed) else default
-    except (ValueError, TypeError):
-        return default
-
-
-def _canonicalize_url_for_citation_match(raw_url: str) -> str:
-    url = _safe_str(raw_url).strip()
-    if not url:
-        return ""
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        return url
-    if not parsed.scheme or not parsed.netloc:
-        return url
-    if parsed.username is not None or parsed.password is not None:
-        return ""
-
-    scheme = parsed.scheme.lower()
-    netloc = parsed.netloc.lower()
-    path = parsed.path or "/"
-    if path != "/":
-        path = path.rstrip("/")
-        if not path:
-            path = "/"
-
-    filtered_query: list[tuple[str, str]] = []
-    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-        clean_key = _safe_str(key).strip()
-        if not clean_key:
-            continue
-        lower_key = clean_key.lower()
-        if lower_key.startswith("utm_") or lower_key in _TRACKING_QUERY_KEYS:
-            continue
-        filtered_query.append((clean_key, _safe_str(value)))
-    filtered_query.sort(key=lambda item: (item[0].lower(), item[1]))
-    query = urlencode(filtered_query, doseq=True)
-
-    return urlunparse((scheme, netloc, path, "", query, ""))
-
-
-def _is_suspicious_citation_item(item: dict[str, Any]) -> bool:
-    if not isinstance(item, dict):
-        return True
-    url = _safe_str(item.get("url") or "").strip().lower()
-    title = _safe_str(item.get("title") or "").strip().lower()
-    snippet = _safe_str(item.get("snippet") or "").strip().lower()
-    if not url.startswith(("http://", "https://")):
-        return True
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return True
-    if parsed.username is not None or parsed.password is not None:
-        return True
-    domain = (parsed.hostname or "").lower().removeprefix("www.")  # lstrip 按字符集合剥除，会吃掉 wsj.com 的首字母
-    path = (parsed.path or "").lower()
-
-    if domain == "finnhub.io" and path.startswith("/api/news"):
-        return True
-
-    blocked_domains = (
-        "tangxin93.com",
-        "hinrijv.cc",
-        "xqdyzgc.com",
-        "yumiok.com",
-        "playfulsoul.net",
-        "mtevfryb.cc",
-        "ewfvsve.cc",
-        "maoyanqing.com",
-    )
-    blocked_tlds = (".cc", ".xyz", ".top", ".vip", ".club", ".porn", ".sex")
-    blocked_terms = (
-        "成人视频",
-        "乱伦",
-        "群p",
-        "porn",
-        "xxx",
-        "casino",
-        "betting",
-    )
-    text = " ".join((url, title, snippet))
-    if any(domain in url for domain in blocked_domains):
-        return True
-    if domain and any(domain.endswith(suffix) for suffix in blocked_tlds):
-        return True
-    if "/tag/" in path and any(token in path for token in ("群", "porn", "xxx", "sex")):
-        return True
-    if any(term in text for term in blocked_terms):
-        return True
-    return False
-
-
-def _build_citations(evidence_pool: list[dict[str, Any]] | None) -> _CitationBuild:
-    citations: list[dict[str, Any]] = []
-    id_by_url: dict[str, str] = {}
-    id_by_internal_key: dict[str, str] = {}
-    if not isinstance(evidence_pool, list):
-        return _CitationBuild(
-            citations=citations,
-            id_by_url=id_by_url,
-            id_by_internal_key=id_by_internal_key,
-        )
-
-    for item in evidence_pool:
-        if not isinstance(item, dict):
-            continue
-        if _is_suspicious_citation_item(item):
-            continue
-        url = item.get("url")
-        if not isinstance(url, str) or not url.strip():
-            continue
-        url = url.strip()
-        canonical_url = _canonicalize_url_for_citation_match(url)
-        if url in id_by_url or (canonical_url and canonical_url in id_by_url):
-            continue
-        source_id = str(len(citations) + 1)
-        id_by_url[url] = source_id
-        if canonical_url:
-            id_by_url[canonical_url] = source_id
-        citations.append(
-            {
-                "source_id": source_id,
-                "title": _safe_str(item.get("title") or item.get("source") or url)[:180] or url,
-                "url": url,
-                "snippet": _safe_str(item.get("snippet") or "")[:400],
-                "published_date": _safe_str(item.get("published_date") or ""),
-                "confidence": _safe_confidence(item.get("confidence", 0.7)),
-                "freshness_hours": _freshness_hours(item.get("published_date")),
-                "section_ref": _detect_filing_section_ref(item),
-            }
-        )
-        if len(citations) >= 24:
-            break
-
-    return _CitationBuild(
-        citations=citations,
-        id_by_url=id_by_url,
-        id_by_internal_key=id_by_internal_key,
-    )
-
-
-def _normalize_internal_citation_text(value: Any, *, limit: int = 200) -> str:
-    text = re.sub(r"\s+", " ", _safe_str(value)).strip().lower()
-    return text[:limit]
-
-
-def _build_internal_citation_key(
-    *,
-    agent_name: str,
-    source: str,
-    title: str,
-    snippet: str,
-    timestamp: str,
-) -> str:
-    agent_key = _normalize_internal_citation_text(agent_name, limit=64)
-    source_key = _normalize_internal_citation_text(source, limit=64)
-    title_key = _normalize_internal_citation_text(title, limit=120)
-    snippet_key = _normalize_internal_citation_text(snippet, limit=160)
-    timestamp_key = _normalize_internal_citation_text(timestamp, limit=64)
-    if not any((source_key, title_key, snippet_key, timestamp_key)):
-        return ""
-    return "|".join([agent_key, source_key, title_key, snippet_key, timestamp_key])
-
-
-def _build_internal_citation_url(*, agent_name: str, source: str, title: str) -> str:
-    seed = "-".join(
-        [
-            _normalize_internal_citation_text(agent_name, limit=32),
-            _normalize_internal_citation_text(source, limit=32),
-            _normalize_internal_citation_text(title, limit=48),
-        ]
-    )
-    slug = re.sub(r"[^a-z0-9]+", "-", seed).strip("-")
-    if not slug:
-        slug = f"agent-{uuid.uuid4().hex[:8]}"
-    return f"internal://{slug}"
-
-
 def _agent_status_from_steps(
     *,
     allowed_agents: list[str],
@@ -875,7 +229,6 @@ def _agent_status_from_steps(
         status[agent_name] = success_payload
 
     return status
-
 
 def _agent_summaries_from_steps(
     *,
@@ -1012,7 +365,6 @@ def _agent_summaries_from_steps(
 
     return summaries
 
-
 # ---------------------------------------------------------------------------
 #  core_viewpoints — deterministic agent viewpoint extraction (zero LLM)
 # ---------------------------------------------------------------------------
@@ -1021,7 +373,6 @@ import re as _re
 
 _HEADLINE_SPLIT_RE = _re.compile(r"(?<=[。；\n])|(?<=\.)(?=\s|$)")
 _HEADLINE_MAX_LEN = 120
-
 
 def _extract_headline(summary: str) -> str:
     """Extract the first meaningful sentence from agent summary text.
@@ -1048,7 +399,6 @@ def _extract_headline(summary: str) -> str:
         headline = headline[:_HEADLINE_MAX_LEN] + "…"
 
     return headline
-
 
 def _build_core_viewpoints(
     agent_summaries: list[dict[str, Any]],
@@ -1100,7 +450,6 @@ def _build_core_viewpoints(
 
     return viewpoints
 
-
 def _extract_risks(render_vars: dict[str, Any] | None) -> list[str]:
     if not isinstance(render_vars, dict):
         return []
@@ -1122,7 +471,6 @@ def _extract_risks(render_vars: dict[str, Any] | None) -> list[str]:
         if len(lines) >= 8:
             break
     return lines
-
 
 def _agent_report_input_snapshot(
     *,
@@ -1156,7 +504,6 @@ def _agent_report_input_snapshot(
         "render_vars_subset": _to_json_compatible(render_subset),
         "draft_markdown_excerpt": _safe_str(draft_markdown).strip()[:2000],
     }
-
 
 def _build_long_synthesis_report(
     *,
@@ -1222,7 +569,6 @@ def _build_long_synthesis_report(
         citations=citations,
     )
 
-
 def _derive_report_tags_and_hints(
     *,
     subject_type: str,
@@ -1275,10 +621,8 @@ def _derive_report_tags_and_hints(
     }
     return tags, hints
 
-
 def _is_deep_report_query(query: str) -> bool:
     return _classify_report_type(query) == "deep_financial"
-
 
 _QUALITY_PROFILES: dict[str, dict[str, bool]] = {
     "deep_financial": {
@@ -1314,7 +658,6 @@ _QUALITY_PROFILES: dict[str, dict[str, bool]] = {
         "snippets": True,
     },
 }
-
 
 def _classify_report_type(query: str) -> str:
     q = _safe_str(query).strip().lower()
@@ -1355,7 +698,6 @@ def _classify_report_type(query: str) -> str:
         return "deep_financial"
     return "general"
 
-
 def _infer_market_from_context(*, tickers: list[str] | None = None, market: str | None = None) -> str:
     market_text = _safe_str(market).strip().upper()
     if market_text in {"US", "CN", "HK"}:
@@ -1371,7 +713,6 @@ def _infer_market_from_context(*, tickers: list[str] | None = None, market: str 
             return "HK"
         return "US"
     return "US"
-
 
 def _build_report_quality_hints(
     *,
@@ -1502,185 +843,6 @@ def _build_report_quality_hints(
     }
 
 
-_GROUNDING_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(
-        r"(?<!\d)\d+(?:\.\d+)?\s*(?:%|倍|x|X|亿美元|万亿美元|亿|万|bps|bp|美元|元|点|亿元|万元)",
-        flags=re.IGNORECASE,
-    ),
-    re.compile(
-        r"20\d{2}\s*(?:年|Q[1-4])[^\n。；;]{0,16}(?:发布|推出|上线|发售|量产|并购|收购|拆分)",
-        flags=re.IGNORECASE,
-    ),
-)
-
-
-def _normalize_for_grounding(value: Any) -> str:
-    return re.sub(r"\s+", "", _safe_str(value)).lower()
-
-
-def _extract_grounding_claims(text: str, *, max_claims: int = 80) -> list[str]:
-    raw = _safe_str(text).strip()
-    if not raw:
-        return []
-
-    claims: list[str] = []
-    seen: set[str] = set()
-    for pattern in _GROUNDING_CLAIM_PATTERNS:
-        for match in pattern.finditer(raw):
-            claim = _safe_str(match.group(0)).strip()
-            if not claim:
-                continue
-            key = _normalize_for_grounding(claim)
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            claims.append(claim)
-            if len(claims) >= max_claims:
-                return claims
-    return claims
-
-
-def _build_grounding_corpus(
-    *,
-    citations: list[dict[str, Any]],
-    agent_summaries: list[dict[str, Any]] | dict[str, str],
-    step_results: dict[str, Any],
-) -> str:
-    parts: list[str] = []
-
-    for citation in citations:
-        if not isinstance(citation, dict):
-            continue
-        parts.extend([
-            _safe_str(citation.get("title")),
-            _safe_str(citation.get("snippet")),
-            _safe_str(citation.get("url")),
-            _safe_str(citation.get("source")),
-            _safe_str(citation.get("published_date")),
-        ])
-
-    # agent_summaries may be list[dict] (from _agent_summaries_from_steps) or dict[str, str]
-    if isinstance(agent_summaries, list):
-        for item in agent_summaries:
-            if isinstance(item, dict):
-                parts.append(_safe_str(item.get("summary", "")))
-            else:
-                parts.append(_safe_str(item))
-    elif isinstance(agent_summaries, dict):
-        for _, summary in agent_summaries.items():
-            parts.append(_safe_str(summary))
-
-    for _, item in (step_results or {}).items():
-        if not isinstance(item, dict):
-            continue
-        output = item.get("output")
-        if isinstance(output, dict):
-            parts.append(_safe_str(output.get("summary")))
-            parts.append(_safe_str(output.get("analysis")))
-            parts.append(_safe_str(output.get("text")))
-            evidence = output.get("evidence")
-            if isinstance(evidence, list):
-                for ev in evidence[:12]:
-                    if isinstance(ev, dict):
-                        parts.extend([
-                            _safe_str(ev.get("title")),
-                            _safe_str(ev.get("snippet")),
-                            _safe_str(ev.get("url")),
-                            _safe_str(ev.get("source")),
-                        ])
-        else:
-            parts.append(_safe_str(output))
-
-    return "\n".join([p for p in parts if p])
-
-
-def _is_claim_grounded(claim: str, normalized_corpus: str) -> bool:
-    normalized_claim = _normalize_for_grounding(claim)
-    if not normalized_claim or not normalized_corpus:
-        return False
-
-    if normalized_claim in normalized_corpus:
-        return True
-
-    number_tokens = re.findall(r"\d+(?:\.\d+)?", claim)
-    if not number_tokens:
-        return False
-    if not all(num in normalized_corpus for num in number_tokens[:2]):
-        return False
-
-    keyword_match = re.search(
-        r"(发布|推出|上线|并购|收购|营收|利润|增速|增长|同比|环比|eps|pe|rsi|毛利率|现金流|10-k|10-q|业绩会|电话会)",
-        claim,
-        flags=re.IGNORECASE,
-    )
-    if keyword_match:
-        keyword = _normalize_for_grounding(keyword_match.group(0))
-        if keyword and keyword not in normalized_corpus:
-            return False
-
-    return True
-
-
-def _compute_grounding_stats(
-    *,
-    generated_text: str,
-    citations: list[dict[str, Any]],
-    agent_summaries: list[dict[str, Any]] | dict[str, str],
-    render_vars: dict[str, Any],
-    step_results: dict[str, Any],
-) -> dict[str, Any]:
-    claims = _extract_grounding_claims(generated_text)
-    if not claims:
-        render_text = "\n".join(
-            _safe_str(render_vars.get(key))
-            for key in (
-                "investment_summary",
-                "valuation",
-                "analysis",
-                "highlights",
-                "company_overview",
-                "catalysts",
-                "risks",
-                "summary",
-            )
-            if _safe_str(render_vars.get(key)).strip()
-        )
-        claims = _extract_grounding_claims(render_text)
-
-    if not claims:
-        return {
-            "grounding_rate": None,
-            "claim_count": 0,
-            "grounded_count": 0,
-            "sample_ungrounded_claims": [],
-        }
-
-    corpus = _build_grounding_corpus(
-        citations=citations,
-        agent_summaries=agent_summaries,
-        step_results=step_results,
-    )
-    normalized_corpus = _normalize_for_grounding(corpus)
-
-    grounded_count = 0
-    ungrounded: list[str] = []
-    for claim in claims:
-        if _is_claim_grounded(claim, normalized_corpus):
-            grounded_count += 1
-        elif len(ungrounded) < 5:
-            ungrounded.append(claim)
-
-    claim_count = len(claims)
-    grounding_rate = grounded_count / claim_count if claim_count > 0 else None
-
-    return {
-        "grounding_rate": grounding_rate,
-        "claim_count": claim_count,
-        "grounded_count": grounded_count,
-        "sample_ungrounded_claims": ungrounded,
-    }
-
-
 def build_report_payload(*, state: dict[str, Any], query: str, thread_id: str) -> dict[str, Any] | None:
     """
     Build a frontend-friendly ReportIR payload (used by ReportView cards) from LangGraph state.
@@ -1735,7 +897,6 @@ def build_report_payload(*, state: dict[str, Any], query: str, thread_id: str) -
             validated_fallback["meta"] = fallback["meta"]
             return validated_fallback
         return fallback
-
 
 def _build_report_payload_impl(*, state: dict[str, Any], query: str, thread_id: str) -> dict[str, Any] | None:
 

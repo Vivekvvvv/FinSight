@@ -23,124 +23,38 @@ from backend.utils.strict_json import json_loads_strict
 
 logger = logging.getLogger(__name__)
 
-# Maximum messages to include in synthesize prompt context
-_MAX_SYNTH_HISTORY_MESSAGES = 8
+from backend.graph.nodes.hallucination_guards import (
+    _normalize_for_match,
+    _claim_supported_by_evidence,
+    _scrub_unverified_future_claims,
+    _normalize_verifier_claims,
+    _apply_verifier_redactions,
+    _contains_claim_after_redaction,
+    _compute_unresolved_unsupported_claims,
+    _FUTURE_EVENT_VERBS,
+    _FUTURE_DATE_PHRASE,
+    _HALLUCINATION_EVENT_PATTERNS,
+    _HALLUCINATION_SAFE_PLACEHOLDER,
+)
 
-
-def _format_persona_lens(state: GraphState) -> str:
-    """Build the <persona_lens> prompt block for narrative synthesis.
-
-    Reads `state.persona_config` (set by build_initial_state). When persona is
-    neutral / lens is empty, returns "" so the prompt remains identical to
-    pre-Persona behavior (full backward compatibility).
-
-    Honesty-first: the injected block explicitly tells the LLM that data
-    truth must override stylistic consistency.
-    """
-    persona = state.get("persona_config") or {}
-    if not isinstance(persona, dict):
-        return ""
-    lens = str(persona.get("synthesis_lens") or "").strip()
-    if not lens:
-        return ""
-
-    name_zh = str(persona.get("display_name_zh") or "").strip() or "中立分析师"
-    emoji = str(persona.get("emoji") or "").strip()
-    risk_tolerance = str(persona.get("risk_tolerance") or "medium")
-
-    header = f"{emoji} {name_zh}".strip()
-
-    return (
-        "<persona_lens>\n"
-        f"你正在以 **{header}** 的视角合成研究结论。\n"
-        f"风险偏好基线: {risk_tolerance}\n\n"
-        "视角准则：\n"
-        f"{lens}\n\n"
-        "⚠️ 关键约束：\n"
-        "- 诚实优先级 > 风格一致性。若证据明显与该视角偏好矛盾，必须如实指出，不得为风格强行裁剪。\n"
-        "- 仍须遵守原有的<constraints>（闭卷原则、数据缺失标注、不构成投资建议等）。\n"
-        f"- 在结论末尾用一行标明：「以 {header} 视角」。\n"
-        "</persona_lens>\n\n"
-    )
-
-
-def _format_conversation_history_for_synth(state: GraphState) -> str:
-    """
-    Extract recent conversation history from state messages for synthesize context.
-    Shorter than planner's version — only includes enough for pronoun resolution.
-    """
-    messages = state.get("messages") or []
-    if not messages:
-        return ""
-
-    current_query = (state.get("query") or "").strip()
-    history_msgs = []
-
-    for msg in messages:
-        if isinstance(msg, HumanMessage):
-            content = msg.content.strip() if isinstance(msg.content, str) else str(msg.content).strip()
-            # Skip the current query
-            if content == current_query and not any(
-                isinstance(m, HumanMessage) and
-                (m.content.strip() if isinstance(m.content, str) else str(m.content).strip()) == current_query
-                for m in messages[messages.index(msg) + 1:]
-                if isinstance(m, HumanMessage)
-            ):
-                continue
-            history_msgs.append(f"[user]: {content}")
-        elif isinstance(msg, AIMessage):
-            content = msg.content.strip() if isinstance(msg.content, str) else str(msg.content).strip()
-            if content and len(content) > 200:
-                content = content[:200] + "..."
-            if content:
-                history_msgs.append(f"[assistant]: {content}")
-
-    if not history_msgs:
-        return ""
-
-    recent = history_msgs[-_MAX_SYNTH_HISTORY_MESSAGES:]
-    return (
-        "<conversation_history>\n"
-        + "\n".join(recent)
-        + "\n</conversation_history>\n"
-    )
-
-
-def _format_memory_context_for_synth(state: GraphState) -> str:
-    memory_context = state.get("memory_context")
-    if not isinstance(memory_context, dict) or not memory_context:
-        return ""
-
-    payload: dict[str, Any] = {}
-    for key in ("user_id", "risk_tolerance", "investment_style", "watchlist", "last_focus", "recent_focuses"):
-        value = memory_context.get(key)
-        if value is None:
-            continue
-        payload[key] = value
-
-    if not payload:
-        return ""
-
-    return (
-        "<memory_context>\n"
-        + json_dumps_safe(payload, ensure_ascii=False, indent=2)
-        + "\n</memory_context>\n"
-    )
+from backend.graph.nodes.synthesize_brief import _extract_brief_headline, _synthesize_morning_brief_data
+from backend.graph.nodes.synthesize_format import (
+    _coerce_payload_to_strings,
+    _env_int,
+    _extract_json_object,
+    _format_conversation_history_for_synth,
+    _format_memory_context_for_synth,
+    _format_persona_lens,
+    _format_risks,
+    _is_deep_research_run,
+    _sanitize_llm_section,
+    _section_limits,
+)
 
 
 def _env_str(key: str, default: str) -> str:
     raw = os.getenv(key)
     return raw.strip() if isinstance(raw, str) and raw.strip() else default
-
-
-def _env_int(key: str, default: int) -> int:
-    raw = os.getenv(key)
-    if raw is None:
-        return default
-    try:
-        return int(str(raw).strip())
-    except Exception:
-        return default
 
 
 def _env_bool(key: str, default: bool) -> bool:
@@ -150,325 +64,8 @@ def _env_bool(key: str, default: bool) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _extract_json_object(text: str) -> str:
-    if not text:
-        raise ValueError("empty model output")
-
-    cleaned = text.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("no json object found")
-    return cleaned[start : end + 1]
-
-
-_DISALLOWED_SNIPPET_MARKERS = (
-    "Search Results",
-    "Performance Comparison",
-    "get_",
-    " output",
-    "Notes:",
-    "====",
-    "```",
-    "<inputs>",
-    "</inputs>",
-    "<output_format>",
-    "</output_format>",
-)
-_DISCLAIMER_PHRASES = ("不构成投资建议", "仅供参考", "历史不代表未来", "非投资建议")
-
-
-def _normalize_llm_section_line(line: str) -> str:
-    cleaned = str(line or "").strip()
-    if not cleaned:
-        return ""
-
-    if cleaned.startswith("- "):
-        cleaned = cleaned[2:].strip()
-
-    if cleaned.startswith("{") and cleaned.endswith("}"):
-        try:
-            obj = json_loads_strict(cleaned)
-        except Exception:
-            obj = None
-        if isinstance(obj, dict):
-            event = str(obj.get("event") or "").strip()
-            impact = str(obj.get("impact") or "").strip()
-            if event and impact:
-                return f"{event}：{impact}"
-
-            risk = str(obj.get("risk") or "").strip()
-            detail = str(obj.get("detail") or "").strip()
-            if risk and detail:
-                return f"{risk}：{detail}"
-
-            title = str(obj.get("title") or obj.get("name") or "").strip()
-            desc = str(obj.get("summary") or obj.get("reason") or obj.get("value") or "").strip()
-            if title and desc:
-                return f"{title}：{desc}"
-
-            pairs: list[str] = []
-            for key, value in obj.items():
-                key_text = str(key).strip()
-                value_text = str(value).strip()
-                if not key_text or not value_text:
-                    continue
-                if any(phrase in value_text for phrase in _DISCLAIMER_PHRASES):
-                    continue
-                pairs.append(f"{key_text}: {value_text}")
-                if len(pairs) >= 3:
-                    break
-            if pairs:
-                return "；".join(pairs)
-
-    return cleaned
-
-
-def _sanitize_llm_section(text: str, *, max_lines: int = 8, max_chars: int = 900) -> str:
-    if not isinstance(text, str):
-        return ""
-    cleaned_lines: list[str] = []
-    for raw in text.splitlines():
-        line = _normalize_llm_section_line(raw)
-        if not line:
-            continue
-        if any(marker in line for marker in _DISALLOWED_SNIPPET_MARKERS):
-            continue
-        if any(phrase in line for phrase in _DISCLAIMER_PHRASES):
-            continue
-        cleaned_lines.append(line)
-        if len(cleaned_lines) >= max_lines:
-            break
-    if not cleaned_lines:
-        return ""
-    normalized = "\n".join([l if l.startswith("-") else f"- {l}" for l in cleaned_lines]).strip()
-    if len(normalized) > max_chars:
-        normalized = normalized[:max_chars].rstrip()
-    return normalized
-
-
 # ==================== 幻觉事件正则模式 ====================
 # 覆盖四类模式：
-#   A) 「预计/计划」前缀 + 未来年份 + 事件动词
-#   B) 事件动词 + 括号内月份/季度（直陈式，最危险）
-#      例：「Gemini 1.5模型发布（2月底）」「新品推出（2026Q1）」
-#   C) 括号内年份/季度 + 事件动词（倒装格式）
-_FUTURE_EVENT_VERBS = r"(?:发布|推出|上线|发售|量产|落地|开售|开源|并购|收购|拆分|披露|宣布|实施|完成)"
-# 时间短语：「2月底」「3月中旬」「Q1」「2026Q2」「下半年」等
-_FUTURE_DATE_PHRASE = (
-    r"(?:"
-    r"\d{1,2}月[初中底前后旬]?"
-    r"|[上下]半年|年[初中底]"
-    r"|Q[1-4]\s*\d{0,4}"
-    r"|\d{4}\s*年\s*\d{1,2}月"
-    r"|\d{4}\s*Q[1-4]"
-    r")"
-)
-_HALLUCINATION_EVENT_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # A-1: 前缀式 — 「预计/计划/拟于/即将/有望」+ 年份 + 动词
-    re.compile(
-        r"(?:预计|计划|拟于|即将|有望(?:于)?)\s*20\d{2}\s*(?:年|Q[1-4])"
-        r"[^\n。；;]{0,26}" + _FUTURE_EVENT_VERBS +
-        r"[^\n。；;]{0,28}",
-        flags=re.IGNORECASE,
-    ),
-    # A-2: 前缀式 — 动词先出，年份后出
-    re.compile(
-        r"(?:预计|计划|拟于|即将|有望(?:于)?)[^\n。；;]{0,20}" + _FUTURE_EVENT_VERBS +
-        r"[^\n。；;]{0,20}(?:20\d{2}\s*(?:年|Q[1-4]))"
-        r"[^\n。；;]{0,16}",
-        flags=re.IGNORECASE,
-    ),
-    # B: 直陈式 — 事件名 + 括号时间（最危险，模型直接当事实输出）
-    # 例：「Gemini 1.5模型发布（2月底）」「Adani数据合作（2026Q1）」
-    re.compile(
-        r"[^\n。；;]{0,35}" + _FUTURE_EVENT_VERBS +
-        r"\s*[（(]\s*" + _FUTURE_DATE_PHRASE + r"\s*[）)]",
-        flags=re.IGNORECASE,
-    ),
-    # C: 倒装式 — 括号时间在前，动词在后
-    re.compile(
-        r"[（(]\s*" + _FUTURE_DATE_PHRASE + r"\s*[）)]"
-        r"[^\n。；;]{0,40}" + _FUTURE_EVENT_VERBS,
-        flags=re.IGNORECASE,
-    ),
-)
-_HALLUCINATION_SAFE_PLACEHOLDER = "[此处信息未经证据验证，已移除]"
-
-
-def _normalize_for_match(value: str) -> str:
-    return re.sub(r"\s+", "", str(value or "")).lower()
-
-
-def _claim_supported_by_evidence(claim: str, evidence_text: str) -> bool:
-    normalized_claim = _normalize_for_match(claim)
-    normalized_evidence = _normalize_for_match(evidence_text)
-    if not normalized_claim or not normalized_evidence:
-        return False
-
-    if normalized_claim in normalized_evidence:
-        return True
-
-    year_match = re.search(r"20\d{2}(?:年|q[1-4])?", claim, flags=re.IGNORECASE)
-    # 同时检测模糊月份短语，如「2月底」「3月中旬」「Q1」
-    month_match = re.search(
-        r"(?:\d{1,2}月[初中底前后旬]?|[上下]半年|年[初中底]|Q[1-4])",
-        claim, flags=re.IGNORECASE
-    )
-    date_match = year_match or month_match
-    verb_match = re.search(
-        r"(发布|推出|上线|发售|量产|落地|开售|开源|并购|收购|拆分|披露|宣布|实施|完成)",
-        claim
-    )
-    tokens = re.findall(r"[A-Za-z][A-Za-z0-9._-]{2,}|[\u4e00-\u9fff]{2,}", claim)
-    stopwords = {"预计", "计划", "拟于", "即将", "有望", "发布", "推出", "上线", "发售", "量产", "落地",
-                 "开售", "开源", "并购", "收购", "拆分", "披露", "宣布", "实施", "完成"}
-
-    key_tokens: list[str] = []
-    if year_match:
-        key_tokens.append(year_match.group(0))
-    elif month_match:
-        # 模糊月份权重与年份等同：必须在证据中明确出现才算支撑
-        key_tokens.append(month_match.group(0))
-    if verb_match:
-        key_tokens.append(verb_match.group(0))
-    for token in tokens:
-        token_norm = token.lower()
-        if token in stopwords or token_norm in stopwords:
-            continue
-        key_tokens.append(token)
-
-    hits = 0
-    for token in key_tokens[:8]:
-        if _normalize_for_match(token) in normalized_evidence:
-            hits += 1
-
-    # 有明确时间锚（年份或月份）时，要求同时命中实体 token → 阈值 2
-    # 无时间锚时，要求 3 个 token 全命中（更严格）
-    if date_match:
-        return hits >= 2
-    return hits >= 3
-
-
-def _scrub_unverified_future_claims(text: str, evidence_text: str) -> str:
-    if not isinstance(text, str) or not text.strip():
-        return ""
-
-    cleaned = text
-    for pattern in _HALLUCINATION_EVENT_PATTERNS:
-        def _replace(match: re.Match[str]) -> str:
-            claim = match.group(0)
-            if _claim_supported_by_evidence(claim, evidence_text):
-                return claim
-            logger.warning("[Synthesize] scrubbed unverified future claim")
-            return _HALLUCINATION_SAFE_PLACEHOLDER
-
-        cleaned = pattern.sub(_replace, cleaned)
-
-    cleaned = re.sub(
-        rf"(?:{re.escape(_HALLUCINATION_SAFE_PLACEHOLDER)}\s*){{2,}}",
-        _HALLUCINATION_SAFE_PLACEHOLDER + " ",
-        cleaned,
-    ).strip()
-    return cleaned
-
-
-def _is_deep_research_run(state: GraphState) -> bool:
-    """判断是否需要运行深度核查 Verifier。
-
-    修复：原来只有 analysis_depth==deep_research 时才触发，导致普通
-    investment_report 模式完全跳过二次 LLM 事实核查，幻觉漏网。
-    新策略：所有 investment_report 模式均触发；deep_research 深度时
-    进一步可扩展核查强度（预留 flag）。
-    """
-    output_mode = str(state.get("output_mode") or "").strip().lower()
-    return output_mode == "investment_report"
-
-
-def _normalize_verifier_claims(raw_claims: Any, *, max_items: int) -> list[dict[str, str]]:
-    if not isinstance(raw_claims, list):
-        return []
-
-    claims: list[dict[str, str]] = []
-    for item in raw_claims:
-        if len(claims) >= max_items:
-            break
-        if not isinstance(item, dict):
-            continue
-        claim = str(item.get("claim") or "").strip()
-        reason = str(item.get("reason") or "").strip()
-        if not claim:
-            continue
-        claims.append(
-            {
-                "claim": claim[:240],
-                "reason": reason[:240] if reason else "证据池中未找到明确支撑",
-            }
-        )
-    return claims
-
-
-def _apply_verifier_redactions(text: str, claims: list[dict[str, str]]) -> str:
-    cleaned = str(text or "")
-    if not cleaned.strip() or not claims:
-        return cleaned
-
-    for item in claims:
-        claim = str(item.get("claim") or "").strip()
-        if not claim:
-            continue
-        if claim in cleaned:
-            cleaned = cleaned.replace(claim, _HALLUCINATION_SAFE_PLACEHOLDER)
-
-    cleaned = re.sub(
-        rf"(?:{re.escape(_HALLUCINATION_SAFE_PLACEHOLDER)}\s*){{2,}}",
-        _HALLUCINATION_SAFE_PLACEHOLDER + " ",
-        cleaned,
-    ).strip()
-    return cleaned
-
-
-def _contains_claim_after_redaction(text: str, claim: str) -> bool:
-    cleaned_text = str(text or "").strip()
-    cleaned_claim = str(claim or "").strip()
-    if not cleaned_text or not cleaned_claim:
-        return False
-
-    if cleaned_claim in cleaned_text:
-        return True
-
-    normalized_text = _normalize_for_match(cleaned_text)
-    normalized_claim = _normalize_for_match(cleaned_claim)
-    if not normalized_text or not normalized_claim:
-        return False
-    return normalized_claim in normalized_text
-
-
-def _compute_unresolved_unsupported_claims(
-    text: str,
-    claims: list[dict[str, str]] | None,
-) -> list[dict[str, str]]:
-    if not claims:
-        return []
-
-    unresolved: list[dict[str, str]] = []
-    for item in claims:
-        if not isinstance(item, dict):
-            continue
-        claim = str(item.get("claim") or "").strip()
-        if not claim:
-            continue
-        if _contains_claim_after_redaction(text, claim):
-            unresolved.append(
-                {
-                    "claim": claim[:240],
-                    "reason": str(item.get("reason") or "").strip()[:240],
-                }
-            )
-    return unresolved
 
 
 async def _run_deep_report_verifier(
@@ -569,133 +166,6 @@ async def _run_deep_report_verifier(
         }
 
 
-def _section_limits(output_mode: str, key: str) -> tuple[int, int]:
-    if output_mode == "investment_report" and key in {
-        "investment_thesis",
-        "investment_summary",
-        "company_overview",
-        "catalysts",
-        "valuation",
-        "conclusion",
-        "impact_analysis",
-        "next_watch",
-        "analysis",
-        "highlights",
-        "summary",
-        "comparison_conclusion",
-    }:
-        max_lines = max(10, _env_int("LANGGRAPH_SYNTHESIZE_LONGFORM_MAX_LINES", 18))
-        max_chars = max(1200, _env_int("LANGGRAPH_SYNTHESIZE_LONGFORM_MAX_CHARS", 3200))
-        return max_lines, max_chars
-    return 8, 900
-
-
-def _coerce_payload_to_strings(payload: dict[str, Any]) -> dict[str, Any]:
-    """
-    Best-effort coercion so RenderVars validation doesn't fail when the LLM returns
-    lists/dicts for string fields (e.g. risks: ["...", "..."]).
-    """
-    if not isinstance(payload, dict):
-        return {}
-
-    coerced: dict[str, Any] = {}
-    for key, value in payload.items():
-        if value is None:
-            coerced[key] = ""
-            continue
-
-        if isinstance(value, str):
-            coerced[key] = value
-            continue
-
-        if isinstance(value, list):
-            lines: list[str] = []
-            for item in value[:20]:
-                if item is None:
-                    continue
-                if isinstance(item, str):
-                    line = item.strip()
-                else:
-                    try:
-                        line = json_dumps_safe(item, ensure_ascii=False)
-                    except Exception:
-                        line = str(item)
-                if line:
-                    lines.append(line)
-            coerced[key] = "\n".join(lines)
-            continue
-
-        if isinstance(value, dict):
-            try:
-                coerced[key] = json_dumps_safe(value, ensure_ascii=False)
-            except Exception:
-                coerced[key] = str(value)
-            continue
-
-        coerced[key] = str(value)
-
-    return coerced
-
-
-def _format_risks(candidate: Any, *, base_risks: str) -> str:
-    base = base_risks.strip() if isinstance(base_risks, str) and base_risks.strip() else "- 注：以上仅供参考，不构成投资建议。"
-
-    if candidate is None:
-        return base
-
-    raw_text = candidate.strip() if isinstance(candidate, str) else str(candidate).strip()
-
-    parsed: dict[str, Any] | None = None
-    if isinstance(candidate, dict):
-        parsed = candidate
-    elif isinstance(candidate, str) and raw_text.startswith("{") and raw_text.endswith("}"):
-        try:
-            obj = json_loads_strict(raw_text)
-            if isinstance(obj, dict):
-                parsed = obj
-        except Exception:
-            parsed = None
-
-    if isinstance(parsed, dict):
-        lines: list[str] = []
-        for k, v in parsed.items():
-            if v is None:
-                continue
-            key = str(k).strip()
-            if not key:
-                continue
-            key_lower = key.lower()
-            if "disclaimer" in key_lower or "免责声明" in key:
-                continue
-
-            if isinstance(v, str):
-                value = v.strip()
-            else:
-                try:
-                    value = json_dumps_safe(v, ensure_ascii=False)
-                except Exception:
-                    value = str(v)
-                value = value.strip()
-
-            if not value:
-                continue
-            if any(phrase in value for phrase in _DISCLAIMER_PHRASES):
-                continue
-
-            # Prefer `AAPL: ...` style when keys look like tickers or named buckets.
-            if key_lower in ("risk", "risks"):
-                lines.append(f"- {value}")
-            else:
-                lines.append(f"- {key}：{value}")
-            if len(lines) >= 6:
-                break
-
-        return "\n".join([*lines, base]).strip() if lines else base
-
-    sanitized = _sanitize_llm_section(raw_text, max_lines=6)
-    return "\n".join([sanitized, base]).strip() if sanitized else base
-
-
 class RenderVars(BaseModel):
     """
     Template injection variables (Phase 4/5).
@@ -731,7 +201,6 @@ class RenderVars(BaseModel):
     summary: str = ""
     highlights: str = ""
     analysis: str = ""
-
 
 def _stub_render_vars(state: GraphState) -> dict[str, str]:
     subject = state.get("subject") or {}
@@ -1715,7 +1184,6 @@ def _stub_render_vars(state: GraphState) -> dict[str, str]:
         risks=base_risks,
     ).model_dump()
 
-
 async def _generate_narrative_draft(
     state: GraphState,
     render_vars: dict[str, str],
@@ -2039,182 +1507,6 @@ async def _generate_narrative_draft(
             }
         )
         return "", None
-
-
-def _extract_brief_headline(news_raw: Any) -> str:
-    """Extract first headline from news tool output for morning brief."""
-    if news_raw is None:
-        return "暂无重大事件"
-    if isinstance(news_raw, list):
-        for item in news_raw[:5]:
-            if isinstance(item, dict):
-                title = item.get("headline") or item.get("title") or ""
-                if title:
-                    return str(title).strip()[:120]
-            elif isinstance(item, str) and item.strip():
-                return item.strip()[:120]
-    elif isinstance(news_raw, str):
-        for line in news_raw.split("\n"):
-            # lstrip 按字符集合剥除（"0-9" 只含 0、-、9），"3. xxx" 的编号剥不掉；改正则剥列表前缀
-            clean = re.sub(r"^(?:[-•*]+|\d+[.、)])\s*", "", line.strip())
-            if clean and len(clean) > 10:
-                return clean[:120]
-    return "暂无重大事件"
-
-
-def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
-    """Deterministic morning brief synthesis — zero LLM cost (ADR-P1-001).
-
-    Extracts price + news data from Graph step_results and produces
-    structured brief data + formatted markdown.  Reuses the same response
-    schema as ``morning_brief_router`` so the frontend needs no changes.
-    """
-    from datetime import datetime, timezone
-
-    from backend.utils.quote import parse_quote_payload, safe_float
-
-    artifacts = state.get("artifacts") or {}
-    step_results = artifacts.get("step_results") if isinstance(artifacts, dict) else {}
-    plan_ir = state.get("plan_ir") or {}
-    raw_steps = plan_ir.get("steps") if isinstance(plan_ir, dict) else []
-    step_index = {s.get("id"): s for s in (raw_steps or []) if isinstance(s, dict) and s.get("id")}
-
-    subject = state.get("subject") or {}
-    tickers = subject.get("tickers") if isinstance(subject, dict) else []
-    all_tickers = [t for t in (tickers if isinstance(tickers, list) else []) if isinstance(t, str) and t.strip()]
-
-    # Collect per-ticker price and news from step_results
-    ticker_prices: dict[str, dict] = {}
-    ticker_news: dict[str, str] = {}
-
-    for step_id, item in (step_results if isinstance(step_results, dict) else {}).items():
-        if not isinstance(item, dict):
-            continue
-        output = item.get("output")
-        step_def = step_index.get(step_id) or {}
-        tool_name = step_def.get("name") or ""
-        inputs = step_def.get("inputs") or {}
-        ticker = str(inputs.get("ticker") or "").strip()
-
-        if tool_name == "get_stock_price" and ticker:
-            parsed = parse_quote_payload(output) if output else None
-            if parsed:
-                ticker_prices[ticker] = parsed
-        elif tool_name == "get_company_news" and ticker:
-            ticker_news[ticker] = _extract_brief_headline(output)
-
-    # Build highlights
-    highlights: list[dict[str, Any]] = []
-    for ticker in all_tickers:
-        price_data = ticker_prices.get(ticker, {})
-        price = safe_float(price_data.get("price"))
-        change = safe_float(price_data.get("change"))
-        change_pct = safe_float(price_data.get("change_percent"))
-        headline = ticker_news.get(ticker, "暂无重大事件")
-
-        trend = "neutral"
-        if change_pct is not None:
-            if change_pct >= 3.0:
-                trend = "strong_up"
-            elif change_pct >= 1.0:
-                trend = "up"
-            elif change_pct > -1.0:
-                trend = "neutral"
-            elif change_pct > -3.0:
-                trend = "down"
-            else:
-                trend = "strong_down"
-
-        highlights.append({
-            "ticker": ticker,
-            "price": round(price, 2) if price is not None else None,
-            "price_change": round(change, 4) if change is not None else None,
-            "price_change_pct": round(change_pct, 2) if change_pct is not None else None,
-            "trend": trend,
-            "key_event": headline,
-        })
-
-    highlights.sort(key=lambda h: abs(safe_float(h.get("price_change_pct")) or 0), reverse=True)
-
-    # Market mood
-    _MOOD_CN: dict[str, str] = {
-        "bullish": "看涨", "cautiously_optimistic": "谨慎乐观", "neutral": "中性",
-        "cautiously_pessimistic": "谨慎悲观", "bearish": "看跌",
-    }
-    priced = [h for h in highlights if h.get("price") is not None]
-    # 只用真正拿到涨跌幅的标的算情绪与计数：缺 change 的（partial quote：有价
-    # 无涨跌）此前被 `or 0` 当成平盘，虚增"横盘"数并把 mood 拉向中性（R67）。
-    changes = [safe_float(h.get("price_change_pct")) for h in priced]
-    valid_changes = [c for c in changes if c is not None]
-    if valid_changes:
-        avg = sum(valid_changes) / len(valid_changes)
-        if avg >= 1.5:
-            mood = "bullish"
-        elif avg >= 0.3:
-            mood = "cautiously_optimistic"
-        elif avg > -0.3:
-            mood = "neutral"
-        elif avg > -1.5:
-            mood = "cautiously_pessimistic"
-        else:
-            mood = "bearish"
-    else:
-        mood = "neutral"
-
-    # Summary text — 缺涨跌幅的标的不计入涨/跌/横盘任一桶
-    up_cnt = sum(1 for c in valid_changes if c > 0)
-    down_cnt = sum(1 for c in valid_changes if c < 0)
-    flat_cnt = sum(1 for c in valid_changes if c == 0)
-    summary = f"今日跟踪 {len(all_tickers)} 只标的，其中 {len(priced)} 只获取到实时报价。"
-    if priced:
-        summary += f"上涨 {up_cnt} 只，下跌 {down_cnt} 只，横盘 {flat_cnt} 只。"
-    summary += f"整体情绪：{_MOOD_CN.get(mood, '中性')}。"
-
-    # Action items
-    action_items: list[str] = []
-    big_up = [h for h in highlights if (safe_float(h.get("price_change_pct")) or 0) >= 3.0]
-    big_down = [h for h in highlights if (safe_float(h.get("price_change_pct")) or 0) <= -3.0]
-    if big_up:
-        action_items.append(f"关注强势标的 {', '.join(h['ticker'] for h in big_up[:3])} 的持续动能，考虑止盈策略")
-    if big_down:
-        action_items.append(f"警惕 {', '.join(h['ticker'] for h in big_down[:3])} 的下行风险，检查止损位")
-    news_hits = [h for h in highlights if h.get("key_event") and h["key_event"] != "暂无重大事件"]
-    if news_hits:
-        action_items.append(f"阅读 {', '.join(h['ticker'] for h in news_hits[:3])} 的最新新闻，评估事件影响")
-    if not action_items:
-        action_items.append("今日持仓波动平稳，建议维持当前仓位")
-
-    brief_data: dict[str, Any] = {
-        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        "summary": summary,
-        "highlights": highlights,
-        "market_mood": mood,
-        "market_mood_cn": _MOOD_CN.get(mood, "中性"),
-        "action_items": action_items,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "ticker_count": len(all_tickers),
-        "priced_count": len(priced),
-    }
-
-    # Draft markdown
-    md_lines = [
-        f"# 📊 每日晨报 — {brief_data['date']}", "",
-        f"**{summary}**", "",
-        "## 持仓概览", "",
-    ]
-    for h in highlights:
-        p = f"${h['price']:.2f}" if h.get("price") is not None else "N/A"
-        c = f"{h['price_change_pct']:+.2f}%" if h.get("price_change_pct") is not None else ""
-        md_lines.append(f"- **{h['ticker']}** {p} {c} — {h['key_event']}")
-    md_lines += ["", "## 操作建议", ""]
-    for item in action_items:
-        md_lines.append(f"- {item}")
-    md_lines += [
-        "",
-        f"> 整体情绪：**{_MOOD_CN.get(mood, '中性')}** | 本报告由 FinSight Pipeline 自动生成，不构成投资建议。",
-    ]
-
-    return {"brief_data": brief_data, "draft_markdown": "\n".join(md_lines)}
 
 
 async def synthesize(state: GraphState) -> dict:
@@ -2718,6 +2010,5 @@ summary, highlights, analysis.
             error=type(exc).__name__,
         )
         return {"artifacts": {**(state.get("artifacts") or {}), "render_vars": render_vars}, "trace": trace}
-
 
 __all__ = ["synthesize", "RenderVars"]

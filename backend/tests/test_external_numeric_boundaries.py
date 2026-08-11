@@ -17,7 +17,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 
 NUMERIC_BOUNDARY_ROUNDS = [
-    ("R301", "backend/tools/price.py", '"close": _safe_float_value(item.get(\'close\'))'),
+    ("R301", "backend/tools/price_history_providers.py", '"close": _safe_float_value(item.get(\'close\'))'),
     ("R322", "backend/agents/technical_agent.py", "parsed_close = safe_float(close)"),
     ("R323", "backend/langchain_tools.py", "parsed_close = safe_float(close)"),
     ("R324", "backend/tools/financial.py", "row[col] = safe_float(value)"),
@@ -53,37 +53,37 @@ NUMERIC_BOUNDARY_ROUNDS = [
     ("R354", "backend/dashboard/insights_scorer.py", '_finite_number(p.get("trailing_pe"))'),
     ("R355", "backend/dashboard/insights_scorer.py", 'company_growth = _finite_number(_safe_get(company, "revenue_growth"))'),
     ("R356", "backend/dashboard/insights_scorer.py", '_finite_number(p.get("revenue_growth"))'),
-    ("R357", "backend/tools/screener.py", 'price = _clean_float(row.get("price"))'),
+    ("R357", "backend/tools/screener_providers.py", 'price = _clean_float(row.get("price"))'),
     ("R358", "backend/tools/screener.py", '"market_cap": _clean_float(row.get("marketCap"))'),
-    ("R359", "backend/tools/screener.py", 'volume = _clean_float(row.get("volume"))'),
+    ("R359", "backend/tools/screener_providers.py", 'volume = _clean_float(row.get("volume"))'),
     ("R360", "backend/tools/screener.py", '"beta": _clean_float(row.get("beta"))'),
     ("R361", "backend/tools/screener.py", '"dividend": _clean_float(row.get("lastAnnualDividend"))'),
     ("R362", "backend/tools/screener.py", '"change_percent": _clean_float(row.get("changesPercentage"))'),
-    ("R363", "backend/tools/screener.py", 'previous_close = _clean_float(_get_fast_info_value'),
-    ("R364", "backend/tools/screener.py", 'expires_at = _clean_float(_ALPHA_TOP_MOVERS_CACHE.get("expires_at"))'),
+    ("R363", "backend/tools/screener_providers.py", 'previous_close = _clean_float(_get_fast_info_value'),
+    ("R364", "backend/tools/screener_providers.py", 'expires_at = _clean_float(_ALPHA_TOP_MOVERS_CACHE.get("expires_at"))'),
     ("R365", "backend/tools/price.py", 'spot_price = _safe_float_value(hist["Close"].iloc[-1])'),
     ("R366", "backend/tools/price.py", 'spot_price = _safe_float_value(info.get("regularMarketPrice"))'),
-    ("R367", "backend/tools/price.py", 'weight = _safe_float_value(item.get("weight"))'),
-    ("R368", "backend/tools/price.py", 'quantity = _safe_float_value(item.get("quantity"))'),
+    ("R367", "backend/tools/price_portfolio.py", 'weight = _safe_float_value(item.get("weight"))'),
+    ("R368", "backend/tools/price_portfolio.py", 'quantity = _safe_float_value(item.get("quantity"))'),
     ("R369", "backend/tools/price.py", 'value = _safe_float_value(subset.loc[idx, "impliedVolatility"])'),
-    ("R370", "backend/tools/price.py", "return _safe_float_value(close)"),
-    ("R371", "backend/tools/price.py", 'val = _safe_float_value(m.group(1).replace(",", ""))'),
-    ("R372", "backend/tools/price.py", '"open": _safe_float_value(item.get(\'open\'))'),
-    ("R373", "backend/tools/price.py", '"high": _safe_float_value(item.get(\'high\'))'),
-    ("R374", "backend/tools/price.py", '"low": _safe_float_value(item.get(\'low\'))'),
-    ("R375", "backend/tools/price.py", '"close": _safe_float_value(item.get(\'close\'))'),
-    ("R376", "backend/tools/price.py", '"volume": _safe_float_value(item.get(\'volume\'))'),
+    ("R370", "backend/tools/price_history_providers.py", "return _safe_float_value(close)"),
+    ("R371", "backend/tools/price_history_providers.py", 'val = _safe_float_value(m.group(1).replace(",", ""))'),
+    ("R372", "backend/tools/price_history_providers.py", '"open": _safe_float_value(item.get(\'open\'))'),
+    ("R373", "backend/tools/price_history_providers.py", '"high": _safe_float_value(item.get(\'high\'))'),
+    ("R374", "backend/tools/price_history_providers.py", '"low": _safe_float_value(item.get(\'low\'))'),
+    ("R375", "backend/tools/price_history_providers.py", '"close": _safe_float_value(item.get(\'close\'))'),
+    ("R376", "backend/tools/price_history_providers.py", '"volume": _safe_float_value(item.get(\'volume\'))'),
     ("R377", "backend/tools/price.py", '"open": _safe_float_value(day_data["1. open"])'),
     ("R378", "backend/tools/price.py", '"high": _safe_float_value(day_data["2. high"])'),
     ("R379", "backend/tools/price.py", '"low": _safe_float_value(day_data["3. low"])'),
     ("R380", "backend/tools/price.py", '"close": _safe_float_value(day_data["4. close"])'),
     ("R381", "backend/tools/price.py", '"volume": _safe_float_value(day_data.get("5. volume"))'),
-    ("R382", "backend/tools/price.py", "close_val = _safe_float_value(row[close_key])"),
-    ("R383", "backend/tools/price.py", '"open": _safe_float_value(row[open_key])'),
-    ("R384", "backend/tools/price.py", '"high": _safe_float_value(row[high_key])'),
-    ("R385", "backend/tools/price.py", '"low": _safe_float_value(row[low_key])'),
-    ("R386", "backend/tools/price.py", '"volume": _safe_float_value(row.get(volume_key))'),
-    ("R387", "backend/dashboard/data_service.py", "parsed = safe_float(value)"),
+    ("R382", "backend/tools/price_history_providers.py", "close_val = _safe_float_value(row[close_key])"),
+    ("R383", "backend/tools/price_history_providers.py", '"open": _safe_float_value(row[open_key])'),
+    ("R384", "backend/tools/price_history_providers.py", '"high": _safe_float_value(row[high_key])'),
+    ("R385", "backend/tools/price_history_providers.py", '"low": _safe_float_value(row[low_key])'),
+    ("R386", "backend/tools/price_history_providers.py", '"volume": _safe_float_value(row.get(volume_key))'),
+    ("R387", "backend/dashboard/data_fetchers.py", "parsed = safe_float(value)"),
     ("R388", "backend/dashboard/news_ranking.py", "parsed_half_life = safe_float(half_life_hours)"),
     ("R389", "backend/api/market_router.py", "confidence = safe_float(confidence_raw) or 0.0"),
     ("R390", "backend/agents/risk_agent.py", "safe_float(signal.severity) or 0.0"),
@@ -107,30 +107,30 @@ NUMERIC_BOUNDARY_ROUNDS_401_500 = [
     ("R403", "backend/tools/price.py", "_fetch_with_alpha_vantage", "change_percent = _safe_float_value(change_percent_str)", 1),
     ("R404", "backend/tools/price.py", "_fetch_with_twelve_data_price", 'price = _safe_float_value(latest.get("close"))', 1),
     ("R405", "backend/tools/price.py", "_fetch_with_twelve_data_price", 'prev_close = _safe_float_value(values[1]["close"])', 1),
-    ("R406", "backend/tools/price.py", "_fetch_with_yahoo_scrape_historical", '"open": _safe_float_value(row[\'Open\'])', 1),
-    ("R407", "backend/tools/price.py", "_fetch_with_yahoo_scrape_historical", '"high": _safe_float_value(row[\'High\'])', 1),
-    ("R408", "backend/tools/price.py", "_fetch_with_yahoo_scrape_historical", '"low": _safe_float_value(row[\'Low\'])', 1),
-    ("R409", "backend/tools/price.py", "_fetch_with_yahoo_scrape_historical", '"close": _safe_float_value(row[\'Close\'])', 1),
-    ("R410", "backend/tools/price.py", "_fetch_with_yahoo_scrape_historical", '"volume": _safe_float_value(row.get(\'Volume\'))', 1),
-    ("R411", "backend/tools/price.py", "_fetch_with_tiingo", '"open": _safe_float_value(item.get(\'open\'))', 1),
-    ("R412", "backend/tools/price.py", "_fetch_with_tiingo", '"high": _safe_float_value(item.get(\'high\'))', 1),
-    ("R413", "backend/tools/price.py", "_fetch_with_tiingo", '"low": _safe_float_value(item.get(\'low\'))', 1),
-    ("R414", "backend/tools/price.py", "_fetch_with_tiingo", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
-    ("R415", "backend/tools/price.py", "_fetch_with_twelve_data", '"open": _safe_float_value(item.get("open"))', 1),
-    ("R416", "backend/tools/price.py", "_fetch_with_twelve_data", '"high": _safe_float_value(item.get("high"))', 1),
-    ("R417", "backend/tools/price.py", "_fetch_with_twelve_data", '"low": _safe_float_value(item.get("low"))', 1),
-    ("R418", "backend/tools/price.py", "_fetch_with_twelve_data", '"close": _safe_float_value(item.get("close"))', 1),
-    ("R419", "backend/tools/price.py", "_fetch_with_twelve_data", '"volume": _safe_float_value(item.get("volume"))', 1),
-    ("R420", "backend/tools/price.py", "_fetch_with_marketstack", '"open": _safe_float_value(item.get(\'open\'))', 1),
-    ("R421", "backend/tools/price.py", "_fetch_with_marketstack", '"high": _safe_float_value(item.get(\'high\'))', 1),
-    ("R422", "backend/tools/price.py", "_fetch_with_marketstack", '"low": _safe_float_value(item.get(\'low\'))', 1),
-    ("R423", "backend/tools/price.py", "_fetch_with_marketstack", '"close": _safe_float_value(item.get(\'close\'))', 1),
-    ("R424", "backend/tools/price.py", "_fetch_with_marketstack", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
-    ("R425", "backend/tools/price.py", "_fetch_with_massive_io", '"open": _safe_float_value(item.get(\'o\'))', 1),
-    ("R426", "backend/tools/price.py", "_fetch_with_massive_io", '"high": _safe_float_value(item.get(\'h\'))', 1),
-    ("R427", "backend/tools/price.py", "_fetch_with_massive_io", '"low": _safe_float_value(item.get(\'l\'))', 1),
-    ("R428", "backend/tools/price.py", "_fetch_with_massive_io", '"close": _safe_float_value(item.get(\'c\'))', 1),
-    ("R429", "backend/tools/price.py", "_fetch_with_massive_io", '"volume": _safe_float_value(item.get(\'v\'))', 1),
+    ("R406", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"open": _safe_float_value(row[\'Open\'])', 1),
+    ("R407", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"high": _safe_float_value(row[\'High\'])', 1),
+    ("R408", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"low": _safe_float_value(row[\'Low\'])', 1),
+    ("R409", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"close": _safe_float_value(row[\'Close\'])', 1),
+    ("R410", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"volume": _safe_float_value(row.get(\'Volume\'))', 1),
+    ("R411", "backend/tools/price_history_providers.py", "_fetch_with_tiingo", '"open": _safe_float_value(item.get(\'open\'))', 1),
+    ("R412", "backend/tools/price_history_providers.py", "_fetch_with_tiingo", '"high": _safe_float_value(item.get(\'high\'))', 1),
+    ("R413", "backend/tools/price_history_providers.py", "_fetch_with_tiingo", '"low": _safe_float_value(item.get(\'low\'))', 1),
+    ("R414", "backend/tools/price_history_providers.py", "_fetch_with_tiingo", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
+    ("R415", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"open": _safe_float_value(item.get("open"))', 1),
+    ("R416", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"high": _safe_float_value(item.get("high"))', 1),
+    ("R417", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"low": _safe_float_value(item.get("low"))', 1),
+    ("R418", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"close": _safe_float_value(item.get("close"))', 1),
+    ("R419", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"volume": _safe_float_value(item.get("volume"))', 1),
+    ("R420", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"open": _safe_float_value(item.get(\'open\'))', 1),
+    ("R421", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"high": _safe_float_value(item.get(\'high\'))', 1),
+    ("R422", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"low": _safe_float_value(item.get(\'low\'))', 1),
+    ("R423", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"close": _safe_float_value(item.get(\'close\'))', 1),
+    ("R424", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
+    ("R425", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"open": _safe_float_value(item.get(\'o\'))', 1),
+    ("R426", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"high": _safe_float_value(item.get(\'h\'))', 1),
+    ("R427", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"low": _safe_float_value(item.get(\'l\'))', 1),
+    ("R428", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"close": _safe_float_value(item.get(\'c\'))', 1),
+    ("R429", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"volume": _safe_float_value(item.get(\'v\'))', 1),
     ("R430", "backend/tools/price.py", "get_stock_historical_data", '"open": _safe_float_value(row[\'Open\'])', 1),
     ("R431", "backend/tools/price.py", "get_stock_historical_data", '"high": _safe_float_value(row[\'High\'])', 1),
     ("R432", "backend/tools/price.py", "get_stock_historical_data", '"low": _safe_float_value(row[\'Low\'])', 1),
@@ -151,24 +151,24 @@ NUMERIC_BOUNDARY_ROUNDS_401_500 = [
     ("R447", "backend/tools/price.py", "get_stock_historical_data", '"low": _safe_float_value(row[\'Low\'])', 3),
     ("R448", "backend/tools/price.py", "get_stock_historical_data", '"close": _safe_float_value(row[\'Close\'])', 3),
     ("R449", "backend/tools/price.py", "get_stock_historical_data", '"volume": _safe_float_value(row.get(\'Volume\'))', 3),
-    ("R450", "backend/tools/screener.py", "_alpha_vantage_screen_stocks", '_clean_float(active_filters.get("priceMoreThan"))', 1),
-    ("R451", "backend/tools/screener.py", "_alpha_vantage_screen_stocks", '_clean_float(active_filters.get("priceLowerThan"))', 1),
-    ("R452", "backend/tools/screener.py", "_alpha_vantage_screen_stocks", '_clean_float(active_filters.get("volumeMoreThan"))', 1),
-    ("R453", "backend/tools/screener.py", "_yfinance_popular_stocks", '_clean_float(filters.get("priceMoreThan"))', 1),
-    ("R454", "backend/tools/screener.py", "_yfinance_popular_stocks", '_clean_float(filters.get("priceLowerThan"))', 1),
-    ("R455", "backend/tools/screener.py", "_yfinance_popular_stocks", '_clean_float(filters.get("marketCapMoreThan"))', 1),
-    ("R456", "backend/tools/screener.py", "_yfinance_popular_stocks", '_clean_float(filters.get("marketCapLowerThan"))', 1),
-    ("R457", "backend/tools/screener.py", "_yfinance_popular_stocks", '_clean_float(filters.get("volumeMoreThan"))', 1),
-    ("R458", "backend/tools/screener.py", "_passes_screener_filters", '_clean_float(active.get("priceMoreThan"))', 1),
-    ("R459", "backend/tools/screener.py", "_passes_screener_filters", '_clean_float(active.get("priceLowerThan"))', 1),
-    ("R460", "backend/tools/screener.py", "_passes_screener_filters", '_clean_float(active.get("marketCapMoreThan"))', 1),
-    ("R461", "backend/tools/screener.py", "_passes_screener_filters", '_clean_float(active.get("marketCapLowerThan"))', 1),
-    ("R462", "backend/tools/screener.py", "_passes_screener_filters", '_clean_float(active.get("volumeMoreThan"))', 1),
-    ("R463", "backend/tools/screener.py", "_static_fallback_items", '_clean_float(active_filters.get("priceMoreThan"))', 1),
-    ("R464", "backend/tools/screener.py", "_static_fallback_items", '_clean_float(active_filters.get("priceLowerThan"))', 1),
-    ("R465", "backend/tools/screener.py", "_static_fallback_items", '_clean_float(active_filters.get("marketCapMoreThan"))', 1),
-    ("R466", "backend/tools/screener.py", "_static_fallback_items", '_clean_float(active_filters.get("marketCapLowerThan"))', 1),
-    ("R467", "backend/tools/screener.py", "_static_fallback_items", '_clean_float(active_filters.get("volumeMoreThan"))', 1),
+    ("R450", "backend/tools/screener_providers.py", "_alpha_vantage_screen_stocks", '_clean_float(active_filters.get("priceMoreThan"))', 1),
+    ("R451", "backend/tools/screener_providers.py", "_alpha_vantage_screen_stocks", '_clean_float(active_filters.get("priceLowerThan"))', 1),
+    ("R452", "backend/tools/screener_providers.py", "_alpha_vantage_screen_stocks", '_clean_float(active_filters.get("volumeMoreThan"))', 1),
+    ("R453", "backend/tools/screener_providers.py", "_yfinance_popular_stocks", '_clean_float(filters.get("priceMoreThan"))', 1),
+    ("R454", "backend/tools/screener_providers.py", "_yfinance_popular_stocks", '_clean_float(filters.get("priceLowerThan"))', 1),
+    ("R455", "backend/tools/screener_providers.py", "_yfinance_popular_stocks", '_clean_float(filters.get("marketCapMoreThan"))', 1),
+    ("R456", "backend/tools/screener_providers.py", "_yfinance_popular_stocks", '_clean_float(filters.get("marketCapLowerThan"))', 1),
+    ("R457", "backend/tools/screener_providers.py", "_yfinance_popular_stocks", '_clean_float(filters.get("volumeMoreThan"))', 1),
+    ("R458", "backend/tools/screener_providers.py", "_passes_screener_filters", '_clean_float(active.get("priceMoreThan"))', 1),
+    ("R459", "backend/tools/screener_providers.py", "_passes_screener_filters", '_clean_float(active.get("priceLowerThan"))', 1),
+    ("R460", "backend/tools/screener_providers.py", "_passes_screener_filters", '_clean_float(active.get("marketCapMoreThan"))', 1),
+    ("R461", "backend/tools/screener_providers.py", "_passes_screener_filters", '_clean_float(active.get("marketCapLowerThan"))', 1),
+    ("R462", "backend/tools/screener_providers.py", "_passes_screener_filters", '_clean_float(active.get("volumeMoreThan"))', 1),
+    ("R463", "backend/tools/screener_providers.py", "_static_fallback_items", '_clean_float(active_filters.get("priceMoreThan"))', 1),
+    ("R464", "backend/tools/screener_providers.py", "_static_fallback_items", '_clean_float(active_filters.get("priceLowerThan"))', 1),
+    ("R465", "backend/tools/screener_providers.py", "_static_fallback_items", '_clean_float(active_filters.get("marketCapMoreThan"))', 1),
+    ("R466", "backend/tools/screener_providers.py", "_static_fallback_items", '_clean_float(active_filters.get("marketCapLowerThan"))', 1),
+    ("R467", "backend/tools/screener_providers.py", "_static_fallback_items", '_clean_float(active_filters.get("volumeMoreThan"))', 1),
     ("R468", "backend/services/historical_data_store.py", "_fetch_baostock", "safe_float(row[1])", 1),
     ("R469", "backend/services/historical_data_store.py", "_fetch_baostock", "safe_float(row[2])", 1),
     ("R470", "backend/services/historical_data_store.py", "_fetch_baostock", "safe_float(row[3])", 1),
@@ -194,12 +194,12 @@ NUMERIC_BOUNDARY_ROUNDS_401_500 = [
     ("R490", "backend/tools/price.py", "_fetch_index_price", "_safe_float_value(closes[-1])", 1),
     ("R491", "backend/tools/price.py", "_fetch_index_price", "_safe_float_value(closes[-2])", 1),
     ("R492", "backend/tools/price.py", "_fetch_with_stooq_price", "_safe_float_value(close)", 1),
-    ("R493", "backend/tools/price.py", "_calc_from_hist", "_safe_float_value(hist['Close'].iloc[-1])", 1),
-    ("R494", "backend/tools/price.py", "_calc_from_hist", "_safe_float_value(ytd_hist['Close'].iloc[0])", 1),
-    ("R495", "backend/tools/price.py", "_calc_from_hist", "_safe_float_value(one_year_hist['Close'].iloc[0])", 1),
-    ("R496", "backend/tools/price.py", "_calc_from_kline", "_safe_float_value(df['close'].iloc[-1])", 1),
-    ("R497", "backend/tools/price.py", "_calc_from_kline", "_safe_float_value(ytd_df['close'].iloc[0])", 1),
-    ("R498", "backend/tools/price.py", "_calc_from_kline", "_safe_float_value(one_year_df['close'].iloc[0])", 1),
+    ("R493", "backend/tools/price_portfolio.py", "_calc_from_hist", "_safe_float_value(hist['Close'].iloc[-1])", 1),
+    ("R494", "backend/tools/price_portfolio.py", "_calc_from_hist", "_safe_float_value(ytd_hist['Close'].iloc[0])", 1),
+    ("R495", "backend/tools/price_portfolio.py", "_calc_from_hist", "_safe_float_value(one_year_hist['Close'].iloc[0])", 1),
+    ("R496", "backend/tools/price_portfolio.py", "_calc_from_kline", "_safe_float_value(df['close'].iloc[-1])", 1),
+    ("R497", "backend/tools/price_portfolio.py", "_calc_from_kline", "_safe_float_value(ytd_df['close'].iloc[0])", 1),
+    ("R498", "backend/tools/price_portfolio.py", "_calc_from_kline", "_safe_float_value(one_year_df['close'].iloc[0])", 1),
     ("R499", "backend/dashboard/scorers.py", "_parse_response", 'safe_float(parsed.get("score"))', 1),
     ("R500", "backend/tools/news.py", "get_news_sentiment", "score_val = safe_float(score)", 1),
 ]
@@ -218,8 +218,8 @@ NUMERIC_BOUNDARY_ROUNDS_501_600 = [
     ("R510", "backend/api/system_router.py", "diagnostics_rag_status", 'safe_int(observability.get("recent_run_count_24h"), 0)', 1),
     ("R511", "backend/api/system_router.py", "diagnostics_rag_status", 'safe_int(observability.get("recent_fallback_count_24h"), 0)', 1),
     ("R512", "backend/api/system_router.py", "diagnostics_rag_search_preview", "safe_int(payload.get('top_k', 10))", 1),
-    ("R513", "backend/dashboard/data_service.py", "_fetch_financial_statements_from_finnhub", 'safe_int(item.get("year"), 0)', 1),
-    ("R514", "backend/dashboard/data_service.py", "_fetch_financial_statements_from_finnhub", 'safe_int(item.get("quarter"), 0)', 1),
+    ("R513", "backend/dashboard/data_providers.py", "_fetch_financial_statements_from_finnhub", 'safe_int(item.get("year"), 0)', 1),
+    ("R514", "backend/dashboard/data_providers.py", "_fetch_financial_statements_from_finnhub", 'safe_int(item.get("quarter"), 0)', 1),
     ("R515", "backend/agents/deep_search_agent.py", "_dedupe_results", '_finite_int(merged.get("search_rank"), 10**9)', 1),
     ("R516", "backend/agents/deep_search_agent.py", "_dedupe_results", '_finite_int(item.get("search_rank"), 10**9)', 1),
     ("R517", "backend/report/quality_engine.py", "build_runtime_quality_reasons", 'safe_int(missing_counts.get("critical"), 0)', 1),
@@ -271,7 +271,7 @@ NUMERIC_BOUNDARY_ROUNDS_501_600 = [
     ("R563", "backend/services/historical_data_store.py", "_write_cache", 'safe_int(r.get("is_suspicious"), 0)', 1),
     ("R564", "backend/tools/financial.py", "get_company_info", "safe_float(profile.get('marketCapitalization'))", 1),
     ("R565", "backend/tools/financial.py", "get_company_info", "safe_float(data.get('MarketCapitalization'))", 1),
-    ("R566", "backend/tools/price.py", "get_factor_exposure", 'safe_float(position.get("weight"))', 1),
+    ("R566", "backend/tools/price_portfolio.py", "get_factor_exposure", 'safe_float(position.get("weight"))', 1),
     ("R567", "backend/utils/market_evidence.py", "normalize_market_fallback_level", "except (TypeError, ValueError, OverflowError):", 1),
     ("R568", "backend/api/security_config.py", "__init__", "safe_int(limit_per_window, 1)", 1),
     ("R569", "backend/api/security_config.py", "__init__", "safe_int(window_seconds, 1)", 1),
@@ -379,12 +379,12 @@ NUMERIC_BOUNDARY_ROUNDS_601_700 = [
     ("R667", "backend/tools/cn_hk_market.py", "_http_get_text", "safe_int(timeout, 3) or 3", 1),
     ("R668", "backend/tools/cn_hk_market.py", "fetch_cn_hk_financial_statements", "safe_int(periods, 8)", 1),
     ("R669", "backend/tools/tencent_provider.py", "_is_recent_eastmoney_date", "safe_int(max_age_days, 90)", 1),
-    ("R670", "backend/tools/tencent_provider.py", "fetch_cn_top_list_history", "safe_int(days, 30)", 1),
-    ("R671", "backend/tools/tencent_provider.py", "fetch_margin_trading_history", "safe_int(days, 90)", 1),
+    ("R670", "backend/tools/tencent_history_providers.py", "fetch_cn_top_list_history", "safe_int(days, 30)", 1),
+    ("R671", "backend/tools/tencent_history_providers.py", "fetch_margin_trading_history", "safe_int(days, 90)", 1),
     ("R672", "backend/tools/wayback.py", "resolve_wayback_snapshot", "safe_int(timeout, _WAYBACK_TIMEOUT) or _WAYBACK_TIMEOUT", 1),
     ("R673", "backend/tools/wayback.py", "fetch_via_wayback", "safe_int(timeout, _WAYBACK_TIMEOUT) or _WAYBACK_TIMEOUT", 1),
     ("R674", "backend/tools/news.py", "get_company_news", "safe_int(limit, 5) or 5", 1),
-    ("R675", "backend/tools/news.py", "_to_date_candidate", "timestamp = safe_float(value)", 1),
+    ("R675", "backend/tools/news_search_tools.py", "_to_date_candidate", "timestamp = safe_float(value)", 1),
     ("R676", "backend/tools/news.py", "get_event_calendar", "safe_int(days_ahead, 30) or 30", 1),
     ("R677", "backend/tools/fmp.py", "get_etf_sector_weights", 'safe_float(str(weight_str).replace("%", "").strip()) or 0.0', 1),
     ("R678", "backend/tools/fmp.py", "get_etf_holdings", 'safe_float(str(weight_str).replace("%", "").strip()) or 0.0', 1),
@@ -871,7 +871,7 @@ def test_shared_numeric_boundaries_reject_integer_overflow():
 
 
 def test_screener_non_finite_cache_expiry_does_not_create_permanent_hit(monkeypatch):
-    from backend.tools import screener as module
+    from backend.tools import screener_providers as module
 
     calls = {"count": 0}
 
@@ -913,7 +913,7 @@ _SCREENER_FILTER_CASES = [
 @pytest.mark.parametrize(("consumer", "filter_name"), _SCREENER_FILTER_CASES)
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309", "invalid"])
 def test_screener_consumers_ignore_invalid_numeric_thresholds(monkeypatch, consumer, filter_name, value):
-    from backend.tools import screener as module
+    from backend.tools import screener_providers as module
 
     filters = {filter_name: value}
     if consumer == "alpha":
@@ -969,7 +969,7 @@ def test_screener_finite_thresholds_still_filter_static_items(filter_name, value
 @pytest.mark.parametrize("field", ["open", "high", "low", "close", "volume"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_iex_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price as module
+    from backend.tools import price_history_providers as module
 
     row = {"date": "2026-01-02", "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 10.0}
     row[field] = value
@@ -984,7 +984,7 @@ def test_iex_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_tiingo_history_rejects_non_finite_close(monkeypatch, value):
-    from backend.tools import price as module
+    from backend.tools import price_history_providers as module
 
     row = {
         "date": "2026-01-02T00:00:00Z",
@@ -1010,7 +1010,7 @@ def test_tiingo_history_rejects_non_finite_close(monkeypatch, value):
 @pytest.mark.parametrize("field", ["open", "high", "low", "volume"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_tiingo_history_rejects_other_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price as module
+    from backend.tools import price_history_providers as module
 
     row = {
         "date": "2026-01-02T00:00:00Z",
@@ -1046,7 +1046,7 @@ def test_tiingo_history_rejects_other_non_finite_ohlcv(monkeypatch, field, value
 def test_json_history_providers_reject_non_finite_ohlcv(
     monkeypatch, function_name, key_name, payload_factory, field, value
 ):
-    from backend.tools import price as module
+    from backend.tools import price_history_providers as module
 
     row = {
         "datetime": "2026-01-02T00:00:00Z",
@@ -1074,7 +1074,7 @@ def test_json_history_providers_reject_non_finite_ohlcv(
 @pytest.mark.parametrize("field", ["open", "high", "low", "close", "volume"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_massive_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price as module
+    from backend.tools import price_history_providers as module
 
     api_field = {"open": "o", "high": "h", "low": "l", "close": "c", "volume": "v"}[field]
     row = {"t": 1_767_312_000_000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0}
@@ -1098,7 +1098,7 @@ def test_massive_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
 @pytest.mark.parametrize("field", ["Open", "High", "Low", "Close", "Volume"])
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e309"])
 def test_yahoo_scrape_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price as module
+    from backend.tools import price_history_providers as module
 
     row = {
         "Date": "2026-01-02",
@@ -1509,6 +1509,8 @@ def test_performance_comparison_rejects_non_finite_prices(monkeypatch, source, r
             return value if tz is None else value.replace(tzinfo=tz)
 
     monkeypatch.setattr(module, "datetime", _FixedDateTime)
+    import backend.tools.price_portfolio as _price_portfolio_module
+    monkeypatch.setattr(_price_portfolio_module, "datetime", _FixedDateTime)
 
     dates = pd.to_datetime(["2025-08-01", "2026-01-01", "2026-07-31"])
     closes = [80.0, 90.0, 100.0]
@@ -1587,7 +1589,7 @@ def test_news_sentiment_rejects_non_finite_score(monkeypatch, value):
 @pytest.mark.parametrize("field", ["Open", "High", "Low", "Close", "Volume"])
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
 def test_stooq_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price as module
+    from backend.tools import price_history_providers as module
 
     row = {"Date": "2026-01-02", "Open": "1", "High": "2", "Low": "0.5", "Close": "1.5", "Volume": "10"}
     row[field] = value
