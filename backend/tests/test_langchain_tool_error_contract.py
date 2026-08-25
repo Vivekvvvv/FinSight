@@ -8,6 +8,14 @@ def _assert_tool_error_redacted(monkeypatch, dependency_name, tool_name, payload
         dependency_name,
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
+    if dependency_name == "_get_stock_historical_data":
+        import backend.langchain_technical as _technical_impl
+
+        monkeypatch.setattr(
+            _technical_impl,
+            "_get_stock_historical_data",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+        )
 
     result = getattr(langchain_tools, tool_name).invoke(payload)
 

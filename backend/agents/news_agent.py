@@ -4,11 +4,17 @@ import logging
 import json
 import math
 from datetime import datetime
-from urllib.parse import parse_qs, unquote, urlparse
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceItem
 from backend.services.circuit_breaker import CircuitBreaker
 from backend.utils.env_config import env_float, env_int
 from backend.utils.strict_json import json_loads_strict
+from backend.agents.news_agent_helpers import (
+    _domain_from_url,
+    _is_authoritative_domain,
+    _parse_news_text,
+    _parse_search_results,
+    _recover_original_article_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,55 +114,11 @@ class NewsAgent(BaseFinancialAgent):
         return any(token in text for token in signals)
 
     def _domain_from_url(self, url: str) -> str:
-        try:
-            host = urlparse(str(url or "").strip()).hostname or ""
-        except Exception:
-            host = ""
-        # removeprefix 而非 lstrip：lstrip("www.") 按字符集合 {w,.} 剥，
-        # "www.wsj.com" → "sj.com"，权威 hint 子串匹配 "wsj.com" in "sj.com"
-        # 失败 → WSJ 新闻被 _filter_authoritative_news 全丢（R20 同类，R48）。
-        return host.lower().removeprefix("www.")
-
+        return _domain_from_url(url)
     def _recover_original_article_url(self, url: str) -> str:
-        text = str(url or "").strip()
-        if not text.startswith(("http://", "https://")):
-            return ""
-        try:
-            parsed = urlparse(text)
-        except Exception:
-            return ""
-
-        domain = (parsed.hostname or "").lower().removeprefix("www.")
-        path = (parsed.path or "").lower()
-        query = parse_qs(parsed.query)
-
-        if domain == "finnhub.io" and path.startswith("/api/news"):
-            for key in ("url", "article_url", "link", "u"):
-                value = query.get(key, [None])[0]
-                if not value:
-                    continue
-                decoded = unquote(str(value)).strip()
-                if decoded.startswith(("http://", "https://")):
-                    return decoded
-            return ""
-
-        if domain == "news.google.com":
-            for key in ("url", "u"):
-                value = query.get(key, [None])[0]
-                if not value:
-                    continue
-                decoded = unquote(str(value)).strip()
-                if decoded.startswith(("http://", "https://")):
-                    return decoded
-
-        return text
-
+        return _recover_original_article_url(url)
     def _is_authoritative_domain(self, domain: str) -> bool:
-        host = str(domain or "").strip().lower()
-        if not host:
-            return False
-        return any(hint in host for hint in self._AUTHORITATIVE_DOMAIN_HINTS)
-
+        return _is_authoritative_domain(domain, self._AUTHORITATIVE_DOMAIN_HINTS)
     def _filter_authoritative_news(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         filtered: List[Dict[str, Any]] = []
         for item in items:
@@ -424,81 +386,9 @@ class NewsAgent(BaseFinancialAgent):
         return unique_results
 
     def _parse_news_text(self, news_text: str, ticker: str) -> List[Dict[str, Any]]:
-        """解析 get_company_news 返回的格式化文本为结构化数据"""
-        import re
-        results = []
-
-        # 格式示例: "1. 2025-01-13 - [Title](url) - Source [Tags]"
-        lines = news_text.split('\n')
-        for line in lines:
-            if not line.strip() or line.startswith('Latest'):
-                continue
-
-            # 提取标题和URL
-            url_match = re.search(r'\[([^\]]+)\]\(([^)]+)\)', line)
-            if url_match:
-                title = url_match.group(1)
-                url = url_match.group(2)
-            else:
-                # 没有URL格式，直接提取文本
-                title = re.sub(r'^\d+\.\s*[\d-]*\s*-?\s*', '', line).strip()
-                url = ""
-
-            # 提取日期
-            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', line)
-            date_str = date_match.group(1) if date_match else ""
-
-            # 提取来源
-            source_match = re.search(r'-\s+([A-Za-z0-9\s]+)\s*\[', line)
-            source = source_match.group(1).strip() if source_match else "Unknown"
-
-            if title and len(title) > 10:
-                results.append({
-                    "headline": title,
-                    "title": title,
-                    "url": url,
-                    "source": source,
-                    "datetime": date_str,
-                    "published_at": date_str,
-                    "ticker": ticker,
-                    "confidence": 0.7,
-                })
-
-        return results
-
+        return _parse_news_text(news_text, ticker)
     def _parse_search_results(self, search_text: str, ticker: str) -> List[Dict[str, Any]]:
-        """解析搜索结果为新闻格式"""
-        import re
-        results = []
-
-        lines = search_text.split('\n')
-        for line in lines:
-            if not line.strip():
-                continue
-
-            # 提取URL
-            url_match = re.search(r'https?://[^\s\)]+', line)
-            url = url_match.group(0) if url_match else ""
-
-            # 提取标题（去除URL和标点）
-            title = re.sub(r'https?://[^\s]+', '', line)
-            title = re.sub(r'^\d+\.\s*', '', title).strip()
-            title = title[:150] if len(title) > 150 else title
-
-            if title and len(title) > 15:
-                results.append({
-                    "headline": title,
-                    "title": title,
-                    "url": url,
-                    "source": "search",
-                    "published_at": None,
-                    "datetime": None,
-                    "ticker": ticker,
-                    "confidence": 0.4,
-                })
-
-        return results[:5]  # 限制数量
-
+        return _parse_search_results(search_text, ticker)
     async def _first_summary(self, data: List[Any]) -> str:
         deterministic = self._deterministic_summary(data)
         if not data:

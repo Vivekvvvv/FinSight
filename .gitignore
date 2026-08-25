@@ -50,6 +50,7 @@ MANIFEST
 .pytest_cache/
 .pytest-basetemp/
 .pytest-basetemp-*/
+pytest_bg_pid.txt
 .coverage
 htmlcov/
 .tox/

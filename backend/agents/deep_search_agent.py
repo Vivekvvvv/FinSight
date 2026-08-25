@@ -23,6 +23,7 @@ from langchain_core.messages import HumanMessage
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceItem
 from backend.agents.search_convergence import SearchConvergence
 from backend.agents.deep_search_helpers import _extract_json, _clean_degraded_text, _low_signal_text, _degraded_fact_from_doc
+from backend.agents.deep_search_text_tools import _freshness_score, _extract_pdf_text, _extract_html_text
 from backend.orchestration.trace_schema import create_trace_event
 from backend.security.ssrf import is_safe_url
 from backend.security.pinned_http import safe_pinned_request
@@ -576,27 +577,7 @@ queries 要求：
         return 0.65
 
     def _freshness_score(self, published_date: Any) -> float:
-        text = str(published_date or "").strip()
-        if not text:
-            return 0.5
-        try:
-            if text.endswith("Z"):
-                text = text[:-1] + "+00:00"
-            dt = datetime.fromisoformat(text)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            hours = max(0.0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds() / 3600.0)
-            if hours <= 24:
-                return 1.0
-            if hours <= 24 * 7:
-                return 0.85
-            if hours <= 24 * 30:
-                return 0.7
-            if hours <= 24 * 90:
-                return 0.55
-            return 0.4
-        except Exception:
-            return 0.5
+        return _freshness_score(published_date)
 
     def _detect_conflicts(self, docs: List[Dict[str, Any]]) -> bool:
         positive_hits = 0
@@ -1250,26 +1231,10 @@ queries 要求：
         return f"session:deepsearch:{normalized_ticker}:{digest}"
 
     def _extract_pdf_text(self, data: bytes) -> str:
-        if not PdfReader:
-            return ""
-        try:
-            from io import BytesIO
-
-            reader = PdfReader(BytesIO(data))
-            pages = []
-            for page in reader.pages[:8]:
-                pages.append(page.extract_text() or "")
-            return "\n".join(pages)
-        except Exception as exc:
-            logger.info("[DeepSearch] PDF parse failed")
-            return ""
+        return _extract_pdf_text(data)
 
     def _extract_html_text(self, html: str) -> str:
-        soup = BeautifulSoup(html, "html.parser")
-        for tag in soup(["script", "style", "noscript"]):
-            tag.decompose()
-        text = soup.get_text(separator=" ")
-        return re.sub(r"\s+", " ", text).strip()
+        return _extract_html_text(html)
 
     def _trim_text(self, text: str, max_len: int = None) -> str:
         if not text:

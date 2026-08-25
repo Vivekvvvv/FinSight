@@ -13,7 +13,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 # Each tuple identifies one independently fixed external/persisted JSON entrypoint.
 STRICT_JSON_ENTRYPOINTS = [
     ("R201", "backend/agents/news_agent.py", "payload = json_loads_strict(payload)", 1),
-    ("R202", "backend/api/main.py", "payload = json_loads_strict(response.read().decode", 1),
+    ("R202", "backend/api/auth_identity.py", "payload = json_loads_strict(response.read().decode", 1),
     ("R203", "backend/graph/nodes/execute_plan_stub.py", "parsed = json_loads_strict(output)", 1),
     ("R204", "backend/graph/nodes/execute_plan_stub.py", "output = json_loads_strict(output)", 1),
     ("R205", "backend/graph/nodes/synthesize_format.py", "obj = json_loads_strict(cleaned)", 1),

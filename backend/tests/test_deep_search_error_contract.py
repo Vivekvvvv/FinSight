@@ -66,14 +66,14 @@ def test_rag_observability_import_error_is_redacted(monkeypatch, caplog):
 
 
 def test_pdf_parse_error_log_is_redacted(monkeypatch, caplog):
-    from backend.agents import deep_search_agent as deep_search_module
+    from backend.agents import deep_search_text_tools as deep_search_module
 
     def fail_pdf_reader(_stream):
         raise RuntimeError("private pdf parser detail")
 
     monkeypatch.setattr(deep_search_module, "PdfReader", fail_pdf_reader)
     agent = DeepSearchAgent(llm=None, cache=None, tools_module=None)
-    with caplog.at_level(logging.INFO, logger="backend.agents.deep_search_agent"):
+    with caplog.at_level(logging.INFO, logger="backend.agents.deep_search_text_tools"):
         result = agent._extract_pdf_text(b"not-a-pdf")
 
     assert result == ""

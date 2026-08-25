@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi.testclient import TestClient
+from backend.api import auth_identity
 
 
 class _FakeRagStore:
@@ -65,7 +66,7 @@ def test_planner_diagnostics_allows_bearer_user_even_when_api_auth_enabled(monke
     monkeypatch.setenv('API_AUTH_ENABLED', 'true')
     monkeypatch.setenv('API_AUTH_KEYS', 'release-key-1')
     monkeypatch.setattr(
-        main,
+        auth_identity,
         '_fetch_supabase_user_identity',
         lambda token: {'user_id': f'user:{token}', 'email': 'reader@example.com', 'auth_type': 'supabase', 'role': 'reader'},
     )
@@ -82,7 +83,7 @@ def test_internal_health_requires_internal_api_key(monkeypatch):
     monkeypatch.setenv('DEV_MODE', 'true')
     monkeypatch.setenv('API_AUTH_KEYS', 'internal-health-key')
     monkeypatch.setattr(
-        main,
+        auth_identity,
         '_fetch_supabase_user_identity',
         lambda token: {'user_id': f'user:{token}', 'email': 'reader@example.com', 'auth_type': 'supabase', 'role': 'reader'},
     )
@@ -106,7 +107,7 @@ def test_rag_diagnostics_read_allows_bearer_user_even_when_api_auth_enabled(monk
     monkeypatch.setenv('API_AUTH_ENABLED', 'true')
     monkeypatch.setenv('API_AUTH_KEYS', 'release-key-1')
     monkeypatch.setattr(
-        main,
+        auth_identity,
         '_fetch_supabase_user_identity',
         lambda token: {'user_id': f'user:{token}', 'email': 'reader@example.com', 'auth_type': 'supabase', 'role': 'reader'},
     )
@@ -124,7 +125,7 @@ def test_rag_diagnostics_soft_delete_is_read_only_for_logged_in_user(monkeypatch
     main = _configure_auth(monkeypatch)
     monkeypatch.setenv('API_AUTH_ENABLED', 'false')
     monkeypatch.setattr(
-        main,
+        auth_identity,
         '_fetch_supabase_user_identity',
         lambda token: {'user_id': f'user:{token}', 'email': 'reader@example.com', 'auth_type': 'supabase', 'role': 'reader'},
     )

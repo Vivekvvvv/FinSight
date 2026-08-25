@@ -19,7 +19,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 NUMERIC_BOUNDARY_ROUNDS = [
     ("R301", "backend/tools/price_history_providers.py", '"close": _safe_float_value(item.get(\'close\'))'),
     ("R322", "backend/agents/technical_agent.py", "parsed_close = safe_float(close)"),
-    ("R323", "backend/langchain_tools.py", "parsed_close = safe_float(close)"),
+    ("R323", "backend/langchain_technical.py", "parsed_close = safe_float(close)"),
     ("R324", "backend/tools/financial.py", "row[col] = safe_float(value)"),
     ("R325", "backend/tools/financial.py", "item[str(column)] = safe_float(value)"),
     ("R326", "backend/tools/financial.py", "result[key_text] = safe_float(value)"),
@@ -702,11 +702,12 @@ def test_technical_agent_skips_non_finite_close(value):
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_langchain_technical_snapshot_skips_non_finite_close(monkeypatch, value):
     import backend.langchain_tools as module
+    import backend.langchain_technical as technical_impl
 
     rows = [{"close": 100 + index, "time": str(index)} for index in range(30)]
     rows.insert(5, {"close": value, "time": "invalid"})
     monkeypatch.setattr(
-        module,
+        technical_impl,
         "_get_stock_historical_data",
         lambda *_args, **_kwargs: {"kline_data": rows, "source": "test"},
     )

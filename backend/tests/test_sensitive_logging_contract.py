@@ -1062,7 +1062,7 @@ SECURITY_HARDENING_ROUNDS_1201_1300 = [
     ("R1224", "backend/agents/deep_search_agent.py", "[DeepSearch] Wayback fallback failed", "type(exc).__name__"),
     ("R1225", "backend/agents/deep_search_agent.py", "[DeepSearch] RAG observability unavailable", "type(exc).__name__"),
     ("R1226", "backend/agents/deep_search_agent.py", "[DeepSearch] Failed to record RAG observability", "type(exc).__name__"),
-    ("R1227", "backend/agents/deep_search_agent.py", "[DeepSearch] PDF parse failed", "type(exc).__name__"),
+    ("R1227", "backend/agents/deep_search_text_tools.py", "[DeepSearch] PDF parse failed", "type(exc).__name__"),
     ("R1228", "backend/agents/deep_search_agent.py", "[DeepSearch] LLM call failed", "type(exc).__name__"),
     ("R1229", "backend/agents/macro_agent.py", "[MacroAgent] FRED fetch failed", "type(exc).__name__"),
     ("R1230", "backend/agents/macro_agent.py", "[MacroAgent] Official release fetch failed", "type(exc).__name__"),
