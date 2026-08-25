@@ -255,3 +255,17 @@ def test_profile_save_error_log_is_redacted(memory_service, monkeypatch, caplog)
     assert temp_files == []
     assert "private profile storage detail" not in caplog.text
     assert "OSError" in caplog.text
+
+
+def test_default_storage_path_follows_env(monkeypatch, tmp_path):
+    env_path = str(tmp_path / "env_memory")
+    monkeypatch.setenv("MEMORY_STORAGE_PATH", env_path)
+    service = MemoryService()
+    assert service.storage_path == env_path
+
+
+def test_explicit_storage_path_overrides_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("MEMORY_STORAGE_PATH", str(tmp_path / "env_memory"))
+    explicit_path = str(tmp_path / "explicit")
+    service = MemoryService(storage_path=explicit_path)
+    assert service.storage_path == explicit_path

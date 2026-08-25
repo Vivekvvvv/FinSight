@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import threading
 from hashlib import sha256
 from datetime import UTC, datetime
@@ -168,12 +169,26 @@ class ChatHistoryStore:
     def _write_payload(self, session_id: str, payload: dict[str, Any]) -> None:
         self.storage_path.mkdir(parents=True, exist_ok=True)
         path = self._path_for_session(session_id)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False),
-            encoding="utf-8",
+        data = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
+        # 原子写：mkstemp 唯一临时文件 + fsync + os.replace，避免写一半崩溃截断文件。
+        fd, tmp = tempfile.mkstemp(
+            prefix=f"{path.name}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+            text=True,
         )
-        tmp.replace(path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    logger.warning("Failed to remove chat history temp file")
 
     @staticmethod
     def _public_message(item: dict[str, Any]) -> dict[str, Any]:

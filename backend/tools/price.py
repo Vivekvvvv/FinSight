@@ -529,19 +529,12 @@ def get_stock_price(ticker: str) -> str:
             result = source_func(ticker)
             if result:
                 logger.info("  Price source succeeded")
-                # 追加两档分批价，保证有具体数字
-                price_num = None
-                import re
-                m = re.search(r"\$([0-9]+(?:\.[0-9]+)?)", result)
-                if m:
-                    try:
-                        price_num = float(m.group(1))
-                    except Exception:
-                        price_num = None
-                if price_num:
-                    p1 = price_num * 0.99
-                    p2 = price_num * 0.98
-                    result = f"{result} | Suggested ladder: ${p1:.2f} / ${p2:.2f} (+/-1% / +/-2% from current)"
+                # 只返回行情事实。此处曾按现价 -1%/-2% 追加 "Suggested ladder"
+                # 两档建仓价，但 get_stock_price 是 LLM 工具（langchain_tools.py）
+                # 且是 price/technical/report 链路的必跑首步（planner.py），
+                # 那段文本会绕过 research_policy.sanitize_research_stance 直接
+                # 进入模型上下文，违反 research_policy.TRADING_ACTION_PATTERN
+                # 对"目标价/仓位建议/入场"的禁令。工具层不得输出交易动作。
                 return result
             time.sleep(0.5)
         except Exception as e:

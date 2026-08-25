@@ -12,6 +12,7 @@ from datetime import datetime
 import json
 import os
 import re
+import tempfile
 from uuid import uuid4
 
 from backend.utils.strict_json import json_load_strict
@@ -79,10 +80,13 @@ class MemoryService:
     目前使用简单的 JSON 文件存储，后续可迁移至 Redis/Postgres
     """
 
-    def __init__(self, storage_path: str = "data/memory"):
-        self.storage_path = storage_path
-        if not os.path.exists(storage_path):
-            os.makedirs(storage_path)
+    def __init__(self, storage_path: Optional[str] = None):
+        # 统一存储路径解析：未显式传参时遵循 MEMORY_STORAGE_PATH 环境变量，
+        # 与 backend/graph/store.py 的解析保持一致，避免多实例各写各目录造成数据分裂。
+        resolved = str(storage_path or os.getenv("MEMORY_STORAGE_PATH", "data/memory"))
+        self.storage_path = resolved
+        if not os.path.exists(resolved):
+            os.makedirs(resolved)
 
     def _normalize_user_id(self, user_id: str) -> str:
         normalized = str(user_id or "").strip()
@@ -134,18 +138,35 @@ class MemoryService:
         """更新用户画像"""
         file_path = self._get_file_path(profile.user_id)
         profile.last_active = datetime.now().isoformat()
-        tmp_path = file_path + ".tmp"
+        tmp_path: Optional[str] = None
         try:
             with _PROFILE_LOCK:
-                with open(tmp_path, 'w', encoding='utf-8') as f:
-                    json.dump(
-                        profile.to_dict(),
-                        f,
-                        indent=2,
-                        ensure_ascii=False,
-                        allow_nan=False,
-                    )
-                os.replace(tmp_path, file_path)
+                # 原子写：mkstemp 唯一临时文件 + fsync + os.replace，
+                # 与 entitlements/config_router 等持久化模块的金标准保持一致。
+                fd, tmp_path = tempfile.mkstemp(
+                    prefix=os.path.basename(file_path) + ".",
+                    suffix=".tmp",
+                    dir=os.path.dirname(file_path) or ".",
+                    text=True,
+                )
+                try:
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                        json.dump(
+                            profile.to_dict(),
+                            f,
+                            indent=2,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                        )
+                        f.flush()
+                        os.fsync(f.fileno())
+                    os.replace(tmp_path, file_path)
+                finally:
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except OSError:
+                            logger.warning('[MemoryService] Failed to remove profile temp file')
             return True
         except Exception as e:
             logger.warning(
@@ -153,12 +174,6 @@ class MemoryService:
                 type(e).__name__,
             )
             return False
-        finally:
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError as cleanup_error:
-                    logger.warning('[MemoryService] Failed to remove profile temp file')
 
     def add_to_watchlist(
         self,
