@@ -9,3 +9,7 @@
 4. **新代码不进上帝文件**：`graph/nodes/synthesize.py`(2718 行)、`graph/report_builder.py`(2228)、`tools/price.py`(2179)、`dashboard/data_service.py`(1771)、`handlers/chat_handler.py`(1587) 只减不增；新功能放独立模块，从这些文件里 import。
 
 5. **验证命令**：改后端必跑 `.\.venv\Scripts\python.exe -m pytest -q`（至少跑受影响模块的测试文件）；改前端必跑 `frontend-vue` 下 `npm run typecheck && npm run build`。测试路径见 `pytest.ini`（`backend/tests` + `tests`）。
+
+6. **每次改动都要有对应的 git commit**：一次改动完成后立刻提交，一个逻辑改动一个 commit，便于后续追踪和回滚；不要把多个无关改动堆进同一个 commit，也不要攒着一堆改动不提交。只暂存本次改动涉及的文件（用 `git add <具体文件>`，别用 `git add .`），避免把工作区里其他未完成的改动带进去。
+
+7. **每次改动都要写或更新测试，且交付前必须全绿**：新增功能补新测试，改行为就同步改断言，修 bug 先写能复现的失败用例。交付给用户之前必须实际跑过第 5 条的验证命令并确认全部通过——不许把"应该没问题"当成通过，也不许留着失败/跳过的用例就交付；跑不通就说明原因，不要谎报绿灯。
