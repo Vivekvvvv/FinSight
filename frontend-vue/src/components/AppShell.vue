@@ -6,7 +6,7 @@ import EmptyState from '@/components/EmptyState.vue';
 import IdentityPanel from '@/components/IdentityPanel.vue';
 import LoadingState from '@/components/LoadingState.vue';
 import StatusBanner from '@/components/StatusBanner.vue';
-import ThemeToggle from '@/components/ThemeToggle.vue';
+import AppearanceMenu from '@/components/AppearanceMenu.vue';
 import { useIdentityStore } from '@/stores/identity';
 import type { DemoStatusResponse, PortfolioSummary, WatchlistItem } from '@/api/types';
 import { usePullToRefresh } from '@/composables/usePullToRefresh';
@@ -222,7 +222,7 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
           <span>{{ sourceStatus.label }}</span>
           <small>{{ sourceStatus.detail }}</small>
         </button>
-        <ThemeToggle />
+        <AppearanceMenu />
         <button
           class="context-button"
           type="button"
@@ -391,7 +391,7 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: var(--fin-rail-width, 260px) minmax(0, 1fr);
   background:
     radial-gradient(circle at 8% 0%, var(--fin-accent-soft), transparent 32%),
     radial-gradient(circle at 96% 10%, var(--fin-primary-soft), transparent 30%),
@@ -729,9 +729,13 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 
 .workspace-main {
   width: 100%;
-  max-width: none;
+  max-width: var(--fin-content-max, none);
+  margin-inline: auto;
   padding: clamp(20px, 2.4vw, 36px);
 }
+
+/* 侧边栏收起 / 靠右布局的规则放在全局 styles/appearance.css，
+   避免 scoped :global() 组合选择器被错误编译。 */
 
 .context-button,
 .mobile-menu,

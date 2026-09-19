@@ -3,74 +3,267 @@ import { defineStore } from 'pinia';
 
 export type ThemePreference = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
+export type AccentChoice = 'ember' | 'azure' | 'emerald' | 'violet' | 'rose';
+export type FontChoice = 'sans' | 'system' | 'serif' | 'rounded';
+export type RadiusChoice = 'sharp' | 'small' | 'default' | 'large';
+export type DensityChoice = 'compact' | 'default' | 'spacious';
+export type SidebarChoice = 'expanded' | 'collapsed';
+export type ShellLayoutChoice = 'left' | 'right';
+export type DirectionChoice = 'ltr' | 'rtl';
+export type ContentWidthChoice = 'narrow' | 'standard' | 'wide' | 'full';
 
-const STORAGE_KEY = 'finsight-theme';
+export interface AppearanceState {
+  mode: ThemePreference;
+  accent: AccentChoice;
+  font: FontChoice;
+  radius: RadiusChoice;
+  density: DensityChoice;
+  sidebar: SidebarChoice;
+  layout: ShellLayoutChoice;
+  direction: DirectionChoice;
+  contentWidth: ContentWidthChoice;
+}
+
+const STORAGE_KEY = 'finsight-appearance';
+const LEGACY_THEME_KEY = 'finsight-theme';
 const QUERY = '(prefers-color-scheme: dark)';
 
-function readPreference(): ThemePreference {
-  if (typeof window === 'undefined') return 'system';
-  const value = window.localStorage.getItem(STORAGE_KEY);
-  return value === 'dark' || value === 'light' || value === 'system' ? value : 'system';
+export const DEFAULT_APPEARANCE: AppearanceState = {
+  mode: 'system',
+  accent: 'ember',
+  font: 'sans',
+  radius: 'default',
+  density: 'default',
+  sidebar: 'expanded',
+  layout: 'left',
+  direction: 'ltr',
+  contentWidth: 'standard',
+};
+
+const MODES: ThemePreference[] = ['dark', 'light', 'system'];
+const ACCENTS: AccentChoice[] = ['ember', 'azure', 'emerald', 'violet', 'rose'];
+const FONTS: FontChoice[] = ['sans', 'system', 'serif', 'rounded'];
+const RADII: RadiusChoice[] = ['sharp', 'small', 'default', 'large'];
+const DENSITIES: DensityChoice[] = ['compact', 'default', 'spacious'];
+const SIDEBARS: SidebarChoice[] = ['expanded', 'collapsed'];
+const LAYOUTS: ShellLayoutChoice[] = ['left', 'right'];
+const DIRECTIONS: DirectionChoice[] = ['ltr', 'rtl'];
+const CONTENT_WIDTHS: ContentWidthChoice[] = ['narrow', 'standard', 'wide', 'full'];
+
+function pick<T>(candidate: unknown, allowed: T[], fallback: T): T {
+  return allowed.includes(candidate as T) ? (candidate as T) : fallback;
 }
 
-function resolveTheme(preference: ThemePreference): ResolvedTheme {
-  if (preference !== 'system') return preference;
-  if (typeof window === 'undefined') return 'dark';
-  return window.matchMedia(QUERY).matches ? 'dark' : 'light';
-}
+function readAppearance(): AppearanceState {
+  if (typeof window === 'undefined') return { ...DEFAULT_APPEARANCE };
+  const state: AppearanceState = { ...DEFAULT_APPEARANCE };
 
-function applyTheme(theme: ResolvedTheme): void {
-  if (typeof document === 'undefined') return;
-  document.documentElement.dataset.theme = theme;
+  // 迁移旧的单一主题偏好键，保留用户已有选择。
+  const legacy = window.localStorage.getItem(LEGACY_THEME_KEY);
+  if (legacy === 'dark' || legacy === 'light' || legacy === 'system') {
+    state.mode = legacy;
+  }
+
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<AppearanceState>;
+      state.mode = pick(parsed.mode, MODES, state.mode);
+      state.accent = pick(parsed.accent, ACCENTS, state.accent);
+      state.font = pick(parsed.font, FONTS, state.font);
+      state.radius = pick(parsed.radius, RADII, state.radius);
+      state.density = pick(parsed.density, DENSITIES, state.density);
+      state.sidebar = pick(parsed.sidebar, SIDEBARS, state.sidebar);
+      state.layout = pick(parsed.layout, LAYOUTS, state.layout);
+      state.direction = pick(parsed.direction, DIRECTIONS, state.direction);
+      state.contentWidth = pick(parsed.contentWidth, CONTENT_WIDTHS, state.contentWidth);
+    } catch {
+      // 损坏的偏好不应阻断渲染，回退默认值即可（非用户业务数据，无需备份）。
+    }
+  }
+  return state;
 }
 
 export const useThemeStore = defineStore('theme', () => {
-  const preference = ref<ThemePreference>(readPreference());
+  const persisted = readAppearance();
+  const mode = ref<ThemePreference>(persisted.mode);
+  const accent = ref<AccentChoice>(persisted.accent);
+  const font = ref<FontChoice>(persisted.font);
+  const radius = ref<RadiusChoice>(persisted.radius);
+  const density = ref<DensityChoice>(persisted.density);
+  const sidebar = ref<SidebarChoice>(persisted.sidebar);
+  const layout = ref<ShellLayoutChoice>(persisted.layout);
+  const direction = ref<DirectionChoice>(persisted.direction);
+  const contentWidth = ref<ContentWidthChoice>(persisted.contentWidth);
+
   const systemDark = ref(typeof window !== 'undefined' ? window.matchMedia(QUERY).matches : true);
   const initialized = ref(false);
 
   const resolved = computed<ResolvedTheme>(() => {
-    if (preference.value !== 'system') return preference.value;
+    if (mode.value !== 'system') return mode.value;
     return systemDark.value ? 'dark' : 'light';
   });
 
-  function persist(next: ThemePreference): void {
+  // 向后兼容旧字段名 preference（App.vue / 图表组件在用 resolved / preference）。
+  const preference = mode;
+
+  function snapshot(): AppearanceState {
+    return {
+      mode: mode.value,
+      accent: accent.value,
+      font: font.value,
+      radius: radius.value,
+      density: density.value,
+      sidebar: sidebar.value,
+      layout: layout.value,
+      direction: direction.value,
+      contentWidth: contentWidth.value,
+    };
+  }
+
+  function persist(): void {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(STORAGE_KEY, next);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot()));
+    // 保留旧键，避免尚未升级的其它入口读到空值。
+    window.localStorage.setItem(LEGACY_THEME_KEY, mode.value);
   }
 
+  function apply(): void {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.dataset.theme = resolved.value;
+    root.dataset.accent = accent.value;
+    root.dataset.font = font.value;
+    root.dataset.radius = radius.value;
+    root.dataset.density = density.value;
+    root.dataset.rail = sidebar.value;
+    root.dataset.shellLayout = layout.value;
+    root.dataset.contentWidth = contentWidth.value;
+    root.dir = direction.value;
+  }
+
+  function commit(): void {
+    apply();
+    persist();
+  }
+
+  function setMode(next: ThemePreference): void {
+    mode.value = pick(next, MODES, mode.value);
+    commit();
+  }
+  function setAccent(next: AccentChoice): void {
+    accent.value = pick(next, ACCENTS, accent.value);
+    commit();
+  }
+  function setFont(next: FontChoice): void {
+    font.value = pick(next, FONTS, font.value);
+    commit();
+  }
+  function setRadius(next: RadiusChoice): void {
+    radius.value = pick(next, RADII, radius.value);
+    commit();
+  }
+  function setDensity(next: DensityChoice): void {
+    density.value = pick(next, DENSITIES, density.value);
+    commit();
+  }
+  function setSidebar(next: SidebarChoice): void {
+    sidebar.value = pick(next, SIDEBARS, sidebar.value);
+    commit();
+  }
+  function toggleSidebar(): void {
+    setSidebar(sidebar.value === 'expanded' ? 'collapsed' : 'expanded');
+  }
+  function setLayout(next: ShellLayoutChoice): void {
+    layout.value = pick(next, LAYOUTS, layout.value);
+    commit();
+  }
+  function setDirection(next: DirectionChoice): void {
+    direction.value = pick(next, DIRECTIONS, direction.value);
+    commit();
+  }
+  function setContentWidth(next: ContentWidthChoice): void {
+    contentWidth.value = pick(next, CONTENT_WIDTHS, contentWidth.value);
+    commit();
+  }
+
+  function reset(): void {
+    mode.value = DEFAULT_APPEARANCE.mode;
+    accent.value = DEFAULT_APPEARANCE.accent;
+    font.value = DEFAULT_APPEARANCE.font;
+    radius.value = DEFAULT_APPEARANCE.radius;
+    density.value = DEFAULT_APPEARANCE.density;
+    sidebar.value = DEFAULT_APPEARANCE.sidebar;
+    layout.value = DEFAULT_APPEARANCE.layout;
+    direction.value = DEFAULT_APPEARANCE.direction;
+    contentWidth.value = DEFAULT_APPEARANCE.contentWidth;
+    commit();
+  }
+
+  const isDefault = computed(() =>
+    mode.value === DEFAULT_APPEARANCE.mode
+    && accent.value === DEFAULT_APPEARANCE.accent
+    && font.value === DEFAULT_APPEARANCE.font
+    && radius.value === DEFAULT_APPEARANCE.radius
+    && density.value === DEFAULT_APPEARANCE.density
+    && sidebar.value === DEFAULT_APPEARANCE.sidebar
+    && layout.value === DEFAULT_APPEARANCE.layout
+    && direction.value === DEFAULT_APPEARANCE.direction
+    && contentWidth.value === DEFAULT_APPEARANCE.contentWidth);
+
+  // 向后兼容旧 API 名。
   function setPreference(next: ThemePreference): void {
-    preference.value = next;
-    persist(next);
-    applyTheme(resolved.value);
+    setMode(next);
   }
-
   function cycle(): void {
-    const order: ThemePreference[] = ['dark', 'light', 'system'];
-    const current = order.indexOf(preference.value);
-    setPreference(order[(current + 1) % order.length]);
+    const current = MODES.indexOf(mode.value);
+    setMode(MODES[(current + 1) % MODES.length]);
   }
 
   function init(): void {
     if (initialized.value || typeof window === 'undefined') {
-      applyTheme(resolveTheme(preference.value));
+      apply();
       return;
     }
     const media = window.matchMedia(QUERY);
     systemDark.value = media.matches;
-    applyTheme(resolved.value);
+    apply();
     media.addEventListener('change', (event) => {
       systemDark.value = event.matches;
-      applyTheme(resolved.value);
+      apply();
     });
     initialized.value = true;
   }
 
   return {
+    // state
+    mode,
     preference,
     resolved,
+    accent,
+    font,
+    radius,
+    density,
+    sidebar,
+    layout,
+    direction,
+    contentWidth,
     initialized,
+    isDefault,
+    // actions
     init,
+    setMode,
+    setAccent,
+    setFont,
+    setRadius,
+    setDensity,
+    setSidebar,
+    toggleSidebar,
+    setLayout,
+    setDirection,
+    setContentWidth,
+    reset,
+    // legacy
     setPreference,
     cycle,
   };

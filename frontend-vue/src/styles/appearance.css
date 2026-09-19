@@ -1,0 +1,158 @@
+/* FinSight 外观自定义 —— 由 <html> 上的 data-* 属性驱动，配合 stores/theme.ts。
+   accent 依赖当前主题（明/暗），所以按 [data-theme][data-accent] 组合覆盖 primary 三色。 */
+
+/* ============ 颜色（accent） ============ */
+/* ember 为默认赤橙，已在 tokens.css 中定义，这里只需覆盖其它色板。 */
+:root[data-theme='light'][data-accent='azure'] {
+  --fin-primary: #2f6fed;
+  --fin-primary-deep: #1d51bf;
+  --fin-primary-soft: #e6edfd;
+  --fin-border-strong: rgba(47, 111, 237, 0.5);
+}
+:root[data-theme='dark'][data-accent='azure'] {
+  --fin-primary: #6aa0ff;
+  --fin-primary-deep: #3f79f0;
+  --fin-primary-soft: rgba(106, 160, 255, 0.16);
+  --fin-border-strong: rgba(106, 160, 255, 0.5);
+}
+
+:root[data-theme='light'][data-accent='emerald'] {
+  --fin-primary: #1f9d63;
+  --fin-primary-deep: #157a4b;
+  --fin-primary-soft: #e2f4ea;
+  --fin-border-strong: rgba(31, 157, 99, 0.5);
+}
+:root[data-theme='dark'][data-accent='emerald'] {
+  --fin-primary: #5fc98d;
+  --fin-primary-deep: #3f9d68;
+  --fin-primary-soft: rgba(95, 201, 141, 0.16);
+  --fin-border-strong: rgba(95, 201, 141, 0.5);
+}
+
+:root[data-theme='light'][data-accent='violet'] {
+  --fin-primary: #7c5cd6;
+  --fin-primary-deep: #5f3fb0;
+  --fin-primary-soft: #efeafb;
+  --fin-border-strong: rgba(124, 92, 214, 0.5);
+}
+:root[data-theme='dark'][data-accent='violet'] {
+  --fin-primary: #a98cf0;
+  --fin-primary-deep: #7c5cd6;
+  --fin-primary-soft: rgba(169, 140, 240, 0.16);
+  --fin-border-strong: rgba(169, 140, 240, 0.5);
+}
+
+:root[data-theme='light'][data-accent='rose'] {
+  --fin-primary: #d14f7a;
+  --fin-primary-deep: #ad3760;
+  --fin-primary-soft: #fbe7ef;
+  --fin-border-strong: rgba(209, 79, 122, 0.5);
+}
+:root[data-theme='dark'][data-accent='rose'] {
+  --fin-primary: #ee87ac;
+  --fin-primary-deep: #d14f7a;
+  --fin-primary-soft: rgba(238, 135, 172, 0.16);
+  --fin-border-strong: rgba(238, 135, 172, 0.5);
+}
+
+/* ============ 字体 ============ */
+:root[data-font='system'] {
+  --fin-font: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+:root[data-font='serif'] {
+  --fin-font: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Songti SC', 'Noto Serif SC', serif;
+}
+:root[data-font='rounded'] {
+  --fin-font: 'Segoe UI Rounded', 'SF Pro Rounded', 'Quicksand', 'PingFang SC', system-ui, sans-serif;
+}
+
+/* ============ 圆角 ============ */
+:root[data-radius='sharp'] {
+  --fin-radius-sm: 0px;
+  --fin-radius: 0px;
+  --fin-radius-lg: 0px;
+}
+:root[data-radius='small'] {
+  --fin-radius-sm: 4px;
+  --fin-radius: 5px;
+  --fin-radius-lg: 7px;
+}
+/* default 沿用 tokens.css（6/8/12），无需覆盖 */
+:root[data-radius='large'] {
+  --fin-radius-sm: 10px;
+  --fin-radius: 14px;
+  --fin-radius-lg: 20px;
+}
+
+/* ============ 密度 ============ */
+/* 根字号带动全站 rem/em 尺度；--fin-gap-scale 供布局按比例收放留白。 */
+:root[data-density='compact'] {
+  font-size: 15px;
+  --fin-gap-scale: 0.86;
+}
+:root[data-density='default'] {
+  font-size: 16px;
+  --fin-gap-scale: 1;
+}
+:root[data-density='spacious'] {
+  font-size: 17px;
+  --fin-gap-scale: 1.14;
+}
+:root[data-density='compact'] html,
+:root[data-density='compact'] body {
+  font-size: 15px;
+}
+:root[data-density='spacious'] html,
+:root[data-density='spacious'] body {
+  font-size: 17px;
+}
+
+/* ============ 内容最大宽度 ============ */
+:root[data-content-width='narrow'] {
+  --fin-content-max: 1120px;
+}
+:root[data-content-width='standard'] {
+  --fin-content-max: 1440px;
+}
+:root[data-content-width='wide'] {
+  --fin-content-max: 1760px;
+}
+:root[data-content-width='full'] {
+  --fin-content-max: none;
+}
+
+/* ============ 侧边栏收起 / 靠右布局（桌面端） ============ */
+/* 移动端侧边栏是 off-canvas 抽屉，这些桌面规则不参与。 */
+@media (min-width: 821px) {
+  /* 收起为图标轨 */
+  html[data-rail='collapsed'] .app-shell {
+    --fin-rail-width: 84px;
+  }
+  html[data-rail='collapsed'] .brand-lockup span,
+  html[data-rail='collapsed'] .nav-link strong,
+  html[data-rail='collapsed'] .rail-card,
+  html[data-rail='collapsed'] .identity-block {
+    display: none;
+  }
+  html[data-rail='collapsed'] .brand-lockup {
+    justify-content: center;
+  }
+  html[data-rail='collapsed'] .nav-link {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 12px 8px;
+  }
+
+  /* 侧边栏靠右 */
+  html[data-shell-layout='right'] .app-shell {
+    grid-template-columns: minmax(0, 1fr) var(--fin-rail-width, 260px);
+  }
+  html[data-shell-layout='right'] .side-rail {
+    order: 2;
+    border-inline-start: 1px solid var(--fin-border);
+    border-inline-end: 0;
+  }
+  html[data-shell-layout='right'] .workspace {
+    order: 1;
+  }
+}
