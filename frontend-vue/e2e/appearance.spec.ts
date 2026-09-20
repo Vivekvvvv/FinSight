@@ -126,6 +126,40 @@ test('重置回到默认外观', async ({ page }) => {
   await expect(reset).toBeDisabled();
 });
 
+test('所有颜色预设在浅色下都解析出正确的品牌主色', async ({ page }) => {
+  await page.goto('/welcome');
+  const dialog = await openModal(page);
+  await group(dialog, '主题').getByRole('button', { name: '浅色', exact: true }).click();
+
+  const expected: Record<string, string> = {
+    默认: '#cc785c', Anthropic: '#cc785c', 超大字体简易: '#1f2937', 暗夜: '#334155',
+    玫瑰花园: '#db2777', 湖光: '#0d9488', 日落霞光: '#ea580c', 森林低语: '#15803d',
+    海风: '#2563eb', 薰衣草梦: '#7c3aed',
+  };
+  const colors = group(dialog, '颜色预设');
+  for (const [label, hex] of Object.entries(expected)) {
+    await colors.getByRole('button', { name: label, exact: true }).click();
+    const primary = await page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--fin-primary').trim().toLowerCase());
+    expect(primary, `颜色预设「${label}」应为 ${hex}`).toBe(hex);
+  }
+});
+
+test('切换侧边栏与布局形态都不会让页面塌陷', async ({ page }) => {
+  await page.goto('/welcome');
+  const dialog = await openModal(page);
+  const bodyWidth = () => page.evaluate(() => Math.round(document.body.getBoundingClientRect().width));
+
+  for (const label of ['浮动', '侧边栏', '内嵌']) {
+    await group(dialog, '侧边栏').getByRole('button', { name: label, exact: true }).click();
+    expect(await bodyWidth(), `侧边栏「${label}」后页面不应塌陷`).toBeGreaterThan(600);
+  }
+  for (const label of ['紧凑', '全屏布局', '默认']) {
+    await group(dialog, '布局').getByRole('button', { name: label, exact: true }).click();
+    expect(await bodyWidth(), `布局「${label}」后页面不应塌陷`).toBeGreaterThan(600);
+  }
+});
+
 test('关闭按钮与遮罩点击都能关闭弹窗', async ({ page }) => {
   await page.goto('/welcome');
   const dialog = await openModal(page);

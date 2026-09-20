@@ -28,7 +28,11 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 onMounted(() => document.addEventListener('keydown', onKeydown));
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown));
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKeydown);
+  // 弹窗开启时若组件被卸载（如会话过期跳转 /login），务必解除 body 滚动锁。
+  if (typeof document !== 'undefined') document.body.style.overflow = '';
+});
 
 // 打开时锁定 body 滚动，关闭时恢复。
 watch(open, (value) => {
