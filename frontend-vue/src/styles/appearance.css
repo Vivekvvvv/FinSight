@@ -72,8 +72,7 @@
   html[data-sidebar='rail'] .app-shell { --fin-rail-width: 84px; }
   html[data-sidebar='rail'] .brand-lockup span,
   html[data-sidebar='rail'] .nav-link strong,
-  html[data-sidebar='rail'] .rail-card,
-  html[data-sidebar='rail'] .identity-block {
+  html[data-sidebar='rail'] .rail-card {
     display: none;
   }
   html[data-sidebar='rail'] .brand-lockup { justify-content: center; }

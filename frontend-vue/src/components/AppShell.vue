@@ -3,10 +3,10 @@ import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { apiClient } from '@/api/client';
 import EmptyState from '@/components/EmptyState.vue';
-import IdentityPanel from '@/components/IdentityPanel.vue';
 import LoadingState from '@/components/LoadingState.vue';
 import StatusBanner from '@/components/StatusBanner.vue';
 import AppearanceMenu from '@/components/AppearanceMenu.vue';
+import UserMenu from '@/components/UserMenu.vue';
 import { useIdentityStore } from '@/stores/identity';
 import type { DemoStatusResponse, PortfolioSummary, WatchlistItem } from '@/api/types';
 import { usePullToRefresh } from '@/composables/usePullToRefresh';
@@ -179,7 +179,6 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
         </span>
       </div>
 
-      <IdentityPanel class="identity-block" />
     </aside>
 
     <div class="workspace">
@@ -230,6 +229,7 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
         >
           上下文
         </button>
+        <UserMenu />
       </header>
 
       <main
@@ -647,12 +647,6 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
 .rail-card strong {
   display: block;
   font-size: 22px;
-}
-
-.identity-block {
-  border-radius: 18px;
-  overflow: hidden;
-  flex-shrink: 0;
 }
 
 .rail-card {
