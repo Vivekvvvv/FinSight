@@ -3,14 +3,24 @@ import { defineStore } from 'pinia';
 
 export type ThemePreference = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
-export type AccentChoice = 'ember' | 'azure' | 'emerald' | 'violet' | 'rose';
-export type FontChoice = 'sans' | 'system' | 'serif' | 'rounded';
-export type RadiusChoice = 'sharp' | 'small' | 'default' | 'large';
-export type DensityChoice = 'compact' | 'default' | 'spacious';
-export type SidebarChoice = 'expanded' | 'collapsed';
-export type ShellLayoutChoice = 'left' | 'right';
+export type AccentChoice =
+  | 'default'
+  | 'anthropic'
+  | 'bigfont'
+  | 'midnight'
+  | 'rosegarden'
+  | 'lake'
+  | 'sunset'
+  | 'forest'
+  | 'seabreeze'
+  | 'lavender';
+export type FontChoice = 'auto' | 'sans' | 'serif';
+export type RadiusChoice = 'auto' | '0' | '0.3' | '0.5' | '0.75' | '1.0';
+export type DensityChoice = 'compact' | 'default' | 'spacious' | 'xl';
+export type SidebarChoice = 'inset' | 'floating' | 'rail';
+export type ShellLayoutChoice = 'default' | 'compact' | 'full';
 export type DirectionChoice = 'ltr' | 'rtl';
-export type ContentWidthChoice = 'narrow' | 'standard' | 'wide' | 'full';
+export type ContentWidthChoice = 'full' | 'centered';
 
 export interface AppearanceState {
   mode: ThemePreference;
@@ -30,25 +40,28 @@ const QUERY = '(prefers-color-scheme: dark)';
 
 export const DEFAULT_APPEARANCE: AppearanceState = {
   mode: 'system',
-  accent: 'ember',
-  font: 'sans',
-  radius: 'default',
+  accent: 'default',
+  font: 'auto',
+  radius: 'auto',
   density: 'default',
-  sidebar: 'expanded',
-  layout: 'left',
+  sidebar: 'inset',
+  layout: 'default',
   direction: 'ltr',
-  contentWidth: 'standard',
+  contentWidth: 'full',
 };
 
 const MODES: ThemePreference[] = ['dark', 'light', 'system'];
-const ACCENTS: AccentChoice[] = ['ember', 'azure', 'emerald', 'violet', 'rose'];
-const FONTS: FontChoice[] = ['sans', 'system', 'serif', 'rounded'];
-const RADII: RadiusChoice[] = ['sharp', 'small', 'default', 'large'];
-const DENSITIES: DensityChoice[] = ['compact', 'default', 'spacious'];
-const SIDEBARS: SidebarChoice[] = ['expanded', 'collapsed'];
-const LAYOUTS: ShellLayoutChoice[] = ['left', 'right'];
+const ACCENTS: AccentChoice[] = [
+  'default', 'anthropic', 'bigfont', 'midnight', 'rosegarden',
+  'lake', 'sunset', 'forest', 'seabreeze', 'lavender',
+];
+const FONTS: FontChoice[] = ['auto', 'sans', 'serif'];
+const RADII: RadiusChoice[] = ['auto', '0', '0.3', '0.5', '0.75', '1.0'];
+const DENSITIES: DensityChoice[] = ['compact', 'default', 'spacious', 'xl'];
+const SIDEBARS: SidebarChoice[] = ['inset', 'floating', 'rail'];
+const LAYOUTS: ShellLayoutChoice[] = ['default', 'compact', 'full'];
 const DIRECTIONS: DirectionChoice[] = ['ltr', 'rtl'];
-const CONTENT_WIDTHS: ContentWidthChoice[] = ['narrow', 'standard', 'wide', 'full'];
+const CONTENT_WIDTHS: ContentWidthChoice[] = ['full', 'centered'];
 
 function pick<T>(candidate: unknown, allowed: T[], fallback: T): T {
   return allowed.includes(candidate as T) ? (candidate as T) : fallback;
@@ -136,7 +149,7 @@ export const useThemeStore = defineStore('theme', () => {
     root.dataset.font = font.value;
     root.dataset.radius = radius.value;
     root.dataset.density = density.value;
-    root.dataset.rail = sidebar.value;
+    root.dataset.sidebar = sidebar.value;
     root.dataset.shellLayout = layout.value;
     root.dataset.contentWidth = contentWidth.value;
     root.dir = direction.value;
@@ -170,9 +183,6 @@ export const useThemeStore = defineStore('theme', () => {
   function setSidebar(next: SidebarChoice): void {
     sidebar.value = pick(next, SIDEBARS, sidebar.value);
     commit();
-  }
-  function toggleSidebar(): void {
-    setSidebar(sidebar.value === 'expanded' ? 'collapsed' : 'expanded');
   }
   function setLayout(next: ShellLayoutChoice): void {
     layout.value = pick(next, LAYOUTS, layout.value);
@@ -258,7 +268,6 @@ export const useThemeStore = defineStore('theme', () => {
     setRadius,
     setDensity,
     setSidebar,
-    toggleSidebar,
     setLayout,
     setDirection,
     setContentWidth,

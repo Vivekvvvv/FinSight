@@ -731,7 +731,7 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   width: 100%;
   max-width: var(--fin-content-max, none);
   margin-inline: auto;
-  padding: clamp(20px, 2.4vw, 36px);
+  padding: var(--fin-shell-pad, clamp(20px, 2.4vw, 36px));
 }
 
 /* 侧边栏收起 / 靠右布局的规则放在全局 styles/appearance.css，
