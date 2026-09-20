@@ -173,6 +173,28 @@ test('切换侧边栏与布局形态都不会让页面塌陷', async ({ page }) 
   }
 });
 
+test.describe('首屏防闪', () => {
+  // 屏蔽 service worker，配合 abort 入口脚本，确保 Vue 无法挂载，
+  // 从而 <html> 上的属性只可能来自 index.html 的内联脚本。
+  test.use({ serviceWorkers: 'block' });
+
+  test('挂载前内联脚本就应用持久化外观（防止刷新闪默认主题）', async ({ page }) => {
+    await page.addInitScript(() =>
+      localStorage.setItem('finsight-appearance', JSON.stringify({ mode: 'dark', sidebar: 'rail', accent: 'lake' })));
+    // 阻断所有 JS 模块，Vue 无法挂载；index.html 内联脚本不走网络仍会执行。
+    await page.route('**/@vite/**', (route) => route.abort());
+    await page.route('**/src/**', (route) => route.abort());
+    await page.route('**/node_modules/**', (route) => route.abort());
+    await page.goto('/welcome', { waitUntil: 'domcontentloaded' });
+
+    // #app 为空证明 Vue 未挂载，属性确实是首屏前的内联脚本设置的
+    expect(await page.evaluate(() => document.getElementById('app')?.childElementCount ?? -1)).toBe(0);
+    expect(await rootAttr(page, 'data-theme')).toBe('dark');
+    expect(await rootAttr(page, 'data-sidebar')).toBe('rail');
+    expect(await rootAttr(page, 'data-accent')).toBe('lake');
+  });
+});
+
 test('关闭按钮与遮罩点击都能关闭弹窗', async ({ page }) => {
   await page.goto('/welcome');
   const dialog = await openModal(page);
