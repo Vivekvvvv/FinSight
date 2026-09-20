@@ -52,9 +52,14 @@
 :root[data-density='default'] { font-size: 16px; --fin-gap-scale: 1; }
 :root[data-density='spacious'] { font-size: 17px; --fin-gap-scale: 1.14; }
 :root[data-density='xl'] { font-size: 19px; --fin-gap-scale: 1.28; }
-:root[data-density='compact'] body { font-size: 15px; }
-:root[data-density='spacious'] body { font-size: 17px; }
-:root[data-density='xl'] body { font-size: 19px; }
+/* #app 在 tokens.css 里被 ID 选择器锁死 16px（优先级 1,0,0），必须用带 #app
+   的选择器（1,2,0）覆盖，否则密度对正文字号完全无效。 */
+:root[data-density='compact'] body,
+:root[data-density='compact'] #app { font-size: 15px; }
+:root[data-density='spacious'] body,
+:root[data-density='spacious'] #app { font-size: 17px; }
+:root[data-density='xl'] body,
+:root[data-density='xl'] #app { font-size: 19px; }
 
 /* ============ 内容宽度 ============ */
 :root[data-content-width='full'] { --fin-content-max: none; }

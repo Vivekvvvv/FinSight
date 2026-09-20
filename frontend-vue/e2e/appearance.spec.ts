@@ -145,6 +145,19 @@ test('所有颜色预设在浅色下都解析出正确的品牌主色', async ({
   }
 });
 
+test('密度确实改变正文字号（#app 被 tokens 的 ID 选择器锁死过）', async ({ page }) => {
+  await page.goto('/welcome');
+  const dialog = await openModal(page);
+  const appFontSize = () => page.evaluate(() => getComputedStyle(document.getElementById('app')!).fontSize);
+
+  await group(dialog, '密度').getByRole('button', { name: '超大', exact: true }).click();
+  expect(await appFontSize()).toBe('19px');
+  await group(dialog, '密度').getByRole('button', { name: '紧凑', exact: true }).click();
+  expect(await appFontSize()).toBe('15px');
+  await group(dialog, '密度').getByRole('button', { name: '默认', exact: true }).click();
+  expect(await appFontSize()).toBe('16px');
+});
+
 test('切换侧边栏与布局形态都不会让页面塌陷', async ({ page }) => {
   await page.goto('/welcome');
   const dialog = await openModal(page);
