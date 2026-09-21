@@ -45,6 +45,10 @@ const SKIP_GLOBAL_LOADING_HEADER = 'X-Skip-Global-Loading';
 let activeRequestCount = 0;
 const loadingCallbacks = new Set<(isLoading: boolean) => void>();
 let loadingRequestSeq = 0;
+// resetGlobalLoading（安全兜底/20s 超时）会把计数清零。此前在途的请求仍带着
+// 旧的 requestId，若它们之后完成再各减 1，会把新请求撑起的计数误减到 0，
+// 导致明明还在加载却把转圈藏掉。用 generation 作废掉重置前的所有在途 -1。
+let loadingGeneration = 0;
 
 export function onLoadingChange(callback: (isLoading: boolean) => void) {
   loadingCallbacks.add(callback);
@@ -65,6 +69,7 @@ function updateLoadingState(delta: number) {
 
 export function resetGlobalLoading() {
   activeRequestCount = 0;
+  loadingGeneration += 1;
   loadingCallbacks.forEach(cb => {
     try {
       cb(false);
@@ -96,18 +101,27 @@ function shouldSkipGlobalLoading(config: { headers?: unknown }): boolean {
 }
 
 http.interceptors.request.use((config) => {
-  const configWithMeta = config as typeof config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number };
+  const configWithMeta = config as typeof config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number; globalLoadingGeneration?: number };
   configWithMeta.skipGlobalLoading = shouldSkipGlobalLoading(config);
   removeHeader(config.headers, SKIP_GLOBAL_LOADING_HEADER);
 
   if (!configWithMeta.skipGlobalLoading) {
     // 增加活跃请求计数
     configWithMeta.globalLoadingRequestId = ++loadingRequestSeq;
+    configWithMeta.globalLoadingGeneration = loadingGeneration;
     updateLoadingState(1);
   }
 
   if (typeof window === 'undefined') return config;
-  const token = String(window.localStorage.getItem('finsight-access-token') || '').trim();
+  // localStorage 在隐私模式/企业策略下访问会抛 SecurityError。此处已在上面 +1 计数，
+  // 若这里抛出，异常没有 .config，响应错误拦截器的守卫无法 -1，计数永久卡住、全局
+  // loading 转圈不停。用 try/catch 兜底：拿不到 token 就当未登录继续发请求。
+  let token = '';
+  try {
+    token = String(window.localStorage.getItem('finsight-access-token') || '').trim();
+  } catch {
+    token = '';
+  }
   if (!token) return config;
   const headers = config.headers ?? {};
   const hasAuthorization = typeof headers.get === 'function'
@@ -130,19 +144,19 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (resp) => {
-    const configWithMeta = resp.config as typeof resp.config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number };
+    const configWithMeta = resp.config as typeof resp.config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number; globalLoadingGeneration?: number };
     if (!configWithMeta.skipGlobalLoading && configWithMeta.globalLoadingRequestId) {
-      // 请求成功，减少计数
-      updateLoadingState(-1);
+      // 请求成功，减少计数（仅当仍属当前 generation，否则已被 reset 作废）
+      if (configWithMeta.globalLoadingGeneration === loadingGeneration) updateLoadingState(-1);
       configWithMeta.globalLoadingRequestId = undefined;
     }
     return resp;
   },
   (error: AxiosError) => {
-    const configWithMeta = error.config as typeof error.config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number } | undefined;
+    const configWithMeta = error.config as typeof error.config & { skipGlobalLoading?: boolean; globalLoadingRequestId?: number; globalLoadingGeneration?: number } | undefined;
     if (configWithMeta && !configWithMeta.skipGlobalLoading && configWithMeta.globalLoadingRequestId) {
-      // 请求失败，减少计数
-      updateLoadingState(-1);
+      // 请求失败，减少计数（仅当仍属当前 generation，否则已被 reset 作废）
+      if (configWithMeta.globalLoadingGeneration === loadingGeneration) updateLoadingState(-1);
       configWithMeta.globalLoadingRequestId = undefined;
     }
     return Promise.reject(error);
