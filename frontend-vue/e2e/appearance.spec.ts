@@ -219,3 +219,33 @@ test('关闭按钮与遮罩点击都能关闭弹窗', async ({ page }) => {
   await page.locator('.appearance-overlay').click({ position: { x: 8, y: 8 } });
   await expect(page.getByRole('dialog', { name: '主题设置' })).toBeHidden();
 });
+
+// RTL 是「全站镜像」：固定定位面板用 translateX 不会随 dir 自动翻转，需手动镜像。
+test('RTL 下上下文抽屉贴左侧滑入（桌面镜像）', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/welcome');
+  const dialog = await openModal(page);
+  await group(dialog, '方向').getByRole('button', { name: '从右到左', exact: true }).click();
+  expect(await rootAttr(page, 'dir')).toBe('rtl');
+  await dialog.getByRole('button', { name: '关闭' }).click();
+
+  await page.locator('.context-button').click();
+  const box = await page.locator('.context-drawer.open').boundingBox();
+  expect(box, '上下文抽屉应可见').not.toBeNull();
+  // 镜像后抽屉应贴视口左侧（left≈0），而非默认 LTR 的右侧
+  expect(Math.round(box!.x)).toBeLessThanOrEqual(1);
+});
+
+test('RTL 下移动端侧栏贴右侧滑入（移动镜像）', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 720 });
+  await page.goto('/welcome');
+  const dialog = await openModal(page);
+  await group(dialog, '方向').getByRole('button', { name: '从右到左', exact: true }).click();
+  await dialog.getByRole('button', { name: '关闭' }).click();
+
+  await page.locator('.mobile-menu').click();
+  const box = await page.locator('.side-rail').boundingBox();
+  expect(box, '侧栏应可见').not.toBeNull();
+  // 镜像后侧栏右边缘应贴视口右侧（≈375），而非默认 LTR 的贴左
+  expect(Math.round(box!.x + box!.width)).toBeGreaterThanOrEqual(374);
+});

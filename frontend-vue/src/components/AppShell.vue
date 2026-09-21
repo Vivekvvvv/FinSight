@@ -771,6 +771,18 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   pointer-events: auto;
 }
 
+/* RTL 全站镜像：抽屉改为贴左侧、从左侧滑入（translateX 不随 dir 翻转，需手动镜像）。 */
+html[dir='rtl'] .context-drawer {
+  inset: 0 auto 0 0;
+  border-left: 0;
+  border-right: 1px solid var(--fin-border);
+  box-shadow: 28px 0 90px rgba(0, 0, 0, 0.28);
+  transform: translateX(-104%);
+}
+html[dir='rtl'] .context-drawer.open {
+  transform: translateX(0);
+}
+
 .drawer-head {
   display: flex;
   align-items: center;
@@ -837,6 +849,15 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
   }
 
   .side-rail.open {
+    transform: translateX(0);
+  }
+
+  /* RTL 全站镜像：侧栏改为贴右侧、从右侧滑入。 */
+  html[dir='rtl'] .side-rail {
+    inset: 0 0 0 auto;
+    transform: translateX(100%);
+  }
+  html[dir='rtl'] .side-rail.open {
     transform: translateX(0);
   }
 
