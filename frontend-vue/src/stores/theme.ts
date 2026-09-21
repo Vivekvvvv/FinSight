@@ -71,13 +71,22 @@ function readAppearance(): AppearanceState {
   if (typeof window === 'undefined') return { ...DEFAULT_APPEARANCE };
   const state: AppearanceState = { ...DEFAULT_APPEARANCE };
 
+  // localStorage 在隐私模式/企业策略下访问会抛 SecurityError。此函数在 store
+  // 构造期（模块加载即执行）就跑，若不兜住会让整个应用启动即崩，什么都渲染不出。
+  let legacy: string | null = null;
+  let raw: string | null = null;
+  try {
+    legacy = window.localStorage.getItem(LEGACY_THEME_KEY);
+    raw = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return state;
+  }
+
   // 迁移旧的单一主题偏好键，保留用户已有选择。
-  const legacy = window.localStorage.getItem(LEGACY_THEME_KEY);
   if (legacy === 'dark' || legacy === 'light' || legacy === 'system') {
     state.mode = legacy;
   }
 
-  const raw = window.localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as Partial<AppearanceState>;
@@ -136,9 +145,15 @@ export const useThemeStore = defineStore('theme', () => {
 
   function persist(): void {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot()));
-    // 保留旧键，避免尚未升级的其它入口读到空值。
-    window.localStorage.setItem(LEGACY_THEME_KEY, mode.value);
+    // 隐私模式/企业策略下 setItem 会抛 SecurityError；持久化失败不应连累到
+    // apply()（commit 里 apply 在前）已生效的主题切换，静默降级为不落盘即可。
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot()));
+      // 保留旧键，避免尚未升级的其它入口读到空值。
+      window.localStorage.setItem(LEGACY_THEME_KEY, mode.value);
+    } catch {
+      /* 不落盘，主题仍在本次会话内生效 */
+    }
   }
 
   function apply(): void {
