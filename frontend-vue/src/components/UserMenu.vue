@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useIdentityStore } from '@/stores/identity';
 
@@ -10,6 +10,8 @@ const open = ref(false);
 const profileOpen = ref(false);
 const loggingOut = ref(false);
 const root = ref<HTMLElement | null>(null);
+const triggerRef = ref<HTMLButtonElement | null>(null);
+const profileCloseRef = ref<HTMLButtonElement | null>(null);
 
 const ROLE_LABELS: Record<string, string> = {
   dev: '开发',
@@ -58,9 +60,13 @@ onBeforeUnmount(() => {
   if (typeof document !== 'undefined') document.body.style.overflow = '';
 });
 
-watch(profileOpen, (value) => {
+watch(profileOpen, async (value) => {
   if (typeof document === 'undefined') return;
   document.body.style.overflow = value ? 'hidden' : '';
+  // 打开时把焦点移入资料弹窗，关闭时归还给头像触发按钮（键盘/读屏可访问性）。
+  await nextTick();
+  if (value) profileCloseRef.value?.focus();
+  else triggerRef.value?.focus();
 });
 
 function openProfile() {
@@ -102,6 +108,7 @@ const profileRows = computed(() => [
     class="user-menu"
   >
     <button
+      ref="triggerRef"
       type="button"
       class="avatar-trigger"
       :class="{ active: open }"
@@ -203,6 +210,7 @@ const profileRows = computed(() => [
               </div>
             </div>
             <button
+              ref="profileCloseRef"
               type="button"
               class="close"
               aria-label="关闭"

@@ -76,6 +76,22 @@ test('登出会清空本地身份并跳转登录页', async ({ page }) => {
   expect(token).toBeNull();
 });
 
+test('资料弹窗打开焦点移入、关闭焦点归还头像按钮', async ({ page }) => {
+  await page.goto('/welcome');
+  const menu = await openMenu(page);
+  await menu.getByRole('menuitem', { name: '个人资料' }).click();
+
+  const dialog = page.getByRole('dialog', { name: '个人资料' });
+  await expect(dialog).toBeVisible();
+  // 打开后焦点应在弹窗内（关闭按钮），而非丢到 <body>
+  await expect(dialog.getByRole('button', { name: '关闭' })).toBeFocused();
+
+  await dialog.getByRole('button', { name: '关闭' }).click();
+  await expect(dialog).toBeHidden();
+  // 关闭后焦点应回到头像触发按钮
+  await expect(page.getByRole('button', { name: '账户菜单' })).toBeFocused();
+});
+
 test('点击外部关闭账户菜单', async ({ page }) => {
   await page.goto('/welcome');
   await openMenu(page);
