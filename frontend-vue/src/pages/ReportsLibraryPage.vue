@@ -188,6 +188,7 @@ const sidebarLoading = ref(false);
 const noteText = ref('');
 const noteSaving = ref(false);
 let noteDebounce: ReturnType<typeof setTimeout> | null = null;
+let notePending = false; // 有编辑但尚未落盘（防抖悬挂中）
 
 async function openSidebar(item: ReportIndexItem): Promise<void> {
   sidebarItem.value = item;
@@ -202,28 +203,39 @@ async function openSidebar(item: ReportIndexItem): Promise<void> {
   finally { sidebarLoading.value = false; }
 }
 
+// 关闭前必须先把悬挂的防抖编辑落盘，否则 600ms 内关闭会丢掉用户刚敲的备注。
 function closeSidebar() {
+  flushPendingNote();
   sidebarItem.value = null; sidebarReplay.value = null;
   noteText.value = '';
-  if (noteDebounce) clearTimeout(noteDebounce);
 }
 
 function onNoteInput() {
+  notePending = true;
   if (noteDebounce) clearTimeout(noteDebounce);
   noteDebounce = setTimeout(() => void saveNote(), 600);
 }
 
-// 输入后 600ms 内路由离开时，悬挂的防抖定时器仍会 fire 发起多余 PATCH
+// 取消防抖定时器并立刻把待落盘的编辑保存掉（关闭/卸载路径都要 flush，不能只 clear）。
+function flushPendingNote(): void {
+  if (noteDebounce) { clearTimeout(noteDebounce); noteDebounce = null; }
+  if (notePending) void saveNote();
+}
+
+// 输入后 600ms 内路由离开时：flush 悬挂编辑（best-effort），避免丢数据。
 onUnmounted(() => {
-  if (noteDebounce) clearTimeout(noteDebounce);
+  flushPendingNote();
 });
 
 async function saveNote(): Promise<void> {
-  if (!sidebarItem.value) return;
+  const item = sidebarItem.value;
+  if (!item) return;
+  notePending = false;
+  const note = noteText.value;
   noteSaving.value = true;
   try {
-    await apiClient.patchReportNote({ sessionId: identity.sessionId, reportId: sidebarItem.value.report_id, note: noteText.value });
-    sidebarItem.value.user_note = noteText.value;
+    await apiClient.patchReportNote({ sessionId: identity.sessionId, reportId: item.report_id, note });
+    item.user_note = note; // 用局部引用，关闭把 sidebarItem 置空后也不会抛
   } catch (err) { errorMsg.value = reportFriendlyError(err, '个人备注保存失败，请稍后重试。'); }
   finally { noteSaving.value = false; }
 }
