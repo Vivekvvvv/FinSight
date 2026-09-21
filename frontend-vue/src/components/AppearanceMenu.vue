@@ -815,6 +815,17 @@ const directionOptions: Array<{ value: DirectionChoice; label: string }> = [
   font-weight: 800;
 }
 
+/* 窄屏顶栏空间紧张：只留齿轮图标，隐藏「外观」文字，避免整条 bar 溢出。
+   aria-label 仍在按钮上，读屏与可访问名称不受影响。 */
+@media (max-width: 820px) {
+  .appearance-trigger {
+    padding: 8px;
+  }
+  .appearance-trigger em {
+    display: none;
+  }
+}
+
 @media (max-width: 560px) {
   .cols-4 { grid-template-columns: repeat(3, 1fr); }
   .cols-6 { grid-template-columns: repeat(4, 1fr); }

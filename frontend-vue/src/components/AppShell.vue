@@ -844,6 +844,30 @@ const { isRefreshing, pullStyle } = usePullToRefresh(loadContext);
     display: inline-flex;
   }
 
+  /* 顶栏在窄屏容纳了外观/账户菜单，需给标题让位、去掉与 source-pill 功能重复的
+     「上下文」按钮，否则整条 bar 溢出（653px > 375px），账户菜单被挤出视口不可点。 */
+  .terminal-bar {
+    gap: 8px;
+    padding: 0 12px;
+  }
+
+  .route-title {
+    min-width: 0;
+    flex: 1 1 0;
+    overflow: hidden;
+  }
+
+  .terminal-bar h1,
+  .terminal-kicker {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .context-button {
+    display: none;
+  }
+
   .workspace-main {
     padding: 16px;
   }

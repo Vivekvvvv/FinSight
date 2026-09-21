@@ -98,3 +98,26 @@ test('点击外部关闭账户菜单', async ({ page }) => {
   await page.locator('.workspace-main').click({ position: { x: 12, y: 12 } });
   await expect(page.getByRole('menu', { name: '账户菜单' })).toBeHidden();
 });
+
+// 顶栏新增外观/账户菜单后曾在窄屏溢出（653px>375px），把账户菜单挤出视口不可点。
+test('窄屏(375)顶栏不横向溢出，账户菜单仍在视口内且可点开', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 720 });
+  await page.goto('/welcome');
+
+  const trigger = page.getByRole('button', { name: '账户菜单' });
+  await expect(trigger).toBeVisible();
+
+  // 页面不出现横向滚动
+  const overflowX = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflowX, `窄屏不应横向溢出，实际溢出 ${overflowX}px`).toBeLessThanOrEqual(1);
+
+  // 头像触发按钮完整落在视口内（右边缘不越界）
+  const box = await trigger.boundingBox();
+  expect(box, '账户菜单按钮应可见').not.toBeNull();
+  expect(Math.round(box!.x + box!.width)).toBeLessThanOrEqual(375);
+
+  // 且确实能点开菜单
+  await trigger.click();
+  await expect(page.getByRole('menu', { name: '账户菜单' })).toBeVisible();
+});
