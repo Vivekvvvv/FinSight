@@ -220,6 +220,25 @@ test('关闭按钮与遮罩点击都能关闭弹窗', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: '主题设置' })).toBeHidden();
 });
 
+// aria-modal="true" 承诺焦点不外泄，但浏览器不自动实现，需手动焦点陷阱。
+test('Tab / Shift+Tab 焦点不会跑出主题设置弹窗', async ({ page }) => {
+  await page.goto('/welcome');
+  await openModal(page);
+
+  const inModal = () => page.evaluate(() => !!document.activeElement?.closest('.appearance-modal'));
+
+  // 反复正向 Tab，焦点始终留在弹窗内
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press('Tab');
+    expect(await inModal(), `第 ${i} 次 Tab 后焦点不应跑出弹窗`).toBe(true);
+  }
+  // 反复反向 Shift+Tab，同样留在弹窗内
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press('Shift+Tab');
+    expect(await inModal(), `第 ${i} 次 Shift+Tab 后焦点不应跑出弹窗`).toBe(true);
+  }
+});
+
 // RTL 是「全站镜像」：固定定位面板用 translateX 不会随 dir 自动翻转，需手动镜像。
 test('RTL 下上下文抽屉贴左侧滑入（桌面镜像）', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });

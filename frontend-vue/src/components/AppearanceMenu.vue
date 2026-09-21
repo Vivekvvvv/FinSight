@@ -18,6 +18,7 @@ const theme = useThemeStore();
 const open = ref(false);
 const triggerRef = ref<HTMLButtonElement | null>(null);
 const closeRef = ref<HTMLButtonElement | null>(null);
+const modalRef = ref<HTMLElement | null>(null);
 
 function show() {
   open.value = true;
@@ -27,7 +28,31 @@ function close() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && open.value) close();
+  if (!open.value) return;
+  if (event.key === 'Escape') {
+    close();
+    return;
+  }
+  // 焦点陷阱：aria-modal 承诺焦点不外泄，但浏览器不会自动实现，需手动在首尾环绕。
+  if (event.key !== 'Tab') return;
+  const modal = modalRef.value;
+  if (!modal) return;
+  const focusables = Array.from(
+    modal.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+  if (focusables.length === 0) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement as HTMLElement | null;
+  if (event.shiftKey && (active === first || !modal.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 // 打开时把焦点移入弹窗，关闭时归还给触发按钮（键盘/读屏可访问性）。
@@ -140,6 +165,7 @@ const directionOptions: Array<{ value: DirectionChoice; label: string }> = [
         @click.self="close"
       >
         <div
+          ref="modalRef"
           class="appearance-modal"
           role="dialog"
           aria-modal="true"
