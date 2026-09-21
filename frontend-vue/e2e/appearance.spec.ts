@@ -195,6 +195,18 @@ test.describe('首屏防闪', () => {
   });
 });
 
+test('弹窗打开焦点移入、关闭焦点归还触发按钮', async ({ page }) => {
+  await page.goto('/welcome');
+  await openModal(page);
+  // 打开后焦点应在弹窗内（关闭按钮），而非停在外部的触发按钮
+  await expect(page.locator('.appearance-modal .close')).toBeFocused();
+
+  await page.locator('.appearance-modal .close').click();
+  await expect(page.getByRole('dialog', { name: '主题设置' })).toBeHidden();
+  // 关闭后焦点应回到触发按钮，而不是丢到 <body>
+  await expect(page.getByRole('button', { name: '外观设置' })).toBeFocused();
+});
+
 test('关闭按钮与遮罩点击都能关闭弹窗', async ({ page }) => {
   await page.goto('/welcome');
   const dialog = await openModal(page);

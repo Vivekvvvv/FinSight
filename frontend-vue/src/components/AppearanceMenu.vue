@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   useThemeStore,
   type AccentChoice,
@@ -16,6 +16,9 @@ import {
 const theme = useThemeStore();
 
 const open = ref(false);
+const triggerRef = ref<HTMLButtonElement | null>(null);
+const closeRef = ref<HTMLButtonElement | null>(null);
+
 function show() {
   open.value = true;
 }
@@ -26,6 +29,13 @@ function close() {
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && open.value) close();
 }
+
+// 打开时把焦点移入弹窗，关闭时归还给触发按钮（键盘/读屏可访问性）。
+watch(open, async (value) => {
+  await nextTick();
+  if (value) closeRef.value?.focus();
+  else triggerRef.value?.focus();
+});
 
 onMounted(() => document.addEventListener('keydown', onKeydown));
 onBeforeUnmount(() => {
@@ -107,6 +117,7 @@ const directionOptions: Array<{ value: DirectionChoice; label: string }> = [
 <template>
   <div class="appearance-menu">
     <button
+      ref="triggerRef"
       type="button"
       class="appearance-trigger"
       :class="{ active: open }"
@@ -140,6 +151,7 @@ const directionOptions: Array<{ value: DirectionChoice; label: string }> = [
               <p>调整外观和布局以适应您的偏好。</p>
             </div>
             <button
+              ref="closeRef"
               type="button"
               class="close"
               aria-label="关闭"
