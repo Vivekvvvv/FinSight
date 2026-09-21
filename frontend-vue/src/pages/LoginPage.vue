@@ -51,6 +51,9 @@ function enterGuest() {
     email: 'guest@finsight.local',
     accessToken: '',
   });
+  // saveLocalIdentity 不设 role；不显式置为 guest 的话 role 停留在默认 'dev'，
+  // isGuest=false，路由守卫 requiresAuth&&isGuest 永不触发，访客能进受保护页。
+  identity.role = 'guest';
   router.push('/welcome');
 }
 
