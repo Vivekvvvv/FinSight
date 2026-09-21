@@ -57,16 +57,27 @@ export function usePullToRefresh(
     }
   }
 
+  // 浏览器中断触摸（系统手势、来电、接管滚动）时只派发 touchcancel、不派发
+  // touchend；不处理的话 pulling 会一直为 true、pullDistance 归不了零，内容
+  // 卡在下拉位移状态。这里直接复位，不触发刷新。
+  function onTouchCancel() {
+    if (!pulling.value) return;
+    pulling.value = false;
+    pullDistance.value = 0;
+  }
+
   onMounted(() => {
     document.addEventListener('touchstart', onTouchStart, { passive: false });
     document.addEventListener('touchmove', onTouchMove, { passive: false });
     document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchCancel);
   });
 
   onUnmounted(() => {
     document.removeEventListener('touchstart', onTouchStart);
     document.removeEventListener('touchmove', onTouchMove);
     document.removeEventListener('touchend', onTouchEnd);
+    document.removeEventListener('touchcancel', onTouchCancel);
   });
 
   return { isRefreshing, pullDistance, pullStyle };
