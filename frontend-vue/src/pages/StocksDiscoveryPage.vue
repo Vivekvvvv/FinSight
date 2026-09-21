@@ -344,7 +344,7 @@ async function addToWatchlist(item: ScreenerItem) {
   actionMsg.value = `${item.symbol} 已加入自选列表`;
 }
 
-async function addWatchlistAndNote(item: ScreenerItem) {
+async function addWatchlistAndNote(item: ScreenerItem): Promise<boolean> {
   try {
     await addToWatchlist(item);
     const result = await apiClient.createNote({
@@ -371,8 +371,10 @@ async function addWatchlistAndNote(item: ScreenerItem) {
     actionMsg.value = result.note_id
       ? `${item.symbol} 已加入自选，并创建研究笔记`
       : `${item.symbol} 已加入自选，笔记创建结果待确认`;
+    return true;
   } catch (error) {
     errorMsg.value = reportFriendlyError(error, '加入自选失败，请稍后重试。');
+    return false;
   }
 }
 
@@ -407,10 +409,17 @@ async function batchCreateNotes() {
   errorMsg.value = null;
   try {
     const candidates = displayedItems.value.slice(0, Math.min(limit.value, 8));
+    let ok = 0;
     for (const item of candidates) {
-      await addWatchlistAndNote(item);
+      if (await addWatchlistAndNote(item)) ok += 1;
     }
-    actionMsg.value = `已为 ${candidates.length} 个候选标的创建初始研究笔记`;
+    // addWatchlistAndNote 自己吞掉异常，若不按真实成功数统计，全部失败也会
+    // 报“已为 N 个创建笔记”的假成功。
+    actionMsg.value = ok === candidates.length
+      ? `已为 ${candidates.length} 个候选标的创建初始研究笔记`
+      : ok > 0
+        ? `已为 ${ok}/${candidates.length} 个候选标的创建初始研究笔记，其余失败`
+        : null;
   } catch (error) {
     errorMsg.value = reportFriendlyError(error, '批量加入发现池失败，请稍后重试。');
   } finally {
