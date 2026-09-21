@@ -12,6 +12,7 @@ const loggingOut = ref(false);
 const root = ref<HTMLElement | null>(null);
 const triggerRef = ref<HTMLButtonElement | null>(null);
 const profileCloseRef = ref<HTMLButtonElement | null>(null);
+const profileModalRef = ref<HTMLElement | null>(null);
 
 const ROLE_LABELS: Record<string, string> = {
   dev: '开发',
@@ -45,9 +46,31 @@ function onDocClick(event: MouseEvent) {
   if (root.value && !root.value.contains(event.target as Node)) close();
 }
 function onKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape') return;
-  if (profileOpen.value) profileOpen.value = false;
-  else if (open.value) close();
+  if (event.key === 'Escape') {
+    if (profileOpen.value) profileOpen.value = false;
+    else if (open.value) close();
+    return;
+  }
+  // 焦点陷阱：资料弹窗标了 aria-modal，但浏览器不自动困住焦点，需手动首尾环绕。
+  if (event.key !== 'Tab' || !profileOpen.value) return;
+  const modal = profileModalRef.value;
+  if (!modal) return;
+  const focusables = Array.from(
+    modal.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+  if (focusables.length === 0) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement as HTMLElement | null;
+  if (event.shiftKey && (active === first || !modal.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 onMounted(() => {
@@ -193,6 +216,7 @@ const profileRows = computed(() => [
         @click.self="profileOpen = false"
       >
         <div
+          ref="profileModalRef"
           class="profile-modal"
           role="dialog"
           aria-modal="true"

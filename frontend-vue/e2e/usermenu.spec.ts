@@ -99,6 +99,24 @@ test('点击外部关闭账户菜单', async ({ page }) => {
   await expect(page.getByRole('menu', { name: '账户菜单' })).toBeHidden();
 });
 
+// aria-modal="true" 承诺焦点不外泄，浏览器不自动实现，需手动焦点陷阱。
+test('Tab / Shift+Tab 焦点不会跑出个人资料弹窗', async ({ page }) => {
+  await page.goto('/welcome');
+  const menu = await openMenu(page);
+  await menu.getByRole('menuitem', { name: '个人资料' }).click();
+  await expect(page.getByRole('dialog', { name: '个人资料' })).toBeVisible();
+
+  const inModal = () => page.evaluate(() => !!document.activeElement?.closest('.profile-modal'));
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.press('Tab');
+    expect(await inModal(), `第 ${i} 次 Tab 后焦点不应跑出弹窗`).toBe(true);
+  }
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.press('Shift+Tab');
+    expect(await inModal(), `第 ${i} 次 Shift+Tab 后焦点不应跑出弹窗`).toBe(true);
+  }
+});
+
 // 顶栏新增外观/账户菜单后曾在窄屏溢出（653px>375px），把账户菜单挤出视口不可点。
 test('窄屏(375)顶栏不横向溢出，账户菜单仍在视口内且可点开', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 720 });
