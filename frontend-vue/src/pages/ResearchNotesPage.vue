@@ -138,7 +138,23 @@ async function saveNote(): Promise<ResearchNote | null> {
     });
     if (!resp.success || !resp.note_id) throw new Error(resp.error || '创建失败');
     await refresh();
-    const created = notes.value.find((item) => item.note_id === resp.note_id) || null;
+    // refresh 带着 ticker/query 过滤条件重新拉列表：新建的笔记若不匹配当前过滤
+    // （或 refresh 本身失败，其 catch 在内部吞掉），find 会落空。此前直接
+    // setForm(null) 会把用户刚写完的标题/正文/标签整个清空、selected 变 null，
+    // 再保存就成了重复新建；handleImageUpload 也会因拿到 null 而静默中止上传。
+    // 服务端已创建成功，这里用提交时的已知字段本地补一条，保证内容和 note_id 不丢。
+    const now = new Date().toISOString();
+    const created = notes.value.find((item) => item.note_id === resp.note_id) || {
+      note_id: resp.note_id,
+      session_id: identity.sessionId,
+      user_id: identity.userId,
+      ticker: ticker.value.trim().toUpperCase() || null,
+      title: normalizedTitle,
+      content: content.value,
+      tags: parseTags(),
+      created_at: now,
+      updated_at: now,
+    };
     setForm(created);
     successMsg.value = '笔记已创建';
     return created;
