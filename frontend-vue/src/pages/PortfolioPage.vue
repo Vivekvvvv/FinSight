@@ -95,7 +95,9 @@ function parseCsv() {
     const cols = line.split(',').map((c) => c.trim());
     const [rawTicker, rawShares, rawCost, rawName, rawTags, rawNote] = cols;
     const ticker = (rawTicker || '').toUpperCase();
-    const shares = Number(rawShares);
+    // Number('') === 0：股数列为空时若直接 Number() 会被当成 0 股静默导入，
+    // 掩盖掉“漏填股数”的错误行。空/缺列一律置 NaN，走下面的格式错误分支。
+    const shares = rawShares ? Number(rawShares) : NaN;
     if (!ticker || !Number.isFinite(shares) || shares < 0) {
       csvRows.value.push({ ticker: rawTicker || '', shares: 0, avg_cost: null, name: '', tags: [], note: '', error: `格式错误: "${line}"` });
       continue;
