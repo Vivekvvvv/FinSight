@@ -149,7 +149,9 @@ function cancelEdit() { editingTicker.value = null; }
 
 async function saveEdit(ticker: string): Promise<void> {
   if (savingEditTicker.value) return;
-  const shares = Number(editForm.value.shares);
+  // Number('') === 0：股数留空时直接 Number() 会被当成 0 股静默保存，绕过下面
+  // 的“非负数”校验。留空一律置 NaN，让校验拦下并提示。
+  const shares = editForm.value.shares.trim() === '' ? NaN : Number(editForm.value.shares);
   if (!Number.isFinite(shares) || shares < 0) { errorMsg.value = '股数须为非负数'; return; }
   const avgCost = editForm.value.avgCost.trim() === '' ? null : Number(editForm.value.avgCost);
   if (avgCost !== null && (!Number.isFinite(avgCost) || avgCost < 0)) { errorMsg.value = '成本价须为非负数'; return; }
@@ -218,7 +220,9 @@ async function refresh(): Promise<void> {
 async function save(): Promise<void> {
   if (savingNew.value) return;
   const ticker = editTicker.value.trim().toUpperCase();
-  const shares = Number(editShares.value);
+  // Number('') === 0：股数留空时直接 Number() 会被当成 0 股静默保存，绕过下面
+  // 的“非负 shares”校验。留空一律置 NaN，让校验拦下并提示。
+  const shares = editShares.value.trim() === '' ? NaN : Number(editShares.value);
   if (!ticker || !Number.isFinite(shares) || shares < 0) { errorMsg.value = '请输入合法 ticker 与非负 shares'; return; }
   const avgCost = editAvgCost.value.trim() === '' ? null : Number(editAvgCost.value);
   if (avgCost !== null && (!Number.isFinite(avgCost) || avgCost < 0)) { errorMsg.value = '成本价须为非负数'; return; }
