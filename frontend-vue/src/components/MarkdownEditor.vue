@@ -160,14 +160,15 @@ const previewHtml = computed(() => {
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
+  // 图片（必须在链接之前处理：链接正则 \[..\]\(..\) 会先吃掉 ![alt](url) 里的
+  // [alt](url) 段，导致上传的图片永远渲染不成 <img>，只剩一个 ! 加一个链接）
+  html = html.replace(/!\[(.+?)\]\((.+?)\)/g, (_match, alt, url) => {
+    return `<img src="${safeUrl(url)}" alt="${alt}" style="max-width: 100%; height: auto;" />`;
+  });
+
   // 链接
   html = html.replace(/\[(.+?)\]\((.+?)\)/g, (_match, label, url) => {
     return `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
-  });
-
-  // 图片
-  html = html.replace(/!\[(.+?)\]\((.+?)\)/g, (_match, alt, url) => {
-    return `<img src="${safeUrl(url)}" alt="${alt}" style="max-width: 100%; height: auto;" />`;
   });
 
   // 代码
