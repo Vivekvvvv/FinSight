@@ -170,7 +170,14 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
             logger.warning("获取财报失败")
 
         try:
-            company_info = get_company_info(request.ticker) or {}
+            raw_info = get_company_info(request.ticker)
+            # tools/financial.get_company_info 返回 str——原样传给
+            # analyze_financials(company_info: Dict) 会在 .get("name") 上
+            # 抛 AttributeError（且在 analyzer 的 try 之外）→ 端点恒 500。
+            if isinstance(raw_info, dict):
+                company_info = raw_info
+            elif isinstance(raw_info, str) and raw_info.strip():
+                company_info = {"profile": raw_info}
         except Exception as exc:
             logger.warning("company info unavailable")
 

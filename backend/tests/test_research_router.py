@@ -104,3 +104,53 @@ def test_report_survives_tool_failures(monkeypatch):
     )
     assert resp.status_code == 200, resp.text
     assert fake.seen_context == {}
+
+
+def test_financials_analyze_survives_str_company_info(monkeypatch):
+    """get_company_info 返回 str 时 /financials/analyze 不得 500。
+
+    bug：路由把 str 原样塞进 ``analyze_financials(company_info=...)``，
+    analyzer 首行 ``(company_info or {}).get("name")`` 对 str 抛
+    AttributeError——且在 try 之外，直接冒泡成 500。只要公司概况接口
+    正常返回（恒为 str），财报分析端点必挂。
+    """
+    from types import SimpleNamespace
+
+    import backend.services.financials_analyzer as fa
+    import backend.tools as tools_pkg
+    import backend.llm_config as llm_config
+
+    monkeypatch.setattr(
+        tools_pkg, "get_financial_statements",
+        lambda ticker: {"income": {"revenue": 100}},
+    )
+    # 与 tools/financial.py 一致：返回 str
+    monkeypatch.setattr(
+        tools_pkg, "get_company_info",
+        lambda ticker: f"Company Profile ({ticker}):\n- Name: Apple",
+    )
+
+    seen: dict = {}
+    orig = fa.analyze_financials
+
+    async def _spy(**kwargs):
+        seen["company_info"] = kwargs.get("company_info")
+        return await orig(**kwargs)
+
+    monkeypatch.setattr(fa, "analyze_financials", _spy)
+
+    class _FakeLLM:
+        async def ainvoke(self, _prompt):
+            return SimpleNamespace(
+                content='{"overall_rating": {"score": 7, "label": "良好", "summary": "ok"}}'
+            )
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kw: _FakeLLM())
+
+    resp = _client().post(
+        "/api/research/financials/analyze", json={"ticker": "AAPL"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "success"
+    # analyzer 契约是 Optional[Dict]——str 必须被归一/丢弃，不得原样透传
+    assert isinstance(seen["company_info"], dict)
