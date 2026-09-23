@@ -199,3 +199,45 @@ async def test_fundamental_agent_quarterly_insufficient_history_no_fake_yoy():
     # 摘要不得出现"同比"（避免把环比误标）
     assert "同比" not in result.summary and "YoY" not in result.summary
 
+
+@pytest.mark.asyncio
+async def test_fundamental_agent_sec_fallback_evidence_not_labeled_yfinance():
+    """SEC companyfacts 兜底时，指标证据 source/url 不得标成 yfinance——
+    旧代码硬编码 source="yfinance" + Yahoo 财报页链接，把 SEC EDGAR 数据
+    的出处标错（恰好发生在 yfinance 取不到数据的标的上）。"""
+    mock_llm = MagicMock()
+    cache = DummyCache()
+    tools = MagicMock()
+    tools.get_company_info = MagicMock(return_value="")
+    tools.get_financial_statements = MagicMock(return_value={
+        "ticker": "BRX",
+        "timestamp": "2026-01-10T00:00:00",
+        "financials": {
+            "columns": ["2025-12-31", "2025-09-30", "2025-06-30", "2025-03-31", "2024-12-31"],
+            "index": ["Total Revenue", "Net Income"],
+            "data": [
+                {"2025-12-31": 125, "2025-09-30": 120, "2025-06-30": 118, "2025-03-31": 115, "2024-12-31": 110},
+                {"2025-12-31": 30, "2025-09-30": 28, "2025-06-30": 27, "2025-03-31": 25, "2024-12-31": 24},
+            ],
+        },
+        "balance_sheet": {"columns": [], "index": [], "data": []},
+        "cashflow": {"columns": [], "index": [], "data": []},
+        "error": None,
+        "warnings": ["fallback:sec_companyfacts"],
+        "source": "sec_companyfacts",
+    })
+
+    agent = FundamentalAgent(mock_llm, cache, tools)
+    result = await agent.research("fundamental analysis", "BRX")
+
+    metric_items = [
+        item for item in result.evidence
+        if item.meta.get("metric_key") in {
+            "revenue", "net_income", "operating_income",
+            "operating_cash_flow", "total_assets", "total_liabilities",
+        }
+    ]
+    assert metric_items
+    assert all(item.source == "sec_companyfacts" for item in metric_items)
+    assert all("finance.yahoo.com" not in (item.url or "") for item in metric_items)
+

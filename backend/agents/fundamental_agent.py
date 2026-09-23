@@ -280,7 +280,10 @@ class FundamentalAgent(BaseFinancialAgent):
         normalized: Dict[str, Any] = {}
         if isinstance(raw_data, dict):
             financials = raw_data.get("financials") or {}
-            source = "yfinance"
+            # 出处必须跟数据走：SEC companyfacts 兜底时 payload 带
+            # source="sec_companyfacts"（tools/financial.py），此时再标
+            # yfinance + Yahoo 链接会把 SEC EDGAR 数据的证据出处标错。
+            source = str(financials.get("source") or "yfinance") if isinstance(financials, dict) else "yfinance"
             data_sources.append(source)
             # 构造 Yahoo Finance 财务页面 URL，供证据池可点击跳转
             _ticker = str(raw_data.get("ticker") or "").strip().upper()
@@ -308,7 +311,8 @@ class FundamentalAgent(BaseFinancialAgent):
                     EvidenceItem(
                         text=f"{definition['label']}: {self._format_value(latest_value)}",
                         source=source,
-                        url=_yf_financials_url,  # Yahoo Finance 财务页面，供证据池点击跳转
+                        # Yahoo 财报页只对应 yfinance 数据；SEC 兜底数据无此页面，留 None
+                        url=_yf_financials_url if source == "yfinance" else None,
                         timestamp=str(metric.get("latest_period") or ""),
                         meta={
                             "metric_key": key,
