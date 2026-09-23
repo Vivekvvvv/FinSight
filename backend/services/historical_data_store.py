@@ -74,8 +74,8 @@ def _ensure_table() -> None:
 # ── baostock 工具 ──────────────────────────────────────────────────────────────
 
 def _to_bs_code(ticker: str) -> str:
-    """600519.SS → sh.600519  |  000001.SZ → sz.000001"""
-    t = ticker.upper().replace(".SS", "").replace(".SZ", "").replace(".SH", "")
+    """600519.SS → sh.600519  |  000001.SZ → sz.000001  |  832000.BJ → bj.832000"""
+    t = ticker.upper().replace(".SS", "").replace(".SZ", "").replace(".SH", "").replace(".BJ", "")
     prefix = t[:3]
     if prefix in ("600", "601", "603", "605", "688", "900"):
         return f"sh.{t}"
@@ -85,6 +85,11 @@ def _to_bs_code(ticker: str) -> str:
         # 否则 000001.SS 被错路由到 sz.000001（平安银行真实存在）：
         # 请求上证指数静默返回银行股数据。
         return f"sh.{t}"
+    elif ticker.upper().endswith(".BJ"):
+        # .BJ 北交所（43/83/87/92 段）——baostock 用 bj. 前缀；旧代码既不在
+        # strip 链也没有分支，t 保留 .BJ 落入 sz 兜底产出 sz.832000.BJ
+        # 畸形代码，北交所标的 K 线拉取恒空。
+        return f"bj.{t}"
     elif prefix[:2] in ("00", "30", "20", "39"):
         return f"sz.{t}"
     return f"sz.{t}"

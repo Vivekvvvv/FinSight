@@ -66,6 +66,17 @@ def test_to_bs_code_sz_index_kept():
     assert _to_bs_code("000001.SZ") == "sz.000001"  # 平安银行
 
 
+def test_to_bs_code_bj_beijing_exchange():
+    """R87: .BJ 北交所后缀被整条链路漏掉——replace 链不剥 .BJ，分支也没有它，
+    "832000.BJ" 的 t 保留后缀落入 sz 兜底，产出 sz.832000.BJ 畸形代码：
+    baostock 查询恒失败，北交所标的 K 线缓存永远落空（data_fetchers/
+    peer_service/policy_gate 等 10+ 模块都把 .BJ 算 CN，此处是孤儿）。"""
+    from backend.services.historical_data_store import _to_bs_code
+    assert _to_bs_code("832000.BJ") == "bj.832000"
+    assert _to_bs_code("920001.BJ") == "bj.920001"
+    assert _to_bs_code("430047.bj") == "bj.430047"  # 小写后缀同样归一
+
+
 # ── _adjust_flag 测试 ─────────────────────────────────────────────────────────
 
 def test_adjust_flag_qfq():
