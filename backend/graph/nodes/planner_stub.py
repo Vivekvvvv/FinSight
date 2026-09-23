@@ -51,7 +51,17 @@ def planner_stub(state: GraphState) -> dict:
     query_lower = query.lower()
 
     def _contains_any(tokens: tuple[str, ...]) -> bool:
-        return any(token in query_lower for token in tokens)
+        for token in tokens:
+            if len(token) <= 3 and token.isascii():
+                # 短 ASCII token 走非字母数字边界——"eps" 不能命中 "steps"/"pepsi"、
+                # "cpi" 不能命中 "cpic"（真实代码），与 parse_operation._match_any
+                # 同一策略；更长 token 保留子串匹配以保住 "options"/"skewed" 召回。
+                pattern = r"(?<![a-zA-Z0-9])" + re.escape(token) + r"(?![a-zA-Z0-9])"
+                if re.search(pattern, query_lower):
+                    return True
+            elif token in query_lower:
+                return True
+        return False
 
     deep_financial_tokens = (
         "deep report",
