@@ -928,3 +928,17 @@ def test_alpha_vantage_historical_note_log_is_redacted(monkeypatch, caplog):
     assert price.get_stock_historical_data("AAPL") == {"error": "No historical data for AAPL"}
     assert secret not in caplog.text
     assert "Alpha Vantage 返回提示" in caplog.text
+
+
+def test_fallback_price_search_branch_extracts_number(monkeypatch):
+    r"""_fallback_price_value 搜索兜底：正则 r"\\d" 双反斜杠会编译成
+    “字面反斜杠 + d”，永远匹配不到正常数字文本，整条搜索兜底失效。
+    修复后应能从搜索结果中提取指数水平。"""
+    monkeypatch.setattr(php, "_map_to_stooq_symbol", lambda _ticker: None)
+    monkeypatch.setattr(
+        php,
+        "search",
+        lambda _query: "benchmark index level today: 123,456 points",
+    )
+
+    assert php._fallback_price_value("^GSPC") == 123456.0

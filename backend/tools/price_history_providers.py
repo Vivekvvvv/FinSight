@@ -594,7 +594,9 @@ def _fallback_price_value(ticker: str) -> Optional[float]:
     # 搜索兜底
     try:
         search_result = search(f"{ticker} index level today")
-        m = re.search(r"(\\d{3,6}(?:,\\d{3})*(?:\\.\\d+)?)", search_result or "")
+        # r"\\d" 双反斜杠会编译成“字面反斜杠 + d”，永远匹配不到数字文本，
+        # 整条搜索兜底失效（与 conversation/context.py 同类 bug）。
+        m = re.search(r"(\d{3,6}(?:,\d{3})*(?:\.\d+)?)", search_result or "")
         if m:
             val = _safe_float_value(m.group(1).replace(",", ""))
             if val is None:
