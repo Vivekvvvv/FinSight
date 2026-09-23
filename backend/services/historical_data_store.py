@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = os.path.join(os.path.dirname(__file__), "../../data/historical_kline.db")
 _lock = threading.RLock()
+# baostock 全局会话专用锁：与 _lock 分离，避免数秒级网络拉取阻塞缓存读写
+_bs_lock = threading.Lock()
 _table_ready = False
 
 
@@ -311,8 +313,12 @@ def fetch_and_cache_kline(
         logger.debug("kline cache hit")
         return cached
 
-    # 从 baostock 拉取
-    rows = _fetch_baostock(ticker, start_date, end_date, adjust)
+    # 从 baostock 拉取。bs.login/query/logout 操作进程级全局 session，非线程安全：
+    # def 端点在 FastAPI 线程池并发执行时，一方 logout 会掐断另一方进行中的
+    # rs.next()，使其静默取空走降级。必须整段串行化（不能用 _lock——那会让
+    # 缓存读写被数秒级网络拉取阻塞）。
+    with _bs_lock:
+        rows = _fetch_baostock(ticker, start_date, end_date, adjust)
     from_baostock = bool(rows)
 
     if not rows:

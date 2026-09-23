@@ -323,3 +323,81 @@ def test_c2_required_end_respects_publish_hour():
     assert _required_end(date(2026, 7, 11), datetime(2026, 7, 11, 21, 0, tzinfo=bj)) == date(2026, 7, 10)
     # 过去区间不受“今天”影响，但休市日回退到最近交易日（2024-01-07 周日 → 01-05 周五）
     assert _required_end(date(2024, 1, 7), datetime(2026, 7, 7, 21, 0, tzinfo=bj)) == date(2024, 1, 5)
+
+
+# ── baostock 全局会话并发 ─────────────────────────────────────────────────────
+
+def test_concurrent_fetches_do_not_kill_each_others_session(store, monkeypatch):
+    """baostock 的 login/query/logout 操作的是进程级全局 session：
+    /api/market/historical/{ticker} 是 def 端点、在 FastAPI 线程池并发执行，
+    两个 ticker 并发拉取时，A 的 bs.logout() 会掐断 B 进行中的 rs.next()，
+    B 静默拿不到数据、走 5y 降级甚至返回空。"""
+    import threading
+
+    b_queried = threading.Event()      # B 已进入自己的查询
+    a_logged_out = threading.Event()   # A 已 logout（掐断全局 session）
+    state = {"logged_in": False}
+    violations: list[str] = []
+
+    class _RS:
+        error_code = "0"
+
+        def __init__(self, code: str):
+            self._code = code
+            self._row = ["2024-01-02", "10", "10.5", "9.5", "10.0", "1000"]
+            self._left = 1
+
+        def next(self) -> bool:
+            # 事件门强制确定性交叉：A 等 B 进入查询后才迭代；
+            # B 等 A logout 后才迭代——若并发未串行化，B 必观察到 session 被杀。
+            if self._code == "sh.600519":
+                b_queried.wait(timeout=3)
+            else:
+                a_logged_out.wait(timeout=3)
+            if not state["logged_in"]:
+                violations.append(f"{self._code}: next() after logout")
+                return False
+            if self._left:
+                self._left -= 1
+                return True
+            return False
+
+        def get_row_data(self) -> list[str]:
+            return self._row
+
+    fake_bs = SimpleNamespace(
+        login=lambda: state.__setitem__("logged_in", True),
+        logout=lambda: (state.__setitem__("logged_in", False), a_logged_out.set()),
+        query_history_k_data_plus=lambda **kw: (
+            b_queried.set() if kw["code"] == "sz.000001" else None,
+            _RS(kw["code"]),
+        )[1],
+    )
+    monkeypatch.setitem(sys.modules, "baostock", fake_bs)
+    # 缓存必 miss、写库无操作、降级路径返回空——聚焦于 baostock 会话竞争本身
+    monkeypatch.setattr(store, "_read_cache", lambda *a, **k: None)
+    monkeypatch.setattr(store, "_write_cache", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "backend.tools.get_stock_historical_data", lambda *a, **k: {"kline_data": []}
+    )
+
+    results: dict[str, list] = {}
+
+    def _run(ticker: str) -> None:
+        results[ticker] = store.fetch_and_cache_kline(
+            ticker, "2024-01-01", "2024-01-31", "qfq"
+        )
+
+    threads = [
+        threading.Thread(target=_run, args=("600519.SS",)),
+        threading.Thread(target=_run, args=("000001.SZ",)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+    assert not any(t.is_alive() for t in threads), "fetch deadlock"
+
+    assert violations == [], f"session killed mid-query: {violations}"
+    assert results["600519.SS"], "A lost its bars to a concurrent logout"
+    assert results["000001.SZ"], "B lost its bars to a concurrent logout"
