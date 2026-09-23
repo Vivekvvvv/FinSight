@@ -59,7 +59,17 @@ def _is_authoritative_domain(domain: str, hints: tuple[str, ...]) -> bool:
     host = str(domain or "").strip().lower()
     if not host:
         return False
-    return any(hint in host for hint in hints)
+    # 裸子串匹配会让 reuters.com.evil.example / notreuters.com 这类仿冒主机、
+    # 以及 drift.com→"ft.com" 这类字符巧合继承权威身份。
+    # 域名 hint 只认整域或 ".hint" 结尾的合法子域；
+    # 带尾点的 "investor." 是前缀型 hint（investor.<issuer>.com），按 startswith 匹配。
+    for hint in hints:
+        if hint.endswith("."):
+            if host.startswith(hint):
+                return True
+        elif host == hint or host.endswith("." + hint):
+            return True
+    return False
 
 
 def _parse_news_text(news_text: str, ticker: str) -> List[Dict[str, Any]]:

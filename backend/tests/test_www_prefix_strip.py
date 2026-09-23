@@ -102,6 +102,25 @@ def test_reliability_domain_hint_requires_label_boundary():
     assert lookalike["reliability_score"] == 0.55
 
 
+def test_authoritative_domain_hint_requires_label_boundary():
+    """news_agent._is_authoritative_domain 裸子串匹配：
+    "ft.com" 被 drift.com/soft.com 撞上，"reuters.com" 被
+    reuters.com.evil.example 仿冒 → 权威媒体过滤与计数被污染。"""
+    from backend.agents.news_agent_helpers import _is_authoritative_domain
+
+    hints = ("sec.gov", "reuters.com", "wsj.com", "ft.com", "finance.yahoo.com", "investor.", "apple.com")
+
+    assert _is_authoritative_domain("reuters.com", hints)
+    assert _is_authoritative_domain("markets.ft.com", hints)
+    assert _is_authoritative_domain("investor.apple.com", hints)  # 前缀型 hint
+
+    # 仿冒/巧合域不得命中
+    assert not _is_authoritative_domain("reuters.com.evil.example", hints)
+    assert not _is_authoritative_domain("notreuters.com", hints)
+    assert not _is_authoritative_domain("drift.com", hints)  # "ft.com" 子串巧合
+    assert not _is_authoritative_domain("soft.com", hints)
+
+
 def test_feed_failure_logs_omit_url_credentials(monkeypatch, caplog):
     from backend.tools import authoritative_feeds, macro_official, news, news_rss_tools
 
