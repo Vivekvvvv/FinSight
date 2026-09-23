@@ -474,7 +474,9 @@ def _infer_revision_signal(eps_revisions: List[Dict[str, Any]]) -> str:
             continue
         up_7 = safe_float(row.get("upLast7days")) or 0.0
         up_30 = safe_float(row.get("upLast30days")) or 0.0
-        down_7 = safe_float(row.get("downLast7Days")) or 0.0
+        # yfinance 列名是 downLast7days（全小写 days）——旧代码读
+        # "downLast7Days"（大写 D）永远 miss，近7日下调被静默记 0。
+        down_7 = safe_float(row.get("downLast7days")) or 0.0
         down_30 = safe_float(row.get("downLast30days")) or 0.0
         score += up_7 + up_30 - down_7 - down_30
 
