@@ -271,7 +271,10 @@ async def smart_qa(request: SmartQARequest):
                 quote = get_stock_price(ticker)
                 if quote and not quote.get("error"):
                     price = quote.get("price") or quote.get("current_price", "N/A")
-                    change = quote.get("change_percent") or quote.get("change_pct", "N/A")
+                    # change_percent=0.0（平盘）是真实值，`or` 会把它当缺失
+                    # 顶替成 change_pct/"N/A"——平盘日显示"涨跌幅 N/A%"。
+                    _chg = quote.get("change_percent")
+                    change = _chg if _chg is not None else quote.get("change_pct", "N/A")
                     context_parts.append(f"【最新行情】{ticker} 现价 {price}，涨跌幅 {change}%")
             except Exception as exc:
                 logger.warning("stock price unavailable")

@@ -154,3 +154,33 @@ def test_financials_analyze_survives_str_company_info(monkeypatch):
     assert resp.json()["status"] == "success"
     # analyzer 契约是 Optional[Dict]——str 必须被归一/丢弃，不得原样透传
     assert isinstance(seen["company_info"], dict)
+
+
+def test_smart_qa_flat_day_change_not_rendered_as_na(monkeypatch):
+    """R81：quote.get("change_percent") or quote.get("change_pct","N/A")
+    把真实 0.0%（平盘）当缺失顶替成 "N/A%"——平盘日 /qa 上下文显示
+    "涨跌幅 N/A%"。修后显式 is not None 判定，0.0 如实展示。"""
+    from types import SimpleNamespace
+
+    import backend.llm_config as llm_config
+    import backend.tools as tools_pkg
+
+    monkeypatch.setattr(
+        tools_pkg,
+        "get_stock_price",
+        lambda ticker: {"price": 185.2, "change_percent": 0.0},
+    )
+    monkeypatch.setattr(tools_pkg, "get_company_news", lambda ticker, limit=5: [])
+
+    class _FakeLLM:
+        async def ainvoke(self, _prompt):
+            return SimpleNamespace(content="ok")
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kw: _FakeLLM())
+
+    resp = _client().post(
+        "/api/research/qa", json={"question": "走势如何", "ticker": "AAPL"}
+    )
+    assert resp.status_code == 200, resp.text
+    ctx = resp.json()["context_used"]
+    assert any("涨跌幅 0.0%" in part for part in ctx), ctx
