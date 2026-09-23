@@ -1,5 +1,40 @@
 # -*- coding: utf-8 -*-
-from backend.graph.planner_prompt import build_planner_prompt
+from langchain_core.messages import AIMessage, HumanMessage
+
+from backend.graph.planner_prompt import _format_conversation_history, build_planner_prompt
+
+
+def test_history_skips_last_duplicate_of_current_query():
+    """R90：planner 版 _format_conversation_history 的 messages.index(msg)
+    与 R63 修复的 synthesize 版是同一个缺陷——重复提问时当前 query
+    消息按值相等命中第一条的下标，"后面还有同名消息"误判成立而不被
+    跳过，当前 query 被复制进 <conversation_history>（inputs.query
+    里还有一份，planner 看到两遍）。"""
+    state = {
+        "query": "分析AAPL",
+        "messages": [
+            HumanMessage(content="分析AAPL"),
+            AIMessage(content="上次结论：中性"),
+            HumanMessage(content="分析AAPL"),  # 当前 query（用户重复提问）
+        ],
+    }
+    out = _format_conversation_history(state)
+    assert out.count("[user]: 分析AAPL") == 1
+    assert "[assistant]:" in out
+
+
+def test_history_skips_single_current_query():
+    state = {
+        "query": "现在多少钱",
+        "messages": [
+            HumanMessage(content="帮我看行情"),
+            AIMessage(content="好的"),
+            HumanMessage(content="现在多少钱"),
+        ],
+    }
+    out = _format_conversation_history(state)
+    assert "现在多少钱" not in out
+    assert "帮我看行情" in out
 
 
 def test_planner_prompt_includes_allowlists_and_operation():

@@ -27,14 +27,18 @@ def _format_conversation_history(state: GraphState) -> str:
 
     # Filter to Human/AI messages, skip current query's message
     history_msgs = []
-    for msg in messages:
+    for idx, msg in enumerate(messages):
         if isinstance(msg, HumanMessage):
             content = msg.content.strip() if isinstance(msg.content, str) else str(msg.content).strip()
-            # Skip the current query (it's the last HumanMessage matching query text)
+            # Skip the current query——必须用 enumerate 的 idx；旧代码
+            # messages.index(msg) 对重复提问（两条内容相同的 HumanMessage）
+            # 永远返回第一条的下标，最后那条（当前 query）误判"后面还有
+            # 同名消息"而不被跳过，query 被重复塞进 <conversation_history>
+            # （inputs.query 里还有一份）。与 synthesize_format R63 同缺陷。
             if content == current_query and not any(
                 isinstance(m, HumanMessage) and
                 (m.content.strip() if isinstance(m.content, str) else str(m.content).strip()) == current_query
-                for m in messages[messages.index(msg) + 1:]
+                for m in messages[idx + 1:]
                 if isinstance(m, HumanMessage)
             ):
                 continue
