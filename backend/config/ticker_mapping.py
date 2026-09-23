@@ -277,7 +277,12 @@ def is_probably_ticker(ticker: str) -> bool:
 
 def _is_structured_market_ticker(ticker: str) -> bool:
     text = str(ticker or "").strip().upper()
-    return bool(re.match(r"^\d{5,6}\.(SS|SZ|BJ|HK)$", text))
+    # A股代码固定 6 位；港股 yfinance 风格是 4-5 位（如 0700.HK / 00700.HK），
+    # 旧的 \d{5,6} 会把全部 4 位港股代码（腾讯 0700、汇丰 0005 等）挡在门外。
+    return bool(
+        re.match(r"^\d{6}\.(SS|SZ|BJ)$", text)
+        or re.match(r"^\d{4,5}\.HK$", text)
+    )
 
 
 def normalize_ticker(raw: str) -> str:
@@ -351,14 +356,21 @@ def extract_tickers(query: str) -> Dict[str, Any]:
 
     # 2. Match English tickers
     # Keep original case to distinguish user-typed TICKER from ordinary words
-    raw_matches = re.findall(r'(?<![A-Za-z0-9.])([A-Za-z]{2,5})(?![A-Za-z0-9])', query)
+    # lookbehind 加 '^'、lookahead 加 '.-'：防止 ^GSPC 的 GSPC、BRK.B 的 BRK
+    # 这类指数/分级股内部片段被当成独立全大写 ticker 二次提取（幻影标的）。
+    raw_matches = re.findall(r'(?<![A-Za-z0-9.^])([A-Za-z]{2,5})(?![A-Za-z0-9.-])', query)
     originally_upper = {m for m in raw_matches if m == m.upper() and len(m) >= 2}
     index_tickers = re.findall(r'(\^[A-Za-z]{3,})', query)
     raw_matches.extend(index_tickers)
     dotted_tickers = re.findall(r'(?<![A-Za-z])([A-Za-z]{1,5}[.-][A-Za-z]{1,4})(?![A-Za-z])', query)
     raw_matches.extend(dotted_tickers)
-    cn_dotted_tickers = re.findall(r'(?<![A-Za-z0-9])(\d{5,6}\.(?:SS|SZ|BJ|HK))(?![A-Za-z0-9])', query, flags=re.IGNORECASE)
+    cn_dotted_tickers = re.findall(r'(?<![A-Za-z0-9])(\d{6}\.(?:SS|SZ|BJ)|\d{4,5}\.HK)(?![A-Za-z0-9])', query, flags=re.IGNORECASE)
     raw_matches.extend(cn_dotted_tickers)
+    # 分级股/境外股（BRK.B、BRK-B、ASML.AS）typed in caps 同样算"用户显式输入"；
+    # 左侧至少 2 个字母，排除 U.S/U.K 这类缩写。
+    originally_upper_dotted = {
+        t.upper() for t in dotted_tickers if re.fullmatch(r"[A-Z]{2,5}[.-][A-Z]{1,3}", t)
+    }
     potential_tickers = [t.upper() for t in raw_matches]
 
     for ticker in potential_tickers:
@@ -376,7 +388,7 @@ def extract_tickers(query: str) -> Dict[str, Any]:
             # the original query — this filters out ordinary English words
             # (e.g. "with", "view") while preserving user-typed symbols
             # (e.g. "PLTR", "SOFI").
-            if (ticker in originally_upper or _is_structured_market_ticker(ticker)) and ticker not in metadata['tickers']:
+            if (ticker in originally_upper or ticker in originally_upper_dotted or _is_structured_market_ticker(ticker)) and ticker not in metadata['tickers']:
                 metadata['tickers'].append(ticker)
 
     # 3. Match Chinese company names
