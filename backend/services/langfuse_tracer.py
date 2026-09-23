@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -151,19 +152,30 @@ async def langfuse_span(name: str, *, input: Any | None = None):
                 span.update(output=result, metadata={"duration_ms": 42})
     """
     lf = get_langfuse_client_safe()
-    if lf is not None:
-        try:
-            kwargs: dict[str, Any] = {"name": name}
-            if input is not None:
-                kwargs["input"] = input
-            async with lf.start_as_current_span(**kwargs) as span:
-                yield span
-        except Exception as exc:
-            # Langfuse span 创建失败不应影响业务逻辑
-            logger.debug('[LangFuse] span creation failed')
-            yield None
-    else:
+    if lf is None:
         yield None
+        return
+    try:
+        kwargs: dict[str, Any] = {"name": name}
+        if input is not None:
+            kwargs["input"] = input
+        span_cm = lf.start_as_current_span(**kwargs)
+        span = await span_cm.__aenter__()
+    except Exception:
+        # Langfuse span 创建失败不应影响业务逻辑
+        logger.debug('[LangFuse] span creation failed')
+        yield None
+        return
+    try:
+        # 业务体异常必须原样传播——不能把 yield 放进上面的 try/except：
+        # except 分支里二次 yield 会让 contextlib 以
+        # RuntimeError("generator didn't stop after athrow()") 抹掉真实异常。
+        yield span
+    finally:
+        try:
+            await span_cm.__aexit__(*sys.exc_info())
+        except Exception:
+            logger.debug('[LangFuse] span creation failed')
 
 
 # ==================== Trace 入口：请求级追踪 ====================
