@@ -243,8 +243,8 @@ def is_cn_holiday(check_date: date | datetime) -> bool:
         True
         >>> is_cn_holiday(date(2026, 10, 1))  # 国庆节
         True
-        >>> is_cn_holiday(date(2026, 2, 7))   # 周六但调休上班
-        False
+        >>> is_cn_holiday(date(2026, 2, 7))   # 周六，虽为春节调休上班日
+        True
         >>> is_cn_holiday(date(2026, 6, 15))  # 周一
         False
     """
@@ -252,11 +252,9 @@ def is_cn_holiday(check_date: date | datetime) -> bool:
     if isinstance(check_date, datetime):
         check_date = check_date.date()
 
-    # 调休工作日：周末但需要上班
-    if check_date in WORKDAY_OVERRIDES:
-        return False  # 调休工作日，不是休市日
-
     # 周末判断：5=Saturday, 6=Sunday
+    # 注意：WORKDAY_OVERRIDES 里的"调休上班日"是国务院口径的工作日，
+    # 沪深交易所周六日一律休市、从不因调休开市——周末恒为休市日。
     if check_date.weekday() >= 5:
         return True
 
