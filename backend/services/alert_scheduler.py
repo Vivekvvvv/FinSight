@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 import time
@@ -369,7 +370,17 @@ class NewsAlertScheduler:
                     if isinstance(value, str) and value.strip()
                 } if isinstance(raw_related, (list, tuple, set)) else set()
                 title = str(art.get("title") or "")[:512]
-                if sub["ticker"].upper() in rel or sub["ticker"].upper() in title.upper():
+                ticker_upper = sub["ticker"].upper()
+                # 标题命中必须是「ticker 型 token」：原文大写 + 边界（前无字母数字/点，
+                # 后无字母数字）。裸子串会让 T/ON/SO/ALL 这类英文单词代码撞上几乎
+                # 每篇标题（"T" ⊂ "MARKETS"，"ON" ⊂ "HORIZON"），订阅者收到无关
+                # 提醒邮件。单字母代码（A/I 与冠词同形）跳过标题匹配，仅靠
+                # related_tickers 精确命中；尾随 "." 不算边界（句尾标点）。
+                title_hit = len(ticker_upper) >= 2 and re.search(
+                    rf"(?<![A-Z0-9.]){re.escape(ticker_upper)}(?![A-Z0-9])",
+                    title,
+                ) is not None
+                if ticker_upper in rel or title_hit:
                     related.append({
                         "title": title,
                         "source": str(art.get("source") or "")[:128],
