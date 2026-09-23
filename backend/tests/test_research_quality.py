@@ -338,3 +338,34 @@ def test_symbol_filter_works(clean_state):
     issues = result["top_issues"]
     if len(issues) > 0:
         assert all(i.get("related_symbol") == "AAPL" for i in issues if i.get("related_symbol"))
+
+
+def test_naive_generated_at_does_not_crash_unreviewed(clean_state):
+    """report_generator.py:46、report/ir.py:71、validator.py 用
+    datetime.now().isoformat() 写 naive generated_at；
+    _collect_unreviewed_reports 里 (now - generated_at) naive-aware
+    相减抛 TypeError → /api/research-quality 500。"""
+    session_id = "test_naive_gat_session"
+    store = get_report_index_store()
+
+    naive_old = (datetime.now() - timedelta(days=2)).isoformat()  # naive，与生产同款
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "naive_gat_001",
+            "ticker": "NAIVERQ",
+            "title": "naive 时间报告",
+            "summary": "测试",
+            "generated_at": naive_old,
+        },
+    )
+    # review_status 默认 "new" → 走 _collect_unreviewed_reports 的减法
+
+    result = research_quality.get_research_quality(
+        session_id=session_id,
+        user_id="test_user",
+    )
+
+    assert result["success"] is True
+    unreviewed = [i for i in result["top_issues"] if i["issue_type"] == "unreviewed_report"]
+    assert len(unreviewed) == 1

@@ -30,7 +30,13 @@ def _parse_iso_safe(iso_str: str | None) -> datetime | None:
     if not iso_str:
         return None
     try:
-        return datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        # naive 存储值（report_generator.py、report/ir.py、validator.py 用
+        # datetime.now().isoformat() 写入）按本机时区还原归一 UTC——否则与
+        # aware 的 _now_utc()/event_time 相减/比较抛 TypeError，接口 500。
+        if dt.tzinfo is None:
+            dt = dt.astimezone(timezone.utc)
+        return dt
     except Exception:
         return None
 
