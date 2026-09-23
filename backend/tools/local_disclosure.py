@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from datetime import date
 import logging
 import re
 from typing import Any
@@ -121,20 +122,30 @@ def _infer_form(text: str, market: str) -> str:
     return "filing"
 
 
+def _to_iso_date(y: str, m: str, d: str) -> str | None:
+    # 版本号/编号串（如 2026.13.45）能被上面的正则捕获——零填充不等于
+    # 合法日期，交给 date() 校验；非法时返回 None 而不是输出不可能的
+    # ISO 日期污染 filing_date。
+    try:
+        return date(int(y), int(m), int(d)).isoformat()
+    except ValueError:
+        return None
+
+
 def _extract_date(text: str) -> str | None:
     raw = str(text or "")
     if not raw:
         return None
 
-    iso_match = re.search(r"(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})", raw)
-    if iso_match:
-        y, m, d = iso_match.groups()
-        return f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
+    for match in re.finditer(r"(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})", raw):
+        parsed = _to_iso_date(*match.groups())
+        if parsed:
+            return parsed
 
-    cn_match = re.search(r"(20\d{2})年(\d{1,2})月(\d{1,2})日", raw)
-    if cn_match:
-        y, m, d = cn_match.groups()
-        return f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
+    for match in re.finditer(r"(20\d{2})年(\d{1,2})月(\d{1,2})日", raw):
+        parsed = _to_iso_date(*match.groups())
+        if parsed:
+            return parsed
 
     return None
 
