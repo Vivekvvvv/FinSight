@@ -7,6 +7,8 @@ DataValidator - 数据验证中间件
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
+from backend.utils.quote import safe_float
+
 
 @dataclass
 class ValidationResult:
@@ -83,13 +85,16 @@ class DataValidator:
             )
         
         # 结构化数据验证
-        price = data.get('price', 0)
-        if price <= 0:
-            issues.append(f"股价无效: {price}")
+        # 外部数据可能是 None/"N/A"/字符串数字：裸比较 price <= 0、
+        # abs(change_pct) 会抛 TypeError，被 orchestrator 源循环记成"数据源
+        # 失败"污染熔断统计——先 safe_float 归一，解析不了按无效数据处理。
+        price = safe_float(data.get('price'))
+        if price is None or price <= 0:
+            issues.append(f"股价无效: {data.get('price')}")
         elif price > 100000:
             warnings.append(f"股价异常高: ${price}，请核实")
-        
-        change_pct = data.get('change_percent', 0)
+
+        change_pct = safe_float(data.get('change_percent')) or 0.0
         if abs(change_pct) > 20:
             warnings.append(f"涨跌幅异常: {change_pct}%，可能是熔断或数据错误")
         
@@ -145,19 +150,21 @@ class DataValidator:
         
         if isinstance(data, dict):
             # P/E 合理性检查
-            pe = data.get('pe_ratio')
+            pe = safe_float(data.get('pe_ratio'))
             if pe is not None:
                 if pe < 0:
                     warnings.append(f"P/E 为负 ({pe})，公司可能亏损")
                 elif pe > 200:
                     warnings.append(f"P/E 异常高 ({pe})，可能是成长股或数据异常")
-            
+
             # 交叉验证：市值 ≈ 股价 × 股数
-            market_cap = data.get('market_cap')
-            shares = data.get('shares_outstanding')
-            price = data.get('price')
-            
-            if all([market_cap, shares, price]):
+            # 同 _validate_price：字符串/None 值会让 price*shares、
+            # market_cap>0 抛 TypeError，先归一为 float 再比较。
+            market_cap = safe_float(data.get('market_cap'))
+            shares = safe_float(data.get('shares_outstanding'))
+            price = safe_float(data.get('price'))
+
+            if market_cap and shares and price:
                 calculated_cap = price * shares
                 if market_cap > 0:
                     diff = abs(market_cap - calculated_cap) / market_cap

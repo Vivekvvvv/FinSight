@@ -231,6 +231,53 @@ def test_validation_confidence_levels():
     print("✅ 验证置信度级别测试通过")
 
 
+def test_price_validation_non_numeric_values_no_crash():
+    """外部脏数据（None/"N/A"）不得让验证器抛 TypeError。
+
+    bug：data.get('price', 0) 直接 <= 0 比较、abs(change_percent)——
+    price=None/"N/A" 时抛 TypeError，被 orchestrator 源循环的宽 except
+    记成"数据源失败"污染熔断统计，本应 is_valid=False 的脏数据被伪装成
+    抓取失败；direct 路径则报成 direct_tool_error。
+    """
+    validator = DataValidator()
+
+    result = validator.validate("price", {"price": None})
+    assert result.is_valid is False
+    assert result.issues
+
+    result = validator.validate("price", {"price": "N/A", "change_percent": "5%"})
+    assert result.is_valid is False
+    assert result.issues
+
+    # 字符串数字应被正常解析而不是判负
+    result = validator.validate("price", {"price": "150.5", "change_percent": "-2.5"})
+    assert result.is_valid is True
+
+
+def test_financials_validation_non_numeric_values_no_crash():
+    """pe_ratio/market_cap/shares/price 为字符串或 None 时不得抛 TypeError。"""
+    validator = DataValidator()
+
+    result = validator.validate("financials", {"pe_ratio": "25"})
+    assert isinstance(result.is_valid, bool)
+
+    result = validator.validate("financials", {"pe_ratio": "-5"})
+    assert any("P/E" in w for w in result.warnings)
+
+    # 字符串市值 × 字符串股数此前会走到 str*str/str>str 的 TypeError
+    result = validator.validate(
+        "financials",
+        {"market_cap": "1e9", "shares_outstanding": "abc", "price": 150},
+    )
+    assert isinstance(result.is_valid, bool)
+
+    result = validator.validate(
+        "financials",
+        {"market_cap": None, "shares_outstanding": None, "price": None},
+    )
+    assert isinstance(result.is_valid, bool)
+
+
 def run_all_tests():
     """运行所有测试"""
     print("=" * 60)
