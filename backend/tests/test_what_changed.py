@@ -330,3 +330,39 @@ def test_portfolio_positions_feed_what_changed(monkeypatch, clean_state):
     port_change = next((c for c in changes if c.get("symbol") == "PORT"), None)
     assert port_change is not None, "持仓标的 PORT 的变化未被收集"
     assert port_change["change_type"] == "report"
+
+
+def test_lowercase_stored_ticker_report_change_not_dropped(clean_state):
+    """report_index.upsert_report 存 ticker 只 strip 不 upper；
+    若报告以小写 ticker 入库，_collect_report_changes 用原值与
+    大写 watchlist/portfolio 列表比较 → 该报告的 stale/质量变化被
+    静默丢弃（reports_to_review、task_router 都在读取端做了大写归一，
+    只有这里漏了）。"""
+    session_id = "test_lower_ticker_session"
+    user_id = "test_lower_ticker_user"
+    store = get_report_index_store()
+
+    _memory_service.add_to_watchlist(user_id, "AAPL", note="大写自选")
+
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "test_lower_ticker_report",
+            "ticker": "aapl",  # 库存原样小写（upsert 不归一）
+            "title": "AAPL 过期报告",
+            "summary": "数据已过期",
+            "freshness_status": "stale",
+        },
+    )
+
+    changes = what_changed.get_what_changed(
+        session_id=session_id,
+        user_id=user_id,
+        limit=10,
+    )
+
+    report_change = next(
+        (c for c in changes if c["change_type"] == "report" and c.get("symbol") == "AAPL"),
+        None,
+    )
+    assert report_change is not None, "小写存储 ticker 的报告变化被静默丢弃"

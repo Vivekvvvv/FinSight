@@ -130,7 +130,10 @@ def _collect_report_changes(
     reports = store.list_reports(session_id=session_id, limit=100, include_blocked=True)
 
     for rpt in reports:
-        ticker = rpt.get("ticker")
+        # 存储端 upsert_report 对 ticker 只 strip 不 upper；watchlist/portfolio
+        # 列表均大写，这里必须同样归一，否则小写入库的报告其变化被静默丢弃
+        # （reports_to_review、task_router 读取端均已做 .upper() 归一）。
+        ticker = str(rpt.get("ticker") or "").strip().upper()
         if not ticker:
             continue
 
