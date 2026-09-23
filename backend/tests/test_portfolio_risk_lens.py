@@ -247,3 +247,40 @@ def test_next_actions_generation():
     aapl_action = next((a for a in actions if a.get("related_symbol") == "AAPL"), None)
     assert aapl_action is not None
     assert aapl_action["severity"] in ["high", "medium"]
+
+
+def test_stored_position_shape_derives_value_and_cost():
+    """集成回归：get_positions 实际返回 shares/avg_cost，没有 market_value/
+    cost_basis/unrealized_pnl。路由与每日快照调度器都把存储行直接喂进透镜——
+    字段缺失恒为 0 会让集中度/暴露规则静默失效、total_value 恒 0。
+    缺富化字段时应按 shares*avg_cost 兜底（与组合汇总无行情时
+    used_price=avg_cost 同语义）。"""
+    positions = [
+        {"ticker": "AAPL", "shares": 30, "avg_cost": 100, "sector": "Tech", "currency": "USD"},
+        {"ticker": "NVDA", "shares": 10, "avg_cost": 100, "sector": "Tech", "currency": "USD"},
+    ]
+
+    result = calculate_portfolio_risk_lens(positions, [])
+
+    assert result["total_value"] == 4000.0
+    assert result["total_cost"] == 4000.0
+    concentration = [r for r in result["concentration_risk"] if r["type"] == "concentration"]
+    assert len(concentration) == 1
+    assert concentration[0]["related_symbol"] == "AAPL"
+    tech = next(s for s in result["sector_exposure"] if s["sector"] == "Tech")
+    assert tech["value"] == 4000.0
+    assert tech["percentage"] == 1.0
+    # 成本兜底市值时浮盈为 0，不得误报亏损
+    assert result["loss_positions"] == []
+
+
+def test_enriched_fields_take_precedence_over_shares_avg_cost():
+    """显式 market_value/cost_basis 不被 shares*avg_cost 兜底覆盖。"""
+    positions = [
+        {"ticker": "AAPL", "shares": 10, "avg_cost": 50, "market_value": 900, "cost_basis": 500},
+    ]
+
+    result = calculate_portfolio_risk_lens(positions, [])
+
+    assert result["total_value"] == 900.0
+    assert result["total_cost"] == 500.0

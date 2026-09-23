@@ -59,9 +59,25 @@ def calculate_portfolio_risk_lens(
         item["ticker"] = ticker
         market_value = safe_float(item.get("market_value"))
         cost_basis = safe_float(item.get("cost_basis"))
+        # portfolio_store.get_positions 只提供 shares/avg_cost，没有 market_value/
+        # cost_basis/unrealized_pnl——路由与快照调度器都是直接喂存储行。缺富化字段时
+        # 用 shares*avg_cost 兜底（与组合汇总无行情时 used_price=avg_cost 同语义），
+        # 否则集中度/暴露规则对生产数据恒为 0 静默失效。
+        if market_value is None or cost_basis is None:
+            shares = safe_float(item.get("shares"))
+            avg_cost = safe_float(item.get("avg_cost"))
+            if shares is not None and shares > 0 and avg_cost is not None and avg_cost > 0:
+                derived = shares * avg_cost
+                if market_value is None:
+                    market_value = derived
+                if cost_basis is None:
+                    cost_basis = derived
         item["market_value"] = market_value if market_value is not None and market_value > 0 else 0.0
         item["cost_basis"] = cost_basis if cost_basis is not None and cost_basis > 0 else 0.0
-        item["unrealized_pnl"] = safe_float(item.get("unrealized_pnl"))
+        unrealized_pnl = safe_float(item.get("unrealized_pnl"))
+        if unrealized_pnl is None and item["market_value"] > 0 and item["cost_basis"] > 0:
+            unrealized_pnl = item["market_value"] - item["cost_basis"]
+        item["unrealized_pnl"] = unrealized_pnl
         normalized_positions.append(item)
     positions = normalized_positions
     if not positions:
