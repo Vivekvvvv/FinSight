@@ -336,7 +336,12 @@ def get_all_active_sessions() -> list[tuple[str, str]]:
             session_id = row[0]
             user_id = "default_user"
             parts = str(session_id or "").split(":")
-            if len(parts) >= 2 and parts[1].strip():
+            # 仅 "private:{user_id}:default" 的中间段是真实 user_id；其余
+            # 格式（public:anonymous:*、user:{u}:*、tenant:{u}:{t}）必须回退
+            # default_user——快照读侧 effective_user_id 恒为
+            # principal.user_id，取 parts[1] 会让快照按 "anonymous" 等值
+            # 落库而查询侧永远查不到（risk-lens/history 恒空）。
+            if len(parts) == 3 and parts[0] == "private" and parts[1].strip():
                 user_id = parts[1].strip()
             result.append((session_id, user_id))
 

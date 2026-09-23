@@ -267,6 +267,33 @@ def test_get_all_active_sessions_parses_private_session_user_id(tmp_path, monkey
     assert mapping["adhoc_dev_session"] == "default_user"
 
 
+def test_get_all_active_sessions_non_private_falls_back_to_default_user(tmp_path, monkeypatch):
+    """非 private 会话的 user_id 必须回退 default_user（docstring 契约）。
+
+    前端默认 session 是 "public:anonymous:vue-dev"（identity.ts），持仓就
+    写在这个 session 下。旧实现对任何 >=2 段的 session_id 都取 parts[1]：
+    "public:anonymous:vue-dev" → "anonymous"、"user:alice:vue-shadow" →
+    "alice"。每日快照于是按这些 user_id 落库（risk_snapshots 的
+    UNIQUE(session_id,user_id,snapshot_date)），而 history 读侧
+    effective_user_id 恒为 principal.user_id（dev="default_user"）——
+    WHERE session_id=? AND user_id=? 永不命中，默认前端会话的
+    /api/portfolio/risk-lens/history 永远返回空。"""
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+
+    store.update_position("public:anonymous:vue-dev", "AAPL", 1)
+    store.update_position("public:anonymous:9f2d", "MSFT", 2)
+    store.update_position("user:alice:vue-shadow", "NVDA", 3)
+    store.update_position("tenant1:bob:thread-9", "TSLA", 4)
+    store.update_position("private:carol:default", "AMD", 5)
+
+    mapping = dict(store.get_all_active_sessions())
+    assert mapping["public:anonymous:vue-dev"] == "default_user"
+    assert mapping["public:anonymous:9f2d"] == "default_user"
+    assert mapping["user:alice:vue-shadow"] == "default_user"
+    assert mapping["tenant1:bob:thread-9"] == "default_user"
+    assert mapping["private:carol:default"] == "carol"
+
+
 def test_corrupt_portfolio_json_is_logged_without_exposing_payload(
     tmp_path,
     monkeypatch,
