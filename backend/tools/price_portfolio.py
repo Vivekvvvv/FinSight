@@ -144,7 +144,13 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
         result["error"] = "insufficient_returns_data"
         return result
 
-    available_symbols = [sym for sym in portfolio_symbols if sym in returns.columns]
+    # 全 NaN 列（退市/错名标的，yf.download 保留列但无数据）必须剔除——
+    # 否则其 weighted series 全 NaN，sum 后逐行传染成 portfolio_returns 全空，
+    # 一个坏持仓杀掉整个因子暴露（portfolio_returns_empty）。
+    available_symbols = [
+        sym for sym in portfolio_symbols
+        if sym in returns.columns and returns[sym].notna().any()
+    ]
     if not available_symbols:
         result["error"] = "portfolio_symbols_missing_in_history"
         return result
@@ -152,7 +158,7 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
     weighted_series: List[pd.Series] = []
     for position in normalized:
         symbol = position["ticker"]
-        if symbol not in returns.columns:
+        if symbol not in available_symbols:
             continue
         weight = safe_float(position.get("weight")) or 0.0
         weighted_series.append(returns[symbol] * weight)
