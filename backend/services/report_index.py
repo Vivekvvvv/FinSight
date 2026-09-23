@@ -385,7 +385,9 @@ class ReportIndexStore:
         """
         args: list[Any] = [session_id]
         if ticker:
-            sql += " AND ticker = ?"
+            # 存储端对 ticker 只 strip 不 upper（库内大小写不定），
+            # 精确匹配必须 NOCASE，否则 ?ticker=aapl 漏掉 AAPL 行、反向亦然
+            sql += " AND ticker = ? COLLATE NOCASE"
             args.append(ticker)
         if favorite_only:
             sql += " AND is_favorite = 1"

@@ -91,3 +91,29 @@ def test_concurrent_read_write_no_lock_error(tmp_path, monkeypatch):
         t.join()
 
     assert not errors, f"并发读写抛错: {errors[:3]}"
+
+
+def test_ticker_filter_matches_case_insensitively(tmp_path, monkeypatch):
+    """upsert_report 存 ticker 只 strip 不 upper，库里大小写不定；
+    list_reports 的 ticker = ? 是大小写敏感精确匹配——
+    ?ticker=aapl 查不到存成 AAPL 的行（前端大写约定之外直接掉数据），
+    存小写时反向同样漏。比较须 COLLATE NOCASE。"""
+    store = _make_store(tmp_path, monkeypatch)
+    session_id = "t1:u1:th1"
+    store.upsert_report(session_id=session_id, report={
+        "report_id": "r-upper",
+        "ticker": "AAPL",
+        "title": "t",
+        "generated_at": "2026-01-10T00:00:00+00:00",
+    })
+    store.upsert_report(session_id=session_id, report={
+        "report_id": "r-lower",
+        "ticker": "tsla",
+        "title": "t",
+        "generated_at": "2026-01-10T00:00:00+00:00",
+    })
+
+    hit = store.list_reports(session_id=session_id, ticker="aapl")
+    assert [r["report_id"] for r in hit] == ["r-upper"]
+    hit = store.list_reports(session_id=session_id, ticker="TSLA")
+    assert [r["report_id"] for r in hit] == ["r-lower"]
