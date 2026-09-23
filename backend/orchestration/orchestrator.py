@@ -351,6 +351,12 @@ class ToolOrchestrator:
                 if result is None:
                     source.consecutive_failures += 1
                     source.last_fail = datetime.now()
+                    # 空结果即"未找到"：须写入 last_error，否则全部源空响应时
+                    # last_error=None → _should_negative_cache 恒 False，
+                    # 负缓存机制对最常见的失效路径（无效代码）完全失效，
+                    # 每个请求都重打全部上游；错误消息也会落成 "failed: None"。
+                    # "no data" 命中 _should_negative_cache 的词表。
+                    last_error = "no data"
                     self._stats['total_failures'] += 1
                     self._stats['sources'][source.name]['fail'] += 1
                     if self.circuit_breaker:

@@ -388,6 +388,31 @@ def test_reset_stats():
     print("[OK] 重置统计测试通过")
 
 
+def test_r97_all_sources_empty_sets_last_error_and_negative_cache():
+    """全部源返回空（无效代码/无数据的最常见路径）：result is None 分支
+    不写 last_error → _should_negative_cache(None) 恒 False → 负缓存
+    机制对最常见的"未找到"失效，每次请求都重打全部上游（含 0.3s 间隔），
+    且错误消息落成 "All data sources failed: None"。空结果须按
+    "no data" 记账，负缓存才能生效。"""
+    orchestrator = ToolOrchestrator()
+    calls = {"n": 0}
+
+    def _empty(_ticker):
+        calls["n"] += 1
+        return None
+
+    orchestrator.sources['price'] = [DataSource('mock_empty', _empty, 1, 60)]
+
+    first = orchestrator.fetch('price', 'NOTICKER', force_refresh=True)
+    assert first.success is False
+    # buggy: "All data sources failed: None" 且不写负缓存
+    assert first.error == "All data sources failed: no data"
+
+    second = orchestrator.fetch('price', 'NOTICKER')
+    assert second.source == "negative_cache", "空结果应负缓存，避免重打上游"
+    assert calls["n"] == 1, "负缓存命中后不应再调用数据源"
+
+
 def run_all_tests():
     """运行所有测试"""
     print("=" * 60)
