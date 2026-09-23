@@ -504,12 +504,23 @@ class FundamentalAgent(BaseFinancialAgent):
         if not isinstance(index, list) or not isinstance(rows, list):
             return []
 
+        # 第一遍：规范化行名全等（strip+lower == 候选词）。完整匹配必须优先于
+        # 子串——"ebit" 子串会命中 Normalized EBITDA 等 reconciliation 行，
+        # 而 yfinance income_stmt 该区块恒排在 Operating Income 之前 → 营业利润
+        # 被 EBITDA 劫持；Cost Of Revenue 同理可抢 Total Revenue。
         row_idx: Optional[int] = None
         for idx, row_name in enumerate(index):
-            row_name_lower = str(row_name).lower()
-            if any(candidate in row_name_lower for candidate in candidates):
+            row_name_norm = str(row_name).strip().lower()
+            if any(row_name_norm == candidate for candidate in candidates):
                 row_idx = idx
                 break
+        # 第二遍：宽松子串兜底——"Operating Income Loss" 等变体行名仍命中。
+        if row_idx is None:
+            for idx, row_name in enumerate(index):
+                row_name_lower = str(row_name).lower()
+                if any(candidate in row_name_lower for candidate in candidates):
+                    row_idx = idx
+                    break
         if row_idx is None or row_idx >= len(rows):
             return []
 
