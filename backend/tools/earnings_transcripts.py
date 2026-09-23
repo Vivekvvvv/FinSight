@@ -129,7 +129,10 @@ def _build_market_queries(ticker_norm: str, market: str) -> list[str]:
     queries: list[str] = []
     seen: set[str] = set()
     for template in templates:
-        for symbol in symbols[:2]:
+        # 港股 symbols=[0700.HK, 0700, 700]——hk_short 只能落在 index 2，
+        # 旧的 [:2] 切片把专门计算的短码永远丢掉（死代码）。CN/US 最多
+        # 2 个符号，放宽到 3 不影响其查询数量。
+        for symbol in symbols[:3]:
             query = template.format(ticker=symbol).strip()
             if not query or query in seen:
                 continue
