@@ -109,7 +109,17 @@ def _matches_query(item: dict[str, Any], tokens: list[str]) -> bool:
             str(item.get("url") or ""),
         ]
     ).lower()
-    return any(token in haystack for token in tokens)
+    for token in tokens:
+        # ≤3 字符 ASCII token（war/day/aid/sec…）裸 substring 会在 forward/said/Monday
+        # 等无关词里幻影命中——相关性过滤退化成 pass-all。边界匹配；4+ 字符 token
+        # 保持 substring 语义（"payroll" 仍命中 "Payrolls"）。
+        if len(token) <= 3 and token.isascii():
+            pattern = r"(?<![a-zA-Z0-9])" + re.escape(token) + r"(?![a-zA-Z0-9])"
+            if re.search(pattern, haystack):
+                return True
+        elif token in haystack:
+            return True
+    return False
 
 
 def _fetch_feed(url: str) -> str:
