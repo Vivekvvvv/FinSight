@@ -236,7 +236,7 @@ class ContextManager:
 
     def _extract_selection_index(self, query: str) -> Optional[int]:
         query = query.strip()
-        match = re.search(r"(?:第\\s*([1-5]))|\\b([1-5])\\b", query)
+        match = re.search(r"(?:第\s*([1-5]))|\b([1-5])\b", query)
         if match:
             value = match.group(1) or match.group(2)
             try:
