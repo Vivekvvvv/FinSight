@@ -757,3 +757,46 @@ def test_is_deep_hint_respects_analysis_depth_context():
         neutral_query,
         {"ui_context": {"analysis_depth": "report"}},
     )
+
+
+def test_enforce_policy_budget_drop_uses_step_identity_not_stale_index(monkeypatch):
+    """预算断言失败的渐进裁剪：drop_order 记的是排序前旧索引。
+    高优先级（高成本 agent）低索引先 pop 后，后续大索引全部漂移，
+    pop(idx) 会删错元素——可选步骤幸存、optional=False 的必需步骤被误删。"""
+    monkeypatch.setenv("LANGGRAPH_BUDGET_LATENCY_PER_ROUND_MS", "1400")
+    monkeypatch.setenv("LANGGRAPH_BUDGET_COST_PER_TOOL_UNIT", "1.5")
+
+    from backend.graph.nodes.planner import _enforce_policy
+
+    state = {
+        "query": "qa",
+        "output_mode": "brief",
+        "operation": {"name": "qa", "confidence": 0.9, "params": {}},
+        "subject": {"subject_type": "company", "tickers": ["AAPL"], "selection_payload": []},
+        "policy": {
+            # max_rounds=1 → 延迟预算 1400ms：总延迟 5100ms 必超，触发渐进裁剪
+            "budget": {"max_rounds": 1, "max_tools": 5},
+            "allowed_tools": ["search"],
+            "allowed_agents": ["news_agent", "fundamental_agent", "deep_search_agent"],
+        },
+        "trace": {},
+    }
+    payload = {
+        "goal": "demo",
+        "steps": [
+            # d1 是高成本可选 agent（priority 0），先被 pop；
+            # 之后 pop(2) 命中漂移后的 t_req（原 idx3 必需步骤）而不是 a2。
+            {"id": "d1", "kind": "agent", "name": "deep_search_agent", "optional": True, "inputs": {"query": "x"}},
+            {"id": "a1", "kind": "agent", "name": "news_agent", "optional": True, "inputs": {"query": "x"}},
+            {"id": "a2", "kind": "agent", "name": "fundamental_agent", "optional": True, "inputs": {"query": "x"}},
+            {"id": "t_req", "kind": "tool", "name": "search", "optional": False, "inputs": {"query": "x"}},
+        ],
+    }
+
+    plan, assertions = _enforce_policy(payload, state)
+    kept_ids = [s.get("id") for s in plan.get("steps") or []]
+    dropped = assertions.get("dropped_steps") or []
+
+    # 必需步骤必须保留；被丢弃的只能是 optional 步骤（d1 + a2）
+    assert "t_req" in kept_ids
+    assert set(dropped) == {"d1", "a2"}

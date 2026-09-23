@@ -747,14 +747,18 @@ def _enforce_policy(plan_payload: dict[str, Any], state: GraphState) -> tuple[di
             if kind == "agent" and name in required_agents:
                 continue
             is_high_cost_agent = kind == "agent" and name in _HIGH_COST_AGENTS
-            drop_order.append((0 if is_high_cost_agent else 1, idx))
-        drop_order.sort(key=lambda pair: (pair[0], -pair[1]))
-        for _priority, idx in drop_order:
-            if idx < 0 or idx >= len(sanitized_steps):
+            drop_order.append((0 if is_high_cost_agent else 1, idx, step))
+        drop_order.sort(key=lambda item: (item[0], -item[1]))
+        for _priority, _idx, target in drop_order:
+            # 前面 pop 会让后续索引漂移：必须按对象身份找当前位置，
+            # 否则 pop(旧 idx) 会删掉必需步骤、留下本应丢弃的可选步骤。
+            current_idx = next(
+                (i for i, s in enumerate(sanitized_steps) if s is target), None
+            )
+            if current_idx is None:
                 continue
-            step = sanitized_steps[idx]
-            dropped_for_budget.append(str(step.get("id") or step.get("name") or f"idx:{idx}"))
-            sanitized_steps.pop(idx)
+            dropped_for_budget.append(str(target.get("id") or target.get("name") or f"idx:{_idx}"))
+            sanitized_steps.pop(current_idx)
             budget_assertions = _build_budget_assertions(sanitized_steps, safe_budget)
             if budget_assertions.get("cost_within_budget") and budget_assertions.get("latency_within_budget"):
                 break
