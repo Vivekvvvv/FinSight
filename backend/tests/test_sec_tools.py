@@ -175,6 +175,64 @@ def test_get_sec_risk_factors_extracts_item_1a(monkeypatch):
     assert "Risk Factors" in (payload.get("risk_factors_excerpt") or "")
 
 
+def test_get_sec_risk_factors_skips_toc_stub(monkeypatch):
+    """真实 10-K 正文前有目录页：Item 1A 与 Item 1B 条目相邻出现。
+    pattern.search 取首个匹配 → 目录行（group(2) 只有页码几个字符）
+    被当成风险因子摘要返回，extracted=True 但内容是目录残片。
+    应在所有匹配里选正文最长者。"""
+    _reset_cache()
+    monkeypatch.setenv("SEC_USER_AGENT", "FinSight admin@finsight.app")
+
+    real_body = "Real risk discussion about supply chain concentration. " * 100
+
+    def _fake_http_get(url, **kwargs):
+        if url.endswith("company_tickers.json"):
+            return _FakeResponse(
+                200,
+                {
+                    "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+                },
+            )
+        if "submissions/CIK0000320193.json" in url:
+            return _FakeResponse(
+                200,
+                {
+                    "filings": {
+                        "recent": {
+                            "form": ["10-K"],
+                            "filingDate": ["2025-11-01"],
+                            "reportDate": ["2025-09-30"],
+                            "acceptanceDateTime": ["2025-11-01T00:00:00.000Z"],
+                            "accessionNumber": ["0000320193-25-000020"],
+                            "primaryDocument": ["annual.htm"],
+                            "primaryDocDescription": ["10-K"],
+                        }
+                    }
+                },
+            )
+        if "annual.htm" in url:
+            return _FakeResponse(
+                200,
+                text=(
+                    "<html><body>"
+                    "Item 1A. Risk Factors 33 "
+                    "Item 1B. Unresolved Staff Comments 55 "
+                    "Item 2. Properties 56 "
+                    "Item 1A. Risk Factors "
+                    + real_body
+                    + " Item 1B. Unresolved Staff Comments"
+                    "</body></html>"
+                ),
+            )
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(sec, "_http_get", _fake_http_get)
+    payload = sec.get_sec_risk_factors("AAPL")
+    assert payload.get("extracted") is True
+    excerpt = payload.get("risk_factors_excerpt") or ""
+    assert "Real risk discussion" in excerpt
+
+
 def test_get_sec_company_facts_quarterly_success(monkeypatch):
     _reset_cache()
     monkeypatch.setenv("SEC_USER_AGENT", "FinSight admin@finsight.app")

@@ -343,9 +343,13 @@ def _extract_risk_excerpt(raw_text: str, *, max_chars: int = 2200) -> str:
         r"(item\s+1a[^a-z0-9]{0,20}risk\s+factors?)(.*?)(item\s+1b|item\s+2)",
         re.IGNORECASE | re.DOTALL,
     )
-    match = pattern.search(cleaned)
-    if match:
-        snippet = f"{match.group(1)} {match.group(2)}".strip()
+    # 10-K 正文前有目录页：首个 "Item 1A ... Risk Factors" 命中通常是目录行
+    # （与 Item 1B 相邻，group(2) 只有页码几个字符），真正的章节体有数千字符。
+    # 在所有匹配中选正文最长者，避免把目录残片当成风险因子摘要。
+    matches = list(pattern.finditer(cleaned))
+    if matches:
+        best = max(matches, key=lambda m: len(m.group(2)))
+        snippet = f"{best.group(1)} {best.group(2)}".strip()
         return snippet[:max_chars]
 
     fallback = re.search(r"risk\s+factors?(.*)", cleaned, re.IGNORECASE | re.DOTALL)
