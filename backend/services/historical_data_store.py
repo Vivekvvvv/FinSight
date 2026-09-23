@@ -358,8 +358,14 @@ def fetch_and_cache_kline(
                 declared_end = max(r["date"] for r in cleaned)
             _write_cache(ticker, cleaned, adjust, declared_start=start_date, declared_end=declared_end)
         else:
-            # fallback 固定拉 5y，不能确认覆盖请求区间，仅声明 bar 实际首末
-            _write_cache(ticker, cleaned, adjust)
+            # fallback 固定拉 5y，不能确认覆盖请求区间，仅声明 bar 实际首末；
+            # 且多源返回的是自身口径的调整价（yfinance history 默认
+            # auto_adjust=True≈前复权），与 baostock hfq/none 语义不同——
+            # 按请求 adjust 键入库会把错误口径"正名"：hfq 键存前复权价
+            # （7d 自愈），none 键存调整价且 none 永不过期（永久错误）。
+            # 只有 qfq 请求允许落缓存；hfq/none 结果返回但不入库。
+            if adjust == "qfq":
+                _write_cache(ticker, cleaned, adjust)
 
     # 过滤日期范围
     return [r for r in cleaned if start_date <= r["date"] <= end_date]

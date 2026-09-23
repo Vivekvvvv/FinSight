@@ -361,6 +361,32 @@ def test_c2_required_end_respects_publish_hour():
     assert _required_end(date(2024, 1, 7), datetime(2026, 7, 7, 21, 0, tzinfo=bj)) == date(2024, 1, 5)
 
 
+def test_r95_fallback_does_not_cache_under_non_qfq_adjust(store, monkeypatch):
+    """降级源返回的是自身口径的调整价（yfinance history 默认 auto_adjust=True≈前复权），
+    与 baostock hfq/none 语义不同。把降级结果按请求 adjust 键入库会把错误口径的
+    数据"正名"：hfq 键存了前复权价（7d 自愈），none 键存了调整价且 none 永不
+    过期——baostock 恢复后仍永久返回错误口径。降级只许写 qfq 键。"""
+    monkeypatch.setattr(store, "_fetch_baostock", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "backend.tools.get_stock_historical_data",
+        lambda *a, **k: {"kline_data": [
+            {"time": "2024-01-02", "open": 10, "high": 10.5, "low": 9.5, "close": 10, "volume": 1},
+            {"time": "2024-01-03", "open": 10, "high": 10.5, "low": 9.5, "close": 10.1, "volume": 1},
+        ]},
+    )
+    # 降级数据照常返回给调用方，但 hfq/none 键不得被写缓存
+    for adj in ("hfq", "none"):
+        bars = store.fetch_and_cache_kline("600519.SS", "2024-01-02", "2024-01-03", adj)
+        assert bars, f"{adj}: fallback bars should still be returned to caller"
+        assert store._read_cache("600519.SS", "2024-01-02", "2024-01-03", adj) is None, (
+            f"{adj}: fallback bars must not be cached under the {adj} key"
+        )
+    # qfq：auto_adjust≈前复权口径一致，允许缓存（且受 7d TTL 约束可自愈）
+    bars = store.fetch_and_cache_kline("600519.SS", "2024-01-02", "2024-01-03", "qfq")
+    assert bars
+    assert store._read_cache("600519.SS", "2024-01-02", "2024-01-03", "qfq") is not None
+
+
 # ── baostock 全局会话并发 ─────────────────────────────────────────────────────
 
 def test_concurrent_fetches_do_not_kill_each_others_session(store, monkeypatch):
