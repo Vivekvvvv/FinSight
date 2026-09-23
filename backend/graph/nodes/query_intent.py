@@ -207,6 +207,18 @@ _FINANCIAL_TOKENS_HP: frozenset[str] = frozenset(
     }
 )
 
+# ASCII 词（eps/roe/ipo/p-e 等短词）裸子串会命中普通单词：eps⊂steps、
+# roe⊂heroes、ipo⊂ripoff——误报会把 active_symbol 绑到无关标的，须整词匹配。
+# 尾部容忍复数 s（"hedge funds"/"sec filings"），保持子串匹配时代的召回。
+_FINANCIAL_TOKENS_ASCII = tuple(t for t in _FINANCIAL_TOKENS_HP if t.isascii())
+_FINANCIAL_TOKENS_CN = frozenset(t for t in _FINANCIAL_TOKENS_HP if not t.isascii())
+_FINANCIAL_TOKEN_ASCII_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:"
+    + "|".join(re.escape(t) + r"s?" for t in _FINANCIAL_TOKENS_ASCII)
+    + r")(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
 _FINANCIAL_PATTERN_HP = re.compile(
     r"("
     # English unambiguous terms
@@ -235,7 +247,9 @@ def has_financial_intent(query: str) -> bool:
         return False
 
     lower = cleaned.lower()
-    if any(token in lower for token in _FINANCIAL_TOKENS_HP):
+    if any(token in lower for token in _FINANCIAL_TOKENS_CN):
+        return True
+    if _FINANCIAL_TOKEN_ASCII_RE.search(cleaned):
         return True
 
     return bool(_FINANCIAL_PATTERN_HP.search(cleaned))

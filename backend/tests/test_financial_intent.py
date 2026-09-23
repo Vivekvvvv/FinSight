@@ -76,3 +76,39 @@ class TestHasFinancialIntent:
     def test_ambiguous_not_matched_tier2(self, query: str):
         """Ambiguous queries should NOT match Tier 2 (high precision only)."""
         assert has_financial_intent(query) is False
+
+
+class TestAsciiTokenBoundaries:
+    """ASCII 词表必须整词匹配——裸子串命中普通英文单词会误绑 active_symbol。
+
+    修复前：`token in lower` 子串匹配 → "eps"⊂"steps"、"roe"⊂"heroes"、
+    "roa"⊂"broadway"、"ipo"⊂"ripoff"/"liposuction"、"p/e"⊂"map/entry"。
+    """
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "what are the steps to apply",      # eps ⊂ steps
+            "tell me about heroes of history",  # roe ⊂ heroes
+            "broadway shows tonight",           # roa ⊂ broadway
+            "that is a ripoff",                 # ipo ⊂ ripoff
+            "liposuction cost estimate",        # ipo ⊂ liposuction
+            "map/entry ratio",                  # p/e ⊂ map/entry
+        ],
+    )
+    def test_inside_word_no_false_positive(self, query: str):
+        assert has_financial_intent(query) is False
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "nasdaq is down",
+            "ipo market heats up",
+            "eps beat expectations",
+            # 复数/常见变形保持原有召回（子串匹配时代是 True）
+            "hedge funds are buying",
+            "sec filings released",
+        ],
+    )
+    def test_boundary_words_still_match(self, query: str):
+        assert has_financial_intent(query) is True
