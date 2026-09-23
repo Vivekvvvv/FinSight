@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+import re
 from typing import Any, Iterable
 
 
@@ -114,8 +116,25 @@ def _selection_types(state: dict[str, Any]) -> set[str]:
     return {str(x).strip().lower() for x in raw if isinstance(x, str) and str(x).strip()}
 
 
+@lru_cache(maxsize=256)
+def _ascii_hint_re(hint: str) -> re.Pattern:
+    # ASCII 提示词按词边界匹配（允许复数 s）：裸子串会把 "market"/"margin"
+    # 里的 "ma"、"variable" 里的 "var" 误当技术/风控信号——几乎所有英文
+    # query 都含 "ma"，keyword_boost 乱加且 investment_report 强塞
+    # technical_agent。中文词无词界概念，保持子串匹配。
+    return re.compile(rf"(?<![A-Za-z0-9]){re.escape(hint)}s?(?![A-Za-z0-9])")
+
+
 def _contains_any(query: str, hints: Iterable[str]) -> bool:
-    return any(h in query for h in hints if h)
+    for hint in hints:
+        if not hint:
+            continue
+        if hint.isascii():
+            if _ascii_hint_re(hint).search(query):
+                return True
+        elif hint in query:
+            return True
+    return False
 
 
 def score_agent_for_request(agent_name: str, state: dict[str, Any]) -> tuple[float, list[str]]:
