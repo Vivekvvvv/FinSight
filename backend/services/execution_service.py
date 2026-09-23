@@ -8,12 +8,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Awaitable, Callable, Optional
 from backend.services.execution_helpers import _annotate_report_source, _apply_quality_gate, _execution_timeout_seconds, _normalize_report_source_type, _normalize_run_id, _resolve_ticker_override, _utc_iso_now
 
 
 logger = logging.getLogger("execution_service")
+
+# TraceEmitter 是进程级单例、监听器在"发射方"上下文里同步执行：
+# 并发 run 若不加隔离，每个 pipeline 的监听器会把所有 session 的 trace
+# 事件（agent_start/agent_done 的 metadata 含对方 query）盖章自己的
+# session_id 推给对方——跨会话泄漏。发射时在发射方上下文读到的本变量
+# 即发射 run 的 thread_id；与本 pipeline 不一致（或管道外发射为 None）
+# 即非本 run 事件，监听器直接丢弃。
+_ACTIVE_RUN_SESSION: ContextVar[Optional[str]] = ContextVar(
+    "execution_service_active_run_session", default=None
+)
 
 
 
@@ -140,6 +151,11 @@ async def run_graph_pipeline(
     def _enqueue_trace_event(event: TraceEvent) -> None:
         if event is None:
             return
+        # 监听器同步跑在发射方上下文：此处读到的是"发射事件的那个 run"的
+        # thread_id；与本 pipeline 不同即为别家 session 的事件，必须丢弃
+        # （否则并发 run 互相收到对方 agent_start/agent_done 及其 query）。
+        if _ACTIVE_RUN_SESSION.get() != thread_id:
+            return
         try:
             payload = event.to_sse_dict()
         except Exception:
@@ -161,6 +177,7 @@ async def run_graph_pipeline(
 
     async def _producer() -> None:
         token = set_event_emitter(_emit)
+        session_token = _ACTIVE_RUN_SESSION.set(thread_id)
         trace_emitter = get_trace_emitter()
         trace_emitter.add_listener(_enqueue_trace_event)
         try:
@@ -399,6 +416,7 @@ async def run_graph_pipeline(
         finally:
             trace_emitter.remove_listener(_enqueue_trace_event)
             reset_event_emitter(token)
+            _ACTIVE_RUN_SESSION.reset(session_token)
             await queue.put(_END)
 
     # -- launch & yield ----------------------------------------------------
@@ -485,6 +503,9 @@ async def resume_graph_pipeline(
     def _enqueue_trace_event(event: TraceEvent) -> None:
         if event is None:
             return
+        # 同 run 路径：按发射方 run 的 thread_id 过滤，防跨会话串台。
+        if _ACTIVE_RUN_SESSION.get() != thread_id:
+            return
         try:
             payload = event.to_sse_dict()
         except Exception:
@@ -502,6 +523,7 @@ async def resume_graph_pipeline(
 
     async def _producer() -> None:
         token = set_event_emitter(_emit)
+        session_token = _ACTIVE_RUN_SESSION.set(thread_id)
         trace_emitter = get_trace_emitter()
         trace_emitter.add_listener(_enqueue_trace_event)
         try:
@@ -677,6 +699,7 @@ async def resume_graph_pipeline(
         finally:
             trace_emitter.remove_listener(_enqueue_trace_event)
             reset_event_emitter(token)
+            _ACTIVE_RUN_SESSION.reset(session_token)
             await queue.put(_END)
 
     # -- launch & yield ----------------------------------------------------

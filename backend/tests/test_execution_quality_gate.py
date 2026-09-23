@@ -406,6 +406,78 @@ def _hang_deps(execution_service):
     )
 
 
+def test_r96_trace_events_do_not_cross_sessions(monkeypatch):
+    """TraceEmitter 是进程级单例：两个并发 run 各自 add_listener，
+    监听器在发射方上下文同步执行——A 的 agent_start（metadata 带 A 的
+    query）会同步投递到 B 的 SSE 队列并盖章 B 的 session_id，前端
+    Console 显示别家会话的查询文本（跨会话泄漏）。监听器必须按
+    发射方 run 的 thread_id 过滤。"""
+    import asyncio
+
+    from backend.orchestration.trace_emitter import get_trace_emitter
+
+    execution_service = importlib.import_module("backend.services.execution_service")
+    runner_module = importlib.import_module("backend.graph.runner")
+
+    async def _main():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        a_emitted = asyncio.Event()
+
+        async def _fake_run_graph_traced(_runner, *, thread_id, query, **_kw):
+            if thread_id == "sess-A":
+                started.set()
+                # 在 run 中段发射（后续仍挂 release）——call_soon_threadsafe 的
+                # put_nowait 有机会先于 _END 落队，保证自身事件可达。
+                get_trace_emitter().emit_agent_start("NewsAgent", query="QUERY_OF_sess-A")
+                await release.wait()
+                a_emitted.set()
+            else:
+                await started.wait()
+                get_trace_emitter().emit_agent_start("MacroAgent", query="QUERY_OF_sess-B")
+                release.set()
+                await a_emitted.wait()
+            return {"artifacts": {"draft_markdown": ""}, "trace": {}}
+
+        monkeypatch.setattr(runner_module, "run_graph_traced", _fake_run_graph_traced)
+
+        async def _fake_get_graph_runner():
+            return object()
+
+        deps = execution_service.ExecutionDeps(
+            get_graph_runner=_fake_get_graph_runner,
+            schedule_report_index=lambda **_kw: None,
+            update_session_context=lambda **_kw: None,
+            record_chat_turn=None,
+            redact_sensitive_payload=lambda payload: payload,
+            is_raw_trace_event=lambda _payload: False,  # 全放行，只考验会话隔离
+            contract_info=lambda: {},
+            sse_event_schema_version="chat.sse.v1",
+        )
+
+        events_a, events_b = await asyncio.gather(
+            _collect_events(
+                execution_service.run_graph_pipeline(
+                    deps=deps, query="q-a", thread_id="sess-A"
+                )
+            ),
+            _collect_events(
+                execution_service.run_graph_pipeline(
+                    deps=deps, query="q-b", thread_id="sess-B"
+                )
+            ),
+        )
+        return events_a, events_b
+
+    events_a, events_b = _run(_main())
+
+    a_agent = [e.get("query") for e in events_a if e.get("type") == "agent_start"]
+    b_agent = [e.get("query") for e in events_b if e.get("type") == "agent_start"]
+    # buggy: A 的队列里混进 QUERY_OF_sess-B（盖 A 的章），反之亦然
+    assert a_agent == ["QUERY_OF_sess-A"], f"session A leaked/foreign events: {a_agent}"
+    assert b_agent == ["QUERY_OF_sess-B"], f"session B leaked/foreign events: {b_agent}"
+
+
 def test_run_graph_pipeline_aclose_does_not_leak_cancelled_error():
     """客户端中途断开 → 消费者 aclose() → finally 取消并 await producer。
     asyncio.CancelledError 是 BaseException，`except Exception` 捕不到，
