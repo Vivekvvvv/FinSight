@@ -598,13 +598,22 @@ def _fallback_price_value(ticker: str) -> Optional[float]:
         search_result = search(f"{ticker} index level today")
         # r"\\d" 双反斜杠会编译成“字面反斜杠 + d”，永远匹配不到数字文本，
         # 整条搜索兜底失效（与 conversation/context.py 同类 bug）。
-        m = re.search(r"(\d{3,6}(?:,\d{3})*(?:\.\d+)?)", search_result or "")
-        if m:
-            val = _safe_float_value(m.group(1).replace(",", ""))
-            if val is None:
-                return None
-            if val <= 0 or val > 1e8:
-                return None
+        # 但首个数字命中还可能是指数名里的数字（"S&P 500"→500）、
+        # 年份或编号——优先带千分位/小数的匹配、跳过裸年份，否则错误数字
+        # 会被 _fetch_index_price 直接当现价展示给用户。注意千分位形态
+        # 前段允许 1-3 位（"5,900"），旧的 \d{3,6} 会把 "5,900" 拆成裸
+        # "900" 而丢掉分隔符信息。
+        matches = list(
+            re.finditer(r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{3,6}(?:\.\d+)?)", search_result or "")
+        )
+        matches.sort(key=lambda m: "," not in m.group(1) and "." not in m.group(1))
+        for m in matches:
+            token = m.group(1)
+            val = _safe_float_value(token.replace(",", ""))
+            if val is None or val <= 0 or val > 1e8:
+                continue
+            if "," not in token and "." not in token and 1900 <= val <= 2100:
+                continue  # 裸年份不是价格
             return val
     except Exception:
         pass
