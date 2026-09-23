@@ -422,6 +422,10 @@ async def run_graph_pipeline(
             producer_task.cancel()
             try:
                 await producer_task
+            except asyncio.CancelledError:
+                # 取消 producer 是预期路径；CancelledError 属 BaseException，
+                # 不能被下面的 except Exception 吞掉，否则会泄漏给 aclose()。
+                pass
             except Exception as exc:
                 logger.debug('[execution_service] cancelled producer cleanup failed')
 
@@ -694,5 +698,7 @@ async def resume_graph_pipeline(
             producer_task.cancel()
             try:
                 await producer_task
+            except asyncio.CancelledError:
+                pass
             except Exception as exc:
                 logger.debug('[resume_pipeline] cancelled producer cleanup failed')

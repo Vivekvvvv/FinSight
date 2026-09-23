@@ -387,3 +387,55 @@ def test_run_graph_timeout_does_not_log_query(monkeypatch, caplog):
     assert secret not in caplog.text
     assert "[execution_service] graph timeout" in caplog.text
     assert "query_chars=" not in caplog.text
+
+
+def _hang_deps(execution_service):
+    async def _hang_get_graph_runner():
+        await asyncio.sleep(3600)
+        return object()
+
+    return execution_service.ExecutionDeps(
+        get_graph_runner=_hang_get_graph_runner,
+        schedule_report_index=lambda **_kwargs: None,
+        update_session_context=lambda **_kwargs: None,
+        record_chat_turn=None,
+        redact_sensitive_payload=lambda payload: payload,
+        is_raw_trace_event=lambda _payload: False,
+        contract_info=lambda: {},
+        sse_event_schema_version="chat.sse.v1",
+    )
+
+
+def test_run_graph_pipeline_aclose_does_not_leak_cancelled_error():
+    """客户端中途断开 → 消费者 aclose() → finally 取消并 await producer。
+    asyncio.CancelledError 是 BaseException，`except Exception` 捕不到，
+    会把 CancelledError 抛给 aclose() 的调用方。"""
+    execution_service = importlib.import_module("backend.services.execution_service")
+    deps = _hang_deps(execution_service)
+
+    async def _consume_then_close():
+        agen = execution_service.run_graph_pipeline(
+            deps=deps, query="q", thread_id="tenant:user:thread"
+        )
+        first = await agen.__anext__()  # langgraph_start 事件
+        assert isinstance(first, dict)
+        # producer 仍挂在 get_graph_runner；aclose 走 finally 的取消路径
+        await agen.aclose()
+
+    _run(_consume_then_close())  # buggy: asyncio.CancelledError 泄漏
+
+
+def test_resume_graph_pipeline_aclose_does_not_leak_cancelled_error():
+    """resume 路径同样存在 finally cancel+await 的死代码缺陷。"""
+    execution_service = importlib.import_module("backend.services.execution_service")
+    deps = _hang_deps(execution_service)
+
+    async def _consume_then_close():
+        agen = execution_service.resume_graph_pipeline(
+            deps=deps, thread_id="tenant:user:thread", resume_value="confirm"
+        )
+        first = await agen.__anext__()  # resume_start 事件
+        assert isinstance(first, dict)
+        await agen.aclose()
+
+    _run(_consume_then_close())  # buggy: asyncio.CancelledError 泄漏
