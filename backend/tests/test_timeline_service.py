@@ -316,3 +316,66 @@ def test_time_range_filter(clean_state):
 
     finally:
         research_notes.delete_note(note_id)
+
+
+def test_naive_generated_at_does_not_crash_range_filter(clean_state):
+    """report/ir.py、report/validator.py、report_generator.py 用
+    datetime.now().isoformat() 写 naive generated_at（无时区）。
+    from_date 为 aware ISO 时 occurred_at < from_dt 比较抛 TypeError
+    → /api/timeline 与 /api/what-changed（恒传 aware from_date）500。"""
+    session_id = "test_naive_ts_session"
+    user_id = "test_naive_ts_user"
+    store = get_report_index_store()
+
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "test_naive_generated_at_001",
+            "ticker": "NAIVECO",
+            "title": "naive 时间报告",
+            "summary": "有摘要",
+            # 与 report_generator.py:46 同款的 naive 时间戳
+            "generated_at": datetime.now().isoformat(),
+        },
+    )
+
+    from_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    events = timeline_service.get_timeline(
+        symbol="NAIVECO",
+        session_id=session_id,
+        user_id=user_id,
+        from_date=from_date,
+        limit=50,
+    )
+
+    assert len(events) == 1
+    assert events[0]["related_report_id"] == "test_naive_generated_at_001"
+
+
+def test_null_summary_does_not_crash(clean_state):
+    """report_index 的 summary/title 列可空：存 NULL 时
+    .get(k, 默认) 拿到 None → None[:200] 抛 TypeError → timeline 500。"""
+    session_id = "test_null_summary_session"
+    user_id = "test_null_summary_user"
+    store = get_report_index_store()
+
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "test_null_summary_001",
+            "ticker": "NULLSUM",
+            "title": "无摘要报告",
+            # 不传 summary → 存 NULL
+        },
+    )
+
+    events = timeline_service.get_timeline(
+        symbol="NULLSUM",
+        session_id=session_id,
+        user_id=user_id,
+        limit=50,
+    )
+
+    assert len(events) == 1
+    assert events[0]["related_report_id"] == "test_null_summary_001"
+    assert events[0]["summary"] == ""

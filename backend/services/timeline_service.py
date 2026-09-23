@@ -22,7 +22,14 @@ def _parse_iso_or_none(value: Any) -> Optional[datetime]:
         return None
     try:
         if isinstance(value, str):
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            # naive 值由 datetime.now().isoformat() 写入（report/ir.py、
+            # report/validator.py、report_generator.py）——本机时间，先按本地
+            # 时区还原再归一 UTC；直接补 UTC 会把中国区写入错置 +8h，且 naive
+            # 与 aware 的 from_dt/to_dt 比较会抛 TypeError 让接口 500。
+            if dt.tzinfo is None:
+                dt = dt.astimezone(timezone.utc)
+            return dt
         return None
     except (ValueError, AttributeError):
         return None
@@ -78,8 +85,10 @@ def _collect_report_events(
             "id": f"report_{report['report_id']}",
             "symbol": symbol,
             "event_type": "report",
-            "title": f"生成报告：{report.get('title', '未命名报告')}",
-            "summary": report.get("summary", "")[:200],
+            # title/summary 列可空：.get(k, 默认) 只对缺键生效，NULL 值会拿到
+            # None → None[:200] 抛 TypeError / "生成报告：None" 漏到 UI。
+            "title": f"生成报告：{report.get('title') or '未命名报告'}",
+            "summary": (report.get("summary") or "")[:200],
             "occurred_at": _format_iso(occurred_at),
             "severity": severity,
             "source": "report_index",
@@ -136,8 +145,8 @@ def _collect_note_events(
             "id": f"note_{note['note_id']}",
             "symbol": symbol,
             "event_type": "note",
-            "title": f"研究笔记：{note.get('title', '未命名笔记')}",
-            "summary": note.get("content", "")[:200],
+            "title": f"研究笔记：{note.get('title') or '未命名笔记'}",
+            "summary": (note.get("content") or "")[:200],
             "occurred_at": _format_iso(occurred_at),
             "severity": severity,
             "source": "research_notes",
