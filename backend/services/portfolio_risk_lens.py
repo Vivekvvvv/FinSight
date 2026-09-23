@@ -167,7 +167,13 @@ def calculate_portfolio_risk_lens(
                 })
 
     # 规则 6: 数据新鲜度风险（基于报告 as_of）
-    report_dict = {r.get("ticker"): r for r in reports if r.get("ticker")}
+    # report_index 存储端对 ticker 只 strip 不 upper（库内大小写不定，
+    # list_reports 以 NOCASE 命中后原样返回存储大小写）——key 不归一大写，
+    # 'aapl' 报告对 'AAPL' 持仓匹配失败：stale 静默跳过 + 误报缺少研究覆盖。
+    report_dict = {
+        str(r.get("ticker")).strip().upper(): r
+        for r in reports if r.get("ticker")
+    }
     now = datetime.now(timezone.utc)
 
     for pos in positions:

@@ -187,6 +187,38 @@ def test_missing_coverage():
     assert "缺少研究覆盖" in missing[0]["title"]
 
 
+def test_report_ticker_case_mismatch_still_counts_as_coverage():
+    """report_index 存储端对 ticker 只 strip 不 upper（库内大小写不定，
+    list_reports 靠 COLLATE NOCASE 命中后原样返回存储大小写）。持仓 ticker
+    归一为大写后与原始大小写的 report.ticker 做精确匹配：
+    - 旧代码 report_dict 直接用存储大小写做 key，'aapl' 报告对 'AAPL' 持仓
+      匹配失败 → 误报"缺少研究覆盖"，且 stale 检查被整条跳过。"""
+    positions = [{"ticker": "AAPL", "market_value": 1500, "cost_basis": 1400}]
+
+    # 报告以存储端可能出现的小写 ticker 返回，as_of 很新（不该 stale、不该 missing）
+    reports = [
+        {"ticker": "aapl", "as_of": datetime.now(timezone.utc).isoformat()},
+    ]
+
+    result = calculate_portfolio_risk_lens(positions, reports)
+
+    assert result["missing_coverage"] == []
+    assert result["stale_research"] == []
+
+
+def test_report_ticker_case_mismatch_stale_still_detected():
+    """小写存储的报告 ticker 不能让 stale 检查静默跳过。"""
+    positions = [{"ticker": "AAPL", "market_value": 1500, "cost_basis": 1400}]
+    old_as_of = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+    reports = [{"ticker": "aapl", "as_of": old_as_of}]
+
+    result = calculate_portfolio_risk_lens(positions, reports)
+
+    assert len(result["stale_research"]) == 1
+    assert result["stale_research"][0]["related_symbol"] == "AAPL"
+    assert result["stale_research"][0]["severity"] == "high"
+
+
 def test_risk_score_calculation():
     """验证风险评分计算逻辑"""
     positions = [
