@@ -289,3 +289,44 @@ def test_limit_parameter_enforced(clean_state):
     # 验证不包含内部 score 字段
     for change in changes:
         assert "score" not in change
+
+
+def test_portfolio_positions_feed_what_changed(monkeypatch, clean_state):
+    """portfolio_symbols 原来是 TODO 空列表——只在持仓、不在自选的标的，
+    其报告/timeline/笔记变化永远不进 What Changed。修复后
+    get_positions(session_id) 的 ticker 应参与收集。"""
+    session_id = "test_portfolio_change_session"
+    user_id = "test_portfolio_change_user"
+    store = get_report_index_store()
+
+    # 持仓里有 PORT，watchlist 为空——PORT 变化只能靠持仓路径进来
+    monkeypatch.setattr(
+        "backend.services.portfolio_store.get_positions",
+        lambda _sid: [{"ticker": "PORT", "shares": 10, "avg_cost": 100}],
+    )
+    monkeypatch.setattr(
+        what_changed._memory_service,
+        "list_watchlist_items",
+        lambda _uid: [],
+    )
+
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "test_portfolio_only_report",
+            "ticker": "PORT",
+            "title": "PORT 过期报告",
+            "summary": "数据已过期",
+            "freshness_status": "stale",
+        },
+    )
+
+    changes = what_changed.get_what_changed(
+        session_id=session_id,
+        user_id=user_id,
+        limit=10,
+    )
+
+    port_change = next((c for c in changes if c.get("symbol") == "PORT"), None)
+    assert port_change is not None, "持仓标的 PORT 的变化未被收集"
+    assert port_change["change_type"] == "report"

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from typing import Any, Literal
 
-from backend.services import timeline_service, research_notes
+from backend.services import timeline_service, research_notes, portfolio_store
 from backend.services.report_index import get_report_index_store
 from backend.services.memory import MemoryService
 
@@ -286,8 +286,13 @@ def get_what_changed(
     watchlist = _memory_service.list_watchlist_items(user_id)
     watchlist_symbols = [item["ticker"] for item in watchlist if item.get("ticker")]
 
-    # TODO: 获取 portfolio symbols（需要 portfolio_store 支持）
-    portfolio_symbols: list[str] = []
+    # 持仓标的：原来是 TODO 空列表，导致只在持仓、不在自选的标的，其
+    # 报告/timeline/笔记变化永远不进 What Changed。
+    portfolio_symbols = [
+        str(p.get("ticker") or "").strip().upper()
+        for p in portfolio_store.get_positions(session_id)
+        if str(p.get("ticker") or "").strip()
+    ]
 
     # 收集候选变化
     all_changes: list[dict[str, Any]] = []
