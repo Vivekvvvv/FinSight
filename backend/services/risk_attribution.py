@@ -139,11 +139,15 @@ def calculate_risk_attribution(
     # 行业归因
     sector_attr = []
     for sec, w in sorted(sector_map.items(), key=lambda x: -x[1]):
-        # 行业风险贡献 ≈ 行业权重 × 行业成员平均市场+特质风险
+        # 行业风险贡献 ≈ 行业权重 × 行业成员平均市场+特质风险。
+        # pos_details 与 positions 同序等长，按 enumerate 下标对齐反查 sector——
+        # 旧代码 pos_details.index(p) 按值相等匹配，两条完全相同的明细 dict
+        # （同 ticker+同权重+同 beta，如重复导入行）恒命中第一条的下标，
+        # 第二条的风险被错记到第一条的 sector。
         sec_risk = sum(
             p["market_risk_contrib"] + p["idio_risk_contrib"]
-            for p in pos_details
-            if str(positions[pos_details.index(p)].get("sector") or "其他") == sec
+            for idx, p in enumerate(pos_details)
+            if str(positions[idx].get("sector") or "其他") == sec
         )
         sector_attr.append({
             "sector": sec,

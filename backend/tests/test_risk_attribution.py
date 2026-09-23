@@ -182,3 +182,40 @@ def test_market_value_field_takes_precedence_over_shares_avg_cost():
     weights = {item["ticker"]: item["weight"] for item in result["positions"]}
     assert weights["AAPL"] == 0.9
     assert weights["NVDA"] == 0.1
+
+
+def test_sector_attribution_duplicate_detail_rows_use_own_sector():
+    """R85: 行业归因用 positions[pos_details.index(p)] 反查 sector——index()
+    按值相等找第一个匹配，两条明细 dict 完全相同（同 ticker+同权重+同 beta，
+    如券商重复导入的相同持仓行但 sector 标注不同）时第二条恒返回第一条的
+    下标，其风险被错记到第一条的 sector：一边虚增一边漏计。"""
+    from backend.services.risk_attribution import calculate_risk_attribution
+
+    market_returns = [0.01, -0.005, 0.008, -0.002, 0.012] * 8  # σ>0 才有非零风险贡献
+
+    def fake_fetch(ticker, period="1y"):
+        if ticker == "000300.SS":
+            return market_returns
+        return None
+
+    positions = [
+        {"ticker": "DUP", "market_value": 5000, "sector": "科技"},
+        {"ticker": "DUP", "market_value": 5000, "sector": "金融"},  # 与上行产出完全相同的明细 dict
+        {"ticker": "OTHER", "market_value": 10000, "sector": "金融"},
+    ]
+    with patch("backend.services.risk_attribution._fetch_returns", side_effect=fake_fetch):
+        result = calculate_risk_attribution(positions)
+
+    contrib_by_ticker = {
+        p["ticker"]: p["market_risk_contrib"] + p["idio_risk_contrib"]
+        for p in result["positions"]
+    }
+    dup = contrib_by_ticker["DUP"]
+    other = contrib_by_ticker["OTHER"]
+    assert dup > 0 and other > 0
+
+    contrib = {s["sector"]: s["risk_contribution"] for s in result["sector_attribution"]}
+    # 正确归属：科技=第一条 DUP；金融=第二条 DUP + OTHER。
+    # buggy: 科技=两条 DUP（第二条被 index() 撞回第一条），金融只剩 OTHER。
+    assert contrib["科技"] == pytest.approx(dup)
+    assert contrib["金融"] == pytest.approx(dup + other)
