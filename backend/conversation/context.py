@@ -324,7 +324,15 @@ class ContextManager:
             ticker = info.get("ticker")
             if not name or not ticker:
                 continue
-            if ticker.upper() in query.upper():
+            # “ticker 已在 query 中”必须是 token 级判断：裸子串让 "T"⊂"TEST"、
+            # "AI"⊂"SAID" 把无关文本当成显式 ticker 并提前 return，
+            # 排在其后的公司记忆（如 苹果→AAPL）永远轮不到注入。
+            ticker_u = ticker.upper()
+            query_u = query.upper()
+            if query_u.strip() == ticker_u or (
+                len(ticker_u) >= 2
+                and re.search(rf"(?<![A-Z0-9.]){re.escape(ticker_u)}(?![A-Z0-9])", query_u)
+            ):
                 return query
             if effective_hint and info.get("market") and info.get("market") != effective_hint:
                 continue

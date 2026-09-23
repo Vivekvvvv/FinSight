@@ -119,3 +119,21 @@ def test_candidate_symbol_exact_single_letter_reply_still_works():
     out = cm._resolve_pending_clarification("T", None)
     assert out is not None
     assert out["selected_ticker"] == "T"
+
+
+def test_apply_company_memory_ticker_presence_check_needs_boundary():
+    """R33: _apply_company_memory 的 'ticker 已在 query 中' 判断用裸子串——
+    记忆 T 后 query 'test 苹果' 里 "T"⊂"TEST" 被判成显式 ticker 提前
+    return，排在其后的 苹果→AAPL 记忆永远轮不到注入。"""
+    cm = ContextManager()
+    cm._remember_company("AT&T", "T", {"matches": [{"symbol": "T", "primaryExchange": "NYSE"}]})
+    cm._remember_company("苹果", "AAPL", {"matches": [{"symbol": "AAPL", "primaryExchange": "NASDAQ"}]})
+    out = cm._apply_company_memory("test 苹果的财报", None)
+    assert "AAPL" in out
+
+
+def test_apply_company_memory_real_ticker_presence_still_skips_injection():
+    """R33 正例：query 已含独立 ticker token 时仍应原样返回（不再注入）。"""
+    cm = ContextManager()
+    cm._remember_company("苹果", "AAPL", {"matches": [{"symbol": "AAPL", "primaryExchange": "NASDAQ"}]})
+    assert cm._apply_company_memory("AAPL 的财报", None) == "AAPL 的财报"
