@@ -263,26 +263,34 @@ class ContextManager:
                 return item
         return None
 
+    @staticmethod
+    def _market_tag_in_blob(tag: str, blob: str) -> bool:
+        # 市场 tag 必须是 token 级匹配：裸子串让 "US"⊂"AUSTRALIAN"、
+        # "US"⊂"INDUSTRIES"、"PAR"⊂"PARIS/SPARE"、"HK"⊂"HKD" 等
+        # 把非目标市场候选误判进对应市场并在澄清时先返回。
+        return re.search(rf"(?<![A-Z0-9.]){re.escape(tag)}(?![A-Z0-9])", blob) is not None
+
     def _candidate_matches_market(self, candidate: Dict[str, Any], market: str) -> bool:
         symbol = (candidate.get("symbol") or "").upper()
         exchange = (candidate.get("primaryExchange") or "").upper()
         description = (candidate.get("description") or "").upper()
         blob = f"{symbol} {exchange} {description}"
+        tag_in = self._market_tag_in_blob
 
         if market == "US":
-            return any(tag in blob for tag in ["NYSE", "NASDAQ", "OTC", "US", "ADR"]) or symbol.endswith(".US")
+            return any(tag_in(tag, blob) for tag in ["NYSE", "NASDAQ", "OTC", "US", "ADR"]) or symbol.endswith(".US")
         if market == "FR":
-            return any(tag in blob for tag in ["PAR", "EURONEXT", "PARIS"]) or symbol.endswith(".PA")
+            return any(tag_in(tag, blob) for tag in ["PAR", "EURONEXT", "PARIS"]) or symbol.endswith(".PA")
         if market == "UK":
-            return any(tag in blob for tag in ["LSE", "LONDON"]) or symbol.endswith(".L")
+            return any(tag_in(tag, blob) for tag in ["LSE", "LONDON"]) or symbol.endswith(".L")
         if market == "HK":
-            return any(tag in blob for tag in ["HK", "HKEX"]) or symbol.endswith(".HK")
+            return any(tag_in(tag, blob) for tag in ["HK", "HKEX"]) or symbol.endswith(".HK")
         if market == "CN":
-            return any(tag in blob for tag in ["SSE", "SZSE", "SHANGHAI", "SHENZHEN"]) or symbol.endswith((".SS", ".SZ"))
+            return any(tag_in(tag, blob) for tag in ["SSE", "SZSE", "SHANGHAI", "SHENZHEN"]) or symbol.endswith((".SS", ".SZ"))
         if market == "JP":
-            return any(tag in blob for tag in ["TSE", "TOKYO"]) or symbol.endswith(".T")
+            return any(tag_in(tag, blob) for tag in ["TSE", "TOKYO"]) or symbol.endswith(".T")
         if market == "EU":
-            return "EURONEXT" in blob or symbol.endswith(".PA")
+            return tag_in("EURONEXT", blob) or symbol.endswith(".PA")
         return False
 
     def _extract_market_hint(self, query: str) -> Optional[str]:

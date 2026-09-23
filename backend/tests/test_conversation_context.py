@@ -137,3 +137,31 @@ def test_apply_company_memory_real_ticker_presence_still_skips_injection():
     cm = ContextManager()
     cm._remember_company("苹果", "AAPL", {"matches": [{"symbol": "AAPL", "primaryExchange": "NASDAQ"}]})
     assert cm._apply_company_memory("AAPL 的财报", None) == "AAPL 的财报"
+
+
+def test_candidate_market_match_us_tag_needs_boundary():
+    """R34: _candidate_matches_market 用 `tag in blob` —— 'US'⊂'AUSTRALIAN'、
+    'US'⊂'INDUSTRIES'、'OTC'⊂'OCTOBER' 把非美候选误判成 US 并先返回。"""
+    cm = ContextManager()
+    au = {"symbol": "BHP.AX", "primaryExchange": "ASX", "description": "Australian miner"}
+    us = {"symbol": "XYZ", "primaryExchange": "NYSE", "description": "US holdings"}
+    assert cm._match_candidate_by_market([au, us], "US") == us
+
+    ind = {"symbol": "SMT.L", "primaryExchange": "LSE", "description": "Sumitomo Industries"}
+    assert cm._match_candidate_by_market([ind, us], "US") == us
+
+
+def test_candidate_market_match_october_not_otc():
+    cm = ContextManager()
+    uk = {"symbol": "VOD.L", "primaryExchange": "LSE", "description": "October filing date"}
+    us = {"symbol": "XYZ", "primaryExchange": "NYSE", "description": "US holdings"}
+    assert cm._match_candidate_by_market([uk, us], "US") == us
+
+
+def test_candidate_market_match_positive_controls():
+    cm = ContextManager()
+    us_desc = {"symbol": "ABC", "primaryExchange": "XETRA", "description": "US diversified holdings"}
+    hk = {"symbol": "0700.HK", "primaryExchange": "HKEX", "description": "Tencent"}
+    assert cm._match_candidate_by_market([us_desc], "US") == us_desc
+    assert cm._match_candidate_by_market([hk], "HK") == hk
+    assert cm._match_candidate_by_market([us_desc], "FR") is None
