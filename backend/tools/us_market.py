@@ -76,8 +76,14 @@ def fetch_nasdaq_intraday(ticker: str) -> dict[str, Any] | None:
         value = _number(row.get("y"))
         if timestamp is None or value is None:
             continue
+        try:
+            ts = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+        except Exception:
+            # 单个畸形时间点（超出系统时间范围 → OSError/ValueError）跳过——
+            # 一行坏数据不应让整段分时 raise（tools 约定返回 None 不抛）。
+            continue
         points.append({
-            "time": datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc).isoformat(),
+            "time": ts.isoformat(),
             "value": value,
         })
     if not points:
