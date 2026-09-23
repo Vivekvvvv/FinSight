@@ -97,12 +97,15 @@ class DashboardDataService:
         return data
 
     def get_snapshot(self, symbol: str, asset_type: str, use_cache: bool = True) -> dict[str, Any]:
+        # 键须带 asset_type（与 get_market_chart 的参数化键同约定）：
+        # 否则同 symbol 不同 asset_type 的请求命中彼此缓存返回错数据
+        cache_key = f"snapshot:{asset_type}"
         if use_cache:
-            cached = self.cache.get(symbol, "snapshot")
+            cached = self.cache.get(symbol, cache_key)
             if cached is not None:
                 return cached
         data = fetch_snapshot(symbol, asset_type)
-        self.cache.set(symbol, "snapshot", data, ttl=self.cache.TTL_SNAPSHOT)
+        self.cache.set(symbol, cache_key, data, ttl=self.cache.TTL_SNAPSHOT)
         return data
 
     def get_revenue_trend(self, symbol: str, use_cache: bool = True) -> list[dict[str, Any]]:
@@ -124,12 +127,14 @@ class DashboardDataService:
         return data
 
     def get_news(self, symbol: str, limit: int = 20, use_cache: bool = True) -> dict[str, Any]:
+        # 键须带 limit：否则 limit=50 的请求会命中 limit=5 写入的缓存
+        cache_key = f"news:{limit}"
         if use_cache:
-            cached = self.cache.get(symbol, "news")
+            cached = self.cache.get(symbol, cache_key)
             if cached is not None:
                 return cached
         data = fetch_news(symbol, limit)
-        self.cache.set(symbol, "news", data, ttl=self.cache.TTL_NEWS)
+        self.cache.set(symbol, cache_key, data, ttl=self.cache.TTL_NEWS)
         return data
 
     def get_macro_snapshot(self, symbol: str, use_cache: bool = True) -> dict[str, Any]:
@@ -142,30 +147,33 @@ class DashboardDataService:
         return data
 
     def get_sector_weights(self, symbol: str, asset_type: str, use_cache: bool = True) -> list[dict[str, Any]]:
+        cache_key = f"sector_weights:{asset_type}"
         if use_cache:
-            cached = self.cache.get(symbol, "sector_weights")
+            cached = self.cache.get(symbol, cache_key)
             if cached is not None:
                 return cached
         data = fetch_sector_weights(symbol, asset_type)
-        self.cache.set(symbol, "sector_weights", data, ttl=self.cache.TTL_SECTOR_WEIGHTS)
+        self.cache.set(symbol, cache_key, data, ttl=self.cache.TTL_SECTOR_WEIGHTS)
         return data
 
     def get_top_constituents(self, symbol: str, asset_type: str, limit: int = 10, use_cache: bool = True) -> list[dict[str, Any]]:
+        cache_key = f"top_constituents:{asset_type}:{limit}"
         if use_cache:
-            cached = self.cache.get(symbol, "top_constituents")
+            cached = self.cache.get(symbol, cache_key)
             if cached is not None:
                 return cached
         data = fetch_top_constituents(symbol, asset_type, limit)
-        self.cache.set(symbol, "top_constituents", data, ttl=self.cache.TTL_CONSTITUENTS)
+        self.cache.set(symbol, cache_key, data, ttl=self.cache.TTL_CONSTITUENTS)
         return data
 
     def get_holdings(self, symbol: str, asset_type: str, limit: int = 50, use_cache: bool = True) -> list[dict[str, Any]]:
+        cache_key = f"holdings:{asset_type}:{limit}"
         if use_cache:
-            cached = self.cache.get(symbol, "holdings")
+            cached = self.cache.get(symbol, cache_key)
             if cached is not None:
                 return cached
         data = fetch_holdings(symbol, asset_type, limit)
-        self.cache.set(symbol, "holdings", data, ttl=self.cache.TTL_HOLDINGS)
+        self.cache.set(symbol, cache_key, data, ttl=self.cache.TTL_HOLDINGS)
         return data
 
     # ── v2 data methods ────────────────────────────────────────
