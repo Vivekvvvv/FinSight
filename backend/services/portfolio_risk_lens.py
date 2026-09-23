@@ -143,7 +143,9 @@ def calculate_portfolio_risk_lens(
         market = "US"  # 默认美股
         if ticker.endswith(".HK"):
             market = "HK"
-        elif ticker.endswith(".SS") or ticker.endswith(".SZ"):
+        elif ticker.endswith((".SS", ".SZ", ".BJ")):
+            # .BJ 北交所与 .SS/.SZ 同族（data_fetchers/peer_service/policy_gate/
+            # cn_hk_market 等 10+ 模块一致按 CN 计）——漏掉会把北交所持仓计入 US。
             market = "CN"
         market_exposure[market] = market_exposure.get(market, 0) + (pos.get("market_value") or 0)
 

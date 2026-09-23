@@ -334,3 +334,19 @@ def test_stale_research_naive_local_datetime_not_shifted_to_utc():
     assert len(stale) == 1
     assert stale[0]["related_symbol"] == "AAPL"
     assert stale[0]["severity"] == "medium"
+
+
+def test_bj_position_counts_as_cn_market_exposure():
+    """R80：.BJ 北交所后缀在 data_fetchers/peer_service/policy_gate/
+    cn_hk_market/baostock_provider 等 10+ 模块都算 CN，risk_lens 规则 4
+    漏了它——北交所持仓的市场暴露被计成 US。"""
+    positions = [
+        {"ticker": "832000.BJ", "market_value": 3000, "cost_basis": 3000},
+        {"ticker": "AAPL", "market_value": 7000, "cost_basis": 7000},
+    ]
+
+    result = calculate_portfolio_risk_lens(positions, [])
+
+    exposure = {m["market"]: m["percentage"] for m in result["market_exposure"]}
+    assert exposure.get("CN") == 0.3
+    assert exposure.get("US") == 0.7

@@ -286,7 +286,11 @@ class ContextManager:
         if market == "HK":
             return any(tag_in(tag, blob) for tag in ["HK", "HKEX"]) or symbol.endswith(".HK")
         if market == "CN":
-            return any(tag_in(tag, blob) for tag in ["SSE", "SZSE", "SHANGHAI", "SHENZHEN"]) or symbol.endswith((".SS", ".SZ"))
+            # .BJ 北交所后缀与其他 10+ 模块（local_disclosure/cn_hk_market/
+            # baostock_provider/policy_gate…）的 CN 判定一致——漏掉时用户澄清
+            # "A股" 后 .BJ 候选永远匹配不上被静默跳过。（不加 BSE tag：
+            # BSE 也指孟买交易所，会误收印度候选。）
+            return any(tag_in(tag, blob) for tag in ["SSE", "SZSE", "SHANGHAI", "SHENZHEN"]) or symbol.endswith((".SS", ".SZ", ".BJ"))
         if market == "JP":
             return any(tag_in(tag, blob) for tag in ["TSE", "TOKYO"]) or symbol.endswith(".T")
         if market == "EU":

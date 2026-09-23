@@ -165,3 +165,14 @@ def test_candidate_market_match_positive_controls():
     assert cm._match_candidate_by_market([us_desc], "US") == us_desc
     assert cm._match_candidate_by_market([hk], "HK") == hk
     assert cm._match_candidate_by_market([us_desc], "FR") is None
+
+
+def test_candidate_market_match_bj_suffix_is_cn():
+    """R80: .BJ 北交所后缀在 data_fetchers/peer_service/policy_gate/cn_hk_market
+    等 10+ 模块都算 CN，此处 CN 分支漏了它——用户澄清"A股"时 .BJ 候选
+    永远匹配不上被跳过。"""
+    cm = ContextManager()
+    bj = {"symbol": "832000.BJ", "primaryExchange": "BSE", "description": "Beijing listed"}
+    sz = {"symbol": "000001.SZ", "primaryExchange": "SZSE", "description": "Ping An Bank"}
+    assert cm._match_candidate_by_market([bj, sz], "CN") == bj
+    assert cm._match_candidate_by_market([bj], "US") is None
