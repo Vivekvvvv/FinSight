@@ -229,7 +229,10 @@ def _period_sort_key(period: str) -> tuple[int, int]:
     year = int(match.group(1))
     token = match.group(2)
     if token == "FY":
-        return (year, 0)
+        # 年报报告期末是 12-31，即当年的第 4 个报告期。映射 (year, 0)
+        # 会让 FY 在倒序中排到当年 Q1-Q3 之后——最新年报被当成最旧一期，
+        # periods[0] 错标成 Q3，且 [:periods] 窗口可能把 FY 直接截掉。
+        return (year, 4)
     quarter = int(match.group(3) or 0)
     return (year, quarter)
 
