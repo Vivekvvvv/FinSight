@@ -79,10 +79,14 @@ def _to_bs_code(ticker: str) -> str:
     prefix = t[:3]
     if prefix in ("600", "601", "603", "605", "688", "900"):
         return f"sh.{t}"
+    elif ticker.upper().endswith((".SS", ".SH")):
+        # .SS/.SH 的 000 开头是上交所指数（000001=上证指数、000300=沪深300、
+        # 000016=上证50）——后缀判定必须先于 00/30/20/39→sz 个股规则，
+        # 否则 000001.SS 被错路由到 sz.000001（平安银行真实存在）：
+        # 请求上证指数静默返回银行股数据。
+        return f"sh.{t}"
     elif prefix[:2] in ("00", "30", "20", "39"):
         return f"sz.{t}"
-    elif ticker.upper().endswith(".SS"):
-        return f"sh.{t}"
     return f"sz.{t}"
 
 

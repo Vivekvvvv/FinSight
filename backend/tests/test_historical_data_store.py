@@ -41,6 +41,31 @@ def test_to_bs_code_uppercase_suffix():
     assert _to_bs_code("600519.ss") == "sh.600519"
 
 
+def test_to_bs_code_sh_index_000001():
+    """R79：.SS 的 000 开头是上交所指数——000001.SS=上证指数必须映射 sh.000001。
+    旧写法先命中 00→sz 个股规则得到 sz.000001（平安银行真实存在！），
+    请求上证指数静默返回银行股日线。"""
+    from backend.services.historical_data_store import _to_bs_code
+    assert _to_bs_code("000001.SS") == "sh.000001"
+
+
+def test_to_bs_code_sh_index_000300():
+    from backend.services.historical_data_store import _to_bs_code
+    assert _to_bs_code("000300.SS") == "sh.000300"  # 沪深300
+
+
+def test_to_bs_code_sh_suffix_000():
+    from backend.services.historical_data_store import _to_bs_code
+    assert _to_bs_code("000016.SH") == "sh.000016"  # .SH 后缀同一缺陷（上证50）
+
+
+def test_to_bs_code_sz_index_kept():
+    """深市代码不受后缀判定影响——.SZ 的 39/00 前缀仍是 sz。"""
+    from backend.services.historical_data_store import _to_bs_code
+    assert _to_bs_code("399001.SZ") == "sz.399001"  # 深证成指
+    assert _to_bs_code("000001.SZ") == "sz.000001"  # 平安银行
+
+
 # ── _adjust_flag 测试 ─────────────────────────────────────────────────────────
 
 def test_adjust_flag_qfq():
