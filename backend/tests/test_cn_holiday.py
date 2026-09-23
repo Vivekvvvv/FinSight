@@ -41,3 +41,22 @@ def test_2027_mid_autumn_is_market_holiday():
     """2027 中秋节为 9 月 15 日（周三）。"""
     assert is_cn_holiday(date(2027, 9, 15)) is True
     assert get_holiday_name(date(2027, 9, 15)) == "中秋节"
+
+
+def test_2026_holiday_table_matches_official_schedule():
+    """2026 表按"预估"填的与国务院正式安排有三处交易日级出入
+    （gov.cn 2025-11-04 通知）：
+    - 春节 2/15-2/23 共9天：漏 2/16（周一·除夕）→ 休市日判开市；
+    - 清明实为 4/4-4/6：多标 4/7（周二）→ 开市日判休市，smart_cache
+      当日给 86400s TTL，盘中全天返回前收价；
+    - 国庆实为 10/1-10/7：多标 10/8（周四）→ 同上，且 10/8 是未来
+      交易日，不修会在两周后真实发生全天陈旧行情。"""
+    # 漏标的休市日
+    assert is_cn_holiday(date(2026, 2, 16)) is True   # 除夕（周一）
+    # 错标的交易日
+    assert is_cn_holiday(date(2026, 4, 7)) is False   # 清明实为 4/4-4/6
+    assert is_cn_holiday(date(2026, 10, 8)) is False  # 国庆实为 10/1-10/7
+    # 边界不变量：真正的休市日仍判休市
+    assert is_cn_holiday(date(2026, 4, 6)) is True    # 清明周一
+    assert is_cn_holiday(date(2026, 10, 7)) is True   # 国庆最后一天
+    assert is_cn_holiday(date(2026, 2, 23)) is True   # 春节最后一天（周一）
