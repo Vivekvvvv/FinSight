@@ -46,6 +46,54 @@ def test_r14_us_trading_window_uses_real_utc_session():
     assert TradingHoursCache._is_us_trading(pre_market) is False
 
 
+# ── R93: CN/HK 周末判定用了 UTC 星期——北京周一凌晨被判周末拿 24h TTL ──────────
+
+def test_r93_cn_weekend_check_uses_market_local_date(monkeypatch):
+    """UTC 周日 == 北京时间周一 00:00-08:00：is_weekend 按 UTC 判会把
+    北京周一凌晨误当周末——此时抓取的 quote 拿 86400s TTL，缓存条目
+    在北京周一整个交易时段（09:30-15:00）都被视为"新鲜"，全天返回
+    上周五收盘价。周末判定必须按市场本地日期（UTC+8）。"""
+    from datetime import datetime as _dt, timedelta, timezone as _tz
+
+    import backend.services.smart_cache as sc
+
+    class _FrozenNow(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            # UTC 2026-01-11 20:00 = 周日；北京 2026-01-12 04:00 = 周一
+            return _dt(2026, 1, 11, 20, 0, tzinfo=_tz.utc)
+
+    monkeypatch.setattr(sc, "datetime", _FrozenNow)
+    # cn_holiday 对北京周一返回 False（2026-01-12 非节假日）
+    monkeypatch.setattr("backend.services.cn_holiday.is_cn_holiday", lambda d: False)
+
+    # 北京周一凌晨（非交易时段）：应给盘后 1800s，而非周末 86400s
+    assert sc.TradingHoursCache.get_smart_ttl("cn", "quote") == 1800
+    assert sc.TradingHoursCache.get_smart_ttl("hk", "quote") == 1800
+
+    # 美股不受影响：UTC 周日 = 美东周六/日，仍是周末 → 86400s
+    assert sc.TradingHoursCache.get_smart_ttl("us", "quote") == 86400
+
+
+def test_r93_cn_true_weekend_still_gets_long_ttl(monkeypatch):
+    """北京真正的周六凌晨（UTC 周五深夜）不受影响：北京周六 04:00
+    = UTC 周五 20:00，本地已是周末 → 86400s。"""
+    from datetime import datetime as _dt, timezone as _tz
+
+    import backend.services.smart_cache as sc
+
+    class _FrozenNow(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            # UTC 2026-01-09 20:00 = 周五；北京 2026-01-10 04:00 = 周六
+            return _dt(2026, 1, 9, 20, 0, tzinfo=_tz.utc)
+
+    monkeypatch.setattr(sc, "datetime", _FrozenNow)
+    monkeypatch.setattr("backend.services.cn_holiday.is_cn_holiday", lambda d: False)
+
+    assert sc.TradingHoursCache.get_smart_ttl("cn", "quote") == 86400
+
+
 # ── B2: 每日风险快照对 list 调 .get("items") → AttributeError 被吞，永不落库 ──
 
 def test_b2_daily_risk_snapshot_saves_when_list_reports_returns_list(monkeypatch):

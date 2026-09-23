@@ -63,7 +63,16 @@ class TradingHoursCache:
                 return cls._get_weekend_ttl(data_type)
 
         is_trading = cls._is_trading_hours(market, now_utc)
-        is_weekend = now_utc.weekday() >= 5  # 5=Saturday, 6=Sunday
+        # 周末判定必须按市场本地日期：UTC 周日 = 北京周一 00:00-08:00，
+        # 按 UTC 判周末会让北京周一凌晨抓取的 quote 拿 86400s TTL，
+        # 缓存条目在周一整个交易时段都被视为新鲜（全天陈旧价）；反向
+        # UTC 周五 = 北京周六凌晨又判成交易日空拉行情。us 用 UTC 足够
+        # （ET 落后 UTC，UTC 周末与美东周末基本重合，偏差方向无害）。
+        from datetime import timedelta as _timedelta
+        if market in ("cn", "hk"):
+            is_weekend = (now_utc + _timedelta(hours=8)).weekday() >= 5
+        else:
+            is_weekend = now_utc.weekday() >= 5  # 5=Saturday, 6=Sunday
 
         # 周末/节假日：超长缓存
         if is_weekend:
