@@ -8,7 +8,32 @@ from __future__ import annotations
 
 import pandas as pd
 
-from backend.tools.technical import _calc_rsi, compute_technical_indicators
+from backend.tools.technical import _calc_adx, _calc_rsi, compute_technical_indicators
+
+
+def test_adx_symmetric_expansion_bars_give_no_direction():
+    """R91：_calc_adx 先把 plus_dm 清零再让 minus_dm 跟它比较——判定用的
+    是"已修改的 +DM"而非原始涨幅。对称扩张 bar（up==down，如高低点
+    围绕收盘价等距的十字星，或低价股 ±0.01 横盘）按 Wilder 定义两侧
+    DM 都应为 0，旧代码单边错记 -DM → -DI 虚高、DX/ADX 系统性漂移
+    （实测连续对称 bar ADX 62.7 vs 正确值 81.3，方向相反）。
+    用二进制精确的 0.25 步长保证 diff 位级相等；全部对称 → 无方向
+    运动 → pdi=mdi=0 → dx 分母为 0 → adx=None。"""
+    n = 60
+    close = pd.Series([10.0] * n)
+    high = pd.Series([10.0 + 0.25 * i for i in range(n)])
+    low = pd.Series([10.0 - 0.25 * i for i in range(n)])
+    assert _calc_adx(high, low, close) is None
+
+
+def test_adx_uptrend_still_positive():
+    """非对称上涨 bar 不受影响：单向趋势仍有正 ADX。"""
+    n = 60
+    close = pd.Series([10.0 + 0.2 * i for i in range(n)])
+    high = close + 0.05
+    low = close - 0.05
+    adx = _calc_adx(high, low, close)
+    assert adx is not None and adx > 0
 
 
 def _flat_series(n=120, price=50.0) -> pd.Series:

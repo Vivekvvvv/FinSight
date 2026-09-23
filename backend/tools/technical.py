@@ -98,10 +98,14 @@ def _calc_adx(
     """Average Directional Index."""
     if len(close) < period * 2:
         return None
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+    up_move = high.diff()
+    down_move = -low.diff()
+    # DM 判定必须基于原始涨/跌幅：先把 plus_dm 清零再让 minus_dm 跟它
+    # 比较，对称扩张 bar（up==down，低价股横盘每根 ±0.01 很常见）会被
+    # 单边错记 -DM——Wilder 定义两侧都应为 0，-DI 虚高、DX/ADX 系统性
+    # 漂移（实测连续对称 bar ADX 62.7 vs 正确值 81.3）。
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
 
     tr1 = high - low
     tr2 = (high - close.shift(1)).abs()
