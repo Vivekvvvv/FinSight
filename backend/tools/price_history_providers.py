@@ -478,8 +478,10 @@ def _map_to_stooq_symbol(ticker: str) -> Optional[str]:
     upper = ticker.upper()
 
     # 不支持的 ticker 类型 - 返回 None 跳过
-    # 加密货币
-    if any(crypto in upper for crypto in ['BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'SOL', 'DOGE', 'ADA']):
+    # 加密货币：必须是「crypto 代码 + USD/USDT/-/结尾」形态（BTC-USD、SOLUSD）。
+    # 裸子串会把合法美股误判成 crypto："SOL"⊂"SOLV"、"ETH"⊂"ETHO"、
+    # "BTC"⊂"BTCT"、"ADA"⊂"ADAG" —— 这些 ticker 直接失去 stooq 兜底源。
+    if re.match(r"^(?:BTC|ETH|USDT|BNB|XRP|SOL|DOGE|ADA)(?:USD|USDT|-|$)", upper):
         return None
     # A 股指数和股票
     if upper.endswith('.SS') or upper.endswith('.SZ') or upper.startswith('000') or upper.startswith('600') or upper.startswith('300'):
