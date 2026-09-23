@@ -14,6 +14,13 @@ logger = logging.getLogger(__name__)
 _TRADING_DAYS = 252
 
 
+def _correlation_matrix(arr: np.ndarray) -> list[list[float]]:
+    """相关系数矩阵，零方差行（停牌/恒定价）的 NaN 按 0 占位、对角线补 1。"""
+    corr = np.nan_to_num(np.corrcoef(arr), nan=0.0, posinf=0.0, neginf=0.0)
+    np.fill_diagonal(corr, 1.0)
+    return corr.round(3).tolist()
+
+
 def optimize_portfolio(
     returns_matrix: list[list[float]],
     tickers: list[str],
@@ -90,6 +97,9 @@ def optimize_portfolio(
         },
         "correlation_matrix": {
             "tickers": tickers,
-            "data": np.corrcoef(arr).round(3).tolist(),
+            # 零方差行（停牌股恒定价 → 全 0 收益）让 corrcoef 产生 NaN，
+            # 透传到响应 JSON 成为裸 NaN 字面量，前端 JSON.parse 直接抛错。
+            # 无定义的相关性按 0 占位，自相关对角线补回 1。
+            "data": _correlation_matrix(arr),
         },
     }
