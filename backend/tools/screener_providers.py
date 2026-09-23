@@ -694,11 +694,13 @@ def _alpha_vantage_screen_stocks(
             price = _clean_float(row.get("price"))
             volume = _clean_float(row.get("volume"))
             change_percent = _parse_percent(row.get("change_percentage"))
-            if (threshold := _clean_float(active_filters.get("priceMoreThan"))) is not None and price is not None and price < threshold:
+            # 有阈值时字段缺失（API 畸形值 → None）判不通过——"price>100"
+            # 的结果里不能混入无价格数据的股票；与 us_screener/cn_screener 一致。
+            if (threshold := _clean_float(active_filters.get("priceMoreThan"))) is not None and (price is None or price < threshold):
                 continue
-            if (threshold := _clean_float(active_filters.get("priceLowerThan"))) is not None and price is not None and price > threshold:
+            if (threshold := _clean_float(active_filters.get("priceLowerThan"))) is not None and (price is None or price > threshold):
                 continue
-            if (threshold := _clean_float(active_filters.get("volumeMoreThan"))) is not None and volume is not None and volume < threshold:
+            if (threshold := _clean_float(active_filters.get("volumeMoreThan"))) is not None and (volume is None or volume < threshold):
                 continue
 
             items.append({
@@ -775,17 +777,18 @@ def _yfinance_popular_stocks(
                 market_cap = _clean_float(item.get("market_cap"))
                 volume = _clean_float(item.get("volume"))
 
-                # Apply filters
+                # Apply filters — 有阈值时字段缺失（fast_info 拉取失败 →
+                # price/mcap/volume=None）判不通过，与 us_screener/cn_screener 一致。
                 if filters:
-                    if (threshold := _clean_float(filters.get("priceMoreThan"))) is not None and price is not None and price < threshold:
+                    if (threshold := _clean_float(filters.get("priceMoreThan"))) is not None and (price is None or price < threshold):
                         continue
-                    if (threshold := _clean_float(filters.get("priceLowerThan"))) is not None and price is not None and price > threshold:
+                    if (threshold := _clean_float(filters.get("priceLowerThan"))) is not None and (price is None or price > threshold):
                         continue
-                    if (threshold := _clean_float(filters.get("marketCapMoreThan"))) is not None and market_cap is not None and market_cap < threshold:
+                    if (threshold := _clean_float(filters.get("marketCapMoreThan"))) is not None and (market_cap is None or market_cap < threshold):
                         continue
-                    if (threshold := _clean_float(filters.get("marketCapLowerThan"))) is not None and market_cap is not None and market_cap > threshold:
+                    if (threshold := _clean_float(filters.get("marketCapLowerThan"))) is not None and (market_cap is None or market_cap > threshold):
                         continue
-                    if (threshold := _clean_float(filters.get("volumeMoreThan"))) is not None and volume is not None and volume < threshold:
+                    if (threshold := _clean_float(filters.get("volumeMoreThan"))) is not None and (volume is None or volume < threshold):
                         continue
 
                 items.append(item)
