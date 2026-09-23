@@ -268,8 +268,9 @@ def _extract_datetime_from_url(url: str) -> Optional[datetime]:
         except Exception:
             return None
 
-    # Pattern like 20250723 (avoid matching long ids by requiring separators nearby)
-    m = re.search(r"(20\d{2})(\d{2})(\d{2})", url)
+    # Pattern like 20250723 —— 用数字边界隔离：长数字 ID 内部的 8 位片段
+    # （如 ?id=1202509234）不是日期，旧正则无边框会误提取出 2025-09-23。
+    m = re.search(r"(?<![0-9])(20\d{2})(\d{2})(\d{2})(?![0-9])", url)
     if m:
         try:
             return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
