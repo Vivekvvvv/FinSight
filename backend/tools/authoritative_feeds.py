@@ -98,18 +98,17 @@ def _query_tokens(query: str) -> list[str]:
 
 
 def _extract_tickers(query: str) -> list[str]:
-    raw = str(query or "").upper()
+    """提取 query 中的 ticker 用于定向 RSS 拉取（最多 2 个）。
+
+    委托 canonical extractor：旧实现把整句 .upper() 后按 [A-Z]{1,5}
+    匹配，每个英文单词都被当成 ticker（"should I buy AAPL"→["SHOULD","I"]），
+    为假标的白拉 Yahoo feed 并挤占真 ticker 的位置。"""
+    raw = str(query or "").strip()
     if not raw:
         return []
-    tickers = [t for t in re.findall(r"\b[A-Z]{1,5}(?:\.[A-Z]{1,2})?\b", raw) if len(t) <= 8]
-    uniq: list[str] = []
-    seen: set[str] = set()
-    for ticker in tickers:
-        if ticker in seen:
-            continue
-        seen.add(ticker)
-        uniq.append(ticker)
-    return uniq[:2]
+    from backend.config.ticker_mapping import extract_tickers
+
+    return extract_tickers(raw).get("tickers", [])[:2]
 
 
 def _parse_feed_items(feed_name: str, xml_text: str) -> list[dict[str, Any]]:
