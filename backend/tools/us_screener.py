@@ -97,7 +97,9 @@ def _passes_filters(item: dict[str, Any], filters: dict[str, Any]) -> bool:
     for filter_key, item_key, predicate in checks:
         threshold = _number(filters.get(filter_key))
         actual = _number(item.get(item_key))
-        if threshold is not None and actual is not None and not predicate(actual, threshold):
+        # 字段缺失（actual=None）不能放行——"price>100" 的结果里不能混入
+        # 无价格数据的股票；旧短路逻辑只在 actual 有值时才比较。
+        if threshold is not None and (actual is None or not predicate(actual, threshold)):
             return False
     sector = str(filters.get("sector") or "").strip().lower()
     if sector and str(item.get("sector") or "").strip().lower() != sector:
