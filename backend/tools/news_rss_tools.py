@@ -292,7 +292,18 @@ def _build_news_item(
     if not title:
         return {}
     normalized_url = (url or "").strip()
-    if "finnhub.io/api/news" in normalized_url.lower():
+    # 只清"URL 本身就是 finnhub API 端点"的链接（无法跳转原文）。
+    # 旧代码对整条 URL 做裸子串——非 finnhub 主机但 path/query 携带
+    # finnhub.io/api/news 的引用链接（跳转包装、内嵌提及）被误清空。
+    # 无 scheme 的 finnhub.io/api/news 直链补 scheme 再判，保持清空。
+    _parsed = urlparse(
+        normalized_url if "://" in normalized_url else f"https://{normalized_url}"
+    )
+    _host = (_parsed.hostname or "").lower().removeprefix("www.")
+    if (
+        (_host == "finnhub.io" or _host.endswith(".finnhub.io"))
+        and "api/news" in _parsed.path
+    ):
         normalized_url = ""
     published_date = _normalize_published_date(published_at)
     # Compute tags from headline + snippet for structured output
