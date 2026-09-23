@@ -230,7 +230,15 @@ class ContextManager:
         query_upper = query.upper()
         for item in candidates:
             symbol = item.get("symbol") if isinstance(item, dict) else None
-            if symbol and symbol.upper() in query_upper:
+            if not symbol:
+                continue
+            sym = symbol.upper()
+            # 整句精确回复（"T"）允许单字母；其余必须是有边界的 token。
+            # 裸子串让 "T"⊂"THE"、"AI"⊂"SAID"、"ON"⊂"HORIZON" 把无关澄清
+            # 误判成选股，且本路径先于 index/market 短路，会直接返回错股。
+            if query_upper.strip() == sym:
+                return item
+            if len(sym) >= 2 and re.search(rf"(?<![A-Z0-9.]){re.escape(sym)}(?![A-Z0-9])", query_upper):
                 return item
         return None
 

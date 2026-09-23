@@ -60,3 +60,62 @@ def test_false_market_hint_does_not_skip_company_memory():
     out = cm.preprocess_query("深度分析苹果的财报")
     assert "AAPL" in out["query"]
     assert out["market_hint"] is None
+
+
+def test_candidate_symbol_match_requires_token_boundary():
+    """R30: _match_candidate_by_symbol 裸子串 — 'AI'⊂'SAID' 先短路命中，
+    用户明明说了 BIDU 却返回 AI（symbol 匹配先于 index/market 路径）。"""
+    from datetime import datetime
+    cm = ContextManager()
+    cm.pending_clarification = {
+        "company_hint": "某股",
+        "candidates": [
+            {"symbol": "AI", "primaryExchange": "NYSE"},
+            {"symbol": "BIDU", "primaryExchange": "NASDAQ"},
+        ],
+        "original_query": "查一下某股",
+        "intent": "stock",
+        "created_at": datetime.now(),
+    }
+    out = cm._resolve_pending_clarification("said bidu please", None)
+    assert out is not None
+    assert out["selected_ticker"] == "BIDU"
+
+
+def test_candidate_symbol_single_letter_inside_word_does_not_match():
+    """R30: 'T'⊂'THE' — 用户回 'the hk one' 想选 HK 候选，
+    裸子串却把第一个候选 T(NYSE) 短路返回。"""
+    from datetime import datetime
+    cm = ContextManager()
+    cm.pending_clarification = {
+        "company_hint": "某股",
+        "candidates": [
+            {"symbol": "T", "primaryExchange": "NYSE"},
+            {"symbol": "0700.HK", "primaryExchange": "HKEX"},
+        ],
+        "original_query": "查一下某股",
+        "intent": "stock",
+        "created_at": datetime.now(),
+    }
+    out = cm._resolve_pending_clarification("the hk one", "HK")
+    assert out is not None
+    assert out["selected_ticker"] == "0700.HK"
+
+
+def test_candidate_symbol_exact_single_letter_reply_still_works():
+    """R30 正例：用户明确回复 'T' 应精确命中单字母候选。"""
+    from datetime import datetime
+    cm = ContextManager()
+    cm.pending_clarification = {
+        "company_hint": "某股",
+        "candidates": [
+            {"symbol": "T", "primaryExchange": "NYSE"},
+            {"symbol": "F", "primaryExchange": "NYSE"},
+        ],
+        "original_query": "查一下某股",
+        "intent": "stock",
+        "created_at": datetime.now(),
+    }
+    out = cm._resolve_pending_clarification("T", None)
+    assert out is not None
+    assert out["selected_ticker"] == "T"
