@@ -325,7 +325,7 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
     try:
         logger.info("Trying Alpha Vantage company news")
         url = "https://www.alphavantage.co/query"
-        params = {'function': 'NEWS_SENTIMENT', 'tickers': ticker, 'limit': 5, 'apikey': ALPHA_VANTAGE_API_KEY}
+        params = {'function': 'NEWS_SENTIMENT', 'tickers': ticker, 'limit': limit, 'apikey': ALPHA_VANTAGE_API_KEY}
         response = _http_get(url, params=params, timeout=10)
         data = response.json()
         if 'feed' in data and data['feed']:
