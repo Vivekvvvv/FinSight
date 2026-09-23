@@ -157,3 +157,24 @@ def test_search_notes():
     finally:
         for nid in note_ids:
             research_notes.delete_note(nid)
+
+
+def test_list_notes_ticker_filter_matches_case_insensitively():
+    """create_note 存 ticker 原样（不 upper）；list_notes 的 ticker = ?
+    精确匹配使 'aapl' 存的笔记用 'AAPL' 筛选时漏掉——
+    与 report_index 同类，比较须 COLLATE NOCASE。"""
+    note_id = research_notes.create_note(
+        session_id="pytest_session",
+        user_id="pytest_user",
+        title="小写 ticker 笔记",
+        ticker="aapl",
+    )
+    try:
+        hits = research_notes.list_notes(
+            "pytest_session", "pytest_user", ticker="AAPL",
+        )
+        assert any(n["note_id"] == note_id for n in hits), (
+            "小写存储的笔记在大写筛选下被漏掉"
+        )
+    finally:
+        research_notes.delete_note(note_id)

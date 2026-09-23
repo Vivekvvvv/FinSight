@@ -281,7 +281,7 @@ def list_notes(
                        title, content, tags_json,
                        created_at, updated_at
                 FROM research_notes
-                WHERE session_id = ? AND user_id = ? AND ticker = ? AND deleted = 0
+                WHERE session_id = ? AND user_id = ? AND ticker = ? COLLATE NOCASE AND deleted = 0
                 ORDER BY updated_at DESC
                 LIMIT ? OFFSET ?
             """, (session_id, user_id, ticker, limit, offset)).fetchall()
