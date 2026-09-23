@@ -132,7 +132,9 @@ def _build_item(row: dict[str, Any], market: str) -> dict[str, Any] | None:
 
 
 def _passes_filters(item: dict[str, Any], filters: dict[str, Any]) -> bool:
-    """与 screener._yfinance_popular_stocks 同语义：字段缺失时不排除该行。"""
+    """有阈值约束时字段缺失判不通过——"price>100" 的结果里不能混入
+    无价格数据的股票（A股停牌 f2="-" → price=None）。与 us_screener
+    修复后的语义一致（比 _yfinance_popular_stocks 的宽松短路更严格）。"""
     price = item.get("price")
     market_cap = item.get("market_cap")
     volume = item.get("volume")
@@ -146,9 +148,9 @@ def _passes_filters(item: dict[str, Any], filters: dict[str, Any]) -> bool:
     )
     for key, value, violates in checks:
         threshold = safe_float(filters.get(key))
-        if threshold is None or value is None:
+        if threshold is None:
             continue
-        if violates(value, threshold):
+        if value is None or violates(value, threshold):
             return False
     return True
 
