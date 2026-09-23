@@ -284,7 +284,11 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
         market_ok = False
 
         # Parallel fetch: company news + market headlines
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        # 不用 with：__exit__ 的 shutdown(wait=True) 会阻塞到仍在跑的慢源
+        # 返回，result(timeout=30) 的延迟预算被架空。显式 wait=False +
+        # cancel_futures 让超时路径按预算返回（线程收尾靠源自身超时）。
+        pool = ThreadPoolExecutor(max_workers=2)
+        try:
             f_impact = pool.submit(get_company_news, symbol, limit)
             f_market = pool.submit(get_market_news_headlines, limit)
 
@@ -307,6 +311,8 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
                     market_items = _parse_news_text(raw_market)
             except (FuturesTimeout, Exception) as exc:
                 logger.warning("[DataService] get_market_news_headlines failed")
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         # 两个来源都抛异常（而非都返回空列表）→ 视为 news 管道故障，返回 None。
         # 此前无论如何都返回空 payload，而 router 只把 None 当失败，导致真实

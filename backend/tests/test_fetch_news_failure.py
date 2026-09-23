@@ -47,3 +47,36 @@ def test_fetch_news_returns_payload_when_one_source_ok(monkeypatch):
     monkeypatch.setattr(news_mod, "get_market_news_headlines", lambda *a, **k: [])
 
     assert data_service.fetch_news("AAPL") is not None
+
+
+def test_fetch_news_shutdown_does_not_wait_for_timed_out_sources(monkeypatch):
+    """R99：result(timeout=30) 只让等待方抛 FuturesTimeout，源线程仍在跑；
+    `with ThreadPoolExecutor` 退出时 __exit__ 调 shutdown(wait=True)，
+    fetch_news 会一直阻塞到慢源真正返回——30s 预算形同虚设
+    （get_market_news_headlines 串行打十几个 RSS + 6 个 alert_scheduler
+    指数 + 搜索兜底，超 30s 是常态）。退出必须 wait=False 并取消
+    排队任务，超时路径才按预算返回。"""
+    import concurrent.futures as cf
+
+    import backend.tools.news as news_mod
+    from backend.dashboard import data_fetchers
+
+    shutdown_calls = []
+
+    class _SpyPool(cf.ThreadPoolExecutor):
+        def shutdown(self, wait=True, *, cancel_futures=False):
+            shutdown_calls.append({"wait": wait, "cancel_futures": cancel_futures})
+            return super().shutdown(wait=wait, cancel_futures=cancel_futures)
+
+    monkeypatch.setattr(cf, "ThreadPoolExecutor", _SpyPool)
+    monkeypatch.setattr(news_mod, "get_company_news", lambda *a, **k: [])
+    monkeypatch.setattr(news_mod, "get_market_news_headlines", lambda *a, **k: [])
+
+    payload = data_fetchers.fetch_news("AAPL")
+
+    assert payload is not None
+    assert shutdown_calls, "pool 必须被显式关闭"
+    assert all(
+        call["wait"] is False and call["cancel_futures"] is True
+        for call in shutdown_calls
+    ), f"shutdown 仍阻塞等待慢源: {shutdown_calls}"
