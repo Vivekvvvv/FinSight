@@ -150,3 +150,35 @@ def test_risk_attribution_sector_attribution():
     sectors = {s["sector"] for s in result["sector_attribution"]}
     assert "金融" in sectors
     assert "科技" in sectors
+
+
+def test_stored_position_shape_derives_market_value():
+    """集成回归：get_positions 实际返回 shares/avg_cost，没有 market_value。
+    /api/portfolio/risk-attribution 端点把存储行直接喂进来——字段缺失恒 0
+    会让 total_val<=0 永远返回 no_data"持仓数据不足"。应按 shares*avg_cost
+    兜底（与 portfolio_risk_lens 同一口径）。"""
+    from backend.services.risk_attribution import calculate_risk_attribution
+    positions = [
+        {"ticker": "AAPL", "shares": 30, "avg_cost": 100, "sector": "科技"},
+        {"ticker": "NVDA", "shares": 10, "avg_cost": 100, "sector": "科技"},
+    ]
+    with patch("backend.services.risk_attribution._fetch_returns", return_value=None):
+        result = calculate_risk_attribution(positions)
+    assert result["method"] == "simplified"
+    weights = {item["ticker"]: item["weight"] for item in result["positions"]}
+    assert weights["AAPL"] == 0.75
+    assert weights["NVDA"] == 0.25
+
+
+def test_market_value_field_takes_precedence_over_shares_avg_cost():
+    """显式 market_value 不被 shares*avg_cost 兜底覆盖。"""
+    from backend.services.risk_attribution import calculate_risk_attribution
+    positions = [
+        {"ticker": "AAPL", "shares": 10, "avg_cost": 50, "market_value": 900},
+        {"ticker": "NVDA", "market_value": 100},
+    ]
+    with patch("backend.services.risk_attribution._fetch_returns", return_value=None):
+        result = calculate_risk_attribution(positions)
+    weights = {item["ticker"]: item["weight"] for item in result["positions"]}
+    assert weights["AAPL"] == 0.9
+    assert weights["NVDA"] == 0.1

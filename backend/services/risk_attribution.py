@@ -21,7 +21,16 @@ _MARKET_TICKER = "000300.SS"   # 沪深300作为市场基准
 
 def _market_value(position: dict[str, Any]) -> float:
     value = safe_float(position.get("market_value"))
-    return value if value is not None and value > 0 else 0.0
+    if value is not None and value > 0:
+        return value
+    # get_positions 只给 shares/avg_cost——risk-attribution 端点直接喂存储行，
+    # 缺 market_value 恒 0 会让 total_val<=0 永远返回 no_data。按 shares*avg_cost
+    # 兜底（与 portfolio_risk_lens 同一口径）。
+    shares = safe_float(position.get("shares"))
+    avg_cost = safe_float(position.get("avg_cost"))
+    if shares is not None and shares > 0 and avg_cost is not None and avg_cost > 0:
+        return shares * avg_cost
+    return 0.0
 
 
 def _fetch_returns(ticker: str, period: str = "1y") -> list[float] | None:
