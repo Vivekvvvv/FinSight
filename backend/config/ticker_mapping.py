@@ -347,8 +347,17 @@ def extract_tickers(query: str) -> Dict[str, Any]:
     # 1. Match market indices (longest match first)
     sorted_aliases = sorted(INDEX_ALIASES.keys(), key=len, reverse=True)
     for alias in sorted_aliases:
-        pattern = re.compile(re.escape(alias), re.IGNORECASE)
-        if pattern.search(query_original):
+        # ASCII 别名必须整词命中：裸子串让 "dow"⊂"window"/"shadow"、
+        # "vix"⊂"vixen" 把无关文本误提为 ^DJI/^VIX 幻影标的；
+        # 中文别名没有词边界概念，保持子串匹配。
+        if alias.isascii():
+            matched = re.search(
+                rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])",
+                query_original, re.IGNORECASE,
+            ) is not None
+        else:
+            matched = re.search(re.escape(alias), query_original, re.IGNORECASE) is not None
+        if matched:
             ticker = INDEX_ALIASES[alias]
             if ticker not in metadata['tickers']:
                 metadata['tickers'].append(ticker)
@@ -394,7 +403,17 @@ def extract_tickers(query: str) -> Dict[str, Any]:
     # 3. Match Chinese company names
     sorted_cn_names = sorted(CN_TO_TICKER.keys(), key=len, reverse=True)
     for cn_name in sorted_cn_names:
-        if cn_name in query_original:
+        # 英文键（oil/gold/VIX/sp500…）同样要整词："oil"⊂"soil"/"spoil"、
+        # "gold"⊂"goldman"、"VIX"⊂"VIXEN" 会误提 CL=F/GC=F/^VIX；
+        # 中文键保持子串匹配。大小写语义不变（'VIX' 仍只认大写）。
+        if cn_name.isascii():
+            matched = re.search(
+                rf"(?<![A-Za-z0-9]){re.escape(cn_name)}(?![A-Za-z0-9])",
+                query_original,
+            ) is not None
+        else:
+            matched = cn_name in query_original
+        if matched:
             ticker = CN_TO_TICKER[cn_name]
             if ticker not in metadata['tickers']:
                 metadata['tickers'].append(ticker)
@@ -402,7 +421,12 @@ def extract_tickers(query: str) -> Dict[str, Any]:
 
     # 4. Match English company names (full names)
     for name, ticker in COMPANY_MAP.items():
-        if len(name) > 4 and name.lower() in query_lower:
+        # 公司名同族问题："intel"⊂"intelligent"、"apple"⊂"pineapple"
+        # 会把日常英文误提为 INTC/AAPL——整词边界匹配。
+        if len(name) > 4 and re.search(
+            rf"(?<![a-z0-9]){re.escape(name.lower())}(?![a-z0-9])",
+            query_lower,
+        ):
             if ticker not in metadata['tickers']:
                 metadata['tickers'].append(ticker)
                 metadata['company_names'].append(name)
