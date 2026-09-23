@@ -196,8 +196,12 @@ class DataSourceMonitor:
         elif len(self._degraded_sources) == 1:
             return "degraded"
 
-        # 检查各源成功率
-        avg_success_rate = sum(m.success_rate for m in self._metrics.values()) / len(self._metrics)
+        # 检查各源成功率：只对有过请求的源取平均——零流量源 success_rate=0，
+        # 计入分母会把 healthy(≥90) 压成数学不可达，健康检查永远 warning/degraded
+        active = [m for m in self._metrics.values() if m.total_requests > 0]
+        avg_success_rate = (
+            sum(m.success_rate for m in active) / len(active) if active else 0.0
+        )
         if avg_success_rate >= 90:
             return "healthy"
         elif avg_success_rate >= 70:

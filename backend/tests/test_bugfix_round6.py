@@ -204,3 +204,48 @@ def test_d1_concurrent_subscribe_and_iterate_no_crash(tmp_path, monkeypatch):
     # 修复前：reader 迭代 self.subscriptions 时 writer 增删顶层 key
     # → RuntimeError: dictionary changed size during iteration
     assert errors == []
+
+
+# ── #53: _calculate_overall_status 把零流量源计入分母 → healthy 不可达 ─────────
+
+def test_overall_status_ignores_zero_traffic_sources():
+    """只用 tencent/yahoo（demo/unknown 无流量）且全部成功 → 应为 healthy。
+
+    修复前：avg = (100+100+0+0)/4 = 50 → "degraded"；healthy(≥90) 数学上
+    不可达，/api/system/health 永远报 warning/degraded。"""
+    from backend.services.datasource_monitor import DataSourceMonitor
+
+    mon = DataSourceMonitor()
+    for _ in range(10):
+        mon.record_success("tencent", 1.0)
+        mon.record_success("yahoo", 1.0)
+    # demo / unknown 从未记录任何请求
+
+    assert mon._calculate_overall_status() == "healthy"
+
+
+def test_overall_status_averages_active_sources_only():
+    """部分活跃源成功率低时，仍按活跃源平均 → warning（而非被零流量源拖成 degraded）。"""
+    from backend.services.datasource_monitor import DataSourceMonitor
+
+    mon = DataSourceMonitor()
+    for _ in range(10):
+        mon.record_success("tencent", 1.0)
+    # 交错记录避免连续失败 ≥3 触发降级分支
+    for ok in (False, True, True, False, True, True, False, True, True, False):
+        if ok:
+            mon.record_success("yahoo", 1.0)
+        else:
+            mon.record_failure("yahoo", "timeout")
+    # tencent=100%, yahoo=60% → 活跃源平均 80 → warning
+    # 修复前：(100+60+0+0)/4 = 40 → "degraded"
+    assert mon._metrics["yahoo"].consecutive_failures < 3  # 未触发降级
+    assert mon._calculate_overall_status() == "warning"
+
+
+def test_overall_status_no_traffic_stays_degraded():
+    """完全无流量时保持原有 degraded 语义。"""
+    from backend.services.datasource_monitor import DataSourceMonitor
+
+    mon = DataSourceMonitor()
+    assert mon._calculate_overall_status() == "degraded"
