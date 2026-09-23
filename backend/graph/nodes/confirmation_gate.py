@@ -24,6 +24,33 @@ _INTENT_CONFIRM = "confirm_execute"
 _INTENT_ADJUST = "adjust_parameters"
 _INTENT_CANCEL = "cancel_execution"
 
+# 意图关键词的否定标记：裸子串会把 "我不确认" 判成 confirm 放行执行、
+# 把 "请不要取消"/"don't cancel" 判成 cancel 误杀——必须看紧邻前方。
+_CJK_NEGATION_MARKERS = ("不", "别", "勿", "没", "未")
+_EN_NEGATION_MARKERS = ("not", "n't", "never", "cannot", "cant", "dis")
+
+
+def _has_intent_keyword(text: str, keywords: tuple[str, ...], *, english: bool) -> bool:
+    """关键词出现且紧邻前方没有否定标记。
+
+    CJK 取前 2 字窗口（"不确认"/"别取消"/"先不取消" 均覆盖；
+    "没问题，确认" 的 "没" 距 "确认" 3 字不误伤）。
+    英文取前 6 字符窗口（"don't cancel"/"cannot confirm"/"disapprove"）。
+    """
+    window = 6 if english else 2
+    markers = _EN_NEGATION_MARKERS if english else _CJK_NEGATION_MARKERS
+    for keyword in keywords:
+        start = 0
+        while True:
+            idx = text.find(keyword, start)
+            if idx < 0:
+                break
+            prefix = text[max(0, idx - window):idx]
+            if not any(marker in prefix for marker in markers):
+                return True
+            start = idx + len(keyword)
+    return False
+
 
 def _resolve_gate_reason(
     *,
@@ -118,14 +145,14 @@ def _parse_confirmation_response(
         return intent, None
 
     lowered = text.lower()
-    if any(token in lowered for token in ("cancel", "abort", "stop")):
+    if _has_intent_keyword(lowered, ("cancel", "abort", "stop"), english=True):
         return _INTENT_CANCEL, None
-    if any(token in text for token in ("取消", "终止", "停止")):
+    if _has_intent_keyword(text, ("取消", "终止", "停止"), english=False):
         return _INTENT_CANCEL, None
 
-    if any(token in lowered for token in ("confirm", "continue", "approve")):
+    if _has_intent_keyword(lowered, ("confirm", "continue", "approve"), english=True):
         return _INTENT_CONFIRM, None
-    if any(token in text for token in ("确认", "继续")):
+    if _has_intent_keyword(text, ("确认", "继续"), english=False):
         return _INTENT_CONFIRM, None
 
     instruction = _strip_adjustment_prefix(text)
