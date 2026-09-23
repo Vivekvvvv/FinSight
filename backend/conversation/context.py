@@ -284,14 +284,22 @@ class ContextManager:
             "FR": ["法国", "法股", "巴黎", "euronext", "paris", ".pa"],
             "UK": ["英国", "英股", "伦敦", "lse", "london", ".l"],
             "HK": ["香港", "港股", "hkex", ".hk"],
-            "CN": ["中国", "a股", "沪", "深", "上证", "深证", "sse", "szse", ".ss", ".sz"],
+            "CN": ["中国", "a股", "沪市", "沪深", "深市", "上证", "深证", "sse", "szse", ".ss", ".sz"],
             "JP": ["日本", "日股", "东京", "tse", ".t"],
             "EU": ["欧洲", "欧股", "eu", "euronext"],
         }
         for market, keys in hint_map.items():
             for key in keys:
                 if key.isascii():
-                    if key in lowered:
+                    if key.startswith("."):
+                        # ".l"/".t" 类代码后缀：左侧允许紧贴代码（"vod.l"→UK），
+                        # 只需右侧不成词——".t" ⊂ ".txt" 会误判 JP。
+                        if re.search(re.escape(key) + r"(?![a-z0-9])", lowered):
+                            return market
+                    # 其余 ASCII key 必须独立成词：裸子串让 "us"⊂"discuss"、
+                    # "eu"⊂"queue"、"adr"⊂"adrian" 把无关英文误判成市场偏好，
+                    # 且 market_preference 持久化污染后续轮次。
+                    elif re.search(r"(?<![a-z0-9])" + re.escape(key) + r"(?![a-z0-9])", lowered):
                         return market
                 else:
                     if key in query:
