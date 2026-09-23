@@ -226,3 +226,18 @@ class TestShouldRenderCompare:
 
     def test_false_when_no_operation(self):
         assert should_render_compare({}) is False
+
+
+def test_all_na_rows_with_digit_tickers_are_not_evidence():
+    """全 N/A 行的数字标的（600519.SS/0700.HK）不应算有效证据。
+    旧实现对整行搜数字：行首标的标签自带数字 → CN/HK 全 N/A
+    对比表永远通过门控，渲染出空对比表。"""
+    table = (
+        "Performance Comparison:\n\n"
+        "Ticker                    Current Price   YTD %        1-Year %\n"
+        "-------------------------------------------------------------------\n"
+        "600519.SS                 N/A             N/A          N/A\n"
+        "0700.HK                   N/A             N/A          N/A\n"
+    )
+    state = _make_state_with_evidence(table)
+    assert has_compare_evidence(state) is False

@@ -127,13 +127,16 @@ def _is_all_na_table(text: str) -> bool:
             continue
         if stripped.lower().startswith("ticker"):
             continue
-        if stripped.startswith("Note:") or stripped.startswith("注"):
+        if stripped.startswith("Note") or stripped.startswith("注") or stripped.startswith("- "):
             continue
         # This is a data row
         data_rows += 1
-        # Check if it contains at least one real numeric value
-        # (not just N/A or labels)
-        if re.search(r"[+-]?\d+\.?\d*%?", stripped):
+        # 只检查末三列指标单元格：行首标的标签本身可能含数字
+        # （0700.HK / 600519.SS / 300750.SZ），对整行搜数字会把标签
+        # 当成数据，导致 CN/HK 全 N/A 对比表永远通过门控。
+        tokens = stripped.split()
+        metric_cells = tokens[-3:] if len(tokens) > 3 else tokens
+        if any(re.search(r"[+-]?\d+\.?\d*%?", cell) for cell in metric_cells):
             rows_with_real_data += 1
 
     # If there are data rows but none have real numbers → all N/A
