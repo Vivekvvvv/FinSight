@@ -163,7 +163,19 @@ def _matches_query(item: dict[str, Any], tokens: list[str]) -> bool:
         str(item.get("snippet") or ""),
         str(item.get("url") or ""),
     ]).lower()
-    return any(token in haystack for token in tokens)
+    for token in tokens:
+        if len(token) <= 3 and token.isascii():
+            # 短 ASCII token 走非字母数字边界——"ai" 不能命中 "said"/"again"、
+            # "us" 不能命中 "versus"/"plus"、"ev" 不能命中 "every"；否则
+            # 任何含短 token 的查询都让相关性过滤退化成全放行。与
+            # news_rss_tools._keyword_match / parse_operation._match_any /
+            # planner_stub._contains_any 同一策略；更长 token 保留子串召回。
+            pattern = r"(?<![a-zA-Z0-9])" + re.escape(token) + r"(?![a-zA-Z0-9])"
+            if re.search(pattern, haystack):
+                return True
+        elif token in haystack:
+            return True
+    return False
 
 
 def search_authoritative_feeds(
