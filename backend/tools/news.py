@@ -411,7 +411,10 @@ def score_news_source_reliability(source: str = "", url: str = "") -> Dict[str, 
 
     if domain:
         for hint, hint_score in _RELIABILITY_DOMAIN_SCORE_HINTS.items():
-            if hint in domain:
+            # 域名提示只认整域或 ".hint" 结尾的合法子域；
+            # 裸子串匹配会让 sec.gov.evil.example / notsec.gov
+            # 这类仿冒主机继承权威分。
+            if domain == hint or domain.endswith("." + hint):
                 score = hint_score
                 reason = f"domain:{hint}"
                 break

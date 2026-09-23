@@ -82,6 +82,26 @@ def test_report_builder_domain_checks_ignore_url_userinfo():
     assert _is_suspicious_citation_item({"url": "https://[broken"}) is True
 
 
+def test_reliability_domain_hint_requires_label_boundary():
+    """score_news_source_reliability 的域名提示匹配必须认整域或 ".hint" 后缀；
+    裸子串匹配会让 sec.gov.evil.example / notsec.gov 这类仿冒主机
+    继承 0.98 的 high 可靠度（与同文件 userinfo 伪装用例同类）。"""
+    from backend.tools.news import score_news_source_reliability
+
+    # 合法域名命中：整域 + 合法子域
+    legit = score_news_source_reliability(source="", url="https://www.sec.gov/Archives/x.htm")
+    assert legit["reliability_score"] == 0.98
+    sub = score_news_source_reliability(source="", url="https://mobile.reuters.com/a/1")
+    assert sub["reliability_score"] == 0.95
+
+    # 仿冒主机不得继承权威分
+    spoof = score_news_source_reliability(source="", url="https://sec.gov.evil.example/phish")
+    assert spoof["reliability_score"] == 0.55
+    assert spoof["reliability_tier"] == "low"
+    lookalike = score_news_source_reliability(source="", url="https://notsec.gov/x")
+    assert lookalike["reliability_score"] == 0.55
+
+
 def test_feed_failure_logs_omit_url_credentials(monkeypatch, caplog):
     from backend.tools import authoritative_feeds, macro_official, news, news_rss_tools
 
