@@ -241,3 +241,90 @@ async def test_fundamental_agent_sec_fallback_evidence_not_labeled_yfinance():
     assert all(item.source == "sec_companyfacts" for item in metric_items)
     assert all("finance.yahoo.com" not in (item.url or "") for item in metric_items)
 
+
+def _annual_financials(revenue_latest, revenue_prev, op_income_latest, op_income_prev):
+    """两期年报数据：columns 相差 ~365 天 → period_type=annual → yoy 有值。"""
+    return {
+        "ticker": "T",
+        "timestamp": "2026-01-10T00:00:00",
+        "financials": {
+            "columns": ["2025-12-31", "2024-12-31"],
+            "index": ["Total Revenue", "Operating Income", "Net Income"],
+            "data": [
+                {"2025-12-31": revenue_latest, "2024-12-31": revenue_prev},
+                {"2025-12-31": op_income_latest, "2024-12-31": op_income_prev},
+                {"2025-12-31": 10, "2024-12-31": 10},
+            ],
+        },
+        "balance_sheet": {"columns": [], "index": [], "data": []},
+        "cashflow": {"columns": [], "index": [], "data": []},
+        "error": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_fundamental_conflict_flags_revenue_up_margin_down():
+    """营收同比高增长 + 营业利润率下滑 >5pp 应产生冲突标记。
+
+    旧代码在 metric_map 里查 "total_revenue"/"gross_margin"——这两个 key
+    从未存在（实际 key 是 revenue/operating_income 等），恒得 {} →
+    conflict_flags/conflicting_claims 永远为空。且 _growth_pct 返回比值
+    （0.15），旧阈值按百分数写（10/-5）也无法命中。"""
+    mock_llm = MagicMock()
+    cache = DummyCache()
+    tools = MagicMock()
+    tools.get_company_info = MagicMock(return_value="")
+    tools.get_financial_statements = MagicMock(return_value=_annual_financials(
+        revenue_latest=120, revenue_prev=100,   # yoy = +20%
+        op_income_latest=10, op_income_prev=20,  # margin 8.3% vs 20% → -11.7pp
+    ))
+
+    agent = FundamentalAgent(mock_llm, cache, tools)
+    result = await agent.research("fundamental analysis", "T")
+
+    assert "营收高增长 vs 营业利润率下滑" in result.conflict_flags
+    assert len(result.conflicting_claims) == 1
+    claim = result.conflicting_claims[0]
+    assert claim.severity == "medium"
+    assert "+20.0%" in claim.value_a
+    assert "pp" in claim.value_b
+
+
+@pytest.mark.asyncio
+async def test_fundamental_conflict_flags_revenue_down_margin_up():
+    """反向：营收下滑 + 营业利润率扩张 >5pp → low severity 冲突。"""
+    mock_llm = MagicMock()
+    cache = DummyCache()
+    tools = MagicMock()
+    tools.get_company_info = MagicMock(return_value="")
+    tools.get_financial_statements = MagicMock(return_value=_annual_financials(
+        revenue_latest=90, revenue_prev=100,    # yoy = -10%
+        op_income_latest=27, op_income_prev=20,  # margin 30% vs 20% → +10pp
+    ))
+
+    agent = FundamentalAgent(mock_llm, cache, tools)
+    result = await agent.research("fundamental analysis", "T")
+
+    assert "营收下滑 vs 营业利润率扩张" in result.conflict_flags
+    assert len(result.conflicting_claims) == 1
+    assert result.conflicting_claims[0].severity == "low"
+
+
+@pytest.mark.asyncio
+async def test_fundamental_conflict_flags_aligned_growth_no_flag():
+    """营收和利润率同向改善 → 不应误报冲突。"""
+    mock_llm = MagicMock()
+    cache = DummyCache()
+    tools = MagicMock()
+    tools.get_company_info = MagicMock(return_value="")
+    tools.get_financial_statements = MagicMock(return_value=_annual_financials(
+        revenue_latest=120, revenue_prev=100,   # yoy = +20%
+        op_income_latest=30, op_income_prev=20,  # margin 25% vs 20% → +5pp
+    ))
+
+    agent = FundamentalAgent(mock_llm, cache, tools)
+    result = await agent.research("fundamental analysis", "T")
+
+    assert result.conflict_flags == []
+    assert result.conflicting_claims == []
+

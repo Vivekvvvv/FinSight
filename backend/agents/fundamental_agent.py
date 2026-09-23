@@ -364,29 +364,35 @@ class FundamentalAgent(BaseFinancialAgent):
         conflicting_claims: List[ConflictClaim] = []
         if isinstance(normalized, dict):
             metric_map_for_conflict = normalized.get("metrics") if isinstance(normalized.get("metrics"), dict) else {}
-            revenue_m = metric_map_for_conflict.get("total_revenue", {})
-            margin_m = metric_map_for_conflict.get("gross_margin", {})
+            # 注意：metric_map 的 key 只有 _METRIC_DEFINITIONS 里那六个
+            # （revenue/net_income/operating_income/...）。旧代码查
+            # "total_revenue"/"gross_margin" 两个不存在的 key，恒得 {} →
+            # 这段冲突检测自引入起从未触发过。margin 用营业利润率
+            # （operating_income / revenue）两期差值（百分点）近似盈利质量方向；
+            # 另外 _growth_pct 返回的是比值（0.15 而非 15），阈值与展示都按比值写。
+            revenue_m = metric_map_for_conflict.get("revenue", {})
+            income_m = metric_map_for_conflict.get("operating_income", {})
             rev_yoy = self._safe_float(revenue_m.get("yoy")) if isinstance(revenue_m, dict) else None
-            margin_qoq = self._safe_float(margin_m.get("qoq")) if isinstance(margin_m, dict) else None
-            if rev_yoy is not None and margin_qoq is not None:
-                if rev_yoy > 10 and margin_qoq < -5:
-                    conflict_flags.append("营收高增长 vs 毛利率下滑")
+            margin_delta_pp = self._operating_margin_delta_pp(revenue_m, income_m)
+            if rev_yoy is not None and margin_delta_pp is not None:
+                if rev_yoy > 0.10 and margin_delta_pp < -5:
+                    conflict_flags.append("营收高增长 vs 营业利润率下滑")
                     conflicting_claims.append(ConflictClaim(
                         claim="盈利质量一致性",
                         source_a="营收同比",
-                        value_a=f"+{rev_yoy:.1f}% (高增长)",
-                        source_b="毛利率环比",
-                        value_b=f"{margin_qoq:+.1f}% (下滑)",
+                        value_a=f"+{rev_yoy:.1%} (高增长)",
+                        source_b="营业利润率环比",
+                        value_b=f"{margin_delta_pp:+.1f}pp (下滑)",
                         severity="medium",
                     ))
-                elif rev_yoy < -5 and margin_qoq > 5:
-                    conflict_flags.append("营收下滑 vs 毛利率扩张")
+                elif rev_yoy < -0.05 and margin_delta_pp > 5:
+                    conflict_flags.append("营收下滑 vs 营业利润率扩张")
                     conflicting_claims.append(ConflictClaim(
                         claim="盈利质量一致性",
                         source_a="营收同比",
-                        value_a=f"{rev_yoy:+.1f}% (下滑)",
-                        source_b="毛利率环比",
-                        value_b=f"+{margin_qoq:.1f}% (扩张)",
+                        value_a=f"{rev_yoy:+.1%} (下滑)",
+                        source_b="营业利润率环比",
+                        value_b=f"+{margin_delta_pp:.1f}pp (扩张)",
                         severity="low",
                     ))
 
@@ -579,6 +585,22 @@ class FundamentalAgent(BaseFinancialAgent):
         if latest is None or base in (None, 0):
             return None
         return (latest - base) / abs(base)
+
+    def _operating_margin_delta_pp(self, revenue_m: Any, income_m: Any) -> Optional[float]:
+        """最近两期营业利润率差值（百分点）。
+
+        revenue_m/income_m 的 latest、previous 取自同一份 columns 序列，
+        天然同期对齐；任一期缺数或营收为 0 时返回 None（不造信号）。
+        """
+        if not isinstance(revenue_m, dict) or not isinstance(income_m, dict):
+            return None
+        rev_latest = self._safe_float(revenue_m.get("latest"))
+        rev_prev = self._safe_float(revenue_m.get("previous"))
+        inc_latest = self._safe_float(income_m.get("latest"))
+        inc_prev = self._safe_float(income_m.get("previous"))
+        if None in (rev_latest, rev_prev, inc_latest, inc_prev) or not rev_latest or not rev_prev:
+            return None
+        return (inc_latest / rev_latest - inc_prev / rev_prev) * 100.0
 
     def _format_metric_sentence(self, label: str, metric: Dict[str, Any]) -> str:
         if not isinstance(metric, dict):
