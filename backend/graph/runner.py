@@ -41,6 +41,7 @@ from backend.services.langfuse_tracer import langfuse_observe
 
 _graph_runner: Optional["GraphRunner"] = None
 _graph_runner_lock: Optional[asyncio.Lock] = None
+_graph_runner_lock_loop_id: Optional[int] = None
 _graph_runner_loop_id: Optional[int] = None
 
 
@@ -229,12 +230,16 @@ async def aget_graph_runner() -> GraphRunner:
     """
     Async process-wide runner singleton.
     """
-    global _graph_runner, _graph_runner_lock, _graph_runner_loop_id
+    global _graph_runner, _graph_runner_lock, _graph_runner_lock_loop_id, _graph_runner_loop_id
     loop_id = id(asyncio.get_running_loop())
     if _graph_runner is not None and _graph_runner_loop_id == loop_id:
         return _graph_runner
-    if _graph_runner_lock is None:
+    # asyncio.Lock 在首次"等待"时绑定当时的 loop；换 loop 后竞争者走
+    # 等待路径会抛 RuntimeError(bound to a different event loop)。
+    # runner 支持跨 loop 重建，锁也必须随 loop 一起换。
+    if _graph_runner_lock is None or _graph_runner_lock_loop_id != loop_id:
         _graph_runner_lock = asyncio.Lock()
+        _graph_runner_lock_loop_id = loop_id
     async with _graph_runner_lock:
         loop_id = id(asyncio.get_running_loop())
         if _graph_runner is not None and _graph_runner_loop_id == loop_id:
@@ -257,9 +262,10 @@ def graph_runner_ready() -> bool:
 
 
 def reset_graph_runner() -> None:
-    global _graph_runner, _graph_runner_lock, _graph_runner_loop_id
+    global _graph_runner, _graph_runner_lock, _graph_runner_lock_loop_id, _graph_runner_loop_id
     _graph_runner = None
     _graph_runner_lock = None
+    _graph_runner_lock_loop_id = None
     _graph_runner_loop_id = None
 
 

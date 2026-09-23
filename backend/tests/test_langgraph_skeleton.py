@@ -6,6 +6,68 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def test_r98_aget_graph_runner_survives_loop_change(monkeypatch):
+    """aget_graph_runner 用 _graph_runner_loop_id 支持"换 loop 重建 runner"，
+    但互斥用的 _graph_runner_lock 只在首次创建。asyncio.Lock 在首次
+    "等待"时绑定当时的 loop——此后第二个事件循环上的竞争者走等待路径
+    时 _get_loop 直接抛 RuntimeError（bound to a different event loop），
+    多 loop 重建路径必崩（无竞争的 acquire 不查 loop，故必须人为制造
+    两次竞争才能复现：loop A 上靠一次 acquire() 等待把锁绑到 A——
+    同 loop 的 aget_graph_runner 会 early-return 不碰锁；loop B 上
+    主协程持旧锁，逼 task 内的 aget_graph_runner 走等待路径）。"""
+    import importlib
+
+    from langgraph.checkpoint.memory import MemorySaver
+
+    runner_module = importlib.import_module("backend.graph.runner")
+    runner_module.reset_graph_runner()
+
+    async def _fake_checkpointer():
+        return MemorySaver()
+
+    monkeypatch.setattr(runner_module, "aget_graph_checkpointer", _fake_checkpointer)
+
+    async def _bind_lock_to_loop_a():
+        first = await runner_module.aget_graph_runner()
+        lock = runner_module._graph_runner_lock
+        await lock.acquire()
+        # 制造一次锁等待：等待路径调用 _get_loop，把锁绑到本 loop
+        waiter = asyncio.create_task(lock.acquire())
+        await asyncio.sleep(0.05)
+        lock.release()
+        await waiter  # waiter 拿到锁
+        lock.release()
+        return first
+
+    async def _rebuild_on_loop_b():
+        old_lock = runner_module._graph_runner_lock
+        await old_lock.acquire()  # 空锁走快速路径，不查 _loop
+        try:
+            # 竞争 → 等待路径 → _get_loop 发现锁绑在旧 loop → buggy 抛 RuntimeError
+            task = asyncio.create_task(runner_module.aget_graph_runner())
+            await asyncio.sleep(0.05)
+        finally:
+            old_lock.release()
+        return await task  # buggy: RuntimeError 传播
+
+    # 保持 loop 引用（id() 复用会让"换 loop"判定失真）
+    loop_a = asyncio.new_event_loop()
+    loop_b = asyncio.new_event_loop()
+    try:
+        first = loop_a.run_until_complete(_bind_lock_to_loop_a())
+        assert first is not None
+        lock_a = runner_module._graph_runner_lock
+
+        second = loop_b.run_until_complete(_rebuild_on_loop_b())
+        assert second is not None
+        assert second is not first  # 换了 loop → 重建 runner
+        assert runner_module._graph_runner_lock is not lock_a
+    finally:
+        runner_module.reset_graph_runner()
+        loop_a.close()
+        loop_b.close()
+
+
 def test_langgraph_runner_import_and_invoke():
     from backend.graph import GraphRunner
 
