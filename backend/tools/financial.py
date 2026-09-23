@@ -166,10 +166,18 @@ def get_financial_statements(ticker: str) -> dict:
 
             columns = [str(col) for col in table.columns.tolist()]
             index = [str(idx) for idx in table.index.tolist()]
+            # data 记录键必须与 columns 同口径字符串化：yfinance 报表列是
+            # Timestamp，to_dict('records') 保留原始标签，消费方按 str(列名)
+            # get() 会永远 miss（summary 指标行静默全丢）；非 str 键也无法 JSON
+            # 序列化。与 SEC 兜底 _build_table_payload 的字符串键对齐。
+            records = [
+                {str(col): value for col, value in record.items()}
+                for record in table.to_dict('records')
+            ]
             return {
                 'columns': columns,
                 'index': index,
-                'data': table.to_dict('records'),
+                'data': records,
             }
 
         def _fetch_with_fallbacks(table_label: str, attr_candidates: list[str]) -> dict | None:
@@ -267,8 +275,10 @@ def get_financial_statements_summary(ticker: str) -> str:
                         if metric.lower() in str(row_name).lower():
                             # 从 data 中获取值
                             if financials.get('data') and len(financials['data']) > idx:
-                                value = financials['data'][idx].get(latest_year, 'N/A')
-                                if value != 'N/A' and value is not None:
+                                # safe_float 挡 NaN/字符串/"N/A"，否则解禁的
+                                # 查找会输出 "$nanM" 或对脏值 abs() 抛 TypeError
+                                value = safe_float(financials['data'][idx].get(latest_year))
+                                if value is not None:
                                     formatted_value = f"${value/1e9:.2f}B" if abs(value) >= 1e9 else f"${value/1e6:.2f}M"
                                     summary_parts.append(f"  {row_name}: {formatted_value}\n")
     
@@ -288,8 +298,8 @@ def get_financial_statements_summary(ticker: str) -> str:
                     for idx, row_name in enumerate(balance_sheet['index']):
                         if metric.lower() in str(row_name).lower():
                             if balance_sheet.get('data') and len(balance_sheet['data']) > idx:
-                                value = balance_sheet['data'][idx].get(latest_year, 'N/A')
-                                if value != 'N/A' and value is not None:
+                                value = safe_float(balance_sheet['data'][idx].get(latest_year))
+                                if value is not None:
                                     formatted_value = f"${value/1e9:.2f}B" if abs(value) >= 1e9 else f"${value/1e6:.2f}M"
                                     summary_parts.append(f"  {row_name}: {formatted_value}\n")
     
@@ -309,8 +319,8 @@ def get_financial_statements_summary(ticker: str) -> str:
                     for idx, row_name in enumerate(cashflow['index']):
                         if metric.lower() in str(row_name).lower():
                             if cashflow.get('data') and len(cashflow['data']) > idx:
-                                value = cashflow['data'][idx].get(latest_year, 'N/A')
-                                if value != 'N/A' and value is not None:
+                                value = safe_float(cashflow['data'][idx].get(latest_year))
+                                if value is not None:
                                     formatted_value = f"${value/1e9:.2f}B" if abs(value) >= 1e9 else f"${value/1e6:.2f}M"
                                     summary_parts.append(f"  {row_name}: {formatted_value}\n")
     
