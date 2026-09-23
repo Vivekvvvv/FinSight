@@ -592,3 +592,106 @@ def test_grounding_number_tokens_require_digit_boundaries():
     assert not _is_claim_grounded("净利润12亿美元", corpus)
     # 右边界同样生效："31" 撞上 "312" 的前缀
     assert not _is_claim_grounded("营收31亿美元", corpus)
+
+
+def test_quality_hints_sec_lookalike_and_url_substring_do_not_count():
+    """R83: domain.endswith("sec.gov") 无点边界——notsec.gov 这类仿冒主机被计成
+    SEC filing；"sec.gov/" in url 对整条 URL 做裸子串，任意主机 query 里携带
+    sec.gov/ 也吃 filing credit。两条都会虚增 sec_filing_count/has_10k/has_10q，
+    压制 critical 级"缺 10-K/10-Q"缺口，深报质量门控被放行。"""
+    quality = _build_report_quality_hints(
+        query="AAPL 深度财报研究",
+        citations=[
+            {
+                "title": "Apple 10-K annual report",
+                "url": "https://notsec.gov/Archives/edgar/data/320193/aapl-20240928.htm",
+                "snippet": "Annual filing discusses revenue and margin.",
+            },
+            {
+                "title": "Apple 10-Q quarterly report",
+                "url": "https://evil.example/article?ref=sec.gov/x",
+                "snippet": "Quarterly filing update.",
+            },
+        ],
+        tickers=["AAPL"],
+    )
+
+    stats = quality.get("stats") or {}
+    assert stats.get("sec_filing_count") == 0
+    assert stats.get("has_10k") is False
+    assert stats.get("has_10q") is False
+    missing = quality.get("missing_requirements") or []
+    assert any("10-K" in str(item) for item in missing)
+    assert any("10-Q" in str(item) for item in missing)
+
+
+def test_quality_hints_media_lookalike_suffixes_do_not_count():
+    """R83: endswith("ft.com") 无点边界——microsoft.com/swift.com/draft.com 都以
+    "ft.com" 结尾，微软 IR 页、SWIFT 公告被误计成 FT 权威媒体引用，
+    "缺权威媒体交叉引用" important 缺口被压制。"""
+    quality = _build_report_quality_hints(
+        query="AAPL 深度财报研究",
+        citations=[
+            {
+                "title": "Microsoft investor relations earnings release",
+                "url": "https://www.microsoft.com/en-us/investor/earnings/fy-2026-q1",
+                "snippet": "Microsoft investor relations earnings release details.",
+            },
+            {
+                "title": "SWIFT network integration notice",
+                "url": "https://www.swift.com/news-events/apple-pay",
+                "snippet": "SWIFT announces payment network integration details.",
+            },
+        ],
+        tickers=["AAPL"],
+    )
+
+    stats = quality.get("stats") or {}
+    assert stats.get("authoritative_media_count") == 0
+    assert any("权威媒体" in str(item) for item in quality.get("missing_requirements") or [])
+
+
+def test_quality_hints_cn_filing_lookalike_domain_does_not_count():
+    """R83: CN 深报要求本地披露引用——notcninfo.com.cn 以 cninfo.com.cn 结尾，
+    endswith 无点边界时被计成巨潮披露，压制 critical 级"缺本地市场披露"缺口。"""
+    quality = _build_report_quality_hints(
+        query="贵州茅台 深度财报研究",
+        citations=[
+            {
+                "title": "贵州茅台年度报告全文",
+                "url": "https://notcninfo.com.cn/disclosure/annual.pdf",
+                "snippet": "年度报告披露正文。",
+            },
+        ],
+        tickers=["600519.SS"],
+    )
+
+    stats = quality.get("stats") or {}
+    assert stats.get("local_filing_count") == 0
+    assert any("本地市场披露" in str(item) for item in quality.get("missing_requirements") or [])
+
+
+def test_quality_hints_legit_subdomain_and_schemeless_sec_still_count():
+    """R83 正例回归：真实子域（markets.ft.com）与无 scheme 的 sec.gov 直链
+    仍应命中——修复只掐仿冒，不能把合法引用一起丢掉。"""
+    quality = _build_report_quality_hints(
+        query="AAPL 深度财报研究",
+        citations=[
+            {
+                "title": "Apple 10-K annual report",
+                "url": "sec.gov/Archives/edgar/data/320193/aapl-20240928.htm",
+                "snippet": "Annual filing discusses revenue and margin.",
+            },
+            {
+                "title": "FT markets tearsheet",
+                "url": "https://markets.ft.com/data/equities/tearsheet/s=AAPL:NSQ",
+                "snippet": "FT markets data tearsheet for Apple.",
+            },
+        ],
+        tickers=["AAPL"],
+    )
+
+    stats = quality.get("stats") or {}
+    assert stats.get("sec_filing_count") == 1
+    assert stats.get("has_10k") is True
+    assert stats.get("authoritative_media_count") == 1

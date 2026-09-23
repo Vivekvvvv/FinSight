@@ -770,23 +770,31 @@ def _build_report_quality_hints(
         snippet = _safe_str(item.get("snippet") or "").strip()
         parsed = urlparse(url)
         domain = (parsed.hostname or "").lower().removeprefix("www.")  # lstrip 按字符集合剥除，会吃掉 wsj.com 的首字母
+        if not domain and url:
+            # 无 scheme 的 URL（"sec.gov/Archives/x"）urlparse 整串当 path、hostname=None。
+            # 补 scheme 重解析拿 host，取代旧 "sec.gov/" in url 全串子串——
+            # 后者会命中任意主机 query 里携带的 sec.gov/（evil.example/?u=sec.gov/x）。
+            domain = (urlparse("https://" + url).hostname or "").lower().removeprefix("www.")
         joined = f"{url} {title} {snippet.lower()}"
 
-        if domain.endswith("sec.gov") or "sec.gov/" in url:
+        # 域名判定按 tools/news.py 同款规范：domain == d 或 endswith("."+d)。
+        # 裸 endswith(d) 无点边界——notsec.gov/microsoft.com(⊃ft.com)/notcninfo.com.cn
+        # 等仿冒或撞尾主机被计成 SEC filing/权威媒体/本地披露，压制质量缺口。
+        if domain == "sec.gov" or domain.endswith(".sec.gov"):
             sec_filing_count += 1
             if re.search(r"\b10-k\b|annual report|form\s*10k", joined, flags=re.I):
                 has_10k = True
             if re.search(r"\b10-q\b|quarterly report|form\s*10q", joined, flags=re.I):
                 has_10q = True
 
-        if any(domain.endswith(d) for d in local_filing_domains) or source == "local_disclosure":
+        if any(domain == d or domain.endswith("." + d) for d in local_filing_domains) or source == "local_disclosure":
             local_filing_count += 1
             has_local_filing = True
 
         if re.search(r"earnings|conference call|transcript|业绩电话会|电话会纪要", joined, flags=re.I):
             has_earnings_transcript = True
 
-        if any(domain.endswith(d) for d in authoritative_media_domains):
+        if any(domain == d or domain.endswith("." + d) for d in authoritative_media_domains):
             authoritative_media_count += 1
 
         normalized_snippet = snippet.strip().lower()
