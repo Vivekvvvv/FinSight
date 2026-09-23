@@ -72,6 +72,34 @@ def test_hk_quote_falls_back_to_tencent_when_eastmoney_disconnects(monkeypatch):
     assert result["last_price"] == 429.8
 
 
+def test_sina_quote_does_not_mislabel_daily_range_as_52week(monkeypatch):
+    """新浪兜底字段 [4]/[5] 是当日最高/最低，不是 52 周区间。
+    旧代码把它们塞进 week52_high/week52_low，估值卡片会把日内振幅
+    当成 52 周区间展示（数据源没有 52 周字段时应为 None）。"""
+    def fake_http_get(url, **kwargs):
+        if "push2.eastmoney.com" in url:
+            raise RuntimeError("eastmoney down")
+        if "qt.gtimg.cn" in url:
+            raise RuntimeError("tencent down")
+        if "hq.sinajs.cn" in url:
+            # 新浪 A 股格式：0=名称 1=今开 2=昨收 3=最新 4=最高 5=最低（当日）
+            return _TextResponse(
+                'var hq_str_sh600519="贵州茅台,1470.00,1475.00,1478.00,'
+                '1490.00,1465.00,1478.00,1479.00,3123456,4567890123.00,'
+                + ','.join(['x'] * 25) + '";'
+            )
+        raise AssertionError(url)
+
+    monkeypatch.setattr(cn_hk_market, "_http_get", fake_http_get)
+    result = cn_hk_market.fetch_cn_hk_quote_metrics("600519.SS", timeout=1)
+    assert result is not None
+    assert result["source"] == "sina_quote"
+    assert result["last_price"] == 1478.0
+    # 日内高低不得冒充 52 周区间
+    assert result["week52_high"] is None
+    assert result["week52_low"] is None
+
+
 # ── R4 回归：CN/HK K线降级链须尊重 period/interval ──────────────────────────
 
 

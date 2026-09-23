@@ -170,8 +170,11 @@ def _parse_sina_cn_quote(ticker: str, text: str) -> dict[str, Any] | None:
         "ev_to_ebitda": None,
         "dividend_yield": None,
         "beta": None,
-        "week52_high": safe_float(parts[4]),
-        "week52_low": safe_float(parts[5]),
+        # 新浪返回字段 [4]/[5] 是当日最高/最低，整条报文没有 52 周数据；
+        # 旧代码把它们塞进 week52_high/week52_low，下游估值卡片会把
+        # 日内振幅当成 52 周区间展示。数据源没有该字段时必须为 None。
+        "week52_high": None,
+        "week52_low": None,
         "source": "sina_quote",
     }
 
