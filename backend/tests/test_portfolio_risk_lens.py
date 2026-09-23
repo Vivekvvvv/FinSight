@@ -284,3 +284,21 @@ def test_enriched_fields_take_precedence_over_shares_avg_cost():
 
     assert result["total_value"] == 900.0
     assert result["total_cost"] == 500.0
+
+
+def test_stale_research_naive_local_datetime_not_shifted_to_utc():
+    """naive as_of 是本机墙钟（datetime.now().isoformat() 写入惯例，与
+    task_router/reports_to_review/timeline_service 一致），replace(tzinfo=utc)
+    会把本机时间错当 UTC 后移 +8h——真实 8 天的报告被压回 7 天，stale 漏报。
+    应用 astimezone 按本机时区还原再归一 UTC。"""
+    positions = [{"ticker": "AAPL", "market_value": 1000, "cost_basis": 1000}]
+    # 本机时区 8 天 2 小时前的 naive 墙钟；真实 UTC 年龄为 8 天+
+    naive_as_of = (datetime.now() - timedelta(days=8, hours=2)).isoformat()
+    reports = [{"ticker": "AAPL", "as_of": naive_as_of}]
+
+    result = calculate_portfolio_risk_lens(positions, reports)
+
+    stale = result["stale_research"]
+    assert len(stale) == 1
+    assert stale[0]["related_symbol"] == "AAPL"
+    assert stale[0]["severity"] == "medium"
