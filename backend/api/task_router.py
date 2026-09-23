@@ -80,6 +80,12 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
             if generated_at:
                 try:
                     generated_dt = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+                    # naive 存储值（report_generator.py、report/ir.py、report/validator.py
+                    # 用 datetime.now().isoformat() 写入）按本机时区还原归一 UTC——
+                    # 否则与 aware now 相减抛 TypeError 被吞掉后 age_days 恒 999，
+                    # 刚生成的报告也发"更新报告"任务且"查看最新报告"被压掉。
+                    if generated_dt.tzinfo is None:
+                        generated_dt = generated_dt.astimezone(timezone.utc)
                     age_days = (datetime.now(timezone.utc) - generated_dt).days
                 except Exception:
                     pass
