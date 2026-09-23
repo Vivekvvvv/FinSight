@@ -115,6 +115,9 @@ def _match_report_value(
     label_terms: tuple[str, ...] = (),
     concept_terms: tuple[str, ...] = (),
 ) -> Optional[float]:
+    # 第一遍：标签子串 或 规范化 concept 全等（剥掉 us-gaap_/ifrs-full_ 等
+    # 命名空间）。完整匹配必须优先于子串——"assets" 子串会命中 AssetsCurrent
+    # 等分项概念，而 bs 行按报表顺序分项恒在合计之前 → 合计字段拿到分项值。
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -125,6 +128,18 @@ def _match_report_value(
             continue
         if label_terms and any(term in label for term in label_terms):
             return value
+        if concept_terms and any(concept.rsplit("_", 1)[-1] == term for term in concept_terms):
+            return value
+    # 第二遍：宽松 concept 子串兜底——变体 concept 名（如
+    # revenuefromcontractwithcustomerexcludingassessedtax、salesrevenuenet）
+    # 且标签不含关键词时仍能命中，保持既有行为。
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        concept = str(row.get("concept") or "").strip().lower()
+        value = safe_float(row.get("value"))
+        if value is None:
+            continue
         if concept_terms and any(term in concept for term in concept_terms):
             return value
     return None
