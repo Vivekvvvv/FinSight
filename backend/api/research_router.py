@@ -90,7 +90,13 @@ async def generate_report(request: ReportGenerateRequest):
 
         try:
             info = get_company_info(request.ticker)
-            if info and not info.get("error"):
+            # tools/financial.get_company_info 返回 str（不是 dict）——旧代码
+            # 对 str 调 .get("error") 抛 AttributeError 被 except 吞掉，
+            # company_info 永远注不进 data_context。按真实返回类型判错。
+            if isinstance(info, dict):
+                if not info.get("error"):
+                    data_context["company_info"] = info
+            elif isinstance(info, str) and info.strip():
                 data_context["company_info"] = info
         except Exception as exc:
             logger.warning("company info context unavailable")
@@ -114,7 +120,13 @@ async def generate_report(request: ReportGenerateRequest):
         if request.include_news and request.report_type == "comprehensive":
             try:
                 news = get_company_news(request.ticker)
-                if news and not news.get("error"):
+                # tools/news.get_company_news 返回 List[Dict]——旧代码对 list
+                # 调 .get("error") 抛 AttributeError 被 except 吞掉，新闻上下文
+                # 永远注不进来，研报 prompt 恒为"最近新闻：无"。
+                if isinstance(news, dict):
+                    if not news.get("error"):
+                        data_context["news"] = news.get("news") or news.get("items") or news
+                elif news:
                     data_context["news"] = news
             except Exception as exc:
                 logger.warning("news context unavailable")
