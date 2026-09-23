@@ -16,6 +16,13 @@ def _days_since(iso_str: str | None) -> int | None:
         return None
     try:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        # naive 存储值按本机时区还原归一 UTC：generated_at 可由
+        # report_generator.py / report/ir.py / validator.py 以
+        # datetime.now().isoformat()（本地时间）写入——直接 aware-naive
+        # 相减抛 TypeError 被吞后返回 None，过期研报被误判"近期"，
+        # 与 task_router / reports_to_review 的修复一致。
+        if dt.tzinfo is None:
+            dt = dt.astimezone(timezone.utc)
         return (datetime.now(timezone.utc) - dt).days
     except Exception:
         return None
