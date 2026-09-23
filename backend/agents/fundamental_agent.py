@@ -396,6 +396,12 @@ class FundamentalAgent(BaseFinancialAgent):
                         severity="low",
                     ))
 
+        # report_builder 按 evidence_quality["has_conflicts"] is True 逐 agent
+        # 收集冲突来源并打 "conflict" 标签；_compute_evidence_quality 恒写
+        # False，这里按实际检测结果回写（对齐 macro_agent 的 bool(conflicts)），
+        # 否则基本面冲突永远进不了报告标签。
+        evidence_quality["has_conflicts"] = bool(conflict_flags)
+
         # Fallback observability
         fallback_reason = None
         if fallback_used:

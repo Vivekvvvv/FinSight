@@ -94,3 +94,29 @@ def test_exact_ebit_row_still_matches():
     ]
     metrics = _normalized(index, data)["metrics"]
     assert metrics["operating_income"]["latest"] == 88.0
+
+
+def test_conflict_detection_marks_evidence_quality_has_conflicts():
+    """_format_output 的冲突检测会产出 conflict_flags（营收高增长 vs
+    营业利润率下滑），但 _compute_evidence_quality 恒写
+    has_conflicts=False——report_builder 按
+    evidence_quality["has_conflicts"] is True 逐 agent 收集冲突来源、
+    给报告打 "conflict" 标签，基本面 agent 检测到的冲突永远进不了
+    报告标签（macro_agent 已用 bool(conflicts) 如实上报）。
+    evidence_quality 必须与已检测的 conflict_flags 一致。"""
+    normalized = {
+        "metrics": {
+            # rev yoy=15% > 10% 且营业利润率 20%→10% 下滑 10pp < -5pp → 触发冲突
+            "revenue": {"latest": 110.0, "previous": 100.0, "yoy": 0.15},
+            "operating_income": {"latest": 11.0, "previous": 20.0},
+        }
+    }
+    raw_data = {
+        "ticker": "T",
+        "financials": {"source": "yfinance"},
+        "normalized_metrics": normalized,
+    }
+    out = _agent()._format_output("summary", raw_data)
+    assert out.conflict_flags, "应检测到营收增长 vs 利润率下滑冲突"
+    assert out.conflicting_claims
+    assert out.evidence_quality.get("has_conflicts") is True
