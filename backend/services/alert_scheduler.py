@@ -342,7 +342,7 @@ class NewsAlertScheduler:
             if not articles:
                 continue
 
-            # 鐩稿叧鎬э細浼樺厛 related_tickers 鍛戒腑锛屽叾娆℃爣棰樺寘鍚?TICKER
+            # 相关性：优先 related_tickers 命中，其次标题出现 ticker 型 token
             related: List[Dict] = []
             for art in articles:
                 if not isinstance(art, dict):
@@ -442,7 +442,7 @@ class NewsAlertScheduler:
                 sub["ticker"],
                 "news",
                 severity="high" if len(related) >= 2 else "medium",
-                title=f"{sub['ticker']} 鐩稿叧鏂伴椈瑙﹀彂 ({len(related)} 鏉?",
+                title=f"{sub['ticker']} 相关新闻触发 ({len(related)} 条)",
                 message=message,
                 metadata={
                     "article_count": len(related),
@@ -607,7 +607,7 @@ class RiskAlertScheduler:
                 sub["ticker"],
                 "risk",
                 severity=assessment.risk_level.value,
-                title=f"{assessment.ticker} 椋庨櫓绛夌骇 {assessment.risk_level.value}",
+                title=f"{assessment.ticker} 风险等级 {assessment.risk_level.value}",
                 message=message,
                 metadata={
                     "risk_score": assessment.risk_score,
