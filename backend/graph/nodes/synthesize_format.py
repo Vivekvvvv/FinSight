@@ -68,14 +68,17 @@ def _format_conversation_history_for_synth(state: GraphState) -> str:
     current_query = (state.get("query") or "").strip()
     history_msgs = []
 
-    for msg in messages:
+    for idx, msg in enumerate(messages):
         if isinstance(msg, HumanMessage):
             content = msg.content.strip() if isinstance(msg.content, str) else str(msg.content).strip()
-            # Skip the current query
+            # Skip the current query——必须用 enumerate 的位置 idx；旧代码
+            # messages.index(msg) 对重复提问（两条内容相同的 HumanMessage）
+            # 永远返回第一条的下标，最后那条（当前 query）会误判"后面还有
+            # 同名消息"而不被跳过，query 被重复塞进 <conversation_history>。
             if content == current_query and not any(
                 isinstance(m, HumanMessage) and
                 (m.content.strip() if isinstance(m.content, str) else str(m.content).strip()) == current_query
-                for m in messages[messages.index(msg) + 1:]
+                for m in messages[idx + 1:]
                 if isinstance(m, HumanMessage)
             ):
                 continue
