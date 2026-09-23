@@ -48,3 +48,38 @@ def test_none_ticker_report_does_not_crash(monkeypatch):
     )
     # 旧代码在宏观报告的 None.upper() 处 AttributeError
     assert any(item.get("report_id") == "r-aapl-1" for item in result)
+
+
+def test_naive_generated_at_stale_report_not_hidden_by_tz_misinterpretation(monkeypatch):
+    """report_index 里的 generated_at 由 ir.py/validator.py 以
+    datetime.now().isoformat() 写入——naive 本地时间。
+    replace(tzinfo=utc) 把它当成 UTC → 瞬间后移 +8h：
+    真实已 7d5h 的陈旧报告被算成 6d21h，规则 4 漏判、从待复查列表消失。
+    naive 值须按本机时区归一（与 task_router 的既有修复一致）。"""
+    from datetime import timedelta
+
+    naive_generated = (datetime.now() - timedelta(days=7, hours=5)).isoformat()
+    reports = [
+        {
+            "report_id": "r-stale-1",
+            "ticker": "OLD1",
+            "as_of": None,                      # 落到 generated_at 回退
+            "generated_at": naive_generated,    # naive 本地时间，已超 7 天阈值
+            "review_status": "",
+            "freshness_status": "live",
+            "quality_state": "pass",
+            "title": "OLD1 旧报告",
+        },
+    ]
+
+    class _FakeStore:
+        def list_reports(self, **_kwargs):
+            return reports
+
+    monkeypatch.setattr(module, "get_report_index_store", lambda: _FakeStore())
+
+    result = module.get_reports_to_review("s1", ["OLD1"], [])
+    ids = [item.get("report_id") for item in result]
+    assert "r-stale-1" in ids, (
+        "naive generated_at 被当作 UTC 后移 +8h，7d5h 的陈旧报告漏判"
+    )

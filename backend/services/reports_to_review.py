@@ -86,9 +86,11 @@ def get_reports_to_review(
         if as_of_str and ticker in watched_tickers:
             try:
                 as_of_dt = datetime.fromisoformat(as_of_str.replace("Z", "+00:00"))
-                # naive as_of（如纯日期串 "2025-12-31"）与 aware stale_threshold 比较会抛 TypeError，补齐 UTC 时区。
+                # naive 值按本机时区归一：generated_at 由 ir.py/validator.py 以
+                # datetime.now().isoformat()（本地时间）写入，replace(tzinfo=utc)
+                # 会把它错当 UTC 后移 +8h，让临界陈旧报告漏判（与 task_router 修复一致）。
                 if as_of_dt.tzinfo is None:
-                    as_of_dt = as_of_dt.replace(tzinfo=timezone.utc)
+                    as_of_dt = as_of_dt.astimezone(timezone.utc)
                 if as_of_dt < stale_threshold:
                     days_old = (now - as_of_dt).days
                     score += 25
