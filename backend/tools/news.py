@@ -422,7 +422,16 @@ def score_news_source_reliability(source: str = "", url: str = "") -> Dict[str, 
     if reason == "default" and source_text:
         lowered = source_text.lower()
         for hint, hint_score in _RELIABILITY_SOURCE_SCORE_HINTS.items():
-            if hint in lowered:
+            if len(hint) <= 3 and hint.isascii():
+                # 短 hint 走非字母数字边界——"sec" 不能命中 "SecurityWeek"/
+                # "Second"，否则非SEC来源继承 0.98 权威分（domain 侧已做
+                # 整域/子域边界，source 侧对齐）。与 _keyword_match /
+                # parse_operation._match_any 同一策略。
+                pattern = r"(?<![a-zA-Z0-9])" + re.escape(hint) + r"(?![a-zA-Z0-9])"
+                matched = re.search(pattern, lowered) is not None
+            else:
+                matched = hint in lowered
+            if matched:
                 score = hint_score
                 reason = f"source:{hint}"
                 break
