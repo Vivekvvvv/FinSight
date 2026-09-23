@@ -186,7 +186,10 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
         joined = pd.concat([portfolio_returns, returns[market_symbol]], axis=1).dropna()
         if len(joined) >= 20:
             corr = joined.iloc[:, 0].corr(joined.iloc[:, 1])
-            if corr is not None:
+            # 常数收益序列 corr=NaN（0/0）——NaN is not None，直接漏进
+            # payload 会让 JSON 序列化产出非法 NaN 字面量；与 _compute_beta
+            # 的退化方差判空保持一致。
+            if corr is not None and not pd.isna(corr):
                 market_r2 = float(corr ** 2)
 
     result.update(
