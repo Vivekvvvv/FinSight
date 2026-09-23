@@ -55,3 +55,54 @@ def test_legit_cpi_keyword_still_fires():
     """真实 "cpi" 关键词仍命中事件日历——回归保护。"""
     names = _step_names("aapl outlook into cpi print", ["AAPL"], _TOOLS)
     assert "get_event_calendar" in names
+
+
+def _reliability_step_inputs(query: str) -> dict:
+    """提取 score_news_source_reliability 步骤的 inputs（未注入时返回 {}）。"""
+    state = {
+        "query": query,
+        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+        "operation": {"name": "qa"},
+        "output_mode": "brief",
+        "policy": {"allowed_tools": ["score_news_source_reliability"], "allowed_agents": []},
+    }
+    plan = planner_stub(state)["plan_ir"]
+    for step in plan["steps"]:
+        if step["name"] == "score_news_source_reliability":
+            return step["inputs"]
+    return {}
+
+
+def test_ft_phantom_substring_does_not_label_source():
+    """R82: 'ft'⊂'after'/'draft'/'soft'——问句没提 FT 却被标成 source='ft'。"""
+    inputs = _reliability_step_inputs("is the aapl rumor credible after the draft")
+    assert inputs.get("source") is None
+    inputs = _reliability_step_inputs("aapl rumor credibility shift")
+    assert inputs.get("source") is None
+
+
+def test_legit_ft_mention_maps_to_canonical_name():
+    """R82: 工具查的是 'financial times'——裸传 'ft' 查表落空吃 0.55 默认分。"""
+    from backend.tools.news import score_news_source_reliability
+    inputs = _reliability_step_inputs("did ft publish a credible rumor about aapl")
+    assert inputs.get("source") == "financial times"
+    scored = score_news_source_reliability(source=inputs["source"], url="")
+    assert scored["reliability_score"] == 0.90
+
+
+def test_legit_seekingalpha_maps_to_canonical_name():
+    """R82: 'seekingalpha' 同样查表落空——规范名是 'seeking alpha'(0.74)。"""
+    from backend.tools.news import score_news_source_reliability
+    inputs = _reliability_step_inputs("is this seekingalpha rumor credible")
+    assert inputs.get("source") == "seeking alpha"
+    scored = score_news_source_reliability(source=inputs["source"], url="")
+    assert scored["reliability_score"] == 0.74
+
+
+def test_wsj_boundary_hint_still_works():
+    """R82 回归保护：短 hint 边界化后 'wsj' 仍命中并拿 0.92。"""
+    from backend.tools.news import score_news_source_reliability
+    inputs = _reliability_step_inputs("wsj rumor about aapl credibility")
+    assert inputs.get("source") == "wsj"
+    scored = score_news_source_reliability(source=inputs["source"], url="")
+    assert scored["reliability_score"] == 0.92

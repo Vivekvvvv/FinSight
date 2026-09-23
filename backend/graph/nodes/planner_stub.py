@@ -502,9 +502,30 @@ def planner_stub(state: GraphState) -> dict:
         url_match = re.search(r"https?://[^\s]+", query)
         if url_match:
             reliability_inputs["url"] = url_match.group(0).rstrip(".,)")
-        for source_hint in ("reuters", "bloomberg", "wsj", "ft", "cnbc", "marketwatch", "seekingalpha"):
-            if source_hint in query_lower:
-                reliability_inputs["source"] = source_hint
+        # (匹配词, 传给工具的规范名)。规范名必须是
+        # tools/news._RELIABILITY_SOURCE_SCORE_HINTS 认得的 key——裸传
+        # "ft"/"seekingalpha" 查表落空，FT/SA 来源恒吃 0.55 默认分。
+        for source_hint, canonical_source in (
+            ("reuters", "reuters"),
+            ("bloomberg", "bloomberg"),
+            ("wall street journal", "wall street journal"),
+            ("wsj", "wsj"),
+            ("financial times", "financial times"),
+            ("ft", "financial times"),
+            ("cnbc", "cnbc"),
+            ("marketwatch", "marketwatch"),
+            ("seekingalpha", "seeking alpha"),
+            ("seeking alpha", "seeking alpha"),
+        ):
+            if len(source_hint) <= 3 and source_hint.isascii():
+                # 短 hint 走非字母数字边界——"ft" 不能命中 "after"/"soft"/"draft"；
+                # 与上方 _contains_any / parse_operation._match_any 同一策略。
+                _hint_pattern = r"(?<![a-zA-Z0-9])" + re.escape(source_hint) + r"(?![a-zA-Z0-9])"
+                _hint_matched = re.search(_hint_pattern, query_lower) is not None
+            else:
+                _hint_matched = source_hint in query_lower
+            if _hint_matched:
+                reliability_inputs["source"] = canonical_source
                 break
         _append_tool_step(
             "score_news_source_reliability",
