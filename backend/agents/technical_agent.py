@@ -305,7 +305,10 @@ class TechnicalAgent(BaseFinancialAgent):
         last_gain = float(avg_gain.iloc[-1]) if not pd.isna(avg_gain.iloc[-1]) else 0.0
         last_loss = float(avg_loss.iloc[-1]) if not pd.isna(avg_loss.iloc[-1]) else 0.0
         if last_loss == 0:
-            return 100.0
+            # 平线序列（停牌/重复收盘价）涨跌全 0 时 0/0 无意义——按惯例取
+            # 中性 50。旧代码一律返回 100 → 停牌股被标"超买"并伪造回撤风险
+            # （tools/price.py 注释记录的"伪平线让 RSI 恒 100"同一失真点）。
+            return 50.0 if last_gain == 0 else 100.0
         rs = last_gain / last_loss
         return 100.0 - (100.0 / (1.0 + rs))
 

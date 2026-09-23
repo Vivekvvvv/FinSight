@@ -328,3 +328,44 @@ async def test_fundamental_conflict_flags_aligned_growth_no_flag():
     assert result.conflict_flags == []
     assert result.conflicting_claims == []
 
+
+def _flat_kline(count=120, close=50.0):
+    """停牌/重复收盘价的平线序列：每日 close 完全相等。"""
+    return [
+        {"time": f"2025-03-{(i % 28) + 1:02d} 00:00", "close": close}
+        for i in range(count)
+    ]
+
+
+def test_technical_flat_kline_rsi_neutral_not_100():
+    """R58：平线序列 delta 全 0 → avg_gain=avg_loss=0（0/0 无意义）。
+    旧代码 `last_loss==0 → return 100.0` 把停牌股标成 RSI=100 超买，
+    rsi_state=overbought。按惯例应取中性 50。"""
+    agent = TechnicalAgent(MagicMock(), DummyCache(), MagicMock())
+    indicators = agent._compute_indicators(_flat_kline())
+    assert indicators is not None
+    assert indicators["rsi_state"] == "neutral"
+    assert indicators["rsi"] == 50.0
+
+
+def test_technical_rising_kline_rsi_still_100():
+    """单边上涨：avg_gain>0 且 avg_loss=0 → RSI=100 是正确约定，回归保护。"""
+    agent = TechnicalAgent(MagicMock(), DummyCache(), MagicMock())
+    indicators = agent._compute_indicators(_build_kline())
+    assert indicators is not None
+    assert indicators["rsi"] == 100.0
+    assert indicators["rsi_state"] == "overbought"
+
+
+def test_technical_flat_kline_no_fake_overbought_wording():
+    """平线不应产出"超买/超卖"文案：_build_risks 伪造回撤风险、
+    _deterministic_summary 输出"RSI进入超买区"都会误导下游合成。"""
+    agent = TechnicalAgent(MagicMock(), DummyCache(), MagicMock())
+    flat_data = {"ticker": "HALT", "kline_data": _flat_kline(), "source": "test"}
+
+    risks = agent._build_risks(flat_data, ["dummy"])
+    assert not any("超买" in r or "超卖" in r for r in risks)
+
+    summary = agent._deterministic_summary(flat_data)
+    assert "超买" not in summary and "超卖" not in summary
+

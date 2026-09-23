@@ -70,7 +70,9 @@ def compute_technical_snapshot(ticker: str) -> str:
             last_gain = float(avg_gain.iloc[-1]) if not pd.isna(avg_gain.iloc[-1]) else 0.0
             last_loss = float(avg_loss.iloc[-1]) if not pd.isna(avg_loss.iloc[-1]) else 0.0
             if last_loss == 0:
-                return 100.0
+                # 平线序列涨跌全 0 时 0/0 无意义——取中性 50；旧代码一律
+                # 返回 100 → 停牌股快照 rsi_state=overbought 误导合成层。
+                return 50.0 if last_gain == 0 else 100.0
             rs = last_gain / last_loss
             return 100.0 - (100.0 / (1.0 + rs))
 
