@@ -611,7 +611,9 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
                     "seat_name": seat_name,
                     "buy_amount": buy_amt,
                     "sell_amount": sell_amt,
-                    "net_amount": buy_amt - sell_amt,
+                    # _wan_to_yuan 对 "-"/null 返回 None：None-None 抛 TypeError
+                    # 会被外层 except 吞成整个席位明细 None（R53 同类）
+                    "net_amount": buy_amt - sell_amt if buy_amt is not None and sell_amt is not None else None,
                     "is_institution": is_institution
                 })
 
@@ -628,7 +630,7 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
                     "seat_name": seat_name,
                     "buy_amount": buy_amt,
                     "sell_amount": sell_amt,
-                    "net_amount": buy_amt - sell_amt,
+                    "net_amount": buy_amt - sell_amt if buy_amt is not None and sell_amt is not None else None,
                     "is_institution": is_institution
                 })
 
