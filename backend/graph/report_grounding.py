@@ -105,7 +105,12 @@ def _is_claim_grounded(claim: str, normalized_corpus: str) -> bool:
     number_tokens = re.findall(r"\d+(?:\.\d+)?", claim)
     if not number_tokens:
         return False
-    if not all(num in normalized_corpus for num in number_tokens[:2]):
+    # 数字核对必须有数位边界：裸子串会让 claim "12亿美元" 撞上语料
+    # "312亿美元"（"12" 是 "312" 的子串），编造数字被误判 grounded。
+    if not all(
+        re.search(rf"(?<!\d){re.escape(num)}(?!\d)", normalized_corpus)
+        for num in number_tokens[:2]
+    ):
         return False
 
     keyword_match = re.search(

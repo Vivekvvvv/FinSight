@@ -576,3 +576,19 @@ def test_freshness_hours_treats_naive_dates_as_utc():
     ).isoformat()
     hours = _freshness_hours(one_hour_ago_utc_naive)
     assert 0.9 <= hours <= 1.5  # 旧代码在东八区得约 9.0
+
+
+def test_grounding_number_tokens_require_digit_boundaries():
+    """_is_claim_grounded 的数字核对用裸子串匹配：claim "12亿美元" 会撞上
+    语料里的 "312亿美元" 被误判 grounded，grounding_rate 虚高，
+    质量门控放行编造数字。"""
+    from backend.graph.report_grounding import _is_claim_grounded, _normalize_for_grounding
+
+    corpus = _normalize_for_grounding("苹果营收312亿美元，同比增长8%")
+
+    # 数字在语料中真实出现（非字面整句包含，走数字边界核对路径）
+    assert _is_claim_grounded("312亿美元营收", corpus)
+    # "12" 只是 "312" 的子串 → 不得判 grounded
+    assert not _is_claim_grounded("净利润12亿美元", corpus)
+    # 右边界同样生效："31" 撞上 "312" 的前缀
+    assert not _is_claim_grounded("营收31亿美元", corpus)
