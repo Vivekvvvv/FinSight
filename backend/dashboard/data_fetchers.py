@@ -192,7 +192,13 @@ def fetch_snapshot(symbol: str, asset_type: str) -> dict[str, Any] | None:
             output.update(
                 {
                     "revenue": safe_float(info.get("totalRevenue")),
-                    "eps": safe_float(info.get("trailingEps") or info.get("forwardEps")),
+                    # trailingEps=0.0（盈亏平衡）是真实值，裸 `or` 会把它当缺失、
+                    # 用 forwardEps（预测值）顶替——显式 None 判断，只在缺失时回退。
+                    "eps": safe_float(
+                        info.get("trailingEps")
+                        if info.get("trailingEps") is not None
+                        else info.get("forwardEps")
+                    ),
                     "gross_margin": safe_float(info.get("grossMargins")),
                     "fcf": safe_float(info.get("freeCashflow")),
                 }
