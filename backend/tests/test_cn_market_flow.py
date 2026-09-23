@@ -32,8 +32,21 @@ def test_fetch_fund_flow_parses_rows(monkeypatch):
 
     assert result["success"] is True
     assert result["count"] == 1
-    assert result["items"][0]["symbol"] == "600519.SH"
+    assert result["items"][0]["symbol"] == "600519.SS"
     assert result["items"][0]["change_percent"] == 2.15
+
+
+def test_build_symbol_shanghai_uses_canonical_ss_suffix():
+    """R88: f13=="1" 沪市行产出 .SH 后缀——代码库 CN 判定链
+    （is_cn_symbol、to_tencent_code、market_router 的 A股校验、
+    前端 .SS/.SZ 过滤）只认 .SS/.SZ/.BJ。资金流列表返回的
+    600519.SH 回填任意 CN 端点/工具都被判"非A股"（top-list 400、
+    腾讯 code None），必须用全局一致的 .SS。"""
+    from backend.tools.tencent_provider import is_cn_symbol
+
+    symbol = cn_market_flow._build_symbol({"f12": "600519", "f13": "1"})
+    assert symbol == "600519.SS"
+    assert is_cn_symbol(symbol)
 
 
 def test_fetch_northbound_empty_payload(monkeypatch):

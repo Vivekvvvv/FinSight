@@ -54,7 +54,10 @@ def _build_symbol(row: dict[str, Any]) -> str:
     if not code:
         return ""
     if market_id == "1":
-        return f"{code}.SH"
+        # 全库 CN 规范后缀是 .SS（is_cn_symbol/to_tencent_code/market_router
+        # 只认 .SS/.SZ/.BJ）；.SH 是 eastmoney secu 码风格，回填任何 CN
+        # 端点都被判"非A股"。
+        return f"{code}.SS"
     if market_id == "0":
         return f"{code}.SZ"
     return code

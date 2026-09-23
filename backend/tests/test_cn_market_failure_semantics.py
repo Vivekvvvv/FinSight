@@ -92,7 +92,7 @@ def test_fund_flow_rows_parsed(monkeypatch):
     result = mod.fetch_fund_flow(limit=5)
     assert result["success"] is True
     assert result["count"] == 1
-    assert result["items"][0]["symbol"] == "600519.SH"
+    assert result["items"][0]["symbol"] == "600519.SS"
 
 
 def test_fund_flow_genuinely_empty_still_success(monkeypatch):
