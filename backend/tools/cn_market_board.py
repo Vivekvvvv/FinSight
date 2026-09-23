@@ -62,6 +62,18 @@ def _fetch_failed(source: str) -> dict[str, Any]:
     }
 
 
+def _cn_symbol(code: str) -> str:
+    """6 位 A 股代码 → 通用 Yahoo 后缀（与 historical_data_store._to_bs_code
+    同一分段规则：6→沪、4/8/92→北交所、其余→深）。此前直接返回裸代码，
+    下游 is_cn_symbol/to_tencent_code/market_router 只认 .SS/.SZ/.BJ，
+    从榜单回填任何 CN 端点都被判"非A股"。"""
+    if code.startswith("6"):
+        return f"{code}.SS"
+    if code[:1] in ("4", "8") or code[:2] == "92":
+        return f"{code}.BJ"
+    return f"{code}.SZ"
+
+
 def fetch_limit_board(*, limit: int = 20) -> dict[str, Any]:
     """Fetch limit-up board style ranking from Eastmoney list endpoint."""
     rows = _eastmoney_list(
@@ -78,10 +90,11 @@ def fetch_limit_board(*, limit: int = 20) -> dict[str, Any]:
         code = str(row.get("f12") or "").strip()
         if not code:
             continue
+        symbol = _cn_symbol(code)
         items.append(
             {
-                "symbol": code,
-                "name": str(row.get("f14") or "").strip() or code,
+                "symbol": symbol,
+                "name": str(row.get("f14") or "").strip() or symbol,
                 "last_price": safe_float(row.get("f2")),
                 "change_percent": safe_float(row.get("f3")),
                 "turnover_rate": safe_float(row.get("f8")),
@@ -132,9 +145,10 @@ def fetch_lhb(*, limit: int = 20) -> dict[str, Any]:
                     for row in rows:
                         if not isinstance(row, dict):
                             continue
-                        symbol = str(row.get("SECURITY_CODE") or "").strip()
-                        if not symbol:
+                        code = str(row.get("SECURITY_CODE") or "").strip()
+                        if not code:
                             continue
+                        symbol = _cn_symbol(code)
                         items.append(
                             {
                                 "symbol": symbol,
