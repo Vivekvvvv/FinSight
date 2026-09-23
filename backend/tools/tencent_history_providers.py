@@ -83,6 +83,18 @@ def fetch_cn_top_list_history(
         start_dt = end_dt - timedelta(days=days)
         start_date = start_dt.isoformat()
 
+    # pageSize 须覆盖请求的日期窗口：旧代码恒取 days（默认 7），调用方显式
+    # 传 start_date/end_date 的更长区间会被静默截断（文档写明 start_date
+    # 优先级高于 days，/api/stock/top-list/{ticker}/history 受影响）。
+    try:
+        window_days = (
+            datetime.fromisoformat(str(end_date)[:10]).date()
+            - datetime.fromisoformat(str(start_date)[:10]).date()
+        ).days + 1
+    except Exception:
+        window_days = safe_int(days, 30)
+    page_size = max(1, min(max(safe_int(days, 30), window_days), 100))
+
     try:
         resp = _http_get(
             "https://datacenter-web.eastmoney.com/api/data/v1/get",
@@ -91,7 +103,7 @@ def fetch_cn_top_list_history(
                 "columns": "ALL",
                 "filter": f'(SECURITY_CODE="{stock_code}")',
                 "pageNumber": "1",
-        "pageSize": str(max(1, min(safe_int(days, 30), 100))),
+        "pageSize": str(page_size),
                 "sortTypes": "-1",
                 "sortColumns": "TRADE_DATE",
                 "source": "WEB",
