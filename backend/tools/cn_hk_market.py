@@ -59,8 +59,12 @@ def ticker_to_cn_quote_code(ticker: str) -> str | None:
     symbol = normalize_ticker(ticker)
     if symbol.endswith(".SS"):
         return f"sh{symbol[:-3]}"
-    if symbol.endswith(".SZ") or symbol.endswith(".BJ"):
+    if symbol.endswith(".SZ"):
         return f"sz{symbol[:-3]}"
+    if symbol.endswith(".BJ"):
+        # 北交所用 bj 前缀（腾讯/新浪一致），并入 .SZ 分支会产出
+        # sz8xxxxx 查无此票，BJ 兜底链全灭。
+        return f"bj{symbol[:-3]}"
     if symbol.endswith(".HK"):
         core = re.sub(r"\D", "", symbol[:-3])
         return f"hk{core.zfill(5)}" if core else None

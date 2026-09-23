@@ -100,6 +100,17 @@ def test_sina_quote_does_not_mislabel_daily_range_as_52week(monkeypatch):
     assert result["week52_low"] is None
 
 
+def test_bj_ticker_uses_bj_prefix_not_sz():
+    """北交所代码映射腾讯/新浪行情前缀：.BJ 并入 .SZ 分支会产出
+    sz8xxxxx/sz4xxxxx —— 深交所查无此票，tencent/sina 兜底对 BJ 全灭。
+    兄弟模块 tencent_history_providers.to_tencent_code 已用 bj 前缀。"""
+    assert cn_hk_market.ticker_to_cn_quote_code("830799.BJ") == "bj830799"
+    assert cn_hk_market.ticker_to_cn_quote_code("430047.BJ") == "bj430047"
+    # 深交所不受影响
+    assert cn_hk_market.ticker_to_cn_quote_code("300750.SZ") == "sz300750"
+    assert cn_hk_market.ticker_to_cn_quote_code("600519.SS") == "sh600519"
+
+
 # ── R4 回归：CN/HK K线降级链须尊重 period/interval ──────────────────────────
 
 
