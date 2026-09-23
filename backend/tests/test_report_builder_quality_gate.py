@@ -695,3 +695,35 @@ def test_quality_hints_legit_subdomain_and_schemeless_sec_still_count():
     assert stats.get("sec_filing_count") == 1
     assert stats.get("has_10k") is True
     assert stats.get("authoritative_media_count") == 1
+
+
+def test_classify_report_type_rsi_phantom_does_not_hijack_deep_report():
+    """R84: "rsi" 是 technical_tokens 里唯一 ≤3 字符的 ASCII token，裸子串撞上
+    university/diversification/diversified/adversity——'diversified portfolio
+    深度研报' 被误判 technical（technical 分支先于 deep 检查），深报质量门槛
+    （10-K/10-Q/本地披露/权威媒体/摘录）整体跳过。"""
+    from backend.graph.report_builder import _classify_report_type
+
+    assert _classify_report_type("diversified portfolio 深度研报") == "deep_financial"
+    assert _classify_report_type("university endowment fund 深度研究") == "deep_financial"
+    # 正例：真实 RSI 技术面查询仍归 technical
+    assert _classify_report_type("AAPL RSI 和 MACD 技术分析") == "technical"
+
+
+def test_quality_hints_deep_gate_not_bypassed_by_diversified_wording():
+    """R84 端到端：query 提到 diversification 时深报门槛仍应生效——
+    无 10-K 引用时 missing_requirements 必须报 critical 缺口。"""
+    quality = _build_report_quality_hints(
+        query="AAPL diversified portfolio 深度研报",
+        citations=[
+            {
+                "title": "AAPL snapshot",
+                "url": "https://example.com/aapl",
+                "snippet": "Basic price and volume snapshot for Apple.",
+            }
+        ],
+        tickers=["AAPL"],
+    )
+
+    assert quality.get("deep_report_required") is True
+    assert any("10-K" in str(item) for item in quality.get("missing_requirements") or [])

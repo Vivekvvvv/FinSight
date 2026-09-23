@@ -50,6 +50,16 @@ def _safe_str(value: Any) -> str:
 
 
 
+def _token_in_text(token: str, text: str) -> bool:
+    """token 子串匹配：≤3 字符的 ASCII token 需字母数字边界，
+    否则 "rsi"⊂"university"/"diversification" 这类幻影命中。"""
+    if len(token) <= 3 and token.isascii():
+        pattern = r"(?<![a-zA-Z0-9])" + re.escape(token) + r"(?![a-zA-Z0-9])"
+        return re.search(pattern, text) is not None
+    return token in text
+
+
+
 def _to_json_compatible(value: Any) -> Any:
     try:
         return json.loads(

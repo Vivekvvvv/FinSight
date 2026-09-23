@@ -34,6 +34,7 @@ from backend.graph.report_text_tools import (
     _normalize_line_for_dedupe,
     _dedupe_markdown_lines,
     _extract_deep_research_points,
+    _token_in_text,
 )
 
 from backend.graph.report_grounding import (
@@ -690,11 +691,11 @@ def _classify_report_type(query: str) -> str:
         "财报",
         "电话会",
     )
-    if any(token in q for token in technical_tokens):
+    if any(_token_in_text(token, q) for token in technical_tokens):
         return "technical"
-    if any(token in q for token in news_tokens):
+    if any(_token_in_text(token, q) for token in news_tokens):
         return "news"
-    if any(token in q for token in deep_tokens):
+    if any(_token_in_text(token, q) for token in deep_tokens):
         return "deep_financial"
     return "general"
 
