@@ -343,7 +343,7 @@ def get_company_info(ticker: str) -> str:
 - Name: {info.get('longName', 'Unknown')}
 - Sector: {info.get('sector', 'Unknown')}
 - Industry: {info.get('industry', 'Unknown')}
-- Market Cap: ${info.get('marketCap', 0):,.0f}
+- Market Cap: ${safe_float(info.get('marketCap')) or 0.0:,.0f}
 - Website: {info.get('website', 'N/A')}
 - Description: {description}"""
     except Exception as e:
