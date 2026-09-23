@@ -233,7 +233,11 @@ def update_position(
                  sector=COALESCE(excluded.sector, portfolio_positions.sector),
                  currency=COALESCE(excluded.currency, portfolio_positions.currency),
                  opened_at=COALESCE(excluded.opened_at, portfolio_positions.opened_at)""",
-            (session_id, ticker.upper(), shares, avg_cost, now, name, tags_json, note, sector, currency or "USD", opened_at),
+            # currency 传原值（None→NULL）：若在此兜底 "USD"，excluded.currency
+            # 永不为 NULL，ON CONFLICT 的 COALESCE(excluded.currency, existing)
+            # 恒选 excluded——不传 currency 的更新会把已存币种静默改回 USD。
+            # 新行的 NULL 由 get_positions 的 `or "USD"` 读取兜底。
+            (session_id, ticker.upper(), shares, avg_cost, now, name, tags_json, note, sector, currency, opened_at),
         )
         db.commit()
 

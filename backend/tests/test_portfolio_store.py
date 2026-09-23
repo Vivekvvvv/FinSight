@@ -227,6 +227,30 @@ def test_sync_positions_payload_overrides_preserved_columns(tmp_path, monkeypatc
     assert by_ticker["MSFT"]["currency"] == "USD"
 
 
+def test_update_position_without_currency_preserves_stored_currency(tmp_path, monkeypatch):
+    """不带 currency 的更新不得把已存币种重置为 USD。
+
+    旧代码在 INSERT VALUES 里写 ``currency or 'USD'``——excluded.currency 永
+    不为 NULL，ON CONFLICT 的 ``currency=COALESCE(excluded.currency, existing)``
+    永远选 excluded：对 HKD 持仓仅改 shares（import/PUT 两个端点都不传
+    currency）后币种被静默改回 USD，风险透镜的 currency_exposure 随即错分。
+    """
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+
+    store.update_position("s5", "0700.HK", 100, avg_cost=350, currency="HKD")
+    # 与 portfolio_router PUT/import 一致的调用形态：只改 shares/avg_cost
+    store.update_position("s5", "0700.HK", 120, avg_cost=340)
+
+    by_ticker = {r["ticker"]: r for r in store.get_positions("s5")}
+    assert by_ticker["0700.HK"]["currency"] == "HKD"  # 修复前：被重置为 USD
+    assert by_ticker["0700.HK"]["shares"] == 120
+
+    # 显式传 currency 的更新仍然生效
+    store.update_position("s5", "0700.HK", 120, avg_cost=340, currency="USD")
+    by_ticker = {r["ticker"]: r for r in store.get_positions("s5")}
+    assert by_ticker["0700.HK"]["currency"] == "USD"
+
+
 def test_get_all_active_sessions_parses_private_session_user_id(tmp_path, monkeypatch):
     """认证会话 "private:{user_id}:default" 必须解析出真实 user_id，
     其余格式回退 default_user（旧实现按 "_" 切分会产出 "private:default" 这类垃圾值，
