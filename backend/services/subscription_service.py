@@ -48,6 +48,8 @@ def _reject_non_finite_json(value: str) -> None:
 def _finite_optional_number(value: object, *, field: str) -> float | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be finite")
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
@@ -205,6 +207,16 @@ class SubscriptionService:
             raise
 
     @staticmethod
+    def _normalize_ticker(value: object) -> str:
+        """双侧归一：写入侧与查询侧统一大写去空白。存量小写/带空白
+        ticker 在精确匹配下会形成幽灵订阅（unsubscribe/toggle 找不到）、
+        重复订阅（大小写各一条双发告警+双计配额），以及回写失效
+        （调度器 normalized-copy 以 "AAPL" 回写匹配不上存量 "aapl" →
+        last_alert_at/alert_failures 永不更新 → 每轮重发且永不 disable）。
+        与 set_price_target_fired / record_alert_event 的既有约定对齐。"""
+        return str(value or "").strip().upper()
+
+    @staticmethod
     def _parse_iso(value: Optional[str]) -> Optional[datetime]:
         if not value or not isinstance(value, str):
             return None
@@ -308,6 +320,7 @@ class SubscriptionService:
             logger.info("Invalid email address rejected")
             return False
 
+        normalized_ticker = self._normalize_ticker(ticker)
         with self._lock:
             self._load_subscriptions()
             if email not in self.subscriptions:
@@ -315,7 +328,9 @@ class SubscriptionService:
 
             # 检查是否已订阅
             for sub in self.subscriptions[email]:
-                if sub['ticker'] == ticker:
+                if self._normalize_ticker(sub.get('ticker')) == normalized_ticker:
+                    # 顺带自愈存量小写键
+                    sub['ticker'] = normalized_ticker
                     # 更新现有订阅
                     sub['alert_types'] = alert_types
                     sub['price_threshold'] = price_threshold
@@ -346,7 +361,7 @@ class SubscriptionService:
             # 添加新订阅
             subscription = {
                 "email": email,
-                "ticker": ticker,
+                "ticker": normalized_ticker,
                 "alert_types": alert_types,
                 "price_threshold": price_threshold,
                 "alert_mode": normalized_alert_mode,
@@ -398,9 +413,10 @@ class SubscriptionService:
                 del self.subscriptions[email]
             else:
                 # 取消特定股票的订阅
+                ticker_norm = self._normalize_ticker(ticker)
                 self.subscriptions[email] = [
                     sub for sub in self.subscriptions[email]
-                    if sub['ticker'] != ticker
+                    if self._normalize_ticker(sub.get('ticker')) != ticker_norm
                 ]
 
                 # 如果该邮箱没有其他订阅，删除邮箱记录
@@ -447,32 +463,37 @@ class SubscriptionService:
             订阅列表
         """
         subscribers = []
+        ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
             self._load_subscriptions()
             for email, subs in self.subscriptions.items():
                 for sub in subs:
-                    if sub['ticker'] == ticker:
+                    if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
                         subscribers.append(sub)
         return subscribers
 
     def update_last_alert(self, email: str, ticker: str):
         """更新最后提醒时间"""
+        ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
             self._load_subscriptions()
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
-                    if sub['ticker'] == ticker:
+                    if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        sub['ticker'] = ticker_norm
                         sub['last_alert_at'] = datetime.now().isoformat()
                         self._save_subscriptions()
                         break
 
     def record_alert_attempt(self, email: str, ticker: str, success: bool, error: Optional[str] = None, disable: bool = False, is_transient_error: bool = False):
         """Record alert delivery attempt and optionally disable subscription."""
+        ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
             self._load_subscriptions()
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
-                    if sub['ticker'] == ticker:
+                    if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        sub['ticker'] = ticker_norm
                         now = datetime.now().isoformat()
                         sub['last_alert_attempt_at'] = now
                         if success:
@@ -510,22 +531,26 @@ class SubscriptionService:
         published_at（naive-UTC）直接比较做去重，两侧必须同基准；
         裸 datetime.now() 是本地时区，中国区会把新文章误判为已推送过。
         """
+        ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
             self._load_subscriptions()
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
-                    if sub['ticker'] == ticker:
+                    if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        sub['ticker'] = ticker_norm
                         sub['last_news_at'] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
                         self._save_subscriptions()
                         break
 
     def update_last_risk(self, email: str, ticker: str):
         """Update last risk alert timestamp."""
+        ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
             self._load_subscriptions()
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
-                    if sub['ticker'] == ticker:
+                    if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        sub['ticker'] = ticker_norm
                         sub['last_risk_at'] = datetime.now().isoformat()
                         self._save_subscriptions()
                         break
@@ -557,13 +582,15 @@ class SubscriptionService:
         Returns:
             是否操作成功
         """
+        ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
             self._load_subscriptions()
             if email not in self.subscriptions:
                 return False
 
             for sub in self.subscriptions[email]:
-                if sub['ticker'] == ticker:
+                if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                    sub['ticker'] = ticker_norm
                     sub['disabled'] = not enabled
                     if enabled:
                         # 启用时重置失败计数
