@@ -800,3 +800,39 @@ def test_enforce_policy_budget_drop_uses_step_identity_not_stale_index(monkeypat
     # 必需步骤必须保留；被丢弃的只能是 optional 步骤（d1 + a2）
     assert "t_req" in kept_ids
     assert set(dropped) == {"d1", "a2"}
+
+
+def test_enforce_policy_string_bool_optional_stays_required():
+    """LLM planner 的裸 JSON 可写 "optional":"false"/"0" 字符串——
+    _enforce_policy 消费先于 PlanIR.model_validate（无类型校验兜底），
+    bool("false")=True 会把 LLM 标为必需的步骤误标 optional，预算升级
+    裁剪时必需步骤被丢、报告缺 tool/agent。"""
+    from backend.graph.nodes.planner import _enforce_policy
+
+    state = {
+        "query": "qa",
+        "output_mode": "brief",
+        "operation": {"name": "qa", "confidence": 0.9, "params": {}},
+        "subject": {"subject_type": "company", "tickers": ["AAPL"], "selection_payload": []},
+        "policy": {
+            "budget": {"max_rounds": 3, "max_tools": 5},
+            "allowed_tools": ["search"],
+            "allowed_agents": [],
+        },
+        "trace": {},
+    }
+    payload = {
+        "goal": "demo",
+        "steps": [
+            {"id": "t_req", "kind": "tool", "name": "search", "optional": "false", "inputs": {"query": "x"}},
+            {"id": "t_zero", "kind": "tool", "name": "search", "optional": "0", "inputs": {"query": "x"}},
+            {"id": "t_opt", "kind": "tool", "name": "search", "optional": "true", "inputs": {"query": "x"}},
+        ],
+    }
+
+    plan, _ = _enforce_policy(payload, state)
+    steps = {s.get("id"): s for s in plan.get("steps") or []}
+
+    assert steps["t_req"]["optional"] is False
+    assert steps["t_zero"]["optional"] is False
+    assert steps["t_opt"]["optional"] is True

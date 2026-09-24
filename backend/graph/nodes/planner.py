@@ -51,6 +51,15 @@ def _env_bool(key: str, default: bool = False) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _flag(value: Any) -> bool:
+    """LLM 裸 JSON 可把布尔写成字符串——_enforce_policy 消费先于
+    PlanIR.model_validate，bool("false") 会误判 True（同 policy_gate._is_truthy
+    的真值集写法；非字符串维持原 bool 语义）。"""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _env_int(key: str, default: int) -> int:
     raw = os.getenv(key)
     if raw is None:
@@ -373,7 +382,7 @@ def _enforce_policy(plan_payload: dict[str, Any], state: GraphState) -> tuple[di
         parallel_group = str(parallel_group).strip() if isinstance(parallel_group, str) and parallel_group.strip() else None
         why = raw.get("why")
         why = str(why).strip() if isinstance(why, str) and why.strip() else None
-        optional = bool(raw.get("optional"))
+        optional = _flag(raw.get("optional"))
 
         # Normalize known tool inputs for robustness.
         if kind == "tool" and name == "get_performance_comparison":
