@@ -463,3 +463,42 @@ def test_concurrent_fetches_do_not_kill_each_others_session(store, monkeypatch):
     assert violations == [], f"session killed mid-query: {violations}"
     assert results["600519.SS"], "A lost its bars to a concurrent logout"
     assert results["000001.SZ"], "B lost its bars to a concurrent logout"
+
+
+def test_fetch_and_cache_kline_fallback_skips_poison_items(monkeypatch):
+    """R116：多源 fallback 的 kline_data 混入毒行不得毁整批。
+
+    p.get("close") 对非 dict 条目抛 AttributeError、p.get("time","")[:10]
+    对 present-None 抛 TypeError——都落进 fallback 的 except → return []，
+    一条毒行让历史数据接口整体落空（同 R107-R114 缺陷类）。"""
+    import backend.tools as tools_pkg
+    from backend.services import historical_data_store as hds
+
+    monkeypatch.setattr(hds, "_read_cache", lambda *a, **k: None)
+    monkeypatch.setattr(hds, "_fetch_baostock", lambda *a, **k: [])
+    monkeypatch.setattr(hds, "_write_cache", lambda *a, **k: None)
+    monkeypatch.setattr(
+        tools_pkg,
+        "get_stock_historical_data",
+        lambda *a, **k: {
+            "kline_data": [
+                {
+                    "time": "2026-09-20",
+                    "open": 1.0,
+                    "high": 2.0,
+                    "low": 0.5,
+                    "close": 1.5,
+                    "volume": 100,
+                },
+                "junk-row",
+                None,
+                {"time": None, "open": 1.0, "close": 1.2},  # None[:10] TypeError 变体
+            ]
+        },
+    )
+
+    rows = hds.fetch_and_cache_kline("600519.SS", "2026-01-01", "2026-12-31", "qfq")
+
+    assert len(rows) == 1, "毒行不得毁掉整个 fallback"
+    assert rows[0]["date"] == "2026-09-20"
+    assert rows[0]["close"] == 1.5

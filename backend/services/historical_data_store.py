@@ -336,11 +336,16 @@ def fetch_and_cache_kline(
             from backend.tools import get_stock_historical_data
             payload = get_stock_historical_data(ticker, period="5y", interval="1d")
             kdata = (payload or {}).get("kline_data") or []
+            # 毒行按条跳过——非 dict 条目的 .get AttributeError、time
+            # present-None 的 None[:10] TypeError 会落进下方 except 让
+            # 整个 fallback 返回 []（同 R107 缺陷类）
+            if not isinstance(kdata, list):
+                kdata = []
             rows = [
-                {"date": p.get("time", "")[:10], "open": p.get("open"),
+                {"date": str(p.get("time") or "")[:10], "open": p.get("open"),
                  "high": p.get("high"), "low": p.get("low"),
                  "close": p.get("close"), "volume": p.get("volume")}
-                for p in kdata if p.get("close")
+                for p in kdata if isinstance(p, dict) and p.get("close")
             ]
         except Exception as exc:
             logger.warning('historical fallback failed')
