@@ -369,3 +369,28 @@ def test_technical_flat_kline_no_fake_overbought_wording():
     summary = agent._deterministic_summary(flat_data)
     assert "超买" not in summary and "超卖" not in summary
 
+
+
+def test_technical_close_series_skips_poison_kline_items():
+    """R120：kline_data 混入非 dict 条目——item.get AttributeError 曾逃逸出
+    _compute_indicators 让技术分析 agent 整体报错（三个调用方：
+    _deterministic_summary/_format_output/_build_risks）。kline_data 非
+    list（present-None/dict/str）同样 TypeError。按条跳过、非 list 归 []。"""
+    agent = TechnicalAgent(MagicMock(), DummyCache(), MagicMock())
+
+    # 非 dict 毒条目被跳过，好行照常计算
+    series, last_time = agent._build_close_series(
+        [{"close": 10.0, "time": "2025-01-01"}, "junk", None,
+         {"close": "bad", "time": "x"}, {"close": 11.0, "time": "2025-01-02"}]
+    )
+    assert series is not None and len(series) == 2
+    assert last_time == "2025-01-02"
+
+    # kline_data 非 list —— None/dict/str 不得 TypeError
+    for bad in (None, {"time": "x"}, "oops"):
+        series, last_time = agent._build_close_series(bad)
+        assert series is None and last_time is None
+
+    # 端到端：_compute_indicators 对毒载荷返回 None 而非抛错
+    assert agent._compute_indicators(None) is None
+    assert agent._compute_indicators({"a": 1}) is None

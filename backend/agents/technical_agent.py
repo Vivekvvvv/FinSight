@@ -277,7 +277,14 @@ class TechnicalAgent(BaseFinancialAgent):
     def _build_close_series(self, kline_data: List[Dict[str, Any]]) -> Tuple[Optional[pd.Series], Optional[str]]:
         closes = []
         last_time = None
+        # kline_data 非 list（present-None/dict/str）→ for 迭代 TypeError/
+        # 键迭代；非 dict 毒条目 → item.get AttributeError——异常会逃逸出
+        # _compute_indicators 让技术分析 agent 整体报错（同 R107-R119 类）
+        if not isinstance(kline_data, list):
+            return None, None
         for item in kline_data:
+            if not isinstance(item, dict):
+                continue
             close = item.get("close")
             parsed_close = safe_float(close)
             if parsed_close is None:
