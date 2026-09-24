@@ -173,7 +173,7 @@ async def execute_plan(
 
     def _as_float(value: Any) -> float | None:
         try:
-            if value is None:
+            if value is None or isinstance(value, bool):
                 return None
             parsed = float(value)
             return parsed if math.isfinite(parsed) else None
@@ -411,9 +411,19 @@ async def execute_plan(
     groups = group_steps_by_parallel_group(steps)
     aborted_by_required_error = False
     for group in groups:
+        # gather 首个异常即传播但不取消其余协程：同组兄弟 step 会继续写
+        # artifacts、emit step_done（落在 pipeline_stage:error 之后）、执行
+        # 副作用。先建 Task，任何失败（含外层取消 execute_plan 自身）都
+        # cancel + 排空兄弟任务再处理，兑现 "stop further execution"。
+        tasks = [asyncio.ensure_future(_run_step(step)) for step in group]
         try:
-            await asyncio.gather(*[_run_step(step) for step in group])
-        except Exception as exc:
+            await asyncio.gather(*tasks)
+        except BaseException as exc:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if not isinstance(exc, Exception):
+                raise
             # Required step failed; stop further execution but return partial artifacts.
             aborted_by_required_error = True
             await emit_event(

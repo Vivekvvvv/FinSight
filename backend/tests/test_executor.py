@@ -137,6 +137,43 @@ def test_execute_plan_required_failure_stops_following_steps():
     assert "s1" == artifacts["errors"][0]["step_id"]
 
 
+def test_execute_plan_required_failure_cancels_siblings_in_same_group():
+    """gather 首个异常即传播但不取消同组其余协程：required step 失败后，
+    兄弟 step 逃逸继续执行——写 artifacts（调用方已拿到返回 dict）、
+    emit step_done（落在 pipeline_stage:error 之后，SSE 事件序颠倒）、
+    副作用工具在"中止"后照跑。与注释声明的 stop further execution 相悖。"""
+    sibling_finished = {"ran": False}
+
+    async def fail_fast(_inputs):
+        await asyncio.sleep(0.01)
+        raise RuntimeError("boom")
+
+    async def slow_ok(_inputs):
+        await asyncio.sleep(0.2)
+        sibling_finished["ran"] = True
+        return "ok"
+
+    plan = {
+        "steps": [
+            {"id": "s1", "kind": "tool", "name": "fail", "inputs": {}, "optional": False, "parallel_group": "g"},
+            {"id": "s2", "kind": "tool", "name": "ok", "inputs": {}, "optional": True, "parallel_group": "g"},
+        ]
+    }
+
+    async def scenario():
+        artifacts, _events = await execute_plan(
+            plan,
+            tool_invokers={"fail": fail_fast, "ok": slow_ok},
+            dry_run=False,
+        )
+        await asyncio.sleep(0.3)  # 给逃逸的兄弟协程足够时间跑完
+        return artifacts
+
+    artifacts = _run(scenario())
+    assert not sibling_finished["ran"], "aborted group's sibling step kept running"
+    assert "s2" not in artifacts["step_results"]
+
+
 def test_execute_plan_required_failure_redacts_pipeline_event(monkeypatch):
     import backend.graph.executor as executor_module
 
