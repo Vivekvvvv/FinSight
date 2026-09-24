@@ -319,9 +319,12 @@ def _sql_list_documents(self: SQLRAGObservabilityStore, *, run_id: str | None = 
     if run_id:
         where.append("run_id = :run_id")
         params['run_id'] = run_id
-    items = _runtime_fetch_all(self, f"SELECT * FROM rag_source_docs WHERE {' AND '.join(where)} ORDER BY created_at DESC LIMIT :limit", params)
     if collection:
-        items = [item for item in items if str((item.get('metadata_json') or {}).get('collection') or '') == collection]
+        # Filter in SQL: post-LIMIT python filtering starves the page when
+        # other collections occupy the first `limit` rows.
+        where.append("metadata_json->>'collection' = :collection")
+        params['collection'] = collection
+    items = _runtime_fetch_all(self, f"SELECT * FROM rag_source_docs WHERE {' AND '.join(where)} ORDER BY created_at DESC LIMIT :limit", params)
     return {'items': items}
 
 
@@ -340,9 +343,10 @@ def _sql_list_chunks(self: SQLRAGObservabilityStore, *, run_id: str | None = Non
     if source_doc_id:
         where.append("source_doc_id = :source_doc_id")
         params['source_doc_id'] = source_doc_id
-    items = _runtime_fetch_all(self, f"SELECT * FROM rag_chunks WHERE {' AND '.join(where)} ORDER BY created_at DESC LIMIT :limit", params)
     if collection:
-        items = [item for item in items if str((item.get('metadata_json') or {}).get('collection') or '') == collection]
+        where.append("metadata_json->>'collection' = :collection")
+        params['collection'] = collection
+    items = _runtime_fetch_all(self, f"SELECT * FROM rag_chunks WHERE {' AND '.join(where)} ORDER BY created_at DESC LIMIT :limit", params)
     return {'items': items}
 
 
@@ -358,9 +362,10 @@ def _sql_list_hits(self: SQLRAGObservabilityStore, *, run_id: str | None = None,
     if run_id:
         where.append("rh.run_id = :run_id")
         params['run_id'] = run_id
-    items = _runtime_fetch_all(self, f"SELECT rh.*, rr.input_rank, rr.output_rank, rr.rerank_score, rr.selected_for_answer, ch.chunk_index, ch.chunk_text FROM rag_retrieval_hits rh LEFT JOIN rag_rerank_hits rr ON rr.run_id = rh.run_id AND COALESCE(rr.chunk_id, '') = COALESCE(rh.chunk_id, '') LEFT JOIN rag_chunks ch ON ch.id = rh.chunk_id WHERE {' AND '.join(where)} ORDER BY rh.created_at DESC LIMIT :limit", params)
     if collection:
-        items = [item for item in items if str(item.get('collection') or '') == collection]
+        where.append("rh.collection = :collection")
+        params['collection'] = collection
+    items = _runtime_fetch_all(self, f"SELECT rh.*, rr.input_rank, rr.output_rank, rr.rerank_score, rr.selected_for_answer, ch.chunk_index, ch.chunk_text FROM rag_retrieval_hits rh LEFT JOIN rag_rerank_hits rr ON rr.run_id = rh.run_id AND COALESCE(rr.chunk_id, '') = COALESCE(rh.chunk_id, '') LEFT JOIN rag_chunks ch ON ch.id = rh.chunk_id WHERE {' AND '.join(where)} ORDER BY rh.created_at DESC LIMIT :limit", params)
     for item in items:
         item['chunk_preview'] = str(item.get('chunk_text') or '')[:220]
     return {'items': items}
