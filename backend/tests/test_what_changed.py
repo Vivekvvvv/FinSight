@@ -366,3 +366,44 @@ def test_lowercase_stored_ticker_report_change_not_dropped(clean_state):
         None,
     )
     assert report_change is not None, "小写存储 ticker 的报告变化被静默丢弃"
+
+
+def test_clean_portfolio_report_does_not_phantom_trigger(monkeypatch, clean_state):
+    """_collect_report_changes 的持仓加权(score+20)在阈值判定前无条件生效——
+    零标记的干净报告仅凭 ticker 在持仓就 score=20≥20 进 What Changed，
+    reasons 为空 → reason 输出裸"。"。加权应放大已标记问题而非凭空触发；
+    对照 timeline/notes 收集器的加权均作用在已过滤的真实事件上。"""
+    session_id = "test_phantom_session"
+    user_id = "test_phantom_user"
+    store = get_report_index_store()
+
+    monkeypatch.setattr(
+        "backend.services.portfolio_store.get_positions",
+        lambda _sid: [{"ticker": "HELD", "shares": 10, "avg_cost": 100}],
+    )
+    monkeypatch.setattr(
+        what_changed._memory_service,
+        "list_watchlist_items",
+        lambda _uid: [],
+    )
+
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "clean_held_report",
+            "ticker": "HELD",
+            "title": "HELD 正常报告",
+            "summary": "一切正常",
+        },
+    )
+
+    changes = what_changed.get_what_changed(
+        session_id=session_id,
+        user_id=user_id,
+        limit=10,
+    )
+    phantom = [
+        c for c in changes
+        if c.get("change_type") == "report" and c.get("symbol") == "HELD"
+    ]
+    assert phantom == [], f"干净持仓报告不应产生变化: {phantom}"

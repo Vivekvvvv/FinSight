@@ -174,8 +174,11 @@ def _collect_report_changes(
             score += 15
             reasons.append("标记为需复查")
 
-        # 持仓标的加权
-        if ticker in portfolio_symbols:
+        # 持仓标的加权：只放大已标记的问题，不能凭空触发——零标记的干净
+        # 报告仅凭 ticker 在持仓就 +20 达到阈值，产出 reason="。" 的幽灵
+        # "需要复查"变化（timeline/notes 收集器的加权都作用在已过滤的
+        # 真实事件上，此处必须同构：有 reasons 才加权）。
+        if reasons and ticker in portfolio_symbols:
             score += 20
 
         if score >= 20:  # 阈值：至少 20 分才算变化
