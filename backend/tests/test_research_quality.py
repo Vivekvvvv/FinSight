@@ -369,3 +369,54 @@ def test_naive_generated_at_does_not_crash_unreviewed(clean_state):
     assert result["success"] is True
     unreviewed = [i for i in result["top_issues"] if i["issue_type"] == "unreviewed_report"]
     assert len(unreviewed) == 1
+
+
+def test_challenged_conclusion_reports_each_report_once(clean_state, monkeypatch):
+    """多个 high-severity 事件挑战同一份旧报告时，注释语义是"每个报告只报
+    一次"；但 break 实现的是"每个事件报一次"——同一份报告的
+    challenged:{report_id} 会在 top_issues 重复出现，且
+    challenged_conclusions 计数膨胀 → health_score 被幽灵重复扣分。"""
+    session_id = "test_challenged_dedup_session"
+    store = get_report_index_store()
+
+    aware_old = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "chall_dup_001",
+            "ticker": "CHDUP",
+            "title": "旧报告",
+            "summary": "被两次挑战",
+            "generated_at": aware_old,
+        },
+    )
+
+    now = datetime.now(timezone.utc)
+    fake_events = [
+        {
+            "severity": "high",
+            "occurred_at": (now - timedelta(days=1)).isoformat(),
+            "title": "事件A",
+        },
+        {
+            "severity": "critical",
+            "occurred_at": (now - timedelta(days=2)).isoformat(),
+            "title": "事件B",
+        },
+    ]
+    monkeypatch.setattr(
+        research_quality.timeline_service,
+        "get_timeline",
+        lambda **kwargs: fake_events,
+    )
+
+    result = research_quality.get_research_quality(
+        session_id=session_id,
+        user_id="test_user",
+    )
+
+    challenged = [
+        i for i in result["top_issues"] if i["issue_type"] == "challenged_conclusion"
+    ]
+    assert len(challenged) == 1
+    assert result["summary"]["challenged_conclusions"] == 1

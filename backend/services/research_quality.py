@@ -230,12 +230,20 @@ def _collect_challenged_conclusions(
                 continue
 
             # 找该 symbol 的旧报告（早于最新 high severity 事件）
+            # flagged_ids 兑现"每个报告只报一次"：旧 break 只保证每个事件
+            # 报一次，同一份报告被多个事件挑战时 challenged:{report_id}
+            # 重复进 top_issues，且 challenged_conclusions 计数膨胀 →
+            # health_score 按重复计数多扣分。
+            flagged_ids: set[str] = set()
             for event in high_severity_events:
                 event_time = _parse_iso_safe(event.get("occurred_at"))
                 if not event_time:
                     continue
 
                 for rpt in symbol_reports:
+                    rid = str(rpt.get("report_id") or "")
+                    if rid and rid in flagged_ids:
+                        continue
                     rpt_time = _parse_iso_safe(rpt.get("generated_at"))
                     if rpt_time and rpt_time < event_time:
                         issue = {
@@ -249,7 +257,9 @@ def _collect_challenged_conclusions(
                             "related_report_id": rpt["report_id"],
                         }
                         issues.append(issue)
-                        break  # 每个报告只报一次
+                        if rid:
+                            flagged_ids.add(rid)
+                        break  # 每个事件只取第一个被挑战的报告
 
         except Exception:
             # timeline 查询失败不影响其他逻辑
