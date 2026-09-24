@@ -62,6 +62,22 @@ async def test_price_agent_fallback(mock_llm, mock_cache, mock_tools, circuit_br
 
 
 @pytest.mark.asyncio
+async def test_price_agent_all_sources_failed_raises_typed_error(mock_llm, mock_cache, mock_tools, circuit_breaker):
+    """全部行情源失败且 search 兜底也抛错时必须抛 AllSourcesFailedError。
+
+    _initial_search 兜底 except 分支引用未定义的 logger → NameError 顶掉
+    typed error，调用方丢失 "all sources failed" 语义与 last_error 信息。"""
+    mock_tools._fetch_with_yfinance.side_effect = RuntimeError("yf down")
+    mock_tools._fetch_with_finnhub = MagicMock(side_effect=RuntimeError("fh down"))
+    mock_tools._fetch_with_alpha_vantage = MagicMock(side_effect=RuntimeError("av down"))
+    mock_tools._search_for_price = MagicMock(side_effect=RuntimeError("search down"))
+    agent = PriceAgent(mock_llm, mock_cache, mock_tools, circuit_breaker)
+
+    with pytest.raises(AllSourcesFailedError):
+        await agent._initial_search("Get AAPL price", "AAPL")
+
+
+@pytest.mark.asyncio
 async def test_price_agent_enriches_option_metrics(mock_llm, mock_cache, mock_tools, circuit_breaker):
     mock_tools.get_option_chain_metrics = MagicMock(return_value={
         "ticker": "AAPL",

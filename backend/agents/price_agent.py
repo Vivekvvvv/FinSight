@@ -1,4 +1,5 @@
 from typing import Any, Optional
+import logging
 import math
 import os
 from datetime import datetime
@@ -7,6 +8,8 @@ from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceI
 from backend.services.circuit_breaker import CircuitBreaker
 from backend.utils.env_config import env_float, env_int
 from backend.utils.quote import safe_float
+
+logger = logging.getLogger(__name__)
 
 
 class AllSourcesFailedError(Exception):
@@ -187,7 +190,9 @@ class PriceAgent(BaseFinancialAgent):
                 change = raw_data.get("change_abs")
             if change_percent is None:
                 change_percent = raw_data.get("change_pct")
-            if change_percent is not None:
+            if isinstance(change_percent, bool):
+                change_percent = None
+            elif change_percent is not None:
                 try:
                     change_percent = float(change_percent)
                 except Exception:
