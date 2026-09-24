@@ -193,7 +193,12 @@ class InsightsOrchestrator:
                 peers_card = self._peers._make_fallback_card(data.get("peers", {}), now_iso)
 
             # Phase 2: overview uses phase-1 sub-scores.
-            self._overview.set_sub_scores(
+            # Per-call scorer: the shared self._overview instance lets a
+            # concurrent _generate_fresh overwrite _sub_scores while this
+            # call is suspended at digest()'s LLM await, contaminating the
+            # fallback merge in _parse_response.
+            overview_scorer = OverviewScorer()
+            overview_scorer.set_sub_scores(
                 {
                     "technical": tech_card.score,
                     "financial": fin_card.score,
@@ -208,11 +213,11 @@ class InsightsOrchestrator:
             }
             try:
                 overview_card = await asyncio.wait_for(
-                    self._overview.digest(symbol, overview_data),
+                    overview_scorer.digest(symbol, overview_data),
                     timeout=scorer_runtime._DIGEST_TIMEOUT_SECONDS,
                 )
             except (asyncio.TimeoutError, Exception):
-                overview_card = self._overview._make_fallback_card(overview_data, now_iso)
+                overview_card = overview_scorer._make_fallback_card(overview_data, now_iso)
 
             # Attach sub_scores to overview if not present.
             if overview_card.sub_scores is None:
