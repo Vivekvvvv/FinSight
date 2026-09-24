@@ -76,6 +76,44 @@ async def test_singleflight_cancelled_waiter_does_not_kill_shared_fetch():
     assert call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_dashboard_news_failure_writes_marker_not_full_ttl_shell(monkeypatch):
+    """fetch_news 返回 None（两源都抛，R51）时，router 把空壳
+    {"market":[],"impact":[]} 按 TTL_NEWS=300s 缓存——后续请求把它当
+    高置信度 cache hit（不标 fallback、confidence 0.85），正是 R51/R57
+    要修的病，只是上移了一层。应与同函数 v2/g2 一致写 failure marker：
+    命中时回报 fallback_reason 且短 TTL 重试。"""
+    cache = DashboardCache()
+    monkeypatch.setattr(dashboard_router_module, "dashboard_cache", cache)
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_snapshot", lambda *a, **k: {"price": 1}
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_market_chart", lambda *a, **k: [{"t": 1}]
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_news", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_macro_snapshot", lambda *a, **k: None
+    )
+
+    resp = await dashboard_router_module.get_dashboard(symbol="BTC-USD")
+
+    assert resp.data.meta["news_market"]["fallback_reason"] == "news_unavailable"
+    cached = cache.get("BTC-USD", "news")
+    assert dashboard_router_module._is_failure_marker(cached), (
+        f"news 故障应按 failure marker 短缓存，实际缓存: {cached!r}"
+    )
+
+    # 第二次请求命中 failure marker：必须仍标 fallback（而非高置信度空壳）。
+    resp2 = await dashboard_router_module.get_dashboard(symbol="BTC-USD")
+    meta = resp2.data.meta["news_market"]
+    assert meta["source_type"] == "failure_cache"
+    assert meta["fallback_reason"] == "news_unavailable"
+    assert meta["fallback_used"] is True
+
+
 def test_insights_collect_data_ignores_failure_marker():
     cache = DashboardCache()
     cache.set(

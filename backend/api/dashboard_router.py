@@ -692,11 +692,26 @@ async def get_dashboard(
             timeout=_DASHBOARD_NEWS_FETCH_TIMEOUT_SECONDS,
         )
         if fetched_news is None:
-            fetched_news = {"market": [], "impact": []}
+            news = {"market": [], "impact": []}
             news_fallback_reason = "news_unavailable"
             fallback_reasons.append(news_fallback_reason)
-        news = fetched_news
-        dashboard_cache.set(symbol, "news", news, ttl=dashboard_cache.TTL_NEWS)
+            # 失败写 marker 而非空壳长缓存（R51/R57）：否则 TTL_NEWS 窗口内
+            # 后续请求把 {"market":[], "impact":[]} 当高置信度 cache hit，
+            # 丢 fallback 标记且 confidence 报 0.85——与上方 v2/g2 同约定。
+            dashboard_cache.set(
+                symbol,
+                "news",
+                _make_failure_marker(news_fallback_reason),
+                ttl=_DASHBOARD_FAILURE_TTL_SECONDS,
+            )
+        else:
+            news = fetched_news
+            dashboard_cache.set(symbol, "news", news, ttl=dashboard_cache.TTL_NEWS)
+    elif _is_failure_marker(news):
+        news_fallback_reason = _failure_reason_from_marker(news) or "news_unavailable"
+        fallback_reasons.append(news_fallback_reason)
+        news = {"market": [], "impact": []}
+        news_source_type = "failure_cache"
     else:
         state.debug["cache"]["news"] = True
 
