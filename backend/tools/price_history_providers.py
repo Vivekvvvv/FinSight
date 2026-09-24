@@ -165,15 +165,22 @@ def _fetch_with_iex_cloud(ticker: str, period: str = "1y") -> dict:
             if isinstance(data, list) and len(data) > 0:
                 kline_data = []
                 for item in data:
+                    # 非 dict 毒行按条跳过——否则 .get AttributeError 落进
+                    # 函数级 except，该 provider 整批返回 None（同 R107）
+                    if not isinstance(item, dict):
+                        continue
+                    time_str = str(item.get('date') or item.get('label') or '')
+                    if not time_str:
+                        continue  # 无日期K线柱无意义，丢弃
                     kline_data.append({
-                        "time": item.get('date', item.get('label', '')),
+                        "time": time_str,
                         "open": _safe_float_value(item.get('open')),
                         "high": _safe_float_value(item.get('high')),
                         "low": _safe_float_value(item.get('low')),
                         "close": _safe_float_value(item.get('close')),
                         "volume": _safe_float_value(item.get('volume')),
                     })
-                
+
                 if kline_data:
                     logger.info("[get_stock_historical_data] IEX Cloud 成功获取数据")
                     return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "iex_cloud"}
@@ -230,15 +237,21 @@ def _fetch_with_tiingo(ticker: str, period: str = "1y") -> dict:
             if isinstance(data, list) and len(data) > 0:
                 kline_data = []
                 for item in data:
+                    # 毒行按条跳过（同 R107）；date present-None 也跳过切片
+                    if not isinstance(item, dict):
+                        continue
+                    time_str = str(item.get('date') or '')[:10]
+                    if not time_str:
+                        continue  # 无日期K线柱无意义，丢弃
                     kline_data.append({
-                        "time": item.get('date', '')[:10],  # 只取日期部分
+                        "time": time_str,  # 只取日期部分
                         "open": _safe_float_value(item.get('open')),
                         "high": _safe_float_value(item.get('high')),
                         "low": _safe_float_value(item.get('low')),
                         "close": _safe_float_value(item.get('close')),
                         "volume": _safe_float_value(item.get('volume')),
                     })
-                
+
                 if kline_data:
                     logger.info("[get_stock_historical_data] Tiingo 成功获取数据")
                     return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "tiingo"}
@@ -302,8 +315,14 @@ def _fetch_with_twelve_data(ticker: str, period: str = "1y") -> dict:
 
         kline_data = []
         for item in values:
+            # 毒行按条跳过（同 R107）
+            if not isinstance(item, dict):
+                continue
+            time_str = str(item.get("datetime") or "")[:10]
+            if not time_str:
+                continue  # 无日期K线柱无意义，丢弃
             kline_data.append({
-                "time": item.get("datetime", "")[:10],
+                "time": time_str,
                 "open": _safe_float_value(item.get("open")),
                 "high": _safe_float_value(item.get("high")),
                 "low": _safe_float_value(item.get("low")),
@@ -314,7 +333,7 @@ def _fetch_with_twelve_data(ticker: str, period: str = "1y") -> dict:
         if kline_data:
             # Twelve Data 默认倒序，翻转为时间正序
             kline_data = list(reversed(kline_data))
-            as_of = values[0].get("datetime", "")[:19]
+            as_of = str(values[0].get("datetime") or "")[:19] if isinstance(values[0], dict) else ""
             logger.info("[get_stock_historical_data] Twelve Data 成功获取数据")
             return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "twelve_data", "as_of": as_of}
 
@@ -373,8 +392,14 @@ def _fetch_with_marketstack(ticker: str, period: str = "1y") -> dict:
             if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
                 kline_data = []
                 for item in data["data"]:
+                    # 毒行按条跳过（同 R107）
+                    if not isinstance(item, dict):
+                        continue
+                    time_str = str(item.get('date') or '')[:10]
+                    if not time_str:
+                        continue  # 无日期K线柱无意义，丢弃
                     kline_data.append({
-                        "time": item.get('date', '')[:10],  # 只取日期部分
+                        "time": time_str,  # 只取日期部分
                         "open": _safe_float_value(item.get('open')),
                         "high": _safe_float_value(item.get('high')),
                         "low": _safe_float_value(item.get('low')),
@@ -444,7 +469,14 @@ def _fetch_with_massive_io(ticker: str, period: str = "1y") -> dict:
                 if len(results) > 0:
                     kline_data = []
                     for item in results:
-                        timestamp = item['t'] / 1000  # 转换为秒
+                        # 毒行按条跳过；item['t'] 裸索引 KeyError/TypeError
+                        # 会让整个 provider 返回 None（同 R107）
+                        if not isinstance(item, dict):
+                            continue
+                        ts = _safe_float_value(item.get('t'))
+                        if ts is None:
+                            continue
+                        timestamp = ts / 1000  # 转换为秒
                         date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
                         kline_data.append({
                             "time": date_str,

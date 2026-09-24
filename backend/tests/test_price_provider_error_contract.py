@@ -942,3 +942,49 @@ def test_fallback_price_search_branch_extracts_number(monkeypatch):
     )
 
     assert php._fallback_price_value("^GSPC") == 123456.0
+
+
+def test_provider_kline_loops_skip_poison_items(monkeypatch):
+    """R112 回归：历史K线 provider 链的单条毒记录不得毁掉该 provider 整批。
+
+    IEX/Tiingo/TwelveData/Marketstack/Massive 的解析循环里，非 dict 条目
+    触发 .get AttributeError、date/datetime present-None 触发 None[:10]
+    TypeError、Massive 的 item['t'] 裸索引触发 KeyError——全落进函数级
+    except 使该 provider 返回 None，已解析的好行连同 provider 一起被弃
+    （同 R107-R111 缺陷类）。坏行应被跳过，好行照常返回。"""
+    valid_iex = {"date": "2026-09-23", "label": "Sep 23, 26",
+                 "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 100}
+    valid_daily = {"date": "2026-09-23T00:00:00.000Z",
+                   "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 100}
+    valid_twelve = {"datetime": "2026-09-23",
+                    "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 100}
+    valid_massive = {"t": 1789689600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 100}
+
+    cases = [
+        # (api_key 名, 函数, 响应 payload, 期望 time)
+        ("IEX_CLOUD_API_KEY", php._fetch_with_iex_cloud,
+         [valid_iex, "junk", None], "2026-09-23"),
+        ("TIINGO_API_KEY", php._fetch_with_tiingo,
+         [valid_daily, {"date": None}, None], "2026-09-23"),
+        ("TWELVE_DATA_API_KEY", php._fetch_with_twelve_data,
+         {"status": "ok", "values": [valid_twelve, "junk", {"datetime": None}]},
+         "2026-09-23"),
+        ("MARKETSTACK_API_KEY", php._fetch_with_marketstack,
+         {"data": [valid_daily, 42, None]}, "2026-09-23"),
+        ("MASSIVE_API_KEY", php._fetch_with_massive_io,
+         {"status": "OK", "results": [valid_massive, "junk", {"t": None}, {}]},
+         "2026-09-18"),
+    ]
+
+    for key_name, fn, payload, expected_time in cases:
+        monkeypatch.setattr(php, key_name, "test-key")
+        response = SimpleNamespace(status_code=200, json=lambda p=payload: p)
+        monkeypatch.setattr(php, "_http_get", lambda *a, **k: response)
+
+        result = fn("AAPL")
+
+        assert result is not None, f"{fn.__name__} 被毒记录毁批"
+        rows = result["kline_data"]
+        assert len(rows) == 1, f"{fn.__name__} 毒行未被跳过: {rows}"
+        assert rows[0]["time"] == expected_time
+        assert rows[0]["close"] == 1.5
