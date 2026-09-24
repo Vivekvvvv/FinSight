@@ -67,7 +67,12 @@ def _embed_text(text_value: str, embedder: EmbeddingService) -> tuple[list[float
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
-    if not a or not b:
+    # 维度不匹配时 zip 会静默截断长向量——索引期存储向量（旧模型）与查询期
+    # 向量（现模型）维度不同会算出部分点积、分数仍为正、重排被污染。归 0.0，
+    # 与 notes_rag._cosine 的 len(a)!=len(b) 守卫一致。
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    if any(isinstance(value, bool) for value in a) or any(isinstance(value, bool) for value in b):
         return 0.0
     try:
         score = sum(float(x) * float(y) for x, y in zip(a, b))
@@ -79,6 +84,10 @@ def _cosine(a: list[float], b: list[float]) -> float:
 def _sparse_score(query_sparse: SparseVector, doc_sparse: SparseVector) -> float:
     """Weighted sparse matching using lexical weights."""
     if not query_sparse.weights or not doc_sparse.weights:
+        return 0.0
+    if any(isinstance(value, bool) for value in query_sparse.weights.values()) or any(
+        isinstance(value, bool) for value in doc_sparse.weights.values()
+    ):
         return 0.0
     try:
         score = sum(
@@ -96,6 +105,8 @@ def _sparse_score(query_sparse: SparseVector, doc_sparse: SparseVector) -> float
 
 
 def _vector_literal(vec: list[float]) -> str:
+    if any(isinstance(value, bool) for value in vec):
+        raise ValueError("embedding vector contains non-finite values")
     values = [float(value) for value in vec]
     if not all(math.isfinite(value) for value in values):
         raise ValueError("embedding vector contains non-finite values")
@@ -103,6 +114,8 @@ def _vector_literal(vec: list[float]) -> str:
 
 
 def _finite_score(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
     try:
         parsed = float(value or 0.0)
     except (TypeError, ValueError, OverflowError):
