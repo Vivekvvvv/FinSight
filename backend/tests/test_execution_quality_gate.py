@@ -511,3 +511,51 @@ def test_resume_graph_pipeline_aclose_does_not_leak_cancelled_error():
         await agen.aclose()
 
     _run(_consume_then_close())  # buggy: asyncio.CancelledError 泄漏
+
+
+def test_resume_graph_pipeline_times_out_hung_resume(monkeypatch):
+    """run 路径对图执行有 asyncio.wait_for 超时（execution_service:201），
+    resume 路径裸 async-for 消费 runner.resume 完全没有超时——resume 重进
+    同一套图机器，挂死的子图/LLM/工具循环让 SSE 流永不结束，客户端等到
+    断开为止。"""
+    execution_service = importlib.import_module("backend.services.execution_service")
+
+    class _HungRunner:
+        async def resume(self, *, thread_id, resume_value):
+            # 永不产出首个事件的挂死流
+            await asyncio.sleep(3600)
+            yield {"event": "on_chain_end", "data": {"output": {}}}
+
+    async def _fake_get_graph_runner():
+        return _HungRunner()
+
+    monkeypatch.setattr(
+        execution_service, "_execution_timeout_seconds", lambda *a, **k: 0.05
+    )
+
+    deps = execution_service.ExecutionDeps(
+        get_graph_runner=_fake_get_graph_runner,
+        schedule_report_index=lambda **kwargs: None,
+        update_session_context=lambda **kwargs: None,
+        record_chat_turn=None,
+        redact_sensitive_payload=lambda payload: payload,
+        is_raw_trace_event=lambda payload: False,
+        contract_info=lambda: {},
+        sse_event_schema_version="chat.sse.v1",
+    )
+
+    async def _collect():
+        return [
+            item
+            async for item in execution_service.resume_graph_pipeline(
+                deps=deps, thread_id="tenant:user:thread", resume_value="confirm"
+            )
+        ]
+
+    # 外层 wait_for 兜底防测试自身悬挂：修复前 _collect 永不完成 → TimeoutError
+    events = _run(asyncio.wait_for(_collect(), timeout=10))
+    error_events = [
+        e for e in events if isinstance(e, dict) and e.get("type") == "error"
+    ]
+    assert error_events, "hung resume should emit a timeout error event"
+    assert "timed out" in error_events[0].get("message", "")

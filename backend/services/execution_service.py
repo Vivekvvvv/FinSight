@@ -541,24 +541,46 @@ async def resume_graph_pipeline(
 
             # Collect final state from the stream events
             final_state: dict[str, Any] = {}
-            async for event in runner.resume(
-                thread_id=thread_id,
-                resume_value=resume_value,
-            ):
-                event_name = event.get("event", "")
-                # Forward interrupt events to the client
-                if "interrupt" in event_name:
-                    await _queue_event(
-                        {
-                            "schema_version": deps.sse_event_schema_version,
-                            "type": "interrupt",
-                            "thread_id": thread_id,
-                            "data": event.get("data", {}),
-                        }
-                    )
-                # Capture final state from on_chain_end
-                if event_name == "on_chain_end" and event.get("data", {}).get("output"):
-                    final_state = event["data"]["output"]
+
+            async def _drain_resume() -> None:
+                nonlocal final_state
+                async for event in runner.resume(
+                    thread_id=thread_id,
+                    resume_value=resume_value,
+                ):
+                    event_name = event.get("event", "")
+                    # Forward interrupt events to the client
+                    if "interrupt" in event_name:
+                        await _queue_event(
+                            {
+                                "schema_version": deps.sse_event_schema_version,
+                                "type": "interrupt",
+                                "thread_id": thread_id,
+                                "data": event.get("data", {}),
+                            }
+                        )
+                    # Capture final state from on_chain_end
+                    if event_name == "on_chain_end" and event.get("data", {}).get("output"):
+                        final_state = event["data"]["output"]
+
+            # resume 重进同一套图机器，挂死风险与首次执行相同（run 路径有
+            # asyncio.wait_for）：裸 async-for 无超时，卡死的子图/LLM/工具循环
+            # 让 SSE 流永不结束。output_mode 存于检查点状态、消费前不可得，
+            # 用默认档（500s）兜底；超时的 wait_for 取消 _drain_resume，取消
+            # 沿 async-for 传入 astream_events 终止图执行——同 run 路径语义。
+            timeout_seconds = _execution_timeout_seconds()
+            try:
+                await asyncio.wait_for(_drain_resume(), timeout=timeout_seconds)
+            except asyncio.TimeoutError:
+                logger.error("[resume_pipeline] resume timeout")
+                await _queue_event(
+                    {
+                        "schema_version": deps.sse_event_schema_version,
+                        "type": "error",
+                        "message": f"Execution timed out after {int(timeout_seconds)}s; please retry.",
+                    }
+                )
+                return
 
             # Build report from final state
             markdown = ((final_state.get("artifacts") or {}).get("draft_markdown")) or ""
