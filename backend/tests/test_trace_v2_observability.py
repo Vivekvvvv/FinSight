@@ -105,6 +105,27 @@ def test_trace_execute_plan_includes_duration_status_and_parallel_group():
     assert steps[0].get("parallel_group") == "g1"
 
 
+def test_trace_execute_plan_done_count_excludes_error_outputs():
+    """R104 回归：output 带 error 键的步骤不得计入 done。
+
+    status_reason 存的是错误内容 str(output["error"])，与字面 "error"
+    比较恒为 False——失败步此前被计成 done，summary 虚报成功数。"""
+    updates = {
+        "artifacts": {
+            "step_results": {
+                "s1": {"output": {"ok": 1}},
+                "s2": {"output": {"error": "timeout"}},
+                "s3": {"output": {"skipped": True, "reason": "dry_run"}},
+            }
+        }
+    }
+
+    data = _span_data("execute_plan", {}, updates)
+
+    # s2 是软错误（status_reason="timeout"），正确统计应为 done=1
+    assert data["summary"] == "steps=3 done=1 skipped=1"
+
+
 def test_trace_synthesize_includes_v2_fields():
     state = {}
     updates = {

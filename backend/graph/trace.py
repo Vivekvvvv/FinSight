@@ -296,7 +296,10 @@ def _span_data(node_name: str, state: GraphState, updates: dict[str, Any]) -> di
                                 else _safe_preview(output, limit=240),
                             }
                         )
-                    done_count = sum(1 for row in compact if not row.get("skipped") and not row.get("status_reason") == "error")
+                    # status_reason 存的是 "done"/跳过原因/错误内容——只有恰为
+                    # "done" 才算完成；此前与字面 "error" 比较恒为 False，
+                    # 软错误输出（{"error": "..."}）被误计入 done。
+                    done_count = sum(1 for row in compact if not row.get("skipped") and row.get("status_reason") == "done")
                     skip_count = sum(1 for row in compact if row.get("skipped"))
                     return {
                         "decision_type": "execute_plan",
