@@ -19,6 +19,7 @@ CHECKPOINTER_SCHEMA_VERSION = "checkpointer.v1"
 _async_bundle: Optional["CheckpointerBundle"] = None
 _async_lock: Optional[asyncio.Lock] = None
 _async_bundle_loop_id: Optional[int] = None
+_async_lock_loop_id: Optional[int] = None
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -245,12 +246,16 @@ async def aget_checkpointer_bundle() -> CheckpointerBundle:
     """
     Async accessor for LangGraph runtime (ainvoke/astream).
     """
-    global _async_bundle, _async_lock, _async_bundle_loop_id
+    global _async_bundle, _async_lock, _async_bundle_loop_id, _async_lock_loop_id
     loop_id = id(asyncio.get_running_loop())
     if _async_bundle is not None and _async_bundle_loop_id == loop_id:
         return _async_bundle
-    if _async_lock is None:
+    # asyncio.Lock 在首次"等待"时绑定当时的 loop；换 loop 后竞争者走
+    # 等待路径会抛 RuntimeError(bound to a different event loop)。
+    # bundle 支持跨 loop 重建，锁也必须随 loop 一起换。
+    if _async_lock is None or _async_lock_loop_id != loop_id:
         _async_lock = asyncio.Lock()
+        _async_lock_loop_id = loop_id
     async with _async_lock:
         loop_id = id(asyncio.get_running_loop())
         if _async_bundle is not None and _async_bundle_loop_id == loop_id:
@@ -324,7 +329,7 @@ def reset_checkpointer_caches() -> None:
     """
     Test helper.
     """
-    global _async_bundle, _async_lock, _async_bundle_loop_id
+    global _async_bundle, _async_lock, _async_bundle_loop_id, _async_lock_loop_id
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -340,6 +345,7 @@ def reset_checkpointer_caches() -> None:
     _async_bundle = None
     _async_lock = None
     _async_bundle_loop_id = None
+    _async_lock_loop_id = None
     try:
         bundle = get_checkpointer_bundle()
         bundle.close()
@@ -349,7 +355,7 @@ def reset_checkpointer_caches() -> None:
 
 
 async def areset_checkpointer_caches() -> None:
-    global _async_bundle, _async_lock, _async_bundle_loop_id
+    global _async_bundle, _async_lock, _async_bundle_loop_id, _async_lock_loop_id
     if _async_bundle is not None:
         try:
             await _async_bundle.aclose()
@@ -358,6 +364,7 @@ async def areset_checkpointer_caches() -> None:
     _async_bundle = None
     _async_lock = None
     _async_bundle_loop_id = None
+    _async_lock_loop_id = None
     try:
         bundle = get_checkpointer_bundle()
         bundle.close()

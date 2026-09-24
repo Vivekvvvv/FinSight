@@ -68,6 +68,60 @@ def test_r98_aget_graph_runner_survives_loop_change(monkeypatch):
         loop_b.close()
 
 
+def test_r105_aget_checkpointer_bundle_survives_loop_change(monkeypatch):
+    """aget_checkpointer_bundle 用 _async_bundle_loop_id 支持"换 loop 重建
+    bundle"（注释明说是为 tests/reloads 的多 loop 路径设计），但互斥用的
+    _async_lock 只在首次创建——asyncio.Lock 首次"等待"时绑定当时 loop，
+    换 loop 后竞争者走等待路径抛 RuntimeError(bound to a different
+    event loop)。锁必须与 bundle 一样随 loop 更换，复现手法同 R98。"""
+    import importlib
+
+    cp_module = importlib.import_module("backend.graph.checkpointer")
+    monkeypatch.setenv("LANGGRAPH_CHECKPOINTER_BACKEND", "memory")
+
+    async def _bind_lock_to_loop_a():
+        first = await cp_module.aget_checkpointer_bundle()
+        lock = cp_module._async_lock
+        await lock.acquire()
+        # 制造一次锁等待：等待路径调用 _get_loop，把锁绑到本 loop
+        waiter = asyncio.create_task(lock.acquire())
+        await asyncio.sleep(0.05)
+        lock.release()
+        await waiter  # waiter 拿到锁
+        lock.release()
+        return first
+
+    async def _rebuild_on_loop_b():
+        old_lock = cp_module._async_lock
+        await old_lock.acquire()  # 空锁走快速路径，不查 _loop
+        try:
+            # 竞争 → 等待路径 → _get_loop 发现锁绑在旧 loop → buggy 抛 RuntimeError
+            task = asyncio.create_task(cp_module.aget_checkpointer_bundle())
+            await asyncio.sleep(0.05)
+        finally:
+            old_lock.release()
+        return await task  # buggy: RuntimeError 传播
+
+    # 保持 loop 引用（id() 复用会让"换 loop"判定失真）
+    loop_a = asyncio.new_event_loop()
+    loop_b = asyncio.new_event_loop()
+    try:
+        first = loop_a.run_until_complete(_bind_lock_to_loop_a())
+        assert first is not None
+        lock_a = cp_module._async_lock
+
+        second = loop_b.run_until_complete(_rebuild_on_loop_b())
+        assert second is not None
+        assert second is not first  # 换了 loop → 重建 bundle
+        assert cp_module._async_lock is not lock_a
+    finally:
+        cp_module._async_bundle = None
+        cp_module._async_lock = None
+        cp_module._async_bundle_loop_id = None
+        loop_a.close()
+        loop_b.close()
+
+
 def test_langgraph_runner_import_and_invoke():
     from backend.graph import GraphRunner
 
