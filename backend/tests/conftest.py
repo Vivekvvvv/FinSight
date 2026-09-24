@@ -10,6 +10,15 @@ import pytest
 os.environ.setdefault("LANGGRAPH_CHECKPOINTER_BACKEND", "memory")
 os.environ.setdefault("LANGGRAPH_CHECKPOINTER_ALLOW_MEMORY_FALLBACK", "true")
 os.environ.setdefault("DEV_MODE", "1")
+# MemoryService 默认相对路径 data/memory 随进程 CWD 解析——pytest 从
+# backend/ 运行时应用读写 backend/data/memory，而下方重置 fixture 固定写
+# repo_root/data/memory（parents[2]），两侧根本不是同一目录：fixture 重置
+# 从未触及应用真实文件，test_api_user* 残留上一轮写入让首轮之后每轮必挂。
+# 统一指到 repo_root/data/memory（= 生产从 repo 根运行的解析结果）。
+os.environ.setdefault(
+    "MEMORY_STORAGE_PATH",
+    str(Path(__file__).resolve().parents[2] / "data" / "memory"),
+)
 
 
 @pytest.fixture(autouse=True)
