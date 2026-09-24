@@ -211,3 +211,35 @@ def test_resolve_peers_uses_market_specific_defaults(monkeypatch):
     assert cn_peers and all(p.endswith((".SS", ".SZ", ".BJ")) for p in cn_peers)
     assert hk_peers and all(p.endswith(".HK") for p in hk_peers)
     assert us_peers and all("." not in p for p in us_peers)
+
+
+def test_peer_comparison_shutdown_does_not_wait_for_timed_out_fetches(monkeypatch):
+    """R106 回归：as_completed(timeout=8) 只让迭代方抛 FuturesTimeout，
+    慢 peer 线程仍在跑；`with ThreadPoolExecutor` 退出时 __exit__ 调
+    shutdown(wait=True)，fetch_peer_comparison 会一直阻塞到慢源真正
+    返回——注释明写的 8s 全局预算形同虚设（同 R99 fetch_news 缺陷）。
+    退出必须 wait=False 并取消排队任务。"""
+    import concurrent.futures as cf
+
+    shutdown_calls = []
+
+    class _SpyPool(cf.ThreadPoolExecutor):
+        def shutdown(self, wait=True, *, cancel_futures=False):
+            shutdown_calls.append({"wait": wait, "cancel_futures": cancel_futures})
+            return super().shutdown(wait=wait, cancel_futures=cancel_futures)
+
+    monkeypatch.setattr(peer_service, "ThreadPoolExecutor", _SpyPool)
+    monkeypatch.setattr(
+        peer_service,
+        "_fetch_single_peer_metrics",
+        lambda sym: {"symbol": sym, "name": sym, "trailing_pe": 10.0},
+    )
+
+    payload = peer_service.fetch_peer_comparison("GOOGL", peers=["AAPL"])
+
+    assert payload is not None
+    assert shutdown_calls, "pool 必须被显式关闭"
+    assert all(
+        call["wait"] is False and call["cancel_futures"] is True
+        for call in shutdown_calls
+    ), f"shutdown 仍阻塞等待慢源: {shutdown_calls}"

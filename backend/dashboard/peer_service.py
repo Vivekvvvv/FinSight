@@ -300,7 +300,10 @@ def fetch_peer_comparison(
         results_by_symbol: dict[str, dict[str, Any]] = {
             s: {"symbol": s, "name": s} for s in all_symbols
         }
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        # 不能用 `with`：`__exit__` 走 shutdown(wait=True)，超时未完成的
+        # 慢 peer 线程会让本函数继续阻塞到其返回，8s 全局预算被架空。
+        pool = ThreadPoolExecutor(max_workers=3)
+        try:
             futures = {pool.submit(_fetch_single_peer_metrics, s): s for s in all_symbols}
             try:
                 for future in as_completed(futures, timeout=8):
@@ -313,6 +316,8 @@ def fetch_peer_comparison(
                         logger.info("[PeerService] peer fetch failed")
             except FuturesTimeout:
                 logger.info("[PeerService] global timeout while fetching peers")
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         results: list[dict[str, Any]] = [results_by_symbol[s] for s in all_symbols]
 
