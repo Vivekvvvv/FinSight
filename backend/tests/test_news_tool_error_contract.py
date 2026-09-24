@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import types
+from datetime import UTC, datetime
 
 from backend.tools import news
 
@@ -197,3 +198,37 @@ def test_get_company_news_skips_non_dict_feed_items(monkeypatch):
     items = news.get_company_news("AAPL")
     assert not search_called, "Finnhub 分支毒记录不得毁批"
     assert any("Delta raises" in str(it.get("title")) for it in items)
+
+
+def test_fetch_finnhub_market_news_skips_poison_items(monkeypatch):
+    """R110 回归：finnhub general_news 混入非 dict 条目不得让异常逃逸函数。
+
+    该解析循环在 try 之外——item.get 对字符串/None 条目抛 AttributeError
+    会直接传播给 get_market_news_headlines（无外层 try 包裹），整个
+    市场要闻工具崩溃而非走下一兜底（同 R107 缺陷类，但此处异常逃逸）。
+    且 items 为非 list 真值时 for 循环同样崩。"""
+    from backend.tools import news_search_tools
+
+    monkeypatch.setattr(
+        news_search_tools,
+        "finnhub_client",
+        types.SimpleNamespace(
+            general_news=lambda _category: [
+                {
+                    "headline": "Markets rally on data",
+                    "summary": "stocks climb broadly",
+                    "source": "Finnhub",
+                    "datetime": int(datetime.now(UTC).timestamp()),
+                    "url": "https://example.com/m",
+                },
+                "junk-entry",
+                None,
+                42,
+            ]
+        ),
+    )
+
+    lines, ok = news_search_tools._fetch_finnhub_market_news(limit=5, max_age_hours=48)
+
+    assert ok, "含毒条目的 feed 不应整体失败"
+    assert any("Markets rally" in line for line in lines)

@@ -174,8 +174,15 @@ def _fetch_finnhub_market_news(limit: int = 5, max_age_hours: int = 48) -> tuple
         logger.debug("Finnhub market news fetch failed: %s", type(exc).__name__)
         return [], False
 
+    # 解析循环在 try 之外：非 dict 条目（或非 list 的 items）会让
+    # AttributeError/TypeError 逃逸到 get_market_news_headlines——无外层
+    # try 时整个市场要闻工具崩，而非走下一兜底。按条跳过（同 R107）。
+    if not isinstance(items, (list, tuple)):
+        items = []
     lines = []
-    for item in items or []:
+    for item in items:
+        if not isinstance(item, dict):
+            continue
         ts = item.get("datetime")
         if not ts:
             continue
