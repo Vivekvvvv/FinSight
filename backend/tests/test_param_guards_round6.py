@@ -103,9 +103,11 @@ def test_e1_optimize_filters_non_finite_historical_closes(monkeypatch):
     from backend.services import portfolio_optimizer
 
     captured: dict = {}
+    # 21 个有效收盘价：optimizer 契约是 >=20 个日收益率 = >=21 个收盘价
+    # （路由门槛已对齐为 <21 才判失败），20 个会被合法拒绝。
     rows = [
         {"close": value}
-        for value in ([100 + index for index in range(20)] + ["nan", "inf", 0])
+        for value in ([100 + index for index in range(21)] + ["nan", "inf", 0])
     ]
     monkeypatch.setattr(
         tools,

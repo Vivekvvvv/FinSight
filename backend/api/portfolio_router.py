@@ -69,15 +69,31 @@ async def _resolve_quote_for_stored_position(position: dict[str, Any]) -> tuple[
     return await _resolve_quote_for_portfolio(ticker)
 
 
+# allow_inf_nan=False 只挡输入本身是 inf/nan，挡不住 shares*avg_cost 溢出：
+# 1e300*1e300=inf 会被原样写进持仓，之后 /api/portfolio/summary 与 /api/today 在
+# 响应序列化阶段抛 ValueError("Out of range float values are not JSON compliant")。
+# 该异常发生在路由 try 之外，只能回裸 500，且持仓已落盘 —— 每次读都 500，用户
+# 只能靠 DELETE 该 ticker 自救。上限取 1e12：远超任何真实持股数/单价，同时保证
+# 200 条持仓的乘积与求和都留在 float 安全区。
+_MAX_POSITION_MAGNITUDE = 1e12
+
+
 class PortfolioPositionPayload(BaseModel):
     """Single portfolio position payload used by update and CSV/bulk sync."""
 
     ticker: str = Field(..., min_length=1, max_length=20)
-    shares: float = Field(..., ge=0, allow_inf_nan=False)
-    avg_cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    shares: float = Field(..., ge=0, le=_MAX_POSITION_MAGNITUDE, allow_inf_nan=False)
+    avg_cost: float | None = Field(default=None, ge=0, le=_MAX_POSITION_MAGNITUDE, allow_inf_nan=False)
     name: str | None = Field(default=None, max_length=128)
     tags: list[PortfolioTag] | None = Field(default=None, max_length=20)
     note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("shares", "avg_cost", mode="before")
+    @classmethod
+    def reject_boolean_numeric_values(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("portfolio numeric values must not be boolean")
+        return value
 
     @field_validator("ticker")
     @classmethod
@@ -102,11 +118,18 @@ class BulkImportRequest(BaseModel):
 class UpdatePositionRequest(BaseModel):
     """Upsert a single position."""
 
-    shares: float = Field(..., ge=0, allow_inf_nan=False)
-    avg_cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    shares: float = Field(..., ge=0, le=_MAX_POSITION_MAGNITUDE, allow_inf_nan=False)
+    avg_cost: float | None = Field(default=None, ge=0, le=_MAX_POSITION_MAGNITUDE, allow_inf_nan=False)
     name: str | None = Field(default=None, max_length=128)
     tags: list[PortfolioTag] | None = Field(default=None, max_length=20)
     note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("shares", "avg_cost", mode="before")
+    @classmethod
+    def reject_boolean_numeric_values(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("portfolio numeric values must not be boolean")
+        return value
 
 
 @portfolio_router.get("/api/portfolio/summary")
@@ -333,6 +356,13 @@ class PortfolioOptimizeRequest(BaseModel):
     # 上限防蒙特卡洛 DoS（审计 E1）：模拟次数与 CPU/内存线性相关
     n_simulations: int = Field(2000, ge=100, le=20000)
 
+    @field_validator("risk_free_rate", mode="before")
+    @classmethod
+    def reject_boolean_risk_free_rate(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("risk_free_rate must not be boolean")
+        return value
+
     @field_validator("tickers")
     @classmethod
     def normalize_unique_tickers(cls, value: list[str]) -> list[str]:
@@ -378,7 +408,11 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
                 close = safe_float(point.get("close")) if isinstance(point, dict) else None
                 if close is not None and close > 0:
                     closes.append(close)
-            if len(closes) < 20:
+            # optimizer 要求 >=20 个日收益率（shape[1]>=20）＝>=21 个收盘价；
+            # 门槛写 <20 会放过恰好 20 收盘价的短历史 ticker（新 IPO），
+            # min_len 对齐后 optimizer 抛 ValueError → 整个请求 500，
+            # 数据充足的其他 ticker 也拿不到结果。
+            if len(closes) < 21:
                 failed.append(t)
                 continue
             daily_returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
