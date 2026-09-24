@@ -205,8 +205,16 @@ def resolve_peers(symbol: str, limit: int = 6) -> list[str]:
             )
             if isinstance(data, list):
                 for item in data:
-                    sym = item.get("symbol", "")
-                    if sym and sym.upper() != symbol.upper():
+                    # 毒条目按条跳过——非 dict 的 .get AttributeError、symbol
+                    # 非 str 的 .upper() 落进外层 except 让其后合法 peer 全丢
+                    # （毒条目在首位时整份动态结果丢光走静态兜底，同 R107）
+                    if not isinstance(item, dict):
+                        continue
+                    sym = item.get("symbol")
+                    if not isinstance(sym, str) or not sym.strip():
+                        continue
+                    sym = sym.strip()
+                    if sym.upper() != symbol.upper():
                         peers.append(sym)
                     if len(peers) >= limit:
                         break

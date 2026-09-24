@@ -243,3 +243,38 @@ def test_peer_comparison_shutdown_does_not_wait_for_timed_out_fetches(monkeypatc
         call["wait"] is False and call["cancel_futures"] is True
         for call in shutdown_calls
     ), f"shutdown 仍阻塞等待慢源: {shutdown_calls}"
+
+
+def test_resolve_peers_fmp_screener_skips_poison_items(monkeypatch):
+    """R118：FMP stock-screener 返回列表混入毒条目——非 dict 条目的
+    item.get AttributeError、symbol 非 str 的 .upper() AttributeError 会落进
+    外层 except，让其后的合法 peer 全部丢失（毒条目在首位时整份动态结果
+    丢光、静默退回静态兜底）。按条跳过、非 str symbol 丢弃。"""
+    class IndustryTicker:
+        def __init__(self, symbol):
+            self.info = {"industry": "Software—Infrastructure", "sector": "Technology"}
+
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=IndustryTicker))
+
+    import backend.tools.fmp as fmp_module
+
+    monkeypatch.setattr(
+        fmp_module,
+        "_fmp_request",
+        lambda *args, **kwargs: [
+            {"symbol": "MSFT"},
+            "poison-entry",
+            None,
+            {"symbol": None},
+            {"symbol": 12345},
+            {"symbol": "ORCL"},
+            {"symbol": "GOOGL"},  # 自身应被排除
+        ],
+    )
+
+    peers = peer_service.resolve_peers("GOOGL", limit=6)
+
+    assert "MSFT" in peers
+    assert "ORCL" in peers
+    assert "GOOGL" not in peers
+    assert all(isinstance(p, str) for p in peers)
