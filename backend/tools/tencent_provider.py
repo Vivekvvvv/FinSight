@@ -450,32 +450,38 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
             rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
             if rows:
                 record = rows[0]
-                trade_date = record.get("TRADE_DATE")
-                if not _is_recent_eastmoney_date(trade_date, max_age_days=max_age_days):
-                    logger.info("[Eastmoney] top list record is stale")
-                    return None
-                result = {
-                    "symbol": symbol.upper(),
-                    "stock_code": stock_code,
-                    "stock_name": record.get("SECURITY_NAME_ABBR", ""),
-                    "date": trade_date or datetime.now(timezone.utc).date().isoformat(),
-                    "reason": record.get("EXPLANATION") or record.get("EXPLAIN") or "龙虎榜",
-                    "close_price": safe_float(record.get("CLOSE_PRICE")),
-                    "change_percent": safe_float(record.get("CHANGE_RATE")),
-                    "buy_amount": safe_float(record.get("BILLBOARD_BUY_AMT") or record.get("SUM_BUY_AMT")) or 0.0,
-                    "sell_amount": safe_float(record.get("BILLBOARD_SELL_AMT") or record.get("SUM_SELL_AMT")) or 0.0,
-                    "net_buy": safe_float(record.get("BILLBOARD_NET_AMT") or record.get("NET_BS_AMT")) or 0.0,
-                    "turnover_rate": safe_float(record.get("TURNOVERRATE")),
-                    "buy_seats": [],
-                    "sell_seats": [],
-                    "source": "eastmoney_datacenter",
-                }
-                if include_seats:
-                    seats = _fetch_top_list_seats(stock_code, record.get("TRADE_DATE"))
-                    if seats:
-                        result["buy_seats"] = seats.get("buy_seats", [])
-                        result["sell_seats"] = seats.get("sell_seats", [])
-                return result
+                # 非 dict 毒记录跳过新版解析落旧版兜底（此前靠 AttributeError
+                # 碰巧落过去）。TRADE_DATE 缺失/畸形时 _is_recent_eastmoney_date
+                # 返回 False，但不可解析≠过期——直接 return None 会跳过旧版
+                # 兜底；且无法验证新旧就采用该记录会让过期短路形同虚设。
+                # 仅日期可解析时才进入新版判定：超龄→return None，近期→采用（同 R107 缺陷类）
+                if isinstance(record, dict) and _parse_eastmoney_date(record.get("TRADE_DATE")) is not None:
+                    trade_date = record.get("TRADE_DATE")
+                    if not _is_recent_eastmoney_date(trade_date, max_age_days=max_age_days):
+                        logger.info("[Eastmoney] top list record is stale")
+                        return None
+                    result = {
+                        "symbol": symbol.upper(),
+                        "stock_code": stock_code,
+                        "stock_name": record.get("SECURITY_NAME_ABBR", ""),
+                        "date": trade_date or datetime.now(timezone.utc).date().isoformat(),
+                        "reason": record.get("EXPLANATION") or record.get("EXPLAIN") or "龙虎榜",
+                        "close_price": safe_float(record.get("CLOSE_PRICE")),
+                        "change_percent": safe_float(record.get("CHANGE_RATE")),
+                        "buy_amount": safe_float(record.get("BILLBOARD_BUY_AMT") or record.get("SUM_BUY_AMT")) or 0.0,
+                        "sell_amount": safe_float(record.get("BILLBOARD_SELL_AMT") or record.get("SUM_SELL_AMT")) or 0.0,
+                        "net_buy": safe_float(record.get("BILLBOARD_NET_AMT") or record.get("NET_BS_AMT")) or 0.0,
+                        "turnover_rate": safe_float(record.get("TURNOVERRATE")),
+                        "buy_seats": [],
+                        "sell_seats": [],
+                        "source": "eastmoney_datacenter",
+                    }
+                    if include_seats:
+                        seats = _fetch_top_list_seats(stock_code, record.get("TRADE_DATE"))
+                        if seats:
+                            result["buy_seats"] = seats.get("buy_seats", [])
+                            result["sell_seats"] = seats.get("sell_seats", [])
+                    return result
     except Exception as exc:
         logger.info("[Eastmoney] new top list lookup failed: %s", type(exc).__name__)
 
@@ -503,13 +509,16 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
         import json
         data_list = json_loads_strict(match.group(1))
 
-        if not data_list:
+        if not isinstance(data_list, list) or not data_list:
             logger.info("[东方财富] 龙虎榜无数据")
             return None
 
-        # 查找匹配的股票记录
+        # 查找匹配的股票记录；非 dict 毒条目按条跳过——item.get 的
+        # AttributeError 会落进外层 except 让整个旧版查询返回 None（同 R107）
         record = None
         for item in data_list:
+            if not isinstance(item, dict):
+                continue
             if item.get("SCode") == stock_code:
                 record = item
                 break
@@ -600,7 +609,11 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
 
         if buy_match:
             buy_data = json_loads_strict(buy_match.group(1))
+            if not isinstance(buy_data, list):
+                buy_data = []  # 非 list 时 [:5] TypeError 会吞掉全部席位
             for idx, seat in enumerate(buy_data[:5], 1):  # 前5席位
+                if not isinstance(seat, dict):
+                    continue  # 毒席位按条跳过（同 R107）
                 buy_amt = _wan_to_yuan(seat.get("Bmoney", 0))  # 万元转元
                 sell_amt = _wan_to_yuan(seat.get("Smoney", 0))
                 seat_name = seat.get("SName", "未知席位")
@@ -619,7 +632,11 @@ def _fetch_top_list_seats(stock_code: str, trade_date: str | None = None) -> dic
 
         if sell_match:
             sell_data = json_loads_strict(sell_match.group(1))
+            if not isinstance(sell_data, list):
+                sell_data = []
             for idx, seat in enumerate(sell_data[:5], 1):
+                if not isinstance(seat, dict):
+                    continue  # 毒席位按条跳过（同 R107）
                 buy_amt = _wan_to_yuan(seat.get("Bmoney", 0))
                 sell_amt = _wan_to_yuan(seat.get("Smoney", 0))
                 seat_name = seat.get("SName", "未知席位")
