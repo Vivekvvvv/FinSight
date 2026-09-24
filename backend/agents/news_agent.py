@@ -141,6 +141,7 @@ class NewsAgent(BaseFinancialAgent):
                 score = payload.get("reliability_score")
                 if (
                     isinstance(score, (int, float))
+                    and not isinstance(score, bool)
                     and math.isfinite(float(score))
                     and 0.0 <= float(score) <= 1.0
                 ):
@@ -158,7 +159,12 @@ class NewsAgent(BaseFinancialAgent):
             cloned = dict(item)
             cloned["source_reliability"] = rel
             score = rel.get("reliability_score")
-            if isinstance(score, (int, float)) and math.isfinite(float(score)) and "confidence" not in cloned:
+            if (
+                isinstance(score, (int, float))
+                and not isinstance(score, bool)
+                and math.isfinite(float(score))
+                and "confidence" not in cloned
+            ):
                 cloned["confidence"] = max(0.1, min(0.95, float(score)))
             annotated.append(cloned)
         return annotated
@@ -174,7 +180,7 @@ class NewsAgent(BaseFinancialAgent):
             if not isinstance(rel, dict):
                 continue
             score = rel.get("reliability_score")
-            if not isinstance(score, (int, float)):
+            if not isinstance(score, (int, float)) or isinstance(score, bool):
                 continue
             s = float(score)
             if not math.isfinite(s) or not 0.0 <= s <= 1.0:
@@ -452,7 +458,7 @@ class NewsAgent(BaseFinancialAgent):
                     source_reliability = item.get("source_reliability") if isinstance(item.get("source_reliability"), dict) else {}
                     rel_score = source_reliability.get("reliability_score")
                     confidence = item.get("confidence", 0.7)
-                    if isinstance(rel_score, (int, float)) and math.isfinite(float(rel_score)):
+                    if isinstance(rel_score, (int, float)) and not isinstance(rel_score, bool) and math.isfinite(float(rel_score)):
                         confidence = max(0.1, min(0.95, float(rel_score)))
                     evidence.append(EvidenceItem(
                         text=item.get("headline", item.get("title", "")),
@@ -489,6 +495,7 @@ class NewsAgent(BaseFinancialAgent):
         low_count = reliability_summary.get("low_reliability_count")
         if (
             isinstance(avg_reliability, (int, float))
+            and not isinstance(avg_reliability, bool)
             and math.isfinite(float(avg_reliability))
             and float(avg_reliability) < 0.65
         ):
@@ -516,7 +523,7 @@ class NewsAgent(BaseFinancialAgent):
                 sources.add("event_calendar")
 
         output_confidence = 0.8 if evidence else 0.1
-        if isinstance(avg_reliability, (int, float)) and math.isfinite(float(avg_reliability)):
+        if isinstance(avg_reliability, (int, float)) and not isinstance(avg_reliability, bool) and math.isfinite(float(avg_reliability)):
             output_confidence = max(0.1, min(0.9, float(avg_reliability)))
 
         return AgentOutput(
@@ -769,4 +776,13 @@ class NewsAgent(BaseFinancialAgent):
                     logger.info("[NewsAgent] invoke summary fallback failed")
         
         # 简单方法：直接拼接标题
-        yield f"近期新闻包括：{'; '.join([item.get('headline', item.get('title', '')) for item in data[:3]])}"
+        # str(... or ...)：流式路径按 URL 去重不过滤空标题，{"headline": null}
+        # 的条目会到达这里——item.get("headline", ...) 在 key 存在但值为 None
+        # 时返回 None，join 抛 TypeError 让 SSE 流在 summary_start 后裸断；
+        # 回退 title 并跳过空标题（同 R107 缺陷类，与本函数 L709 的 if 守卫一致）。
+        fallback_titles = [
+            str(item.get("headline") or item.get("title") or "")
+            for item in data[:3]
+            if isinstance(item, dict)
+        ]
+        yield f"近期新闻包括：{'; '.join(title for title in fallback_titles if title)}"

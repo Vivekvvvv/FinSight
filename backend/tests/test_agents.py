@@ -223,6 +223,26 @@ def test_deep_search_dedupe_results_skips_null_url(mock_llm, mock_cache, mock_to
     ]
 
 
+@pytest.mark.asyncio
+async def test_news_agent_stream_summary_tolerates_null_headline(mock_cache, mock_tools, circuit_breaker):
+    """analyze_stream 按 URL 去重会放过 {"headline": null} 条目——兜底 join
+    处 None 混入 → TypeError，在 LLM 全挂/未配置时直接崩掉 SSE 流
+    （summary_start 事件已发出，流无 error 事件裸断）。
+    同 R107 present-None 缺陷类：应回退 title 并跳过空标题。"""
+    agent = NewsAgent(None, mock_cache, mock_tools, circuit_breaker)
+    data = [
+        {"headline": None, "title": "Fallback Title", "url": "https://x.com/a"},
+        {"headline": None, "title": None, "url": "https://x.com/b"},
+        {"headline": "Real Headline", "url": "https://x.com/c"},
+    ]
+
+    chunks = [chunk async for chunk in agent._stream_summary(data)]
+
+    assert chunks
+    assert "Fallback Title" in chunks[-1]
+    assert "Real Headline" in chunks[-1]
+
+
 def test_price_deterministic_summary_keeps_flat_change(mock_llm, mock_cache, mock_tools, circuit_breaker):
     """R64：真平盘（change_percent==0.0）不应被 `or` 丢弃，日内涨跌行仍显示。"""
     agent = PriceAgent(mock_llm, mock_cache, mock_tools, circuit_breaker)
