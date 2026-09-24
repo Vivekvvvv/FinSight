@@ -399,6 +399,19 @@ class NewsAlertScheduler:
                 lines.append(f"[{ts}] {art.get('title','')} ({art.get('source','')}) {art.get('url','')}")
             message = "\n".join(lines)
 
+            # 与 PriceChangeScheduler/RiskAlertScheduler 同款守卫：坏邮箱订阅
+            # 只含 news 时另两个调度器的 alert_types 过滤根本看不到它，这里不
+            # 校验就会每轮重复 SMTP 永久失败、永不 disable 自愈。
+            if not self.subscription_service.is_valid_email(sub.get("email", "")):
+                self.subscription_service.record_alert_attempt(
+                    sub["email"],
+                    sub["ticker"],
+                    success=False,
+                    error="invalid_email",
+                    disable=True,
+                )
+                continue
+
             try:
                 result = self.email_service.send_stock_alert(
                     to_email=sub["email"],

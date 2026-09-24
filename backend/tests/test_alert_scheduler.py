@@ -716,6 +716,8 @@ def test_parse_pub_datetime_accepts_epoch_and_iso():
     assert _parse_pub_datetime("2026-07-06T20:00:00+08:00") == datetime(2026, 7, 6, 12, 0)
     # 垃圾输入 → None
     assert _parse_pub_datetime(None) is None
+    assert _parse_pub_datetime(True) is None
+    assert _parse_pub_datetime(False) is None
     assert _parse_pub_datetime("not-a-date") is None
 
 
@@ -787,3 +789,40 @@ def test_fetch_news_skips_malformed_items_and_bounds_fields(monkeypatch):
     assert len(articles[0]["url"]) == 2048
     assert len(articles[0]["source"]) == 128
     assert len(articles[0]["related_tickers"]) == 50
+
+
+def test_news_scheduler_disables_invalid_email_like_siblings(subscription_service_tmp):
+    """三个调度器里 price(:203)/risk(:557) 都在发送前 is_valid_email 校验并
+    disable=True 熔断坏订阅；news 路径直接发 SMTP——文件级/遗留的坏邮箱
+    订阅（alert_types 只有 news 时另两个调度器根本看不到它）每轮重复投递
+    永久失败，永不自愈。"""
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    # 文件级注入：subscribe() 会拒收坏邮箱，直接落盘模拟遗留/手工数据
+    service.subscriptions["not-an-email"] = [
+        {
+            "email": "not-an-email",
+            "ticker": "AAPL",
+            "alert_types": ["news"],
+        }
+    ]
+    with service._lock:
+        service._save_subscriptions()
+
+    now = _utcnow_naive()
+
+    def fake_news_fetcher(_ticker: str):
+        return [
+            {"title": "AAPL fresh", "url": "u1", "source": "s",
+             "published_at": now, "related_tickers": ["AAPL"]},
+        ]
+
+    sent = NewsAlertScheduler(service, email, fake_news_fetcher).run_once()
+
+    assert sent == []
+    assert email.sent == [], "invalid-email sub must not reach SMTP"
+    sub = service.subscriptions["not-an-email"][0]
+    assert sub.get("disabled") is True
+    assert sub.get("last_alert_error") == "invalid_email"
