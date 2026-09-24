@@ -248,6 +248,15 @@ def test_retry_helper_normalizes_non_finite_wait_config(monkeypatch):
     assert sleeps == [5.0]
 
 
+def test_retry_numeric_helpers_reject_booleans():
+    import backend.services.llm_retry as llm_retry
+
+    assert llm_retry._positive_int(True, 3) == 3
+    assert llm_retry._positive_int(False, 3) == 3
+    assert llm_retry._nonnegative_finite_float(True, 2.5) == 2.5
+    assert llm_retry._nonnegative_finite_float(False, 2.5) == 2.5
+
+
 def test_retry_helper_all_failures_raise_explainable_error(monkeypatch):
     import backend.services.llm_retry as llm_retry
 
@@ -596,3 +605,34 @@ def test_parse_user_endpoints_auto_sets_raw_url_for_full_endpoint():
     assert len(endpoints) == 1
     assert endpoints[0].raw_url is True
     assert endpoints[0].api_base == 'https://x666.me/v1/chat/completions'
+
+
+def test_parse_user_endpoints_parses_string_bool_flags():
+    """llm_endpoints 经 POST /api/config 裸 dict 落盘——只验 list 形状不验条目
+    值类型，{"enabled": "false"}/{"raw_url": "0"} 可原样持久化；读取侧 bool()
+    把非空字符串一律判 True：enabled="false" 的端点仍留在池中（用户关掉它
+    却继续收 prompts/api_key），raw_url="0" 被当成完整 URL 跳过规范化。
+    同 R107-R124“形状已验、值未验”家族的布尔变体。"""
+    llm_config = _reload_llm_config()
+
+    payload = {
+        'llm_endpoints': [
+            {'name': 'off-ep', 'api_key': 'k1', 'model': 'm', 'enabled': 'false'},
+            {'name': 'zero-ep', 'api_key': 'k2', 'model': 'm', 'enabled': '0'},
+            {'name': 'no-ep', 'api_key': 'k3', 'model': 'm', 'enabled': 'no'},
+            {
+                'name': 'on-ep',
+                'api_key': 'k4',
+                'model': 'm',
+                'api_base': 'https://api.example.com/v1',
+                'enabled': 'true',
+                'raw_url': 'false',
+            },
+        ]
+    }
+
+    endpoints = llm_config._parse_user_endpoints(payload, 'openai_compatible', None)
+    # enabled 的 "false"/"0"/"no" 字符串应判为关——只有 on-ep 留池
+    assert [ep.name for ep in endpoints] == ['on-ep']
+    # raw_url="false" 不应被当成完整 URL——/v1 非 chat/completions 结尾
+    assert endpoints[0].raw_url is False

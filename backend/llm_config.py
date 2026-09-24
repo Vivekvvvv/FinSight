@@ -115,6 +115,15 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _config_flag(value: Any) -> bool:
+    """配置 JSON 只验 dict 形状不验条目值类型——字符串 "false"/"0"/"no"/"off"
+    可经 POST /api/config 落盘，bool() 会把非空字符串一律判 True（同 R107-R124
+    “形状已验、值未验”家族的布尔变体）。已知假值拼写归 False，其余维持原语义。"""
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "off", "")
+    return bool(value)
+
+
 def _mask(value: str | None) -> str:
     raw = str(value or "")
     if len(raw) <= 8:
@@ -258,13 +267,13 @@ def _parse_user_endpoints(user_config: dict, provider: str, model: str | None) -
         for idx, raw in enumerate(raw_list):
             if not isinstance(raw, dict):
                 continue
-            enabled = bool(raw.get("enabled", True))
+            enabled = _config_flag(raw.get("enabled", True))
             if not enabled:
                 continue
 
             api_key = str(raw.get("api_key") or "").strip()
             raw_api_base = str(raw.get("api_base") or "").strip()
-            is_raw_url = bool(raw.get("raw_url", False)) or _looks_full_chat_completions_url(raw_api_base)
+            is_raw_url = _config_flag(raw.get("raw_url", False)) or _looks_full_chat_completions_url(raw_api_base)
             api_base = _normalize_api_base(raw_api_base, raw=is_raw_url)
             raw_model = str(raw.get("model") or "").strip()
             if raw_model:
