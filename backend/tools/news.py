@@ -192,6 +192,9 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
             if articles:
                 items: List[Dict[str, Any]] = []
                 for a in articles:
+                    # 非 dict 毒条目按条跳过（同 R107-R110 缺陷类）
+                    if not isinstance(a, dict):
+                        continue
                     title = a.get("title") or a.get("headline") or a.get("summary") or "No title"
                     snippet = a.get("summary") or a.get("description") or ""
                     if not _headline_is_useful(title, snippet):
@@ -224,6 +227,9 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
             if news:
                 items = []
                 for article in news:
+                    # 非 dict 毒条目按条跳过（同 R107）
+                    if not isinstance(article, dict):
+                        continue
                     title = article.get('title', 'No title')
                     snippet = article.get('summary') or article.get('description') or ""
                     if not _headline_is_useful(title, snippet):
@@ -759,6 +765,9 @@ def get_market_news_headlines(limit: int = 5) -> str:
             if articles:
                 lines = []
                 for a in articles:
+                    # 非 dict 毒条目按条跳过（同 R107）
+                    if not isinstance(a, dict):
+                        continue
                     title = a.get("title") or a.get("headline") or a.get("summary") or "No title"
                     snippet = a.get("summary") or a.get("description") or ""
                     if not _headline_is_useful(title, snippet):
