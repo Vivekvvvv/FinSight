@@ -55,14 +55,21 @@ _ensure_str_list = scorer_runtime._ensure_str_list
 
 # Semaphore to limit concurrent symbol insight generation.
 _generation_semaphore: asyncio.Semaphore | None = None
+_generation_semaphore_loop_id: int | None = None
 # Background refresh tasks by symbol (dedupe stale-triggered refreshes).
 _refresh_tasks: dict[str, asyncio.Task[None]] = {}
 
 
 def _get_semaphore() -> asyncio.Semaphore:
-    global _generation_semaphore
-    if _generation_semaphore is None:
+    global _generation_semaphore, _generation_semaphore_loop_id
+    # asyncio.Semaphore 在首次"竞争等待"时绑定当时的 loop；换 loop 后
+    # （测试多 TestClient / 进程内重建循环）竞争者走等待路径恒抛
+    # RuntimeError(bound to a different event loop)——必须随 loop 一起换，
+    # 与 checkpointer/runner 的 _loop_id 处理一致。
+    loop_id = id(asyncio.get_running_loop())
+    if _generation_semaphore is None or _generation_semaphore_loop_id != loop_id:
         _generation_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_SYMBOLS)
+        _generation_semaphore_loop_id = loop_id
     return _generation_semaphore
 
 
@@ -274,7 +281,11 @@ class InsightsOrchestrator:
         """Schedule one background refresh per symbol at a time."""
         existing = _refresh_tasks.get(symbol)
         if existing is not None and not existing.done():
-            return
+            # loop 关闭时挂起的任务永远 done()==False——非本 loop 的残留任务
+            # 不得拦截调度，否则该 symbol 永久不再刷新（同 semaphore 的
+            # 跨 loop 族）。
+            if existing.get_loop() is asyncio.get_running_loop():
+                return
         _refresh_tasks[symbol] = asyncio.create_task(self._refresh_in_background(symbol))
 
     def _collect_dashboard_data(self, symbol: str) -> dict[str, Any]:
