@@ -326,3 +326,38 @@ def test_index_and_market_news_skip_non_dict_feed_items(monkeypatch):
 
     result = news.get_market_news_headlines(limit=5)
     assert "Global markets steady" in result, "市场要闻循环的毒条目不得毁批"
+
+
+def test_fetch_finnhub_market_news_coerces_non_string_fields(monkeypatch):
+    """R123：dict 条目内的非 str 毒值过不了格式层——headline=123/{...} 的
+    条目过了 isinstance 守卫后，_format_headline_line 的 (title or "").strip()
+    AttributeError 逃逸出 per-item 解析循环，整个 get_market_news_headlines
+    崩（同 R107-R110 缺陷类，毒值比毒记录深一层）。归 str 后合法条目照常输出。"""
+    from backend.tools import news_search_tools
+
+    monkeypatch.setattr(
+        news_search_tools,
+        "finnhub_client",
+        types.SimpleNamespace(
+            general_news=lambda _category: [
+                {
+                    "headline": 12345,
+                    "summary": {"nested": "dict"},
+                    "source": ["not-a-string"],
+                    "datetime": int(datetime.now(UTC).timestamp()),
+                    "url": "https://example.com/poison-values",
+                },
+                {
+                    "headline": "Legit market headline for testing",
+                    "summary": "valid summary here",
+                    "source": "Finnhub",
+                    "datetime": int(datetime.now(UTC).timestamp()),
+                    "url": "https://example.com/legit",
+                },
+            ]
+        ),
+    )
+
+    lines, ok = news_search_tools._fetch_finnhub_market_news(limit=5, max_age_hours=48)
+    assert ok, "毒值条目不得让市场要闻工具整体失败"
+    assert any("Legit market headline" in line for line in lines)

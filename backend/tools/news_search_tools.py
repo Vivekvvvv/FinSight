@@ -192,12 +192,15 @@ def _fetch_finnhub_market_news(limit: int = 5, max_age_hours: int = 48) -> tuple
             continue
         if (now - dt) > timedelta(hours=max_age_hours):
             continue
-        title = item.get("headline") or item.get("summary") or "No title"
-        snippet = item.get("summary") or ""
+        # dict 条目内的非 str 毒值（headline=123/{...}）过得了 isinstance
+        # 守卫，但 _format_headline_line 的 (x or "").strip() 会 AttributeError
+        # 逃逸出本循环——同 R107-R110 缺陷类，毒值比毒记录深一层
+        title = str(item.get("headline") or item.get("summary") or "No title")
+        snippet = str(item.get("summary") or "")
         if not _headline_is_useful(title, snippet):
             continue
-        source = item.get("source") or "finnhub"
-        url = item.get("url") or ""
+        source = str(item.get("source") or "finnhub")
+        url = str(item.get("url") or "")
         lines.append(
             _format_headline_line(
                 dt.strftime("%Y-%m-%d"),
