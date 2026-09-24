@@ -42,3 +42,31 @@ def test_pdf_export_escapes_all_client_controlled_paragraph_markup(monkeypatch):
     assert result.startswith(b"%PDF")
     assert all("<img" not in text for text in captured)
     assert sum(text.count("&lt;img") for text in captured) >= 6
+
+
+@pytest.mark.skipif(not pdf_export.REPORTLAB_AVAILABLE, reason="reportlab unavailable")
+def test_pdf_export_skips_non_dict_messages_and_charts():
+    """/api/export/pdf 的 request 是裸 dict——messages/charts 只验 list 形状，
+    非 dict 毒条目（str/None/int）直达 msg.get/chart.get → AttributeError
+    逃逸到路由 except → 整个导出 500。一条毒消息毁 100 条合法消息的导出。
+    按条跳过非 dict 条目（同 R107-R123 缺陷类）。"""
+    service = pdf_export.PDFExportService()
+
+    result = service.export_conversation(
+        [
+            {"role": "user", "content": "hello"},
+            "poison-message",
+            None,
+            42,
+            {"role": "assistant", "content": "world"},
+        ],
+        title="t",
+    )
+    assert result.startswith(b"%PDF")
+
+    result2 = service.export_with_charts(
+        [{"role": "user", "content": "hi"}, {"bad": "item"}],
+        [{"ticker": "AAPL", "chart_type": "kline"}, "poison-chart", None],
+        title="t",
+    )
+    assert result2.startswith(b"%PDF")

@@ -199,10 +199,16 @@ class PDFExportService:
         
         # 对话内容
         for i, msg in enumerate(messages):
+            # /api/export/pdf 的 request 是裸 dict——messages 只验 list 形状、
+            # 不验条目；非 dict 毒条目（str/None/int）的 .get AttributeError
+            # 逃逸到路由 except 让整个导出 500，一条毒消息毁全部合法消息。
+            # 按条跳过（同 R107-R123 缺陷类）
+            if not isinstance(msg, dict):
+                continue
             role = msg.get('role', 'unknown')
             content = msg.get('content', '')
             timestamp = msg.get('timestamp', '')
-            
+
             # 角色标签
             if role == 'user':
                 role_label = "用户"
@@ -278,6 +284,9 @@ class PDFExportService:
         
         # 对话内容
         for msg in messages:
+            # 同 export_conversation：非 dict 毒条目按条跳过
+            if not isinstance(msg, dict):
+                continue
             role = msg.get('role', 'unknown')
             content = msg.get('content', '')
             timestamp = msg.get('timestamp', '')
@@ -310,6 +319,9 @@ class PDFExportService:
             story.append(Spacer(1, 0.2*inch))
             
             for chart in charts:
+                # charts 同样只验 list 形状——非 dict 毒条目按条跳过
+                if not isinstance(chart, dict):
+                    continue
                 ticker = chart.get('ticker', 'Unknown')
                 chart_type = chart.get('chart_type', 'Unknown')
                 
