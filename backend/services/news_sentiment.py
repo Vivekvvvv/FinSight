@@ -61,9 +61,19 @@ async def analyze_news_sentiment(
     if not news_list:
         return []
 
+    # 毒条目按条过滤——非 dict 的 n.get AttributeError 会在 try 之外逃逸；
+    # 即便进兜底，dict(n) 也会对同一毒列表再崩一次（双重崩）。
+    # request.news 的 Pydantic 校验只验 dict 形状、不验值类型；
+    # get_company_news 等工具产出则完全无校验（同 R107-R121 缺陷类）
+    news_list = [n for n in news_list if isinstance(n, dict)]
+    if not news_list:
+        return []
+
     # 只取标题+摘要，控制token
+    # summary/content 值类型不受校验——int/dict 真值的 [:200] TypeError
+    # 同样在 try 之外逃逸，先归 str 再截断
     slim_news = [
-        {"index": i, "title": n.get("title", ""), "summary": (n.get("summary") or n.get("content") or "")[:200]}
+        {"index": i, "title": n.get("title", ""), "summary": str(n.get("summary") or n.get("content") or "")[:200]}
         for i, n in enumerate(news_list[:15])  # 最多分析15条
     ]
 
@@ -129,8 +139,14 @@ def aggregate_sentiment(enriched_news: List[Dict[str, Any]]) -> Dict[str, Any]:
     score_map = {"positive": 1, "neutral": 0, "negative": -1}
 
     for n in enriched_news:
-        s = n.get("sentiment", "neutral")
-        w = weight_map.get(n.get("impact_level", "low"), 1)
+        # sentiments[i] 是 LLM 裸 JSON——{"sentiment": {...}} / {"impact_level": [...]}
+        # 的 unhashable 值会让 counts.get/weight_map.get TypeError；非 str 归默认
+        if not isinstance(n, dict):
+            continue
+        s = n.get("sentiment")
+        if not isinstance(s, str):
+            s = "neutral"
+        w = weight_map.get(n.get("impact_level"), 1) if isinstance(n.get("impact_level"), str) else 1
         counts[s] = counts.get(s, 0) + 1
         weighted_score += score_map.get(s, 0) * w
 

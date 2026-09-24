@@ -729,3 +729,81 @@ def test_news_sentiment_internal_error_is_redacted(monkeypatch, caplog):
     assert "private sentiment service detail" not in response.text
     assert "private sentiment service detail" not in caplog.text
     assert "新闻情绪分析失败" in caplog.text
+
+
+def test_news_sentiment_non_string_summary_values_do_not_500(monkeypatch):
+    """request.news 的 Pydantic 校验只验 dict 形状、不验值类型——{"summary":123}
+    通过校验后 (summary or content or "")[:200] 的 int/dict[:200] TypeError 在
+    analyze_news_sentiment 的 try 之外逃逸，端点恒 500。非 str 值须先归 str。"""
+    from backend.api.research_router import router
+    from backend import llm_config
+
+    class Response:
+        content = (
+            '[{"sentiment":"positive","sentiment_cn":"利好",'
+            '"confidence":0.9,"key_event":"ok","impact_level":"high"},'
+            '{"sentiment":"negative","sentiment_cn":"利空",'
+            '"confidence":0.8,"key_event":"bad","impact_level":"low"}]'
+        )
+
+    class WorkingLlm:
+        async def ainvoke(self, _prompt):
+            return Response()
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: WorkingLlm())
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/research/news/sentiment",
+            json={
+                "ticker": "AAPL",
+                "news": [
+                    {"title": "ok", "summary": 12345},
+                    {"title": "fine", "content": {"nested": "dict"}},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["aggregate"]["positive"] == 1
+    assert response.json()["aggregate"]["negative"] == 1
+
+
+def test_analyze_news_sentiment_skips_non_dict_items(monkeypatch):
+    """get_company_news 等工具产出的 news_list 无边界校验——非 dict 毒条目的
+    n.get AttributeError 逃逸出 try 之外的 slim_news 推导；即便进了异常兜底，
+    dict(n) 会对同一毒列表再崩一次（双重崩）。按条过滤后照常返回中性兜底。"""
+    import asyncio
+
+    from backend.services import news_sentiment
+    from backend import llm_config
+
+    class FailingLlm:
+        async def ainvoke(self, _prompt):
+            raise RuntimeError("llm down")
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: FailingLlm())
+    result = asyncio.run(
+        news_sentiment.analyze_news_sentiment(
+            [{"title": "good"}, "poison-item", None, 42], ticker="AAPL",
+        )
+    )
+    assert len(result) == 1
+    assert result[0]["title"] == "good"
+    assert result[0]["sentiment"] == "neutral"
+
+
+def test_aggregate_sentiment_tolerates_non_string_labels():
+    """sentiments[i]（LLM 裸 JSON）原样 update 进 enriched——{"sentiment": {"a":1}}
+    /{"impact_level": ["h"]} 这类 unhashable 值让 counts.get/weight_map.get
+    TypeError，端点 500。非 str 标签归 neutral/默认权重。"""
+    from backend.services.news_sentiment import aggregate_sentiment
+
+    agg = aggregate_sentiment([
+        {"title": "a", "sentiment": {"weird": "object"}, "impact_level": ["h"]},
+        {"title": "b", "sentiment": "positive", "impact_level": "high"},
+    ])
+    assert agg["positive"] == 1
+    assert agg["neutral"] == 1
