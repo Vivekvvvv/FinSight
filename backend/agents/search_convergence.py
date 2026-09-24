@@ -95,8 +95,13 @@ class SearchConvergence:
         """Deduplicate by URL and content hash"""
         unique = []
         for doc in docs:
-            url = doc.get("url", "").strip()
-            content = doc.get("content", "") or doc.get("snippet", "")
+            # 毒 doc 按条跳过——非 dict 的 .get AttributeError、url
+            # present-None 的 None.strip() 会抛出演算让调用方吞掉整轮
+            # 去重（同 R107 缺陷类）
+            if not isinstance(doc, dict):
+                continue
+            url = str(doc.get("url") or "").strip()
+            content = doc.get("content") or doc.get("snippet") or ""
 
             # URL dedup
             if url and url in self._seen_urls:
@@ -127,7 +132,7 @@ class SearchConvergence:
 
     def _normalize(self, text: str) -> str:
         """Normalize text for comparison"""
-        text = text.lower()
+        text = str(text or "").lower()  # content/summary 非 str/None 不得炸
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'[^\w\s]', '', text)
         return text.strip()[:2000]  # Limit length
@@ -173,7 +178,7 @@ class SearchConvergence:
         novelty_score = self._content_novelty(unique_docs, previous_summary)
 
         # Factor 3: Source diversity
-        sources = set(doc.get("source", "web") for doc in unique_docs)
+        sources = set(str(doc.get("source") or "web") for doc in unique_docs)
         diversity_score = min(1.0, len(sources) / 2)  # 2+ sources = max
 
         # Weighted average
@@ -195,7 +200,7 @@ class SearchConvergence:
 
         new_words = set()
         for doc in docs:
-            content = doc.get("content", "") or doc.get("snippet", "")
+            content = doc.get("content") or doc.get("snippet") or ""
             new_words.update(self._normalize(content).split())
 
         if not new_words:

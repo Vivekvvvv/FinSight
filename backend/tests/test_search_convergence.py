@@ -142,3 +142,38 @@ class TestSearchConvergence:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestPoisonDocs:
+    """R117：毒 doc 不得让 process_round 整体抛异常。
+
+    news_agent 内部构造 docs 时 item.get("url","") 对 present-None 不生效
+    → None.strip() AttributeError；非 dict doc → .get AttributeError；
+    content 非 str → _normalize().lower() AttributeError。任一毒 doc 让
+    调用方 except 吞掉整轮——收敛去重静默失效，重复内容直进报告
+    （同 R107-R116 缺陷类）。"""
+
+    def test_process_round_skips_poison_docs(self):
+        sc = SearchConvergence()
+        docs = [
+            {"url": "http://a.com/x", "content": "alpha earnings beat", "source": "news"},
+            "junk-doc",
+            None,
+            {"url": None, "content": "beta revenue miss"},  # None.strip() 变体
+            {"url": "http://b.com/y", "content": None, "source": None},  # 双 None
+        ]
+
+        unique, metrics = sc.process_round(docs, previous_summary="")
+
+        assert len(unique) == 3, "毒 doc 不得毁掉整轮去重"
+        urls = [d.get("url") for d in unique]
+        assert "http://a.com/x" in urls
+
+    def test_normalize_coerces_non_str(self):
+        sc = SearchConvergence()
+        # content 为非 str（如 list/int）时 _normalize 不得抛 AttributeError
+        unique, _ = sc.process_round(
+            [{"url": "http://c.com", "content": 12345, "source": "web"}],
+            previous_summary=0,  # previous_summary 非 str 同样不得炸
+        )
+        assert len(unique) == 1
