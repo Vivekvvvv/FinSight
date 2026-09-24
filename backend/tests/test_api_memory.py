@@ -101,3 +101,29 @@ def test_agent_preferences_endpoints(client):
     assert data["success"] is True
     assert data["preferences"]["agents"]["news_agent"] == "deep"
     assert data["preferences"]["agents"]["technical_agent"] == "off"
+
+
+def test_watchlist_q_filter_survives_non_string_meta_values(client):
+    """profile 保存API对watchlist_meta只验isinstance(dict)、不验条目内值类型——
+    {"AAPL":{"name":123,"tags":"oops"}}可落盘；此后GET /api/user/watchlist?q=
+    的(it.get("name") or "").lower()对非str真值AttributeError恒500，
+    tags非list则以str返回破坏数组约定（同R107-R120毒值更深一层）。"""
+    user_id = "poison_meta_user"
+    response = client.post("/api/user/profile", json={
+        "user_id": user_id,
+        "profile": {
+            "watchlist": ["AAPL"],
+            "watchlist_meta": {"AAPL": {"name": 123, "tags": "oops"}},
+        },
+    })
+    assert response.status_code == 200
+
+    # q 不命中 ticker → 必须评估 name 分支：修复前 (123).lower() AttributeError→500；
+    # 修复后 name 归一为 str，q="123" 恰好命中该条目
+    response = client.get(f"/api/user/watchlist?user_id={user_id}&q=123")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["ticker"] == "AAPL"
+    assert items[0]["name"] == "123"
+    assert items[0]["tags"] == []

@@ -294,10 +294,20 @@ class MemoryService:
             # 不触发 .corrupt 备份（同 R107-R120 毒条目类，按条归 {}）
             if not isinstance(entry, dict):
                 entry = {}
+            # dict 条目内的非 str/非 list 值同样可落盘（profile 保存 API 不验
+            # 值类型）：{"name":123} 让 /api/user/watchlist?q= 的 .lower()
+            # AttributeError 恒500；{"tags":"oops"} 以 str 返回破坏数组约定。
+            # 读侧归一：name 非 str 归 str，tags 非 list 归 [] 且元素归 str
+            # （同 R107-R120 毒条目类，毒值更深一层）
+            name = entry.get("name")
+            if name is not None and not isinstance(name, str):
+                name = str(name)
+            tags = entry.get("tags")
+            tags = [str(t) for t in tags] if isinstance(tags, list) else []
             items.append({
                 "ticker": ticker_key,
-                "name": entry.get("name"),
-                "tags": entry.get("tags") or [],
+                "name": name,
+                "tags": tags,
                 "note": entry.get("note"),
                 "group": entry.get("group"),
                 "priority": entry.get("priority"),
