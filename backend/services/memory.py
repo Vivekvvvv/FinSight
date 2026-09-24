@@ -204,6 +204,10 @@ class MemoryService:
                 profile.watchlist.append(clean_ticker)
             # merge metadata (None values do not overwrite existing fields)
             existing = profile.watchlist_meta.get(clean_ticker, {}) if isinstance(profile.watchlist_meta, dict) else {}
+            # 毒条目值（present-None/str）会让 dict(existing) 抛 TypeError/
+            # ValueError——毒化后连 API 修复路径都被堵死；归 {} 让 merge 照常
+            if not isinstance(existing, dict):
+                existing = {}
             merged = dict(existing)
             if name is not None:
                 merged["name"] = str(name).strip()
@@ -284,6 +288,12 @@ class MemoryService:
             entry = meta.get(ticker_key, {})
             if not entry and ticker_key.upper() != ticker_key:
                 entry = meta.get(ticker_key.upper(), {})
+            # watchlist_meta 顶层校验只保证 dict、不验条目值——profile 保存 API
+            # 可写入 {"AAPL": null}/{"AAPL": "oops"} 并落盘；entry.get 的
+            # AttributeError 会让 /api/watchlist 恒 500 且顶层形状合法、
+            # 不触发 .corrupt 备份（同 R107-R120 毒条目类，按条归 {}）
+            if not isinstance(entry, dict):
+                entry = {}
             items.append({
                 "ticker": ticker_key,
                 "name": entry.get("name"),

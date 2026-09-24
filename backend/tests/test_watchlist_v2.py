@@ -135,3 +135,35 @@ def test_q_filter_no_results(memory_service):
     q = "zzznomatch"
     filtered = [it for it in items if q in it.get("ticker", "").lower() or q in (it.get("name") or "").lower()]
     assert filtered == []
+
+
+def test_poison_meta_values_do_not_crash(memory_service, tmp_path):
+    """watchlist_meta 顶层校验只要求 dict、不验条目值——profile 保存 API
+    可写入 {"AAPL": null}/{"AAPL": "oops"} 并落盘；此后 list_watchlist_items
+    的 entry.get AttributeError 让 /api/watchlist 恒 500，add_to_watchlist
+    的 dict(existing) TypeError 连修复路径都堵死。非 dict 条目值归 {}。"""
+    import json
+    user_id = "poison_user"
+    file_path = tmp_path / f"{user_id}.json"
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "user_id": user_id,
+                "watchlist": ["AAPL", "MSFT", "goog"],
+                "watchlist_meta": {
+                    "AAPL": None,
+                    "MSFT": "oops",
+                    "GOOG": {"name": "Alphabet"},
+                },
+            },
+            f,
+        )
+    items = memory_service.list_watchlist_items(user_id)
+    assert [item["ticker"] for item in items] == ["AAPL", "MSFT", "goog"]
+    assert items[0]["name"] is None and items[0]["tags"] == []
+    assert items[1]["name"] is None and items[1]["note"] is None
+    assert items[2]["name"] == "Alphabet"  # 大小写回退命中合法条目
+    # 写路径同样可恢复：毒 existing 归 {} 后 merge 正常落新值
+    ok = memory_service.add_to_watchlist(user_id, "AAPL", name="Apple Inc.")
+    assert ok is True
+    assert memory_service.list_watchlist_items(user_id)[0]["name"] == "Apple Inc."
