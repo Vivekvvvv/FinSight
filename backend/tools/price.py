@@ -676,6 +676,10 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                 kline_data = []
                 for date_str in sorted_dates:
                     day_data = time_series[date_str]
+                    # 毒行按条跳过——非 dict 的 day_data["1. open"] TypeError
+                    # 落进函数级 except 让整段 AV 日线被弃走下游兜底（同 R107-R118）
+                    if not isinstance(day_data, dict):
+                        continue
                     kline_data.append({
                         "time": date_str,
                         "open": _safe_float_value(day_data["1. open"]),

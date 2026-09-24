@@ -988,3 +988,44 @@ def test_provider_kline_loops_skip_poison_items(monkeypatch):
         assert len(rows) == 1, f"{fn.__name__} 毒行未被跳过: {rows}"
         assert rows[0]["time"] == expected_time
         assert rows[0]["close"] == 1.5
+
+
+def test_alpha_vantage_historical_skips_poison_daily_rows(monkeypatch):
+    """R119：AV Time Series (Daily) 混入非 dict 日行——day_data["1. open"]
+    的 TypeError 落进函数级 except，让整段 AV 日线被弃走下游兜底
+    （同 R107-R118 缺陷类）。毒行按条跳过，合法日照常解析。"""
+    class _EmptyTicker:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def history(self, **_kwargs):
+            return SimpleNamespace(empty=True)
+
+    def _day(open_, close):
+        return {"1. open": open_, "2. high": open_, "3. low": open_,
+                "4. close": close, "5. volume": "1000"}
+
+    response = SimpleNamespace(json=lambda: {"Time Series (Daily)": {
+        "2026-09-24": _day("100", "101"),
+        "2026-09-23": "poison-row",
+        "2026-09-22": None,
+        "2026-09-21": _day("98", "99"),
+    }})
+    monkeypatch.setattr(price.yf, "Ticker", _EmptyTicker)
+    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "test-key")
+    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(price, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(price.time, "sleep", lambda _seconds: None)
+    for fn_name in (
+        "_fetch_with_yahoo_scrape_historical", "_fetch_with_iex_cloud",
+        "_fetch_with_tiingo", "_fetch_with_twelve_data",
+        "_fetch_with_marketstack", "_fetch_with_massive_io",
+        "_fetch_with_stooq_history",
+    ):
+        monkeypatch.setattr(price, fn_name, lambda *_args: None)
+
+    result = price.get_stock_historical_data("AAPL", period="5d")
+
+    rows = result["kline_data"]
+    assert [r["time"] for r in rows] == ["2026-09-21", "2026-09-24"]
+    assert rows[-1]["close"] == 101.0
