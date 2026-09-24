@@ -117,11 +117,16 @@ def fetch_cn_top_list_history(
             rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
             results = []
             for record in rows:
+                # 非 dict 毒记录按条跳过——.get AttributeError 落进函数级
+                # except 弃掉整批走旧版；TRADE_DATE present-None 经 get 默认
+                # 不生效存 None，排序 None vs str TypeError 同样毁批（同 R107）
+                if not isinstance(record, dict):
+                    continue
                 item = {
                     "symbol": symbol.upper(),
                     "stock_code": stock_code,
                     "stock_name": record.get("SECURITY_NAME_ABBR", ""),
-                    "date": record.get("TRADE_DATE", ""),
+                    "date": str(record.get("TRADE_DATE") or ""),
                     "reason": record.get("EXPLANATION") or record.get("EXPLAIN") or "龙虎榜",
                     "close_price": safe_float(record.get("CLOSE_PRICE")),
                     "change_percent": safe_float(record.get("CHANGE_RATE")),
@@ -166,9 +171,12 @@ def fetch_cn_top_list_history(
         if not data_list:
             return []
 
-        # 解析每条记录
+        # 解析每条记录；非 dict 毒条目按条跳过——.get AttributeError 落进
+        # 函数级 except 整个旧版查询返回 []，无更深兜底（同 R107）
         results = []
         for record in data_list:
+            if not isinstance(record, dict):
+                continue
             if record.get("SCode") != stock_code:
                 continue
 
@@ -180,7 +188,7 @@ def fetch_cn_top_list_history(
                 "symbol": symbol.upper(),
                 "stock_code": stock_code,
                 "stock_name": record.get("SName", ""),
-                "date": record.get("Tdate", ""),
+                "date": str(record.get("Tdate") or ""),  # present-None → ""，防排序 None vs str TypeError
                 "reason": record.get("Ctypedes", "上榜"),
                 "close_price": safe_float(record.get("ClosePrice")),
                 "change_percent": safe_float(record.get("Chgradio")),
@@ -257,6 +265,10 @@ def fetch_north_flow_history(days: int = 30) -> list[dict[str, Any]]:
 
         results = []
         for kline in klines:
+            # 非 str 毒行按条跳过——.split AttributeError 落进函数级
+            # except 整份历史返回 []（同 R107）
+            if not isinstance(kline, str):
+                continue
             parts = kline.split(",")
             if len(parts) >= 4:
                 date_str = parts[0]  # YYYY-MM-DD
@@ -331,11 +343,13 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
         if resp.status_code == 200:
             payload = resp.json()
             rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
+            # 非 dict 毒记录按条跳过——推导式内 .get AttributeError 弃掉
+            # 整批落旧版；DATE present-None 存 None 排序 TypeError（同 R107）
             results = [
                 {
                     "symbol": symbol.upper(),
                     "stock_code": stock_code,
-                    "date": record.get("DATE", ""),
+                    "date": str(record.get("DATE") or ""),
                     "margin_balance": safe_float(record.get("RZYE")) or 0.0,
                     "margin_buy": safe_float(record.get("RZMRE")) or 0.0,
                     "margin_repay": safe_float(record.get("RZCHE")) or 0.0,
@@ -346,6 +360,7 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
                     "source": "eastmoney",
                 }
                 for record in rows
+                if isinstance(record, dict)
             ]
             if results:
                 return sorted(results, key=lambda x: x["date"], reverse=True)
@@ -383,13 +398,15 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
         if not records:
             return []
 
-        # 解析历史记录
+        # 解析历史记录；非 dict 毒记录按条跳过（同 R107）
         results = []
         for record in records:
+            if not isinstance(record, dict):
+                continue
             results.append({
                 "symbol": symbol.upper(),
                 "stock_code": stock_code,
-                "date": record.get("TRADE_DATE", ""),
+                "date": str(record.get("TRADE_DATE") or ""),  # present-None → ""，防排序 TypeError
                 "margin_balance": safe_float(record.get("RZYE")) or 0.0,
                 "margin_buy": safe_float(record.get("RZMRE")) or 0.0,
                 "margin_repay": safe_float(record.get("RZCHE")) or 0.0,
