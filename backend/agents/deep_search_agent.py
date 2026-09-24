@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 
 def _finite_float(value: Any, default: float) -> float:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = float(value)
     except (TypeError, ValueError, OverflowError):
@@ -935,7 +937,13 @@ queries 要求：
         deduped_by_url: Dict[str, Dict[str, Any]] = {}
         order: List[str] = []
         for item in results:
-            url = item.get("url", "").strip()
+            if not isinstance(item, dict):
+                continue
+            # str(... or "")：上游（tavily enrichment）可写入 {"url": None}——
+            # .get("url","") 在 key 存在但值为 null 时返回 None，None.strip()
+            # AttributeError 会抛出 _initial_search 让整条 research 全灭；
+            # 无 URL 条目按条跳过（与 search_convergence._dedupe_content 同约定）。
+            url = str(item.get("url") or "").strip()
             if not url:
                 continue
             if url not in deduped_by_url:

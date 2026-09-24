@@ -3,6 +3,7 @@ import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from backend.agents.price_agent import PriceAgent, AllSourcesFailedError
 from backend.agents.news_agent import NewsAgent
+from backend.agents.deep_search_agent import DeepSearchAgent
 from backend.services.circuit_breaker import CircuitBreaker
 
 @pytest.fixture
@@ -197,6 +198,29 @@ async def test_news_agent_finance_query_prefers_authoritative_domains(
     urls = [item.url or "" for item in result.evidence]
     assert any("reuters.com" in url for url in urls)
     assert all("random-finance.cc" not in url for url in urls)
+
+
+def test_deep_search_dedupe_results_skips_null_url(mock_llm, mock_cache, mock_tools, circuit_breaker):
+    """Tavily 结果 {"url": null} 不得炸掉整轮去重。
+
+    item.get("url", "") 在 key 存在但值为 None 时返回 None → None.strip()
+    AttributeError 抛出 _initial_search，整条 deep-search research 因单条
+    上游脏数据全灭。与 search_convergence._dedupe_content 同 R107 缺陷类，
+    无 URL 条目应按条跳过。"""
+    agent = DeepSearchAgent(mock_llm, mock_cache, mock_tools, circuit_breaker)
+    results = [
+        {"title": "ok-a", "url": "https://reuters.com/a"},
+        {"title": "null-url", "url": None},
+        {"title": "ok-b", "url": "https://ft.com/b"},
+        {"title": "dup-a", "url": "https://reuters.com/a"},
+    ]
+
+    deduped = agent._dedupe_results(results)
+
+    assert [item["url"] for item in deduped] == [
+        "https://reuters.com/a",
+        "https://ft.com/b",
+    ]
 
 
 def test_price_deterministic_summary_keeps_flat_change(mock_llm, mock_cache, mock_tools, circuit_breaker):
