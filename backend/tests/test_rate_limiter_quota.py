@@ -48,6 +48,10 @@ def _make_limiter(**kwargs) -> LLMRateLimiter:
         ("min_tokens_per_agent", -1, 8),
         ("agent_window_seconds", float("nan"), 60.0),
         ("agent_window_seconds", float("inf"), 60.0),
+        ("requests_per_minute", True, 60),
+        ("burst_capacity", False, 15),
+        ("min_tokens_per_agent", True, 8),
+        ("agent_window_seconds", False, 60.0),
     ],
 )
 def test_rate_limiter_rejects_invalid_numeric_config(field, value, expected):
@@ -235,3 +239,33 @@ async def test_acquire_llm_token_backward_compat():
     LLMRateLimiter._instance = _make_limiter(burst_capacity=1)
     assert await acquire_llm_token(timeout=0.1) is True
     assert await acquire_llm_token(timeout=0.0) is False
+
+
+@pytest.mark.asyncio
+async def test_acquire_cancelled_mid_wait_does_not_deadlock_limiter():
+    """acquire 路径3手动 release→sleep→finally 重 acquire：协程在 sleep 中被
+    取消（客户端断连 / 图执行 wait_for 超时沿任务链取消 LLM 调用）时，finally
+    的 acquire() 无竞争者即同步成功，CancelledError 携锁传播 → _lock 永久
+    持有 → 后续所有 acquire 在 async with 处挂死（timeout 只管内层令牌等待，
+    管不到锁获取）——全进程 LLM 限流器死锁。"""
+    limiter = _make_limiter(
+        requests_per_minute=1,
+        burst_capacity=1,
+        min_tokens_per_agent=0,
+    )
+
+    assert await limiter.acquire(timeout=0.1) is True  # 抽干全局桶
+
+    waiter = asyncio.create_task(
+        limiter.acquire(timeout=60.0, agent_name="victim")
+    )
+    await asyncio.sleep(0.05)  # 让 waiter 走到路径3的 asyncio.sleep
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    assert not limiter._lock.locked(), "cancelled acquire leaked the global lock"
+
+    # 锁泄漏会让这次 acquire 挂在 async with 上——wait_for 兜底防测试卡死
+    acquired = await asyncio.wait_for(limiter.acquire(timeout=0.01), timeout=2.0)
+    assert acquired is False
