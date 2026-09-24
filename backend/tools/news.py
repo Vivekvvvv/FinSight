@@ -614,18 +614,35 @@ def get_news_sentiment(ticker: str, limit: int = 5) -> str:
 
         def _extract_sentiment(item: Dict[str, Any], symbol: str):
             symbol_upper = symbol.upper()
-            for ts in item.get('ticker_sentiment', []):
-                if ts.get('ticker', '').upper() == symbol_upper:
+            raw_ts = item.get('ticker_sentiment') or []
+            if not isinstance(raw_ts, (list, tuple)):
+                raw_ts = []
+            for ts in raw_ts:
+                # 单条畸形记录跳过即可，不能让整个情绪结果变 fetch failed
+                if not isinstance(ts, dict):
+                    continue
+                if str(ts.get('ticker') or '').upper() == symbol_upper:
                     return ts.get('ticker_sentiment_score'), ts.get('ticker_sentiment_label')
             return item.get('overall_sentiment_score'), item.get('overall_sentiment_label')
 
+        feed_items = data.get('feed')
+        if not isinstance(feed_items, list):
+            feed_items = []
         lines = []
         scores: List[float] = []
-        for i, item in enumerate(data.get('feed', [])[:limit], 1):
-            title = item.get('title', 'No title')
-            source = item.get('source', 'Unknown')
-            time_published = item.get('time_published', '')
-            date_str = time_published[:8]
+        # limit 语义是"最多 limit 条有效输出"：先过滤后计数，否则毒记录
+        # 会烧掉 [:limit] 的名额，其后好记录被切掉（同 R60 缺陷类）。
+        for item in feed_items:
+            if len(lines) >= limit:
+                break
+            # feed 里混入非 dict 条目/present-None 字段时按条跳过；
+            # 否则单条毒记录会落进函数级 except，整批结果全丢。
+            if not isinstance(item, dict):
+                continue
+            title = item.get('title') or 'No title'
+            source = item.get('source') or 'Unknown'
+            time_published = item.get('time_published') or ''
+            date_str = str(time_published)[:8]
             if date_str and len(date_str) == 8:
                 date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
             else:
@@ -648,7 +665,7 @@ def get_news_sentiment(ticker: str, limit: int = 5) -> str:
                     sentiment_desc = label
 
             headline = f"[{title}]({url})" if url else title
-            lines.append(f"{i}. [{date_str}] {headline} ({source}) 情绪: {sentiment_desc}")
+            lines.append(f"{len(lines) + 1}. [{date_str}] {headline} ({source}) 情绪: {sentiment_desc}")
 
         avg_text = ""
         if scores:
