@@ -182,6 +182,10 @@ try:
 except Exception as e:
     logger.error("[Init] Error initializing MemoryService")
     memory_service = None
+    # UserProfile 只在 try 里绑定；此处不兜底会在下方
+    # create_user_router(user_profile_cls=UserProfile) 抛 NameError，
+    # 让"memory 不可用时降级启动"的意图变成 import 期崩溃。
+    UserProfile = None
 
 
 _schedulers = []

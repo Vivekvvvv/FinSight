@@ -380,3 +380,36 @@ def test_core_tools_import_log_is_type_only():
 
     assert 'Error importing tools: {e2}' not in source
     assert 'logger.error("[Init] Error importing tools")' in source
+
+
+def test_main_boots_when_memory_service_import_fails():
+    """memory 导入失败时 main 的设计意图是降级启动：except 置
+    memory_service=None，user_router 每个端点都判空返回 503。
+    但 UserProfile 只在 try 分支绑定——except 路径下它是未定义名，
+    模块级 create_user_router(user_profile_cls=UserProfile) 直接
+    NameError，整个 app 在 import 阶段崩死，降级路径永远走不到。
+    except 分支必须把 UserProfile 一并兜底。
+    （必须用全新 import 复现：reload 会复用旧模块命名空间，
+    上次成功导入绑定的 UserProfile 掩盖缺陷。）"""
+    import importlib
+    import sys
+    import types
+
+    import backend.api as api_pkg
+    import backend.api.main as main_mod  # noqa: F401 — 确保旧模块在 sys.modules
+    import backend.services.memory as memory_mod  # noqa: F401 — 确保真实模块已加载
+
+    fake = types.ModuleType("backend.services.memory")  # 空模块 → from-import ImportError
+    saved_memory = sys.modules["backend.services.memory"]
+    saved_main = sys.modules.pop("backend.api.main")
+    sys.modules["backend.services.memory"] = fake
+    try:
+        fresh = importlib.import_module("backend.api.main")  # buggy: NameError at line user_profile_cls=UserProfile
+    finally:
+        sys.modules["backend.services.memory"] = saved_memory
+        sys.modules.pop("backend.api.main", None)
+        sys.modules["backend.api.main"] = saved_main
+        api_pkg.main = saved_main  # 还原包属性指向
+
+    assert fresh.memory_service is None
+    assert fresh.user_router is not None
