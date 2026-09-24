@@ -15,6 +15,8 @@ import re
 
 
 def _nonnegative_finite_float(value: object, default: float) -> float:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = float(value)
     except Exception:
@@ -29,15 +31,21 @@ DEFAULT_MAX_SKEW_HOURS = _nonnegative_finite_float(
 
 
 def _parse_iso(value: Any) -> Optional[datetime]:
+    # naive 一律按 UTC 归一（与 execute_plan_helpers._parse_datetime /
+    # report_text_tools._freshness_hours 同约定）：否则 naive↔aware 混合
+    # 时 max/min 抛 TypeError——列表载荷（聚合 news 各 item 自带 published
+    # 格式）或多源 add 混排都会触发，orchestrator.fetch 的 per-source
+    # except 把它当成源失败，已通过验证的数据被计 fail 并污染熔断器。
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     try:
         text = str(value).strip()
         if not text:
             return None
-        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     except Exception:
         return None
 
