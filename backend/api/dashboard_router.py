@@ -106,7 +106,10 @@ async def _singleflight_call(
             _singleflight_tasks[key] = task
 
     try:
-        return await task
+        # shield 隔离取消：await 裸 Task 会把本 waiter 的取消传播进共享 task——
+        # 任一调用方断连/gather 取消即杀死共享 fetch，其余 waiter 的 await task
+        # 同步抛 CancelledError，上层记 {key}_error 并写 30s failure marker。
+        return await asyncio.shield(task)
     finally:
         async with lock:
             current = _singleflight_tasks.get(key)
@@ -141,6 +144,8 @@ def _failure_reason_from_marker(payload: object) -> str | None:
 
 def _as_iso(value: object) -> str:
     if value is None:
+        return ""
+    if isinstance(value, bool):
         return ""
     if isinstance(value, (int, float)):
         try:
