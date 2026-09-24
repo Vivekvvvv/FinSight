@@ -585,6 +585,10 @@ def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
             results = lookup.get("result", []) if isinstance(lookup, dict) else []
             finnhub_matches = []
             for item in results:
+                # 非 dict 毒条目按条跳过——.get AttributeError 落进源级
+                # except，该源已收集 matches 整体丢弃退到 search（同 R107）
+                if not isinstance(item, dict):
+                    continue
                 symbol = item.get("displaySymbol") or item.get("symbol")
                 if not symbol:
                     continue
@@ -638,6 +642,9 @@ def _openfigi_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]
     results = data.get("data", []) if isinstance(data, dict) else []
     matches: List[Dict[str, Any]] = []
     for item in results:
+        # 非 dict 毒条目按条跳过（同 R107）
+        if not isinstance(item, dict):
+            continue
         symbol = item.get("ticker")
         if not symbol:
             continue
@@ -666,6 +673,9 @@ def _eodhd_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]]:
         return []
     matches: List[Dict[str, Any]] = []
     for item in data[: max(limit, 5)]:
+        # 非 dict 毒条目按条跳过（同 R107）
+        if not isinstance(item, dict):
+            continue
         symbol = item.get("Code") or item.get("code")
         exchange = item.get("Exchange") or item.get("exchange") or ""
         if symbol and exchange and "." not in symbol:

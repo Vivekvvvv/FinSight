@@ -133,3 +133,100 @@ def test_get_financial_statements_redacts_partial_table_warnings(monkeypatch, ca
     assert all(item.endswith(":RuntimeError") for item in result["warnings"])
     assert sentinel not in str(result)
     assert sentinel not in caplog.text
+
+
+# ── R115：ticker 解析各数据源毒条目按条跳过 ──────────────────────────
+
+
+class _LookupResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def _patch_no_other_sources(monkeypatch):
+    monkeypatch.setattr(financial, "OPENFIGI_API_KEY", "")
+    monkeypatch.setattr(financial, "EODHD_API_KEY", "")
+    monkeypatch.setattr(financial, "finnhub_client", None)
+    monkeypatch.setattr(financial, "search", lambda *a, **k: "")
+
+
+def test_resolve_ticker_finnhub_skips_poison_items(monkeypatch):
+    """R115：finnhub symbol_lookup 混入非 dict 条目——item.get 的
+    AttributeError 落进源级 except，该源已收集 matches 全丢退到 search。"""
+    _patch_no_other_sources(monkeypatch)
+    monkeypatch.setattr(
+        financial,
+        "finnhub_client",
+        types.SimpleNamespace(
+            symbol_lookup=lambda _q: {
+                "result": [
+                    {
+                        "displaySymbol": "AAPL",
+                        "description": "Apple Inc",
+                        "type": "Common Stock",
+                        "primaryExchange": "NASDAQ",
+                    },
+                    "junk-entry",
+                    None,
+                ]
+            }
+        ),
+    )
+
+    res = financial.resolve_company_ticker("apple")
+
+    assert res["source"] == "finnhub", "毒条目不得把 finnhub 源整体丢弃"
+    assert [m["symbol"] for m in res["matches"]] == ["AAPL"]
+
+
+def test_resolve_ticker_openfigi_skips_poison_items(monkeypatch):
+    """R115 同缺陷类：openfigi data 混入非 dict 条目——.get AttributeError
+    逃逸出 _openfigi_symbol_lookup 被调用方 except 吞掉，整源丢失。"""
+    _patch_no_other_sources(monkeypatch)
+    monkeypatch.setattr(financial, "OPENFIGI_API_KEY", "key")
+    monkeypatch.setattr(
+        financial,
+        "_http_post",
+        lambda *a, **k: _LookupResp(
+            {
+                "data": [
+                    {"ticker": "AAPL", "name": "Apple", "exchCode": "US"},
+                    "junk-entry",
+                    None,
+                ]
+            }
+        ),
+    )
+
+    res = financial.resolve_company_ticker("apple")
+
+    assert res["source"] == "openfigi", "毒条目不得把 openfigi 源整体丢弃"
+    assert [m["symbol"] for m in res["matches"]] == ["AAPL"]
+
+
+def test_resolve_ticker_eodhd_skips_poison_items(monkeypatch):
+    """R115 同缺陷类：eodhd list 混入非 dict 条目 → 整源丢失退到 search。"""
+    _patch_no_other_sources(monkeypatch)
+    monkeypatch.setattr(financial, "EODHD_API_KEY", "key")
+    monkeypatch.setattr(
+        financial,
+        "_http_get",
+        lambda *a, **k: _LookupResp(
+            [
+                {"Code": "AAPL", "Exchange": "NASDAQ", "Name": "Apple"},
+                42,
+                None,
+            ]
+        ),
+    )
+
+    res = financial.resolve_company_ticker("apple")
+
+    assert res["source"] == "eodhd", "毒条目不得把 eodhd 源整体丢弃"
+    assert [m["symbol"] for m in res["matches"]] == ["AAPL.NASDAQ"]
