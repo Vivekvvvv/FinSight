@@ -636,3 +636,24 @@ def test_parse_user_endpoints_parses_string_bool_flags():
     assert [ep.name for ep in endpoints] == ['on-ep']
     # raw_url="false" 不应被当成完整 URL——/v1 非 chat/completions 结尾
     assert endpoints[0].raw_url is False
+
+
+def test_llm_binding_is_reclaimed_when_instance_is_garbage_collected():
+    """_LLM_BINDINGS 以 id(llm) 为键、条目只增不删——llm 被 GC 后条目永久残留
+    （进程级无界增长；且陈旧 id 被新对象复用时 report_llm_* 误命中陈旧端点）。
+    绑定对象析构后，其条目应被自动清理。"""
+    import gc
+
+    llm_config = _reload_llm_config()
+    llm_config._LLM_BINDINGS.clear()
+
+    class _FakeLLM:
+        pass
+
+    llm = _FakeLLM()
+    llm_config.bind_llm_instance(llm, 'ep-a')
+    assert llm_config._LLM_BINDINGS.get(id(llm)) == 'ep-a'
+
+    del llm
+    gc.collect()
+    assert llm_config._LLM_BINDINGS == {}

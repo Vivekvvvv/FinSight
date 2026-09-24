@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import time
+import weakref
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from uuid import uuid4
@@ -253,6 +254,16 @@ _LLM_BINDINGS: dict[int, str] = {}
 _LLM_BINDINGS_LOCK = threading.Lock()
 
 
+def _drop_llm_binding(llm_key: int) -> None:
+    """llm 实例被 GC 时清掉其端点绑定。
+
+    _LLM_BINDINGS 以 id(llm) 为键——实例死后条目不清理会无界增长，且陈旧
+    id 被新对象复用时 report_llm_* 会误命中陈旧端点，把无关端点冷却/恢复。
+    """
+    with _LLM_BINDINGS_LOCK:
+        _LLM_BINDINGS.pop(llm_key, None)
+
+
 def _safe_endpoint_name(value: Any, default_name: str) -> str:
     text = str(value or "").strip()
     return text or default_name
@@ -420,8 +431,15 @@ def get_llm_config(provider: str | None = None, model: str | None = None) -> dic
 
 
 def bind_llm_instance(llm: Any, endpoint_name: str) -> None:
+    key = id(llm)
     with _LLM_BINDINGS_LOCK:
-        _LLM_BINDINGS[id(llm)] = endpoint_name
+        _LLM_BINDINGS[key] = endpoint_name
+    try:
+        # finalize 自持注册表（无需保存返回值），llm 析构时回调清理绑定。
+        weakref.finalize(llm, _drop_llm_binding, key)
+    except TypeError:
+        # 不可弱引用对象（某些测试桩/内置类型）无法注册回调——维持旧行为。
+        pass
 
 
 def report_llm_success(llm: Any) -> None:
