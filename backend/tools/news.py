@@ -261,6 +261,10 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
         if news:
             items = []
             for article in news:
+                # 非 dict 毒条目按条跳过，否则 .get 抛 AttributeError
+                # 落进方法级 except，已收集的 items 全丢（同 R107）。
+                if not isinstance(article, dict):
+                    continue
                 title = article.get('title', 'No title')
                 snippet = article.get('summary') or article.get('description') or ""
                 if not _headline_is_useful(title, snippet):
@@ -296,6 +300,9 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
             if news:
                 items = []
                 for article in news:
+                    # 非 dict 毒条目按条跳过（同方法1/R107）
+                    if not isinstance(article, dict):
+                        continue
                     title = article.get('headline', 'No title')
                     snippet = article.get('summary') or ""
                     if not _headline_is_useful(title, snippet):

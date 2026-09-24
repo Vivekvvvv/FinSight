@@ -129,3 +129,71 @@ def test_get_company_news_skips_poison_av_feed_items(monkeypatch):
     titles = [str(it.get("title")) for it in items]
     assert any("Alpha beats" in t for t in titles)
     assert any("Beta rises" in t for t in titles)
+
+
+def test_get_company_news_skips_non_dict_feed_items(monkeypatch):
+    """R109 回归：yfinance/Finnhub 分支混入非 dict 条目不得毁掉整批。
+
+    article.get(...) 对字符串/None 条目抛 AttributeError，落进方法级
+    except 后该分支已收集的 items 全丢（与 R107/R108 同缺陷类）。"""
+    search_called = []
+    monkeypatch.setattr(
+        news, "search", lambda *a, **k: search_called.append(True) or ""
+    )
+    monkeypatch.setattr(news, "ALPHA_VANTAGE_API_KEY", "")
+
+    class _EmptyResp:
+        def json(self):
+            return {"feed": []}
+
+    monkeypatch.setattr(news, "_http_get", lambda *a, **k: _EmptyResp())
+
+    # ── 方法1: yfinance ────────────────────────────────────────────
+    class _TickerWithPoisonNews:
+        def __init__(self, _symbol):
+            self.news = [
+                {
+                    "title": "Gamma beats estimates",
+                    "summary": "record quarter guidance",
+                    "publisher": "Reuters",
+                    "providerPublishTime": 1758700000,
+                    "link": "https://example.com/g",
+                },
+                "junk-entry",
+                None,
+            ]
+
+    monkeypatch.setattr(news, "yf", types.SimpleNamespace(Ticker=_TickerWithPoisonNews))
+    monkeypatch.setattr(news, "finnhub_client", None)
+
+    items = news.get_company_news("AAPL")
+    assert not search_called, "yfinance 分支毒记录不得毁批"
+    assert any("Gamma beats" in str(it.get("title")) for it in items)
+
+    # ── 方法2: Finnhub ────────────────────────────────────────────
+    class _EmptyTicker:
+        def __init__(self, _symbol):
+            self.news = []
+
+    monkeypatch.setattr(news, "yf", types.SimpleNamespace(Ticker=_EmptyTicker))
+    monkeypatch.setattr(
+        news,
+        "finnhub_client",
+        types.SimpleNamespace(
+            company_news=lambda *a, **k: [
+                {
+                    "headline": "Delta raises outlook",
+                    "summary": "management lifts guidance",
+                    "source": "Finnhub",
+                    "datetime": 1758700000,
+                    "url": "https://example.com/d",
+                },
+                42,
+                None,
+            ]
+        ),
+    )
+
+    items = news.get_company_news("AAPL")
+    assert not search_called, "Finnhub 分支毒记录不得毁批"
+    assert any("Delta raises" in str(it.get("title")) for it in items)
