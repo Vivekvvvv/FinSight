@@ -209,3 +209,17 @@ def test_chat_history_store_instances_share_read_modify_write_lock(tmp_path, mon
     assert not second_thread.is_alive()
     assert second_read_started.is_set()
     assert len(first.list_messages(session_id=session_id)) == 4
+
+
+def test_deeply_nested_history_file_is_quarantined_not_crashing(tmp_path):
+    """同 memory 深嵌套族：超深 JSON 外来落盘触发 RecursionError，
+    _read_payload 的 except 元组不含它会让读取恒 500 且不 .corrupt 备份。"""
+    store = ChatHistoryStore(storage_path=tmp_path)
+    path = store._path_for_session("tenant:u:deep")
+    path.write_text("[" * 8000 + "]" * 8000, encoding="utf-8")
+
+    messages = store.list_messages(session_id="tenant:u:deep")
+
+    assert messages == []
+    assert not path.exists()
+    assert len(list(tmp_path.glob("*.corrupt"))) == 1

@@ -167,7 +167,7 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
                     return {"success": True, "config": _redact_config(saved_config)}
                 except FileNotFoundError:
                     pass
-                except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError) as exc:
                     _backup_corrupt_config(config_file, exc)
 
             return {
@@ -228,7 +228,7 @@ def create_config_router(deps: ConfigRouterDeps) -> APIRouter:
                         raise ValueError("config payload must be a JSON object")
                 except FileNotFoundError:
                     pass
-                except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError) as exc:
                     _backup_corrupt_config(config_file, exc)
 
                 # Only allow whitelisted keys from user input

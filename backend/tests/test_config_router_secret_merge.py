@@ -189,3 +189,25 @@ def test_llm_config_loader_backs_up_corrupt_user_config(
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8") == corrupt_payload
     assert corrupt_payload not in caplog.text
+
+
+def test_get_config_quarantines_deeply_nested_file(tmp_path, monkeypatch):
+    """超深嵌套 user_config.json（外来落盘）触发 RecursionError——
+    except 元组不含它会让 GET /api/config 恒 500 且不备份。
+    llm_config._load_user_config 同款契约已含 RecursionError。"""
+    import backend.api.config_router as cfg
+    from fastapi.testclient import TestClient
+
+    from backend.api.main import app
+
+    target = tmp_path / "user_config.json"
+    target.write_text("[" * 8000 + "]" * 8000, encoding="utf-8")
+    monkeypatch.setattr(cfg, "USER_CONFIG_PATH", str(target))
+
+    with TestClient(app) as client:
+        response = client.get("/api/config")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert not target.exists()
+    assert len(list(tmp_path.glob("user_config.json.*.corrupt"))) == 1

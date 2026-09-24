@@ -269,3 +269,20 @@ def test_explicit_storage_path_overrides_env(monkeypatch, tmp_path):
     explicit_path = str(tmp_path / "explicit")
     service = MemoryService(storage_path=explicit_path)
     assert service.storage_path == explicit_path
+
+
+def test_deeply_nested_profile_file_is_quarantined_not_crashing(tmp_path):
+    """超深嵌套 JSON 外来落盘（写侧 json.dump 同限值先行失败，API 写不进，
+    但手工/外部工具可落盘）触发 RecursionError——except 元组不含它会让
+    get_user_profile 直接抛出：文件永不 .corrupt 备份、每读恒 500 死循环。
+    llm_config._load_user_config 同款契约已含 RecursionError。"""
+    svc = MemoryService(storage_path=str(tmp_path))
+    path = tmp_path / "deep_user.json"
+    path.write_text("[" * 8000 + "]" * 8000, encoding="utf-8")
+
+    profile = svc.get_user_profile("deep_user")
+
+    assert profile.user_id == "deep_user"
+    assert profile.risk_tolerance == "medium"
+    assert not path.exists()
+    assert len(list(tmp_path.glob("deep_user.json.*.corrupt"))) == 1

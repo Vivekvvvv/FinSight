@@ -157,7 +157,7 @@ class ChatHistoryStore:
                 not isinstance(item, dict) for item in messages
             ):
                 raise ValueError("chat history messages must be a list of objects")
-        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError) as exc:
             backup_path = path.with_name(f"{path.name}.{uuid4().hex}.corrupt")
             os.replace(path, backup_path)
             logger.warning('Backed up corrupt chat history file')

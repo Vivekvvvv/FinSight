@@ -123,7 +123,7 @@ class MemoryService:
                         raise ValueError("profile preferences must be an object")
                     data["user_id"] = normalized_user_id
                     return UserProfile.from_dict(data)
-                except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError) as e:
                     backup_path = f"{file_path}.{uuid4().hex}.corrupt"
                     os.replace(file_path, backup_path)
                     logger.warning(
