@@ -328,12 +328,17 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
         params = {'function': 'NEWS_SENTIMENT', 'tickers': ticker, 'limit': limit, 'apikey': ALPHA_VANTAGE_API_KEY}
         response = _http_get(url, params=params, timeout=10)
         data = response.json()
-        if 'feed' in data and data['feed']:
+        feed = data.get('feed')
+        if isinstance(feed, list) and feed:
             items = []
-            for article in data['feed']:
-                title = article.get('title', 'No title')
-                source = article.get('source', 'Unknown')
-                date_str = article.get('time_published', '')[:8]
+            for article in feed:
+                # 单条毒记录（非 dict / present-None 字段）按条跳过；
+                # 否则落进方法级 except 会连已收集的 items 一起丢（同 R107）。
+                if not isinstance(article, dict):
+                    continue
+                title = article.get('title') or 'No title'
+                source = article.get('source') or 'Unknown'
+                date_str = str(article.get('time_published') or '')[:8]
                 if date_str:
                     date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
                 snippet = article.get('summary') or ""
