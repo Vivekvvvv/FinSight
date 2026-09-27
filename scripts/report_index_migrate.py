@@ -154,10 +154,13 @@ def run_migration(db_path: Path, backup_path: Path | None = None) -> dict[str, A
         shutil.copy2(db_path, backup_path)
         backup_created = True
 
-    with sqlite3.connect(str(db_path)) as conn:
+    conn = sqlite3.connect(str(db_path))
+    try:
         report_meta = _ensure_report_index(conn)
         citation_meta = _ensure_citation_index(conn)
         conn.commit()
+    finally:
+        conn.close()
 
     return {
         "ok": True,
