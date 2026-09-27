@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from backend.tools import tencent_provider
 
 
@@ -23,7 +25,8 @@ def test_fetch_cn_top_list_uses_current_eastmoney_datacenter(monkeypatch):
                 "result": {
                     "data": [
                         {
-                            "TRADE_DATE": "2026-06-26 00:00:00",
+                            # 相对今天生成——写死日期会随 max_age_days=90 窗口过期变定时炸弹
+                            "TRADE_DATE": (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00"),
                             "SECURITY_CODE": "000001",
                             "SECURITY_NAME_ABBR": "平安银行",
                             "EXPLANATION": "日涨幅偏离值达到7%的前5只证券",
