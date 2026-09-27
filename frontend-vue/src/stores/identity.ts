@@ -10,17 +10,28 @@ const TOKEN_KEY = 'finsight-access-token';
 
 function readStorage(key: string, fallback = ''): string {
   if (typeof window === 'undefined') return fallback;
-  return window.localStorage.getItem(key) || fallback;
+  // localStorage 在隐私模式/企业策略/沙箱 iframe 下访问会抛 SecurityError：
+  // store 初始化就在这里读（ref(readStorage(...))），不兜住首个
+  // useIdentityStore() 即崩、依赖页面全部白屏——同 client.ts/theme.ts 兜底。
+  try {
+    return window.localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function writeStorage(key: string, value: string): void {
   if (typeof window === 'undefined') return;
   const normalized = String(value || '').trim();
-  if (!normalized) {
-    window.localStorage.removeItem(key);
-    return;
+  try {
+    if (!normalized) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, normalized);
+  } catch {
+    // 存储不可用时降级为仅内存态，不阻断登录/登出流程（同 ChatPage 配额兜底）。
   }
-  window.localStorage.setItem(key, normalized);
 }
 
 function normalizeUserId(value: string): string {
@@ -85,7 +96,11 @@ export const useIdentityStore = defineStore('identity', () => {
     role.value = String(payload.role || 'user');
     setUserId(payload.user_id || userId.value);
     if (payload.email) setEmail(payload.email);
-    if (sessionId.value.startsWith('public:anonymous:') || sessionId.value === 'public:anonymous:vue-dev') {
+    // 服务端下发的 session_id 是 require_matching_identity 的校验基准，必须优先采用：
+    // 非 dev 鉴权下前端自造的 session_id 会让所有会话端点返回 403。
+    if (payload.session_id && authType.value !== 'dev') {
+      setSessionId(payload.session_id);
+    } else if (sessionId.value.startsWith('public:anonymous:') || sessionId.value === 'public:anonymous:vue-dev') {
       setSessionId(buildUserSessionId(payload.user_id || userId.value));
     }
   }
@@ -135,12 +150,15 @@ export const useIdentityStore = defineStore('identity', () => {
     } catch {
       // ignore
     }
-    // 清空本地存储
+    // 清空本地存储（逐键 try：存储禁用时 removeItem 也抛，任一失败不应中断登出）
     if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(USER_KEY);
-      window.localStorage.removeItem(SESSION_KEY);
-      window.localStorage.removeItem(EMAIL_KEY);
-      window.localStorage.removeItem(TOKEN_KEY);
+      for (const key of [USER_KEY, SESSION_KEY, EMAIL_KEY, TOKEN_KEY]) {
+        try {
+          window.localStorage.removeItem(key);
+        } catch {
+          // best-effort
+        }
+      }
     }
     userId.value = 'default_user';
     sessionId.value = 'public:anonymous:vue-dev';
