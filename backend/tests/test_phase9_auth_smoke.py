@@ -176,7 +176,7 @@ class Response:
 
 def fake_urlopen(request, **_kwargs):
     url = request if isinstance(request, str) else request.full_url
-    if url.endswith("/api/health"):
+    if url.endswith("/health") and not url.endswith("/api/health"):
         return Response()
     headers = {{}} if isinstance(request, str) else dict(request.header_items())
     if headers.get("X-api-key") == "local-test-key":
@@ -198,3 +198,12 @@ runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
 
     assert result.returncode == 1
     assert "[FAIL] me-valid-key-payload" in result.stdout
+
+
+def test_auth_smoke_health_path_matches_backend_route():
+    """脚本探测的健康路径必须与后端真实路由一致：system_router 无 prefix 只挂
+    /health，/api/health 不存在——此前脚本打 /api/health 恒 404，smoke 对
+    健康后端也必报 health-no-auth 阻断失败。"""
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert '"/health"' in source
+    assert '"/api/health"' not in source

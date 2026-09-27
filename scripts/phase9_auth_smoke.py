@@ -100,8 +100,9 @@ check(
     blocking=True,
 )
 
-# 1. 健康检查（无 auth 要求）
-code, body, ms = req("GET", "/api/health")
+# 1. 健康检查（无 auth 要求）。后端真实路由是 /health（system_router 无 prefix），
+# /api/health 不存在——打错路径会让 health-no-auth 恒 404，smoke 对健康后端也必挂。
+code, body, ms = req("GET", "/health")
 check("health-no-auth", code == 200, f"无需 auth — 期望 200", status_code=code)
 
 # 2. /api/me 无 key（期望 401 或 200 取决于配置）
