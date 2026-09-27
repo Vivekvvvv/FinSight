@@ -58,6 +58,8 @@ except urllib.error.HTTPError as e:
     body_err = e.read().decode(errors="replace")
     print(f"UPLOAD FAIL {e.code}: {body_err}")
     print("UPLOAD_SMOKE: FAIL")
+    sys.exit(1)
 except Exception as ex:
     print(f"UPLOAD ERROR: {ex}")
     print("UPLOAD_SMOKE: FAIL")
+    sys.exit(1)
