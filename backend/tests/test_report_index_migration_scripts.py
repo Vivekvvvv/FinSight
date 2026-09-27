@@ -71,10 +71,16 @@ def test_report_index_rollback_script_restores_backup(tmp_path):
     backup_path = tmp_path / 'report_index.sqlite.pre_migration.bak'
 
     # Original snapshot.
-    with sqlite3.connect(db_path) as conn:
+    # 注意：sqlite3 连接的 with 只管事务 commit/rollback，不会 close——
+    # Windows 下持有句柄会阻止对目标库的原子替换（MoveFileEx 拒绝打开中的文件），
+    # 回滚场景本就要求先停服/断连，这里显式关掉快照连接。
+    conn = sqlite3.connect(db_path)
+    try:
         conn.execute('CREATE TABLE legacy_state(id INTEGER PRIMARY KEY, note TEXT)')
         conn.execute('INSERT INTO legacy_state(note) VALUES (?)', ('before-migrate',))
         conn.commit()
+    finally:
+        conn.close()
 
     backup_path.write_bytes(db_path.read_bytes())
 
@@ -95,4 +101,5 @@ def test_report_index_rollback_script_restores_backup(tmp_path):
         assert 'report_index' not in table_names
 
         restored = conn.execute('SELECT note FROM legacy_state').fetchall()
+    conn.close()
     assert restored == [('before-migrate',)]

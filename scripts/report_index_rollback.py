@@ -47,26 +47,44 @@ def run_rollback(db_path: Path, backup_path: Path | None = None) -> dict[str, An
     restored_from_backup = False
 
     backup_bytes = backup_path.read_bytes()
+    temp_path = Path(f"{db_path}.rollback-{os.getpid()}.tmp")
     last_error: Exception | None = None
     for _ in range(20):
         try:
-            with open(db_path, 'wb') as handle:
+            # 原子恢复（规则1）：temp+fsync+os.replace——原地 open('wb') 截断式
+            # 写入一旦中途失败/崩溃（磁盘满等不会被重试兜住），db_path 留成
+            # 部分残件，回滚工具自己把生产库打坏。
+            with open(temp_path, "wb") as handle:
                 handle.write(backup_bytes)
+                handle.flush()
+                os.fsync(handle.fileno())
+            # sidecar 先于换主库清掉：否则崩溃窗口内恢复体会与旧 WAL 配对，
+            # 下次打开把旧 wal 帧回放进备份库，造出混合态。
+            for suffix in ('-wal', '-shm', '-journal'):
+                try:
+                    _safe_unlink(Path(f"{db_path}{suffix}"), attempts=1)
+                except PermissionError:
+                    # best effort cleanup; rollback result should not fail for sidecar locks
+                    pass
+            os.replace(temp_path, db_path)
             restored_from_backup = True
             break
         except PermissionError as exc:
             last_error = exc
             time.sleep(0.05)
 
-    if not restored_from_backup and last_error is not None:
-        raise last_error
-
-    for suffix in ('-wal', '-shm', '-journal'):
+    if not restored_from_backup:
         try:
-            _safe_unlink(Path(f"{db_path}{suffix}"), attempts=1)
-        except PermissionError:
-            # best effort cleanup; rollback result should not fail for sidecar locks
+            temp_path.unlink()
+        except OSError:
             pass
+        if last_error is not None:
+            # 目标库被进程持有句柄时 os.replace 在 Windows 上恒被拒——此时大声失败
+            # 是对的：旧实现原地截断会把 live 连接已缓存的库覆写成备份字节，
+            # 造成混合态。提示先停服/断连再回滚。
+            raise PermissionError(
+                f"无法原子替换 {db_path}：目标文件可能被进程占用，请先停止占用该库的服务再回滚"
+            ) from last_error
 
     return {
         "ok": True,
