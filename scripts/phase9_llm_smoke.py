@@ -78,46 +78,61 @@ else:
         ms = int((time.monotonic()-t0)*1000)
         log("llm-call", False, str(ex), ms)
 
-# 也通过后端 /api/chat 测试
+# 也通过后端聊天端点测试。后端真实路由是 POST /chat/supervisor
+# （body: ChatRequest.query + session_id），/api/chat 不存在；8766 也不是
+# 后端端口（开发默认 8000，可用 SMOKE_API_BASE 覆盖）。
+# 且 require_matching_identity 会校验 session_id 与 principal——先取
+# /api/me 拿服务端下发的 session，不再硬编码 uid。
 print()
-print("[via backend /api/chat]")
-BASE_API = "http://localhost:8766"
+print("[via backend /chat/supervisor]")
+BASE_API = os.environ.get("SMOKE_API_BASE", "http://localhost:8000")
 API_AUTH = os.environ.get("API_AUTH_SMOKE_KEY", "")
 if not API_AUTH:
     raise SystemExit("API_AUTH_SMOKE_KEY is required")
-UID = "api_292e6a1e82c561d4"
-SESSION = f"private:{UID}:default"
 
-chat_body = json.dumps({
-    "message": "Reply with exactly one word: READY",
-    "session_id": SESSION,
-    "user_id": UID,
-    "stream": False,
-}).encode()
-
-req2 = urllib.request.Request(
-    BASE_API + "/api/chat",
-    data=chat_body,
-    method="POST",
-    headers={
-        "X-API-Key": API_AUTH,
-        "Content-Type": "application/json",
-    }
-)
-t0 = time.monotonic()
+SESSION = ""
 try:
-    with urllib.request.urlopen(req2, timeout=30) as resp:
-        ms = int((time.monotonic()-t0)*1000)
-        data = json.loads(resp.read())
-        reply = data.get("reply") or data.get("content") or data.get("message") or str(data)[:100]
-        log("chat-endpoint", True, f"HTTP 200 reply_len={len(reply)} ({ms}ms)", ms)
-except urllib.error.HTTPError as e:
-    ms = int((time.monotonic()-t0)*1000)
-    body_err = e.read().decode(errors="replace")[:200]
-    log("chat-endpoint", False, f"HTTP {e.code}: {body_err}", ms)
+    me_req = urllib.request.Request(
+        BASE_API + "/api/me",
+        headers={"X-API-Key": API_AUTH},
+    )
+    with urllib.request.urlopen(me_req, timeout=10) as resp_me:
+        me_payload = json.loads(resp_me.read())
+    SESSION = str(me_payload.get("session_id") or "")
+    if not SESSION:
+        raise ValueError("/api/me response missing session_id")
 except Exception as ex:
-    ms = int((time.monotonic()-t0)*1000)
-    log("chat-endpoint", False, str(ex), ms)
+    log("chat-endpoint", False, f"/api/me 取身份失败: {ex}")
+
+if SESSION:
+    chat_body = json.dumps({
+        "query": "Reply with exactly one word: READY",
+        "session_id": SESSION,
+    }).encode()
+
+    req2 = urllib.request.Request(
+        BASE_API + "/chat/supervisor",
+        data=chat_body,
+        method="POST",
+        headers={
+            "X-API-Key": API_AUTH,
+            "Content-Type": "application/json",
+        }
+    )
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(req2, timeout=30) as resp:
+            ms = int((time.monotonic()-t0)*1000)
+            data = json.loads(resp.read())
+            reply = data.get("response") or data.get("reply") or data.get("content") or data.get("message") or str(data)[:100]
+            log("chat-endpoint", True, f"HTTP 200 reply_len={len(reply)} ({ms}ms)", ms)
+    except urllib.error.HTTPError as e:
+        ms = int((time.monotonic()-t0)*1000)
+        body_err = e.read().decode(errors="replace")[:200]
+        log("chat-endpoint", False, f"HTTP {e.code}: {body_err}", ms)
+    except Exception as ex:
+        ms = int((time.monotonic()-t0)*1000)
+        log("chat-endpoint", False, str(ex), ms)
 
 print()
 print("=== 汇总 ===")
