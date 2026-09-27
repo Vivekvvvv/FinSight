@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
 import re
 from datetime import datetime, timezone
@@ -73,9 +74,21 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def save_json(data: dict[str, Any], path: Path) -> None:
+    """原子写入 JSON：临时文件 + fsync + os.replace，避免半截文件损坏 baseline。"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    temp_path = Path(f"{path}.{os.getpid()}.tmp")
+    try:
+        with temp_path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def chunk_text(text: str, chunk_size: int = 300, overlap: int = 50) -> list[str]:
