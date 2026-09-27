@@ -13,6 +13,7 @@
 4. 更新 backend/services/cn_holiday.py
 """
 
+import os
 import re
 import sys
 from datetime import date, datetime
@@ -176,7 +177,8 @@ def parse_workday_overrides(text: str, year: int) -> dict[date, str]:
 def update_cn_holiday_file(
     holidays: dict[date, str],
     workdays: dict[date, str],
-    year: int
+    year: int,
+    file_path: Path | None = None,
 ) -> None:
     """
     更新 backend/services/cn_holiday.py
@@ -185,8 +187,10 @@ def update_cn_holiday_file(
         holidays: 节假日字典
         workdays: 调休工作日字典
         year: 目标年份
+        file_path: 目标文件（默认 cn_holiday.py；测试可注入临时路径）
     """
-    file_path = Path(__file__).parent.parent / "backend" / "services" / "cn_holiday.py"
+    if file_path is None:
+        file_path = Path(__file__).parent.parent / "backend" / "services" / "cn_holiday.py"
 
     if not file_path.exists():
         print(f"文件不存在: {file_path}", file=sys.stderr)
@@ -223,8 +227,22 @@ def update_cn_holiday_file(
             count=1
         )
 
-    # 写回文件
-    file_path.write_text(content, encoding="utf-8")
+    # 写回文件（规则1 原子替换）：cn_holiday.py 被 backend 运行时 import
+    # （historical_data_store/smart_cache），write_text 原地写若中途崩溃
+    # （断电/磁盘满/进程被杀）会留下截断的 .py → import 直接炸掉、后端起不来。
+    temp_path = Path(f"{file_path}.{os.getpid()}.tmp")
+    try:
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, file_path)
+    except OSError:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+        raise
     print(f"✅ 已更新 {file_path}")
     print(f"   - 新增 {len(holidays)} 个节假日")
     print(f"   - 新增 {len(workdays)} 个调休工作日")
