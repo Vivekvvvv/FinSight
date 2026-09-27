@@ -3,12 +3,10 @@ import sys, io, urllib.request, json, time, os
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-BASE = "http://localhost:8766"
+BASE = os.environ.get("SMOKE_API_BASE", "http://localhost:8000")
 API_KEY = os.environ.get("API_AUTH_SMOKE_KEY", "")
 if not API_KEY:
     raise SystemExit("API_AUTH_SMOKE_KEY is required")
-UID = "api_292e6a1e82c561d4"
-SESSION = f"private:{UID}:default"
 
 HEADERS = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
 
@@ -37,6 +35,18 @@ def log(name, ok, detail, ms=0):
     print(f"  [{icon}] {name} ({ms}ms): {detail}")
 
 print("=== Phase 9 Notes Upload Smoke ===\n")
+
+# 0. 取真实身份：UID/SESSION 必须用 /api/me 下发值——服务端会校验
+# session_id/user_id 与 principal 匹配，此前硬编码 api_292e... + 端口
+# 8766（后端是 8000），对任何健康后端全链路必挂。
+code, me, ms = req("GET", "/api/me")
+UID = str(me.get("user_id") or "")
+SESSION = str(me.get("session_id") or "")
+ok = code == 200 and bool(UID) and bool(SESSION)
+log("me-identity", ok, f"HTTP {code} user_id={UID or '-'}", ms)
+if not ok:
+    print("  Cannot continue without authenticated identity")
+    sys.exit(1)
 
 # 1. 创建 note (session_id + user_id 需在 body 里)
 code, data, ms = req("POST", "/api/research-notes", {
