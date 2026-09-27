@@ -232,7 +232,9 @@ const chartOption = computed<EChartsOption>(() => {
 
 async function loadKline(): Promise<void> {
   const symbol = normalizedSymbol.value;
-  if (!/^[A-Z0-9][A-Z0-9._-]{0,19}$/.test(symbol)) {
+  // 首字符允许 ^：后端 is_valid_symbol 字符集含 ^（^GSPC/^IXIC 等指数是
+  // 合法标的且在默认 watchlist 里），此前整条指数类在此被误拦。
+  if (!/^[A-Z0-9^][A-Z0-9._-]{0,19}$/.test(symbol)) {
     response.value = null;
     error.value = '请输入有效标的代码';
     loading.value = false;
