@@ -132,9 +132,25 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _save_json(data: dict[str, Any], path: Path) -> None:
+    """原子写入 JSON：临时文件 + fsync + os.replace。
+
+    baseline.json 是漂移门控的持久参照——truncate-write 中途崩溃会留下
+    半截文件，下一次 _load_json 直接抛异常毁掉整场评估，且原基线无法恢复。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    temp_path = Path(f"{path}.{os.getpid()}.tmp")
+    try:
+        with temp_path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def _safe_mean(values: list[float]) -> float | None:
