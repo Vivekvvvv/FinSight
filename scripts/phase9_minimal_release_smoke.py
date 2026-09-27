@@ -2,7 +2,7 @@
 Phase 9 最小发布确认 Smoke
 包含：Compose config → 密钥检查 → 后端健康 → Auth → LLM → 核心 API → Notes 上传
 """
-import sys, io, re, json, time, urllib.request, subprocess, os, tempfile
+import sys, io, re, json, time, urllib.request, subprocess, os, tempfile, atexit
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -137,6 +137,23 @@ proc = subprocess.Popen(
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL,
 )
+
+
+def _stop_backend_process() -> None:
+    """兜底回收后端子进程。下方只有脚本顺利走到末尾才会显式 terminate；
+    中途任何未捕获异常（api() 只兜 HTTPError，URLError/JSONDecodeError 会
+    直接穿透）都会留下占着 :8899 和 backend/data 句柄的孤儿 uvicorn——
+    后续每次 smoke 都因端口被占而失败。"""
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+
+
+atexit.register(_stop_backend_process)
+
 BASE = "http://127.0.0.1:8899"
 VALID_KEY = SMOKE_KEYS
 
