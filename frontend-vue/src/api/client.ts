@@ -343,9 +343,16 @@ export const apiClient = {
     callbacks: ChatStreamCallbacks,
     options?: { signal?: AbortSignal; idleTimeoutMs?: number },
   ): Promise<void> {
-    const token = typeof window === 'undefined'
-      ? ''
-      : String(window.localStorage.getItem('finsight-access-token') || '').trim();
+    // 与请求拦截器一致：隐私模式/企业策略下 getItem 抛 SecurityError，
+    // 拿不到 token 按未登录继续建流（否则此环境下流式会话必崩）。
+    let token = '';
+    if (typeof window !== 'undefined') {
+      try {
+        token = String(window.localStorage.getItem('finsight-access-token') || '').trim();
+      } catch {
+        token = '';
+      }
+    }
     const response = await fetch(`${API_BASE_URL}/chat/supervisor/stream`, {
       method: 'POST',
       headers: {

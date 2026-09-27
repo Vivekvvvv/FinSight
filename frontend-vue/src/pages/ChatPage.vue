@@ -251,7 +251,11 @@ async function clearChat() {
   traceEvents.value = [];
   errorMsg.value = null;
   if (typeof window !== 'undefined') {
-    window.localStorage.removeItem(chatStorageKey());
+    try {
+      window.localStorage.removeItem(chatStorageKey());
+    } catch {
+      // 存储禁用环境下 removeItem 也抛；本地消息已重置，忽略清库失败。
+    }
   }
   try {
     await apiClient.clearChatHistory(identity.sessionId);
