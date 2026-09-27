@@ -46,5 +46,9 @@ except urllib.error.HTTPError as e:
     body = e.read().decode(errors="replace")
     print(f"LLM_SMOKE: FAIL HTTP {e.code} ({elapsed:.0f}ms)")
     print(f"  detail={body[:300]}")
+    # 失败必须以非 0 退出：此前仅打印 FAIL 就结束 → rc=0，
+    # 作为门禁运行时把坏掉的 LLM 当通过（phase7/phase9 均 sys.exit(1)）。
+    sys.exit(1)
 except Exception as ex:
     print(f"LLM_SMOKE: FAIL — {ex}")
+    sys.exit(1)
