@@ -14,7 +14,7 @@ import contextlib
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -112,7 +112,10 @@ class MonitoringStorage:
                 }
             })
         """
-        timestamp = datetime.utcnow().isoformat()
+        # aware UTC（datetime.now(timezone.utc)）：utcnow() 在 3.12+ 弃用，
+        # 且 naive ISO 是全库最后一个 naive 持久化点——任何 aware 侧比较
+        # （daily_tasks/reports_to_review 修过的那类）都会 TypeError。
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         with _lock, _connect(self.db_path) as conn:
             for source_name, data in sources.items():
@@ -165,7 +168,7 @@ class MonitoringStorage:
                 ...
             ]
         """
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         with _lock, _connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -220,7 +223,7 @@ class MonitoringStorage:
                 ...
             ]
         """
-        cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
         with _lock, _connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -252,7 +255,7 @@ class MonitoringStorage:
             >>> deleted = storage.cleanup_old_records(keep_days=30)
             >>> print(f"已清理 {deleted} 条过期记录")
         """
-        cutoff = (datetime.utcnow() - timedelta(days=keep_days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat()
 
         with _lock, _connect(self.db_path) as conn:
             cursor = conn.execute("""
