@@ -164,10 +164,13 @@ def run_report_index_rollback_rehearsal(*, work_dir: Path) -> dict[str, Any]:
         if candidate.exists():
             candidate.unlink()
 
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path)
+    try:
         conn.execute("CREATE TABLE legacy_state(id INTEGER PRIMARY KEY, note TEXT)")
         conn.execute("INSERT INTO legacy_state(note) VALUES (?)", ("before-migrate",))
         conn.commit()
+    finally:
+        conn.close()
 
     backup_path.write_bytes(db_path.read_bytes())
 
@@ -178,12 +181,15 @@ def run_report_index_rollback_rehearsal(*, work_dir: Path) -> dict[str, Any]:
 
     rollback_result = run_rollback(db_path=db_path, backup_path=backup_path)
 
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path)
+    try:
         table_names = {
             row[0]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         restored_rows = conn.execute("SELECT note FROM legacy_state ORDER BY id ASC").fetchall()
+    finally:
+        conn.close()
 
     pass_data_restore = "legacy_state" in table_names and restored_rows == [("before-migrate",)]
     pass_schema_rollback = "report_index" not in table_names and "citation_index" not in table_names

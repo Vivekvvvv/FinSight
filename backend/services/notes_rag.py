@@ -7,13 +7,14 @@
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from backend.utils.strict_json import json_loads_strict
 
@@ -29,11 +30,21 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant: {value}")
 
 
-def _conn() -> sqlite3.Connection:
+@contextlib.contextmanager
+def _conn() -> Iterator[sqlite3.Connection]:
+    # 裸 Connection 作 with ctxmanager 只提交不关闭，句柄泄漏到外层函数结束
+    # （Windows 上还会挡住 os.replace）。保持 with-conn 语义后关闭。
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(str(_DB_PATH), timeout=30, isolation_level=None)
     c.execute("PRAGMA journal_mode=WAL")
-    return c
+    try:
+        yield c
+        c.commit()
+    except BaseException:
+        c.rollback()
+        raise
+    finally:
+        c.close()
 
 
 def _ensure_table() -> None:

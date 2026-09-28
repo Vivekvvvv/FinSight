@@ -50,6 +50,15 @@ def test_research_notes_connect_closes(tmp_path, monkeypatch):
     _assert_closed(conn)
 
 
+def test_notes_rag_conn_closes(tmp_path, monkeypatch):
+    from backend.services import notes_rag as module
+
+    monkeypatch.setattr(module, "_DB_PATH", tmp_path / "nr.db")
+    with module._conn() as conn:
+        conn.execute("SELECT 1")
+    _assert_closed(conn)
+
+
 def test_report_index_connect_closes(tmp_path, monkeypatch):
     monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "ri.db"))
     from backend.services.report_index import ReportIndexStore
