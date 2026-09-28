@@ -134,7 +134,7 @@ def test_price_change_scheduler_skips_when_below_threshold(subscription_service_
     assert subs_list[0].get("last_alert_at") is None
 
 
-@pytest.mark.parametrize("threshold", ["nan", "inf", "-inf", 0, -1])
+@pytest.mark.parametrize("threshold", ["nan", "inf", "-inf", 0, -1, True, False])
 def test_price_change_scheduler_rejects_invalid_stored_threshold(
     subscription_service_tmp,
     threshold,
@@ -158,6 +158,60 @@ def test_price_change_scheduler_rejects_invalid_stored_threshold(
 
     assert scheduler.run_once() == []
     assert email.sent == []
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("price", True), ("price", False), ("change_percent", True)],
+)
+def test_price_change_scheduler_rejects_boolean_snapshot_fields(
+    subscription_service_tmp, field, value
+):
+    """bool 是 int 子类：price=True 会被 float() 收成 1.0 通过正数检查，
+    在 price_target 模式等于把现价当成 $1 比较；change_percent=True→1.0
+    在低阈值下会发出 "+1.00%" 的假告警。"""
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=0.5,
+    )
+    snapshot = PriceSnapshot(ticker="AAPL", price=105.0, change_percent=6.0)
+    setattr(snapshot, field, value)
+    scheduler = PriceChangeScheduler(service, email, lambda _ticker: snapshot)
+
+    assert scheduler.run_once() == []
+    assert email.sent == []
+
+
+def test_price_change_scheduler_rejects_boolean_stored_price_target(subscription_service_tmp):
+    """存量/手工订阅行可能带 bool price_target（schemas 只挡新写入）：
+    True→1.0 时 direction=above 几乎必然触发并永久置 fired。"""
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        alert_mode="price_target",
+        price_target=100.0,
+        direction="above",
+    )
+    service.subscriptions["user@example.com"][0]["price_target"] = True
+    service._save_subscriptions()
+
+    scheduler = PriceChangeScheduler(
+        service,
+        email,
+        lambda _ticker: PriceSnapshot(ticker="AAPL", price=101.0, change_percent=0.2),
+    )
+
+    assert scheduler.run_once() == []
+    assert email.sent == []
+    stored = service.get_subscriptions("user@example.com")[0]
+    assert stored.get("price_target_fired") is not True
 
 
 @pytest.mark.parametrize(

@@ -136,6 +136,11 @@ class PriceChangeScheduler:
                 continue
             if snapshot is None:
                 continue
+            # bool 是 int 子类：True 会被 float() 收成 1.0 通过有限性/正数检查，
+            # 在 price_target 模式里等于把价格当成 $1 比较——provider 返回布尔
+            # 属于脏数据，按本条订阅跳过处理（同 TypeError/非有限值路径）。
+            if isinstance(snapshot.price, bool):
+                continue
             try:
                 snapshot_price = float(snapshot.price)
             except (TypeError, ValueError, OverflowError):
@@ -152,7 +157,9 @@ class PriceChangeScheduler:
                 if bool(sub.get("price_target_fired")):
                     continue
                 price_target = sub.get("price_target")
-                if price_target is None or snapshot.price is None:
+                # 存量/手工订阅行可能带 bool（schemas 只挡新写入）：True→1.0 会让
+                # direction=above 的目标价几乎必然触发并永久置 fired。
+                if price_target is None or isinstance(price_target, bool) or snapshot.price is None:
                     continue
                 try:
                     price_target_payload = float(price_target)
@@ -174,7 +181,8 @@ class PriceChangeScheduler:
                 )
             else:
                 threshold = sub.get("price_threshold")
-                if threshold is None:
+                # 同上：存量 bool 阈值 True→1.0 会把告警灵敏度改成 1%。
+                if threshold is None or isinstance(threshold, bool):
                     continue
                 try:
                     threshold_payload = float(threshold)
@@ -184,7 +192,7 @@ class PriceChangeScheduler:
                     continue
                 if self._is_cooling_down(sub):
                     continue
-                if snapshot.change_percent is None:
+                if snapshot.change_percent is None or isinstance(snapshot.change_percent, bool):
                     continue
                 try:
                     change_percent = float(snapshot.change_percent)
