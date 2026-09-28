@@ -124,7 +124,11 @@ def _resolve_thread_id(session_id: Optional[str]) -> str:
 
 
 def _cleanup_session_contexts(now_ts: Optional[float] = None) -> None:
-    now = now_ts if now_ts is not None else time.time()
+    # TTL 驱逐是区间计时，必须用单调钟：time.time() 随系统时钟跳变——
+    # 前跳把 now-last_access 瞬间推过 ttl_seconds，全部活跃会话上下文
+    # 被一次清空（resolve_reference 指代链静默断）；后跳则永不回收
+    # （同 23310e7/389d176 单调钟修复类）。
+    now = now_ts if now_ts is not None else time.monotonic()
     ttl_minutes = max(1, _env_int("SESSION_CONTEXT_TTL_MINUTES", 240))
     ttl_seconds = ttl_minutes * 60
     max_threads = max(16, _env_int("SESSION_CONTEXT_MAX_THREADS", 1000))
@@ -154,7 +158,7 @@ def _cleanup_session_contexts(now_ts: Optional[float] = None) -> None:
 
 def _get_session_context(session_id: str) -> ContextManager:
     with _reference_lock:
-        now = time.time()
+        now = time.monotonic()
         _cleanup_session_contexts(now)
         manager = _reference_contexts.get(session_id)
         if manager is None:

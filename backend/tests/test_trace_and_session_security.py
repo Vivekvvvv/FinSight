@@ -121,6 +121,33 @@ def test_session_context_isolation_blocks_cross_session_reference(monkeypatch):
     assert resolved_b == "它的估值如何"
 
 
+def test_session_context_ttl_survives_wall_clock_jump(monkeypatch):
+    """TTL 驱逐用 time.time() 测区间：系统时钟前跳（w32time 大步进/手动
+    改时/VM 恢复快照）把 now-last_access 瞬间推过 ttl_seconds——所有
+    活跃会话的 ContextManager 被一次清空，resolve_reference 指代链全断
+    （"它"→解析不回 ticker，追问上下文静默丢失）；后跳则上下文永久驻留。
+    区间计时必须用单调钟（同 23310e7/389d176 修复类）。"""
+    main = _load_main_module()
+    session_context_module = importlib.import_module("backend.api.session_context")
+    wall = {"t": 1_000_000.0}
+    monkeypatch.setattr(session_context_module.time, "time", lambda: wall["t"])
+    monkeypatch.setattr(main, "agent", None, raising=False)
+    main._reference_contexts.clear()
+    main._reference_context_last_access.clear()
+
+    main._update_session_context(
+        thread_id="tenant-a:user-a:thread-a",
+        original_query="苹果怎么样",
+        response_markdown="AAPL 基本面改善",
+        subject={"tickers": ["AAPL"]},
+    )
+
+    wall["t"] += 3600.0 * 10  # 时钟前跳 10h——远超 TTL 但真实经过 ~0s
+
+    resolved = main._resolve_query_reference("它的估值如何", "tenant-a:user-a:thread-a")
+    assert "AAPL" in resolved
+
+
 def test_rag_collection_name_uses_session_key_shape():
     exec_node = importlib.import_module('backend.graph.nodes.execute_plan_stub')
 
