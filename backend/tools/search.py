@@ -31,7 +31,12 @@ def _is_quota_error(message: str) -> bool:
 
 
 def _is_provider_blocked(blocked_until: float) -> bool:
-    return blocked_until > time.time()
+    # 配额冷却是区间计时，必须用单调钟：time.time() 随系统时钟跳变——
+    # 前跳把 blocked_until 瞬间推成过去式，刚熔断的额度耗尽源立刻被放行，
+    # 每次 search() 都先打一次注定失败的付费 API 往返；后跳则源被永久
+    # 屏蔽不再恢复。blocked_until 纯进程内全局量、无序列化消费者。
+    # （同 23310e7/389d176/58464b1 单调钟修复类）
+    return blocked_until > time.monotonic()
 
 # Search dependencies (optional)
 try:
@@ -115,7 +120,7 @@ def search(query: str) -> str:
         except Exception as e:
             error_msg = str(e) if e else "未知错误"
             if _is_quota_error(error_msg):
-                _EXA_QUOTA_BLOCKED_UNTIL = time.time() + max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS)
+                _EXA_QUOTA_BLOCKED_UNTIL = time.monotonic() + max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS)
                 logger.warning("[Search] Exa quota exhausted; temporarily disabled")
             logger.info("[Search] Exa 搜索失败: %s", type(e).__name__)
 
@@ -140,7 +145,7 @@ def search(query: str) -> str:
         except Exception as e:
             error_msg = str(e) if e else "未知错误"
             if _is_quota_error(error_msg):
-                _TAVILY_QUOTA_BLOCKED_UNTIL = time.time() + max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS)
+                _TAVILY_QUOTA_BLOCKED_UNTIL = time.monotonic() + max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS)
                 logger.warning("[Search] Tavily quota exhausted; temporarily disabled")
             # 忽略 Tavily 错误，继续尝试下一个源
             logger.info("[Search] Tavily 搜索失败: %s", type(e).__name__)
