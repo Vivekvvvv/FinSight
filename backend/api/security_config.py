@@ -158,7 +158,11 @@ class SimpleRateLimiter:
         self.limit = max(1, safe_int(limit_per_window, 1) or 1)
         self.window_seconds = max(1, safe_int(window_seconds, 1) or 1)
         self._buckets: dict[str, deque[float]] = {}
-        self._last_cleanup = time.time()
+        # 窗口计时必须用单调钟：time.time() 随系统时钟跳变——前跳把所有
+        # bucket 条目瞬间推过 window，各 key 配额整体重置（限流洞开）；
+        # 后跳 now<bucket[0]，条目永不过期，满桶 key 持续 429 到时钟追平。
+        # 桶内时间戳纯进程内使用、无序列化消费者（retry_after 只出秒数）。
+        self._last_cleanup = time.monotonic()
 
     def _cleanup(self, now: float) -> None:
         if now - self._last_cleanup < self.window_seconds:
@@ -179,7 +183,7 @@ class SimpleRateLimiter:
         return cls(limit_per_window=limit, window_seconds=window_seconds, enabled=enabled)
 
     def allow(self, key: str) -> tuple[bool, Optional[int]]:
-        now = time.time()
+        now = time.monotonic()
         self._cleanup(now)
         bucket = self._buckets.setdefault(key, deque())
         while bucket and now - bucket[0] >= self.window_seconds:

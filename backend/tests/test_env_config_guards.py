@@ -140,6 +140,56 @@ def test_rate_limiter_invalid_environment_uses_defaults(monkeypatch):
     assert limiter.window_seconds == 60
 
 
+def test_rate_limiter_window_survives_wall_clock_jump_backward(monkeypatch):
+    """限流桶时间戳用 time.time() 存：系统时钟后跳（VM 快照恢复/手动改时/
+    NTP 大步回拨）把 now 拉到 bucket 条目之前——now-bucket[0]<0 → 条目永不
+    过期 → 该 key 满桶后持续 429 直到墙钟追平（真实已过窗口仍拒=按 key 的
+    持久拒绝服务）。窗口计时是纯进程内区间测量，须用单调钟（同 23310e7/
+    389d176/108c5f7 修复类）。"""
+    from backend.api import security_config
+    from backend.api.security_config import SimpleRateLimiter
+
+    wall = {"t": 5_000_000.0}
+    mono = {"t": 1_000.0}
+    monkeypatch.setattr(security_config.time, "time", lambda: wall["t"])
+    monkeypatch.setattr(security_config.time, "monotonic", lambda: mono["t"])
+
+    limiter = SimpleRateLimiter(limit_per_window=2, window_seconds=60)
+    assert limiter.allow("client-a")[0] is True
+    assert limiter.allow("client-a")[0] is True
+    assert limiter.allow("client-a")[0] is False  # 满桶
+
+    mono["t"] += 61.0   # 真实经过 61s——窗口已过
+    wall["t"] -= 300.0  # 墙钟反而后跳 5min
+
+    allowed, _ = limiter.allow("client-a")
+    assert allowed is True
+
+
+def test_rate_limiter_quota_not_reset_by_wall_clock_jump_forward(monkeypatch):
+    """墙钟前跳（w32time 大步进/VM 恢复快照）把 now-bucket[0] 瞬间推过
+    window_seconds——所有 key 的已用配额被一次清空：刚打满限额的客户端
+    立刻再获全额配额，限流计数整体重置=暴力破解/滥发窗口洞开。"""
+    from backend.api import security_config
+    from backend.api.security_config import SimpleRateLimiter
+
+    wall = {"t": 5_000_000.0}
+    mono = {"t": 1_000.0}
+    monkeypatch.setattr(security_config.time, "time", lambda: wall["t"])
+    monkeypatch.setattr(security_config.time, "monotonic", lambda: mono["t"])
+
+    limiter = SimpleRateLimiter(limit_per_window=2, window_seconds=60)
+    assert limiter.allow("client-b")[0] is True
+    assert limiter.allow("client-b")[0] is True
+    assert limiter.allow("client-b")[0] is False  # 满桶
+
+    wall["t"] += 3600.0  # 墙钟前跳 1h——远超窗口但真实经过 ~0
+    mono["t"] += 0.5
+
+    allowed, _ = limiter.allow("client-b")
+    assert allowed is False
+
+
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
 def test_report_quality_float_environment_rejects_non_finite(monkeypatch, value):
     from backend.report.evidence_policy import _env_float as evidence_env_float
