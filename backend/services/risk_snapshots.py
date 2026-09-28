@@ -56,35 +56,38 @@ def _ensure_snapshots_table(db_path: Path = DEFAULT_DB_PATH) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = _connect(db_path)
-    cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS risk_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            snapshot_date TEXT NOT NULL,
-            risk_score INTEGER NOT NULL,
-            total_value REAL,
-            total_cost REAL,
-            concentration_risk_count INTEGER DEFAULT 0,
-            loss_positions_count INTEGER DEFAULT 0,
-            stale_research_count INTEGER DEFAULT 0,
-            missing_coverage_count INTEGER DEFAULT 0,
-            full_data TEXT,
-            created_at TEXT NOT NULL,
-            UNIQUE(session_id, user_id, snapshot_date)
-        )
-    """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS risk_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                snapshot_date TEXT NOT NULL,
+                risk_score INTEGER NOT NULL,
+                total_value REAL,
+                total_cost REAL,
+                concentration_risk_count INTEGER DEFAULT 0,
+                loss_positions_count INTEGER DEFAULT 0,
+                stale_research_count INTEGER DEFAULT 0,
+                missing_coverage_count INTEGER DEFAULT 0,
+                full_data TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(session_id, user_id, snapshot_date)
+            )
+        """)
 
-    # 创建索引加速查询
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_snapshots_session_date
-        ON risk_snapshots(session_id, user_id, snapshot_date DESC)
-    """)
+        # 创建索引加速查询
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_snapshots_session_date
+            ON risk_snapshots(session_id, user_id, snapshot_date DESC)
+        """)
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        # 建表失败也要关连接——WAL 模式下未关句柄会泄漏并占文件锁
+        conn.close()
 
 
 @_synchronized

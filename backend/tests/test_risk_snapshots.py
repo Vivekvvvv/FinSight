@@ -323,6 +323,36 @@ def test_latest_snapshot_handles_corrupt_full_data(
     assert "invalid stored risk snapshot" in caplog.text
 
 
+def test_ensure_snapshots_table_closes_connection_on_execute_error(monkeypatch, tmp_path):
+    """建表 SQL 抛错时连接必须关闭——否则 WAL 文件句柄/锁泄漏（同 5fd4aed 修的那类）。"""
+    import sqlite3
+
+    from backend.services import risk_snapshots
+
+    closed = []
+
+    class _FakeCursor:
+        def execute(self, *args, **kwargs):
+            raise sqlite3.OperationalError("disk I/O error")
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+        def commit(self):
+            pass
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(risk_snapshots, "_connect", lambda db_path: _FakeConn())
+
+    with pytest.raises(sqlite3.OperationalError):
+        risk_snapshots._ensure_snapshots_table(tmp_path / "snap.db")
+
+    assert closed == [True]
+
+
 def test_history_skips_legacy_non_finite_summary(tmp_path, caplog):
     import sqlite3
 
