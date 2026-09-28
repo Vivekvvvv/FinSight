@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 import numpy as np
@@ -29,7 +30,10 @@ def _market_value(position: dict[str, Any]) -> float:
     shares = safe_float(position.get("shares"))
     avg_cost = safe_float(position.get("avg_cost"))
     if shares is not None and shares > 0 and avg_cost is not None and avg_cost > 0:
-        return shares * avg_cost
+        value = shares * avg_cost
+        # 乘积可溢出 inf（两有限大数相乘）——按本函数"无效值归 0"惯例处理，
+        # 不让单个坏行把 total_val 拖成 inf 致整表 no_data。
+        return value if math.isfinite(value) else 0.0
     return 0.0
 
 
@@ -50,7 +54,19 @@ def _fetch_returns(ticker: str, period: str = "1y") -> list[float] | None:
                 closes.append(close)
         if len(closes) < 30:
             return None
-        return [(closes[i] - closes[i - 1]) / closes[i - 1] for i in range(1, len(closes))]
+        # 导出收益率也要过有限护栏：close 只保证有限且 >0，c0 为极小有限值
+        # （如 1e-320）时 c1/c0 比值溢出 inf——带 inf 的 returns 进 np.std/cov
+        # 产 nan，污染 beta/sigma/总量指标直出 API（json.dumps 吐 NaN 字面量）。
+        returns = [
+            r for r in (
+                (closes[i] - closes[i - 1]) / closes[i - 1]
+                for i in range(1, len(closes))
+            )
+            if math.isfinite(r)
+        ]
+        if len(returns) < 30:
+            return None
+        return returns
     except Exception as e:
         logger.debug("_fetch_returns failed: %s", type(e).__name__)
         return None
@@ -61,11 +77,16 @@ def _ols_beta(r_stock: np.ndarray, r_market: np.ndarray) -> tuple[float, float]:
     n = min(len(r_stock), len(r_market))
     rs, rm = r_stock[-n:], r_market[-n:]
     var_m = float(np.var(rm, ddof=1))
-    if var_m < 1e-12:
-        return 1.0, float(np.std(rs, ddof=1))
+    # var_m 也会溢出 inf（收益率量级极端但有限，平方超 float64 上限）：
+    # inf<1e-12 为 False 会漏进 np.cov → inf/inf → beta=nan。
+    if not math.isfinite(var_m) or var_m < 1e-12:
+        idio_fallback = float(np.std(rs, ddof=1))
+        return 1.0, idio_fallback if math.isfinite(idio_fallback) else 0.0
     beta = float(np.cov(rs, rm, ddof=1)[0, 1] / var_m)
     residuals = rs - beta * rm
     idio_vol = float(np.std(residuals, ddof=1))
+    if not (math.isfinite(beta) and math.isfinite(idio_vol)):
+        return 1.0, 0.0
     return beta, idio_vol
 
 
@@ -89,12 +110,19 @@ def calculate_risk_attribution(
         return _empty_result()
 
     total_val = sum(_market_value(p) for p in positions)
-    if total_val <= 0:
+    # total_val 可溢出 inf（shares*avg_cost 乘积超上限）——inf/inf 产生
+    # nan 权重直出 positions[].weight。
+    if not math.isfinite(total_val) or total_val <= 0:
         return _empty_result()
 
     # 拉取市场基准
     market_rets = _fetch_returns(market_ticker, period)
     sigma_market = float(np.std(market_rets, ddof=1)) if market_rets else 0.0
+    # 收益率量级极端但有限时 np.std 平方溢出 inf——sigma=inf 经
+    # weight*beta*sigma 链全量污染 market_risk_contrib/total_portfolio_vol，
+    # 且 inf>0 会让 method 误标 "ols"；归 0 落 simplified。
+    if not math.isfinite(sigma_market):
+        sigma_market = 0.0
 
     pos_details: list[dict] = []
     sector_map: dict[str, float] = {}

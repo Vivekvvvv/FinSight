@@ -67,6 +67,64 @@ def test_fetch_returns_rejects_oversized_ticker_before_provider():
     provider.assert_not_called()
 
 
+def test_fetch_returns_filters_derived_non_finite_returns():
+    """close 只经 safe_float(有限)+>0 过滤——导出收益率 c1/c0 在 c0 为极小
+    有限值（如 1e-320）时比值溢出 inf：returns 带 inf 进 np.std/cov 产 nan，
+    污染 beta/sigma_market/total_portfolio_vol → API 响应吐 NaN 字面量。"""
+    from backend.services.risk_attribution import _fetch_returns
+
+    closes = [100.0] * 30 + [1e-320, 200.0]  # 200/1e-320 → inf
+    rows = [{"close": c} for c in closes]
+    with patch(
+        "backend.tools.get_stock_historical_data",
+        return_value={"kline_data": rows},
+    ):
+        returns = _fetch_returns("AAPL")
+
+    assert returns is not None
+    assert all(np.isfinite(r) for r in returns)
+
+
+def test_ols_beta_falls_back_on_non_finite_variance():
+    """收益率量级极端但有限（如 1e160）时 np.var 平方溢出 inf——
+    var_m=inf 绕过 <1e-12 护栏进 np.cov → inf/inf → beta=nan 写进
+    positions[].beta（round(nan)=nan）。"""
+    from backend.services.risk_attribution import _ols_beta
+    rng = np.random.default_rng(0)
+    rm = rng.normal(0, 1e160, 100)
+    rs = rng.normal(0, 1e160, 100)
+
+    beta, idio = _ols_beta(rs, rm)
+
+    assert np.isfinite(beta)
+    assert np.isfinite(idio)
+
+
+def test_calculate_risk_attribution_survives_extreme_return_magnitudes():
+    """量级极端但有限的收益率使 np.std→inf：sigma_market=inf →
+    market_risk_contrib=inf → total_portfolio_vol=inf、market_pct=nan
+    直出 /api/portfolio/risk-attribution（json.dumps 吐 NaN/Infinity）。"""
+    from backend.services.risk_attribution import calculate_risk_attribution
+
+    huge = [1e160, -1e160] * 50  # 非常量：np.std 平方溢出 inf
+    with patch(
+        "backend.services.risk_attribution._fetch_returns",
+        return_value=huge,
+    ):
+        result = calculate_risk_attribution(
+            [{"ticker": "AAPL", "market_value": 10000, "sector": "科技"}]
+        )
+
+    assert np.isfinite(result["total_portfolio_vol"])
+    assert np.isfinite(result["market_risk_pct"])
+    assert np.isfinite(result["idiosyncratic_risk_pct"])
+    for pos in result["positions"]:
+        for key in ("weight", "beta", "market_risk_contrib", "idio_risk_contrib"):
+            assert np.isfinite(pos[key]), f"{key} 非有限"
+    for sec in result["sector_attribution"]:
+        assert np.isfinite(sec["risk_contribution"])
+
+
 # ── calculate_risk_attribution 测试 ──────────────────────────────────────────
 
 def test_risk_attribution_empty_positions():
