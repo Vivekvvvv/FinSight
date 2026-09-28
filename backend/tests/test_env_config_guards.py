@@ -40,6 +40,7 @@ def test_numeric_env_modules_use_guarded_defaults(monkeypatch):
     import json
     import subprocess
     import sys
+    from pathlib import Path
 
     monkeypatch.setenv("DEEPSEARCH_MAX_RESULTS", "bad")
     monkeypatch.setenv("DEEPSEARCH_LLM_TOKEN_TIMEOUT_SECONDS", "NaN")
@@ -66,6 +67,9 @@ print(json.dumps([
         check=True,
         capture_output=True,
         text=True,
+        # 子进程从 cwd 解析 backend 包——pytest 若从 backend/ 起跑，
+        # cwd 下没有 backend/ 目录会让 import 直接 ModuleNotFoundError
+        cwd=str(Path(__file__).resolve().parents[2]),
     )
     assert json.loads(completed.stdout.strip().splitlines()[-1]) == [8, 500.0, 45.0, 3, 587]
 
@@ -74,6 +78,7 @@ def test_tool_modules_survive_invalid_numeric_environment(monkeypatch):
     import json
     import subprocess
     import sys
+    from pathlib import Path
 
     monkeypatch.setenv("AUTHORITATIVE_FEED_TIMEOUT", "bad")
     monkeypatch.setenv("MACRO_OFFICIAL_MAX_SOURCES", "0")
@@ -111,6 +116,7 @@ print(json.dumps([
         check=True,
         capture_output=True,
         text=True,
+        cwd=str(Path(__file__).resolve().parents[2]),
     )
     assert json.loads(completed.stdout.strip().splitlines()[-1]) == [
         10,
