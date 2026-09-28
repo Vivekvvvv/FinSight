@@ -216,8 +216,10 @@ def simulate_llm_endpoint_failover_drill() -> dict[str, Any]:
     llm_config = importlib.reload(llm_config)
 
     now = {"t": 1_000.0}
-    original_time_fn = llm_config.time.time
-    llm_config.time.time = lambda: now["t"]
+    # llm_config 冷却计时已换单调钟（墙钟跳变会提前解除冷却）——演练要
+    # 模拟冷却过期必须注假 monotonic，patch time.time 不再生效。
+    original_time_fn = llm_config.time.monotonic
+    llm_config.time.monotonic = lambda: now["t"]
 
     try:
         primary = llm_config.EndpointConfig(
@@ -270,7 +272,7 @@ def simulate_llm_endpoint_failover_drill() -> dict[str, Any]:
             "pass": bool(pass_failover and pass_recovery),
         }
     finally:
-        llm_config.time.time = original_time_fn
+        llm_config.time.monotonic = original_time_fn
 
 
 def run_security_final_checks(

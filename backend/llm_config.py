@@ -182,12 +182,16 @@ class EndpointConfig:
 @dataclass
 class EndpointRuntime:
     cfg: EndpointConfig
-    cooldown_until: float = 0.0
+    cooldown_until: float = 0.0  # 单调钟截止点，不是 Unix 时间戳——勿序列化
     current_weight: int = 0
 
     @property
     def is_available(self) -> bool:
-        return self.cfg.enabled and time.time() >= self.cooldown_until
+        # 冷却计时必须用 time.monotonic()：time.time() 随系统时钟跳变——
+        # NTP 校正/手动改时/VM 恢复快照的前跳会把 cooldown_until 变过去式，
+        # 刚熔断的死端点立刻重回轮换；后跳则冷却无限延长（同
+        # circuit_breaker 区间计时缺陷类，此处 deadline 纯内部使用可安全换钟）。
+        return self.cfg.enabled and time.monotonic() >= self.cooldown_until
 
 
 @dataclass
@@ -235,7 +239,7 @@ class EndpointManager:
             for ep in self.endpoints:
                 if ep.cfg.name != endpoint_name:
                     continue
-                ep.cooldown_until = time.time() + max(1, safe_int(ep.cfg.cooldown_sec, 1) or 1)
+                ep.cooldown_until = time.monotonic() + max(1, safe_int(ep.cfg.cooldown_sec, 1) or 1)
                 ep.current_weight = 0
                 logger.warning('[LLM Rotation] endpoint cooling down')
                 return
@@ -243,7 +247,7 @@ class EndpointManager:
     def report_success(self, endpoint_name: str) -> None:
         with self.lock:
             for ep in self.endpoints:
-                if ep.cfg.name == endpoint_name and ep.cooldown_until > 0 and time.time() >= ep.cooldown_until:
+                if ep.cfg.name == endpoint_name and ep.cooldown_until > 0 and time.monotonic() >= ep.cooldown_until:
                     ep.cooldown_until = 0.0
                     logger.info("[LLM Rotation] endpoint restored")
                     return

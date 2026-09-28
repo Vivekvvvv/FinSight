@@ -103,7 +103,8 @@ def test_weighted_round_robin_order():
 def test_failover_cools_down_primary_and_uses_backup(monkeypatch):
     llm_config = _reload_llm_config()
     now = {'t': 1000.0}
-    monkeypatch.setattr(llm_config.time, 'time', lambda: now['t'])
+    # 冷却计时用单调钟——interval 测量不能用 time.time()（系统时钟可跳变）。
+    monkeypatch.setattr(llm_config.time, 'monotonic', lambda: now['t'])
 
     ep_a = llm_config.EndpointConfig(
         name='primary',
@@ -139,7 +140,7 @@ def test_failover_cools_down_primary_and_uses_backup(monkeypatch):
 def test_recovery_after_cooldown(monkeypatch):
     llm_config = _reload_llm_config()
     now = {'t': 1000.0}
-    monkeypatch.setattr(llm_config.time, 'time', lambda: now['t'])
+    monkeypatch.setattr(llm_config.time, 'monotonic', lambda: now['t'])
 
     ep = llm_config.EndpointConfig(
         name='primary',
@@ -160,6 +161,36 @@ def test_recovery_after_cooldown(monkeypatch):
     now['t'] = 1031.0
     llm_config._ENDPOINT_MANAGER.report_success('primary')  # type: ignore[attr-defined]
     assert runtime.cooldown_until == 0.0
+
+
+def test_cooldown_survives_wall_clock_jump_forward(monkeypatch):
+    """端点冷却是区间计时，必须用单调钟：time.time() 会被系统时钟前跳
+    （w32time 大步进/手动改时/VM 恢复快照）瞬间推过 cooldown_until——
+    刚熔断的故障端点立刻被 is_available 判 True 重回轮换（每次 LLM 调用
+    都走 select→is_available），对已知死端点 retry-storm；后跳则冷却
+    无限延长。单调钟不受墙钟跳变影响。"""
+    llm_config = _reload_llm_config()
+    wall = {'t': 1_000_000.0}
+    monkeypatch.setattr(llm_config.time, 'time', lambda: wall['t'])
+
+    ep = llm_config.EndpointConfig(
+        name='dead',
+        provider='openai_compatible',
+        api_base='https://dead.example.com/v1',
+        api_key='test-key',
+        model='m',
+        weight=1,
+        enabled=True,
+        cooldown_sec=60,
+    )
+    _reset_manager(llm_config, [ep])
+    llm_config._ENDPOINT_MANAGER.report_failure('dead', reason='503')  # type: ignore[attr-defined]
+
+    wall['t'] += 3600.0  # 冷却中段系统时钟前跳 1 小时
+
+    runtime = llm_config._ENDPOINT_MANAGER.endpoints[0]  # type: ignore[attr-defined]
+    assert not runtime.is_available, "墙钟前跳不得提前解除冷却"
+    assert llm_config._ENDPOINT_MANAGER.select().name == 'dead'  # type: ignore[attr-defined]  # 全员冷却兜底仍选它，但不应标记 available
 
 
 def test_get_llm_config_raises_when_all_sources_empty(monkeypatch):
