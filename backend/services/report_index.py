@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -7,7 +8,7 @@ import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Iterator
 
 from backend.report.quality_engine import apply_quality_to_report
 from backend.utils.quote import safe_float, safe_int
@@ -131,7 +132,8 @@ class ReportIndexStore:
     def path(self) -> str:
         return self._path
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         # WAL + busy_timeout：report_index 是核心用户数据（报告索引）。单例，
         # 但读方法（list_reports / get_report_replay / list_citations /
         # count_reports_since）不持 self._lock，与写方法（upsert_report 的
@@ -139,11 +141,21 @@ class ReportIndexStore:
         # journal + 默认 5s 超时）会抛 database is locked，读端点
         # （report_router / timeline_service / what_changed / research_quality）
         # 故障。WAL 让读写并发、busy_timeout 兜底（R55/R56 同类，R69）。
+        # 注意：裸 Connection 作 with ctxmanager 只提交不关闭——句柄泄漏到
+        # 外层函数结束，Windows 上还会挡住 os.replace（report_index_rollback
+        # 回滚目标正是本库）。保持 with-conn 语义（正常 commit/异常 rollback）后关闭。
         conn = sqlite3.connect(self._path, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _column_exists(self, conn: sqlite3.Connection, table: str, column: str) -> bool:
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()

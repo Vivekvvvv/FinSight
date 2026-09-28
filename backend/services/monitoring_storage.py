@@ -10,12 +10,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sqlite3
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from backend.utils.quote import safe_float, safe_int
 
@@ -31,11 +32,21 @@ DB_PATH = Path(__file__).parent.parent.parent / "data" / "monitoring.db"
 _lock = threading.RLock()
 
 
-def _connect(db_path: Path | str) -> sqlite3.Connection:
+@contextlib.contextmanager
+def _connect(db_path: Path | str) -> Iterator[sqlite3.Connection]:
+    # 裸 Connection 作 with ctxmanager 只提交不关闭，句柄泄漏到外层函数结束
+    # （Windows 上还会挡住 os.replace）。保持 with-conn 语义后关闭。
     conn = sqlite3.connect(str(db_path), timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 class MonitoringStorage:

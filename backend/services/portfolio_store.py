@@ -8,6 +8,7 @@ and migration coupling.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -15,7 +16,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from backend.utils.quote import safe_float
 from backend.utils.strict_json import json_loads_strict
@@ -113,10 +114,20 @@ def _parse_stored_tags(value: object) -> list[str]:
     return _normalize_tags(parsed) or []
 
 
-def _connect() -> sqlite3.Connection:
+@contextlib.contextmanager
+def _connect() -> Iterator[sqlite3.Connection]:
+    # 裸 Connection 作 with ctxmanager 只提交不关闭，句柄泄漏到外层函数结束
+    # （Windows 上还会挡住 os.replace）。保持 with-conn 语义后关闭。
     conn = _get_conn()
-    _ensure_tables(conn)
-    return conn
+    try:
+        _ensure_tables(conn)
+        yield conn
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ── Portfolio positions CRUD ────────────────────────────────

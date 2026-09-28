@@ -9,12 +9,13 @@ A股历史K线数据下载与缓存服务
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sqlite3
 import threading
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterator
 
 from backend.services.cn_holiday import is_cn_holiday
 from backend.utils.quote import safe_float, safe_int
@@ -28,11 +29,23 @@ _bs_lock = threading.Lock()
 _table_ready = False
 
 
-def _conn() -> sqlite3.Connection:
+@contextlib.contextmanager
+def _conn() -> Iterator[sqlite3.Connection]:
+    # with sqlite3.connect() 只提交不关闭——裸 Connection 作 ctxmanager 会把
+    # 句柄留到外层函数结束，Windows 上还会挡住 os.replace/文件轮换（同
+    # report_index_migrate/release_drills 已证实的缺陷类）。保持
+    # with-conn 语义：正常退出 commit、异常 rollback，再关闭。
     os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
     c = sqlite3.connect(_DB_PATH, timeout=30, isolation_level=None)
     c.execute("PRAGMA journal_mode=WAL")
-    return c
+    try:
+        yield c
+        c.commit()
+    except BaseException:
+        c.rollback()
+        raise
+    finally:
+        c.close()
 
 
 def _ensure_table() -> None:
