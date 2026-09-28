@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 # 延迟导入避免循环依赖
 _storage = None
+_prometheus_update = None
 
 def _get_storage():
     global _storage
@@ -33,7 +34,30 @@ def _get_storage():
             _storage = False  # 标记为失败，避免重复尝试
     return _storage if _storage is not False else None
 
+
+def _get_prometheus_update():
+    """懒加载 prometheus_exporter.update_data_source_health。
+
+    monitoring/rules/alerts.yml 的 4 条数据源告警全靠它喂的三个 gauge；
+    exporter 不可用时静默降级（监控导出不能反过来弄断数据通路）。
+    """
+    global _prometheus_update
+    if _prometheus_update is None:
+        try:
+            from backend.monitoring.prometheus_exporter import update_data_source_health
+            _prometheus_update = update_data_source_health
+        except Exception as e:
+            logger.warning("Prometheus exporter 初始化失败: %s", type(e).__name__)
+            _prometheus_update = False
+    return _prometheus_update if _prometheus_update is not False else None
+
+
 DataSourceType = Literal["tencent", "yahoo", "demo", "unknown"]
+
+# DataSourceMetrics.status（4 档字符串）→ exporter 文档化的 3 档整型
+# （0=down, 1=degraded, 2=healthy）。warning(70-90%) 归 2：功能正常档；
+# 其 <80% 段由 LowDataSourceSuccessRate 走 success_rate gauge 单独捕获。
+_STATUS_CODE = {"critical": 0, "degraded": 1, "warning": 2, "healthy": 2}
 
 
 @dataclass
@@ -90,6 +114,20 @@ class DataSourceMonitor:
         # 对计数/列表/降级集合的读改写须持锁（实例锁在真单例下有效）。
         self._lock = threading.RLock()
 
+    def _export_prometheus(self, source: DataSourceType, m: DataSourceMetrics) -> None:
+        """把该源最新指标同步到 Prometheus gauge（须在 _lock 内调用）。
+
+        只导出有真实流量的源——零流量源不落盘，否则 success_rate=0 会被
+        告警当成"完全不可用"误报。
+        """
+        update = _get_prometheus_update()
+        if update is None:
+            return
+        try:
+            update(source, _STATUS_CODE[m.status], m.success_rate, m.avg_response_time_ms)
+        except Exception as e:
+            logger.debug("Prometheus 指标更新失败（非致命）: %s", type(e).__name__)
+
     def record_success(self, source: DataSourceType, response_time_ms: float = 0.0):
         """记录成功请求"""
         if source not in self._metrics:
@@ -115,6 +153,8 @@ class DataSourceMonitor:
                 self._degraded_sources.discard(source)
                 logger.info("[Monitor] source 已恢复健康状态")
 
+            self._export_prometheus(source, m)
+
     def record_failure(self, source: DataSourceType, error_msg: str = ""):
         """记录失败请求"""
         if source not in self._metrics:
@@ -131,6 +171,8 @@ class DataSourceMonitor:
             if m.consecutive_failures >= 3 and source not in self._degraded_sources:
                 self._degraded_sources.add(source)
             logger.warning("[Monitor] source degraded")
+
+            self._export_prometheus(source, m)
 
     def should_use_source(self, source: DataSourceType) -> bool:
         """判断是否应该使用该数据源"""
