@@ -529,6 +529,13 @@ async def security_gate(request: Request, call_next):
 
     return await call_next(request)
 
+# API 指标中间件：先于 CORS 注册 → 夹在 CORS 与 security_gate 之间，
+# 能记录 401/429（security_gate 在其内层短路也会过 send_wrapper），
+# 又看不到 CORS 预检（预检在最外层就被 CORS 终结，不会进来）。
+# alerts.yml 的 HighAPIErrorRate/SlowAPIResponse/HighActiveRequests 全靠它。
+from backend.api.metrics_middleware import ApiMetricsMiddleware
+app.add_middleware(ApiMetricsMiddleware)
+
 # CORS 必须在 security_gate 之后注册（Starlette 后注册者在最外层）：
 # 若在内层，生产模式下浏览器预检 OPTIONS（不带鉴权头）会先被 security_gate
 # 401 拦下且响应缺 CORS 头——跨域部署的前端完全无法调用，真实鉴权错误
