@@ -81,3 +81,54 @@ def test_short_history_ticker_marked_failed_not_500(monkeypatch):
 
     assert "IPO20" not in result["tickers"]
     assert any("IPO20" in w for w in result.get("warnings", []))
+
+
+def test_optimize_endpoint_filters_derived_non_finite_returns(monkeypatch):
+    """close 只经 safe_float(有限)+>0 过滤——c0 为极小有限值（1e-320）时
+    c1/c0 导出收益率比值溢出 inf：inf 进 returns_matrix → np.cov/mean 产
+    nan → 前沿点/max_sharpe/min_vol/eq_baseline 全吐 NaN → 响应 JSON 出
+    NaN 字面量（同 895e341 risk_attribution 派生溢出修复类）。"""
+    import backend.tools as tools_mod
+    from backend.api.portfolio_router import (
+        PortfolioOptimizeRequest,
+        optimize_portfolio_endpoint,
+    )
+    from backend.services import portfolio_optimizer
+
+    rows = [{"close": c} for c in ([100.0] * 30 + [1e-320, 200.0])]
+    monkeypatch.setattr(
+        tools_mod,
+        "get_stock_historical_data",
+        lambda *args, **kwargs: {"kline_data": rows},
+    )
+    captured: dict = {}
+
+    def _fake_optimize(**kwargs):
+        captured.update(kwargs)
+        return {"success": True}
+
+    monkeypatch.setattr(portfolio_optimizer, "optimize_portfolio", _fake_optimize)
+
+    optimize_portfolio_endpoint(
+        PortfolioOptimizeRequest(tickers=["AAA", "BBB"], n_simulations=100)
+    )
+
+    assert captured["returns_matrix"]
+    for series in captured["returns_matrix"]:
+        assert all(math.isfinite(r) for r in series), f"inf 导出收益率泄漏: {series}"
+
+
+def test_optimize_portfolio_rejects_non_finite_returns_input():
+    """优化器入口无有限校验：nan/inf 收益率进 np.mean/cov → 响应体吐
+    NaN/Infinity（任何调用方，不止路由）。直接拒绝比产出畸形结果更安全。"""
+    import pytest
+
+    with pytest.raises(ValueError, match="非有限"):
+        optimize_portfolio(
+            returns_matrix=[
+                [0.01] * 25,
+                [float("inf")] * 25,
+            ],
+            tickers=["A", "B"],
+            n_simulations=50,
+        )

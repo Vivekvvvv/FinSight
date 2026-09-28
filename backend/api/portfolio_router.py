@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import re
 from typing import Annotated, Any
@@ -415,7 +416,22 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
             if len(closes) < 21:
                 failed.append(t)
                 continue
-            daily_returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
+            # 导出收益率也要过有限护栏：close 只保证有限且 >0，c0 为极小
+            # 有限值（如 1e-320）时 c1/c0 比值溢出 inf——inf 进 returns_matrix
+            # 经 np.cov/mean 产 nan，前沿点/夏普组合全吐 NaN 进响应 JSON
+            # （同 895e341 risk_attribution 派生溢出修复类）。
+            daily_returns = [
+                r for r in (
+                    (closes[i] - closes[i - 1]) / closes[i - 1]
+                    for i in range(1, len(closes))
+                )
+                if math.isfinite(r)
+            ]
+            # 过滤后再核门槛：剔除溢出点可能使有效收益率 <20，按数据不足
+            # 计入 failed（同 21 收盘价门槛语义），别让 optimizer 抛 500。
+            if len(daily_returns) < 20:
+                failed.append(t)
+                continue
             returns_matrix.append(daily_returns)
         except Exception as e:
             logger.warning("获取历史数据失败")

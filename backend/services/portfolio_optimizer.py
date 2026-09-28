@@ -44,6 +44,11 @@ def optimize_portfolio(
 
     if arr.shape[0] != n or arr.shape[1] < 20:
         raise ValueError(f"数据不足：需要至少20天历史数据，当前 {arr.shape[1]} 天")
+    # 非有限输入（inf/nan 收益率）会让 np.cov/mean 产 nan——前沿点/最大
+    # 夏普/相关系数全吐 NaN 进响应 JSON（前端 JSON.parse 崩）。入口拒收
+    # 比产出畸形结果安全（路由侧已过滤，此处兜任何调用方）。
+    if not np.isfinite(arr).all():
+        raise ValueError("收益率矩阵含非有限值")
 
     mean_returns = arr.mean(axis=1) * _TRADING_DAYS           # 年化期望收益
     cov_matrix   = np.cov(arr) * _TRADING_DAYS                # 年化协方差矩阵
