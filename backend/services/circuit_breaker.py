@@ -29,8 +29,8 @@ HALF_OPEN = "HALF_OPEN"
 class _CircuitState:
     state: str = CLOSED
     failures: int = 0
-    last_failure_ts: float = 0.0  # Unix timestamp
-    opened_at_ts: float = 0.0     # Unix timestamp
+    last_failure_ts: float = 0.0  # 单调钟读数（进程内区间计时，非 epoch）
+    opened_at_ts: float = 0.0     # 单调钟读数（进程内区间计时，非 epoch）
     half_open_successes: int = 0
 
 
@@ -75,7 +75,11 @@ class CircuitBreaker:
         """
         with self._lock:
             state = self._states.get(source, _CircuitState())
-            now = time.time()
+            # 熔断冷却是区间计时，必须用单调钟：time.time() 随系统时钟
+            # 跳变——前跳把 opened_at_ts 变过去式瞬间解除熔断（对已知故障
+            # 源 retry-storm），后跳则永不恢复（同 23310e7 llm_config
+            # cooldown_until 修复类）。
+            now = time.monotonic()
 
             if state.state == OPEN:
                 # Initialize opened_at if missing (defensive)
@@ -100,7 +104,7 @@ class CircuitBreaker:
         """Increment failure count and open the circuit when threshold is reached."""
         with self._lock:
             state = self._states.get(source, _CircuitState())
-            now = time.time()
+            now = time.monotonic()
 
             state.failures += 1
             state.last_failure_ts = now
@@ -151,7 +155,7 @@ class CircuitBreaker:
         """Return a snapshot of the circuit state for diagnostics."""
         with self._lock:
             state = self._states.get(source, _CircuitState())
-            now = time.time()
+            now = time.monotonic()
 
             cooldown_remaining = 0.0
             recovery_timeout = self._get_recovery_timeout(source)

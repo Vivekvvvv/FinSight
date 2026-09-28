@@ -79,6 +79,24 @@ def test_reset_on_success():
     print("[OK] 成功调用后状态重置")
 
 
+def test_cooldown_survives_wall_clock_jump_forward(monkeypatch):
+    """OPEN 冷却用 time.time() 测区间：系统时钟前跳（w32time 大步进/手动改时/
+    VM 恢复快照）把 opened_at_ts 变成"很久以前"，elapsed>=recovery_timeout
+    立刻判真——刚熔断的上游源被放进 HALF_OPEN 探测，对已知故障源
+    retry-storm；后跳则熔断永不恢复。区间计时必须用单调钟
+    （同 23310e7 llm_config cooldown_until 修复类）。"""
+    wall = {"t": 1_000_000.0}
+    monkeypatch.setattr(time, "time", lambda: wall["t"])
+
+    cb = CircuitBreaker(failure_threshold=1, recovery_timeout=60)
+    cb.record_failure("alpha")
+
+    wall["t"] += 3600.0  # 冷却中段系统时钟前跳 1 小时
+
+    assert cb.can_call("alpha") is False, "墙钟前跳不得提前解除熔断"
+    assert cb.get_state("alpha")["state"] == "OPEN"
+
+
 def run_all_tests():
     """运行全部测试"""
     print("=" * 60)
