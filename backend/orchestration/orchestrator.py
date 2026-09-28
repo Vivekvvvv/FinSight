@@ -33,6 +33,24 @@ from backend.metrics import (
 
 logger = logging.getLogger(__name__)
 
+_prometheus_module = None
+
+
+def _get_prometheus_module():
+    """懒加载 prometheus_exporter。
+
+    backend.metrics 在 prometheus_client 缺席时能降级成 no-op；直接顶层
+    import exporter 反而会让整条取数链路在缺依赖时炸掉，故同样懒加载+禁用。
+    """
+    global _prometheus_module
+    if _prometheus_module is None:
+        try:
+            from backend.monitoring import prometheus_exporter
+            _prometheus_module = prometheus_exporter
+        except Exception:
+            _prometheus_module = False
+    return _prometheus_module if _prometheus_module is not False else None
+
 
 def _positive_env_int(name: str, default: int) -> int:
     try:
@@ -118,6 +136,7 @@ class ToolOrchestrator:
         self._stats = {
             'total_requests': 0,
             'cache_hits': 0,
+            'cache_misses': 0,
             'fallback_used': 0,
             'total_failures': 0,
             'sources': {},  # name -> {'calls': int, 'success': int, 'fail': int}
@@ -189,6 +208,29 @@ class ToolOrchestrator:
         """Set tools module and reinitialize sources."""
         self.tools_module = tools_module
         self._init_sources()
+
+    def _export_cache_metrics(self, data_type: str, *, hit: bool) -> None:
+        """把缓存命中/未命中同步到 Prometheus（调用方须先更新 _stats）。
+
+        finsight_cache_hits_total/misses_total 计数 + finsight_cache_hit_rate
+        gauge——alerts.yml 的 LowCacheHitRate 全靠后者，此前没有任何调用方。
+        命中率用进程单例的 _stats 累计值算，避免按单次写 0/100 抖动。
+        """
+        pe = _get_prometheus_module()
+        if pe is None:
+            return
+        try:
+            if hit:
+                pe.record_cache_hit(data_type)
+            else:
+                pe.record_cache_miss(data_type)
+            hits = self._stats['cache_hits']
+            misses = self._stats['cache_misses']
+            total = hits + misses
+            if total > 0:
+                pe.update_cache_hit_rate(data_type, hits / total * 100.0)
+        except Exception as exc:
+            logger.debug("prometheus cache metric export failed: %s", type(exc).__name__)
     
     def _build_data_context(
         self,
@@ -255,6 +297,7 @@ class ToolOrchestrator:
             if cached_data is not None:
                 self._stats['cache_hits'] += 1
                 increment_cache_hit(data_type)
+                self._export_cache_metrics(data_type, hit=True)
                 trace_emitter.emit_cache_hit(cache_key, source="orchestrator")
                 # cache created_at not stored directly; approximate with current time
                 cached_as_of = now_iso
@@ -287,6 +330,11 @@ class ToolOrchestrator:
         
         sources = self.sources.get(data_type, [])
         if not sources:
+            # force_refresh 是绕缓存不是真 miss——health_probe 周期任务若计入，
+            # 会持续把命中率拉低造成 LowCacheHitRate 误报。
+            if not force_refresh:
+                self._stats['cache_misses'] += 1
+                self._export_cache_metrics(data_type, hit=False)
             trace_emitter.emit_cache_miss(f"{data_type}:{ticker}", source="orchestrator")
             return self._fallback_direct_call(data_type, ticker, start_time)
         
@@ -322,6 +370,9 @@ class ToolOrchestrator:
         last_error = None
 
         # Emit cache miss trace before iterating through live sources
+        if not force_refresh:
+            self._stats['cache_misses'] += 1
+            self._export_cache_metrics(data_type, hit=False)
         trace_emitter.emit_cache_miss(f"{data_type}:{ticker}", source="orchestrator")
 
         for i, source in enumerate(sources):
