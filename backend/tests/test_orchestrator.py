@@ -136,12 +136,12 @@ def test_fetch_with_fallback():
         DataSource('mock_fail', mock_source_fail, 1, 60),      # 优先级高但会失败
         DataSource('mock_success', mock_source_success, 2, 60), # 备用
     ]
-    
+
     result = orchestrator.fetch('price', 'AAPL')
-    
+
     assert result.success == True
     assert result.source == 'mock_success', "应该回退到 mock_success"
-    
+
     stats = orchestrator.get_stats()
     assert stats['orchestrator']['fallback_used'] == 1, "应该记录一次回退"
     
@@ -411,6 +411,53 @@ def test_r97_all_sources_empty_sets_last_error_and_negative_cache():
     second = orchestrator.fetch('price', 'NOTICKER')
     assert second.source == "negative_cache", "空结果应负缓存，避免重打上游"
     assert calls["n"] == 1, "负缓存命中后不应再调用数据源"
+
+
+def test_source_cooldown_survives_wall_clock_jump_backward(monkeypatch):
+    """源冷却/健康跳过的 last_fail 锚点用 naive datetime.now()（墙钟）：
+    系统时钟后跳（w32time 回校/NTP 回拨/VM 恢复快照）把 elapsed 拉成负数，
+    elapsed<cooldown_seconds 恒真——刚故障的源被永久跳过直到墙钟追平，
+    数据源静默失能（用户只见"所有源失败"）；前跳则 elapsed 瞬间过窗，
+    死源立刻被重试。last_fail 的 datetime 形态被 get_stats 的 .isoformat()
+    序列化消费（展示契约），区间计时须另用单调钟锚点（同 23310e7/389d176/
+    58464b1/35553af 修复类）。"""
+    import backend.orchestration.orchestrator as orch_mod
+    from datetime import datetime as _dt
+
+    wall = {"t": 1_700_000_000.0}
+    mono = {"t": 1_000.0}
+
+    class _FakeDatetime(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return _dt.fromtimestamp(wall["t"], tz=tz)
+
+    monkeypatch.setattr(orch_mod, "datetime", _FakeDatetime)
+    monkeypatch.setattr(orch_mod.time, "monotonic", lambda: mono["t"])
+
+    calls = {"n": 0}
+
+    def _flaky(_ticker):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise Exception("upstream down")
+        return f"{_ticker} Current Price: $150.00 | Change: $2.50 (+1.69%)"
+
+    orchestrator = ToolOrchestrator()
+    orchestrator.sources['price'] = [
+        DataSource('flaky', _flaky, 1, 60, cooldown_seconds=300),
+    ]
+
+    first = orchestrator.fetch('price', 'AAPL', force_refresh=True)
+    assert first.success is False
+    assert calls["n"] == 1
+
+    wall["t"] -= 3600.0  # 墙钟后跳 1h——last_fail 瞬间变成"未来时刻"
+    mono["t"] += 301.0   # 真实经过 301s > cooldown 300——冷却应已结束
+
+    second = orchestrator.fetch('price', 'AAPL', force_refresh=True)
+    assert calls["n"] == 2, "冷却真实结束后必须重试该源"
+    assert second.success is True
 
 
 def run_all_tests():

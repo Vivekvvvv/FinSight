@@ -73,6 +73,10 @@ class DataSource:
     total_successes: int = 0
     cooldown_seconds: int = 0
     last_fail: Optional[datetime] = None
+    # last_fail 的 datetime 被 get_stats 按 .isoformat() 序列化展示，不能换型；
+    # 冷却/健康跳过的区间计时另用单调钟锚点——墙钟后跳会把 elapsed 拉负，
+    # 故障源被永久跳过（静默失能）；前跳则瞬间过窗、死源立刻重试。
+    last_fail_monotonic: Optional[float] = None
 
 
 @dataclass
@@ -346,7 +350,6 @@ class ToolOrchestrator:
         def _latency_penalty(src: DataSource) -> float:
             return 0.0
         
-        now_dt = datetime.now()
         sorted_sources = []
         for src in sources:
             # Health-aware skip: temporarily skip unstable sources during cooldown window
@@ -354,8 +357,8 @@ class ToolOrchestrator:
             if (
                 src.total_calls >= self.health_min_calls
                 and fr >= self.health_fail_rate_threshold
-                and src.last_fail
-                and (now_dt - src.last_fail).total_seconds() < self.health_skip_seconds
+                and src.last_fail_monotonic is not None
+                and (time.monotonic() - src.last_fail_monotonic) < self.health_skip_seconds
             ):
                 continue
             sorted_sources.append((fr, src.consecutive_failures, src.priority, src))
@@ -376,8 +379,8 @@ class ToolOrchestrator:
         trace_emitter.emit_cache_miss(f"{data_type}:{ticker}", source="orchestrator")
 
         for i, source in enumerate(sources):
-            if source.cooldown_seconds > 0 and source.last_fail:
-                elapsed = (datetime.now() - source.last_fail).total_seconds()
+            if source.cooldown_seconds > 0 and source.last_fail_monotonic is not None:
+                elapsed = time.monotonic() - source.last_fail_monotonic
                 if elapsed < source.cooldown_seconds:
                     continue
 
@@ -402,6 +405,7 @@ class ToolOrchestrator:
                 if result is None:
                     source.consecutive_failures += 1
                     source.last_fail = datetime.now()
+                    source.last_fail_monotonic = time.monotonic()
                     # 空结果即"未找到"：须写入 last_error，否则全部源空响应时
                     # last_error=None → _should_negative_cache 恒 False，
                     # 负缓存机制对最常见的失效路径（无效代码）完全失效，
@@ -483,6 +487,7 @@ class ToolOrchestrator:
                     last_error = f"Validation failed: {validation.issues}"
                     source.consecutive_failures += 1
                     source.last_fail = datetime.now()
+                    source.last_fail_monotonic = time.monotonic()
                     self._stats['total_failures'] += 1
                     self._stats['sources'][source.name]['fail'] += 1
                     if self.circuit_breaker:
@@ -498,6 +503,7 @@ class ToolOrchestrator:
                 source_duration_ms = int((time.time() - source_start_time) * 1000)
                 source.consecutive_failures += 1
                 source.last_fail = datetime.now()
+                source.last_fail_monotonic = time.monotonic()
                 last_error = type(e).__name__
                 self._stats['total_failures'] += 1
                 self._stats['sources'][source.name]['fail'] += 1
@@ -709,7 +715,7 @@ class ToolOrchestrator:
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         cache_stats = self.cache.get_stats()
-        now_dt = datetime.now()
+        now_mono = time.monotonic()
         
         source_stats = {}
         for data_type, sources in self.sources.items():
@@ -723,10 +729,10 @@ class ToolOrchestrator:
                     skip_reason = f"circuit_open:{cooldown}s"
                 elif cb_state.get("state") == "HALF_OPEN":
                     skip_reason = "circuit_half_open"
-                elif s.total_calls >= self.health_min_calls and s.last_fail:
+                elif s.total_calls >= self.health_min_calls and s.last_fail_monotonic is not None:
                     fail_rate = 1.0 - (s.total_successes / s.total_calls) if s.total_calls > 0 else 0.0
                     if fail_rate >= self.health_fail_rate_threshold:
-                        elapsed = (now_dt - s.last_fail).total_seconds()
+                        elapsed = now_mono - s.last_fail_monotonic
                         if elapsed < self.health_skip_seconds:
                             skip_reason = f"high_fail_rate:{fail_rate:.2f};cooldown:{int(self.health_skip_seconds - elapsed)}s"
 
@@ -738,7 +744,7 @@ class ToolOrchestrator:
                     'consecutive_failures': s.consecutive_failures,
                     'success_rate': f"{s.total_successes / s.total_calls:.1%}" if s.total_calls > 0 else "N/A",
                     'fail_rate': 1.0 - (s.total_successes / s.total_calls) if s.total_calls > 0 else 0.0,
-                    'cooldown_remaining': max(0, s.cooldown_seconds - ((now_dt - s.last_fail).total_seconds() if s.last_fail else 0)),
+                    'cooldown_remaining': max(0, s.cooldown_seconds - ((now_mono - s.last_fail_monotonic) if s.last_fail_monotonic is not None else 0)),
                     'last_fail': s.last_fail.isoformat() if s.last_fail else None,
                     'last_success': s.last_success.isoformat() if s.last_success else None,
                     'skip_reason': skip_reason,
