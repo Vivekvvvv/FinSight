@@ -460,6 +460,46 @@ def test_source_cooldown_survives_wall_clock_jump_backward(monkeypatch):
     assert second.success is True
 
 
+def test_fetch_duration_metrics_survive_wall_clock_jump(monkeypatch):
+    """fetch() 的 start_time/source_start_time 用 time.time()（墙钟）锚定：
+    源调用途中系统时钟后跳（w32time 回校/NTP 回拨/VM 恢复快照）把
+    (now-start) 拉成负值 → observe_orch_latency 观测到负时延（Histogram
+    _sum 变负、rate() 失真、p99 面板出垃圾值），FetchResult.duration_ms/
+    trace 同步写出负毫秒；前跳则一次请求记成数小时时延。时延是区间计时，
+    必须用单调钟（同 58464b1/35553af/beff9ef/923aa76/a2edc69 修复类）。"""
+    import backend.orchestration.orchestrator as orch_mod
+
+    wall = {"t": 1_700_000_000.0}
+    mono = {"t": 1_000.0}
+    monkeypatch.setattr(orch_mod.time, "time", lambda: wall["t"])
+    monkeypatch.setattr(orch_mod.time, "monotonic", lambda: mono["t"])
+
+    observed = []
+    monkeypatch.setattr(
+        orch_mod, "observe_orch_latency",
+        lambda _dt, ms: observed.append(ms),
+    )
+
+    def _source_midjump(_ticker):
+        # 上游返回期间墙钟后跳 1h——真实耗时 0.2s
+        wall["t"] -= 3600.0
+        mono["t"] += 0.2
+        return f"{_ticker} Current Price: $150.00 | Change: $2.50 (+1.69%)"
+
+    orchestrator = ToolOrchestrator()
+    orchestrator.sources['price'] = [
+        DataSource('midjump', _source_midjump, 1, 60),
+    ]
+
+    result = orchestrator.fetch('price', 'AAPL', force_refresh=True)
+
+    assert result.success is True
+    assert observed, "成功路径必须上报时延观测"
+    assert all(ms >= 0 for ms in observed), f"时延观测不得为负: {observed}"
+    assert result.duration_ms >= 0
+    assert result.trace['duration_ms'] >= 0
+
+
 def run_all_tests():
     """运行所有测试"""
     print("=" * 60)

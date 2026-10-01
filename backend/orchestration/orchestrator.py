@@ -277,7 +277,14 @@ class ToolOrchestrator:
             FetchResult object containing data, source, validation, and trace
         """
         self._stats['total_requests'] += 1
-        start_time = time.time()
+        # 时延是区间计时，必须用单调钟：time.time() 随系统时钟跳变——
+        # 源调用途中后跳会把 (now-start) 拉成负值，负 duration_ms 写进
+        # FetchResult/trace 并进 observe_orch_latency（Histogram _sum
+        # 变负、rate() 失真）；前跳则一次请求记成数小时。duration_ms 是
+        # 纯进程内/上报指标，无 epoch 语义消费者。本文件所有 start_time/
+        # source_start_time 锚点及差值点同此（_fallback_direct_call 等
+        # 内部路径共享同一锚点）。
+        start_time = time.monotonic()
         now_iso = datetime.now(timezone.utc).isoformat()
         trace_emitter = get_trace_emitter()
 
@@ -287,7 +294,7 @@ class ToolOrchestrator:
             if isinstance(cached_data, dict) and cached_data.get("_negative_cache"):
                 # 负缓存命中：本意是短期内避免重复打已失败的上游，
                 # 不能把错误载荷当成功数据返回（否则下游渲染出 "N/A" 还标记 success）。
-                duration = (time.time() - start_time) * 1000
+                duration = (time.monotonic() - start_time) * 1000
                 observe_orch_latency(data_type, duration)
                 return FetchResult(
                     success=False,
@@ -311,7 +318,7 @@ class ToolOrchestrator:
                     cached_as_of,
                     ticker=ticker,
                 )
-                duration = (time.time() - start_time) * 1000
+                duration = (time.monotonic() - start_time) * 1000
                 observe_orch_latency(data_type, duration)
                 return FetchResult(
                     success=True,
@@ -392,7 +399,7 @@ class ToolOrchestrator:
             self._stats['sources'].setdefault(source.name, {'calls': 0, 'success': 0, 'fail': 0})
             self._stats['sources'][source.name]['calls'] += 1
 
-            source_start_time = time.time()
+            source_start_time = time.monotonic()
             trace_emitter.emit_data_source_query(
                 source.name, data_type, ticker=ticker,
                 success=True, fallback=(i > 0), tried_sources=list(tried_sources)
@@ -400,7 +407,7 @@ class ToolOrchestrator:
 
             try:
                 result = self._try_source(source, ticker, **kwargs)
-                source_duration_ms = int((time.time() - source_start_time) * 1000)
+                source_duration_ms = int((time.monotonic() - source_start_time) * 1000)
 
                 if result is None:
                     source.consecutive_failures += 1
@@ -451,7 +458,7 @@ class ToolOrchestrator:
                         now_iso,
                         ticker=ticker,
                     )
-                    duration = (time.time() - start_time) * 1000
+                    duration = (time.monotonic() - start_time) * 1000
 
                     trace_emitter.emit_data_source_query(
                         source.name, data_type, ticker=ticker,
@@ -500,7 +507,7 @@ class ToolOrchestrator:
                     )
 
             except Exception as e:
-                source_duration_ms = int((time.time() - source_start_time) * 1000)
+                source_duration_ms = int((time.monotonic() - source_start_time) * 1000)
                 source.consecutive_failures += 1
                 source.last_fail = datetime.now()
                 source.last_fail_monotonic = time.monotonic()
@@ -519,7 +526,7 @@ class ToolOrchestrator:
                 continue
             
             time.sleep(0.3)
-        duration = (time.time() - start_time) * 1000
+        duration = (time.monotonic() - start_time) * 1000
         observe_orch_latency(data_type, duration)
         
         cache_key = f"{data_type}:{ticker}"
@@ -597,7 +604,7 @@ class ToolOrchestrator:
         """
         fallback_as_of = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         if not self.tools_module:
-            duration = (time.time() - start_time) * 1000
+            duration = (time.monotonic() - start_time) * 1000
             observe_orch_latency(data_type, duration)
             return FetchResult(
                 success=False,
@@ -623,7 +630,7 @@ class ToolOrchestrator:
 
         func_name = func_map.get(data_type)
         if not func_name:
-            duration = (time.time() - start_time) * 1000
+            duration = (time.monotonic() - start_time) * 1000
             observe_orch_latency(data_type, duration)
             return FetchResult(
                 success=False,
@@ -640,7 +647,7 @@ class ToolOrchestrator:
 
         func = getattr(self.tools_module, func_name, None)
         if not func:
-            duration = (time.time() - start_time) * 1000
+            duration = (time.monotonic() - start_time) * 1000
             observe_orch_latency(data_type, duration)
             return FetchResult(
                 success=False,
@@ -673,7 +680,7 @@ class ToolOrchestrator:
                 fallback_as_of,
                 ticker=ticker,
             )
-            duration = (time.time() - start_time) * 1000
+            duration = (time.monotonic() - start_time) * 1000
             observe_orch_latency(data_type, duration)
             return FetchResult(
                 success=validation.is_valid,
@@ -696,7 +703,7 @@ class ToolOrchestrator:
             )
 
         except Exception as e:
-            duration = (time.time() - start_time) * 1000
+            duration = (time.monotonic() - start_time) * 1000
             observe_orch_latency(data_type, duration)
             return FetchResult(
                 success=False,
