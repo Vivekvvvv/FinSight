@@ -63,11 +63,16 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
 
     url = f"https://qt.gtimg.cn/q={code}"
     monitor = get_monitor()
-    start_time = time.time()
+    # 时延是区间计时，必须用单调钟：time.time() 随系统时钟跳变——
+    # 上游往返途中后跳会把 (now-start) 拉成负值，负 response_time_ms
+    # 被 record_success 的 >0 门槛静默丢弃（成功调用丢计时样本）；
+    # 前跳则一条样本灌入数小时级值，avg_response_time_ms 被污染数据
+    # 支配到滚出 100 样本窗口。该值仅入监控统计、无 epoch 语义消费者。
+    start_time = time.monotonic()
 
     try:
         resp = _http_get(url, timeout=(3, 6))
-        response_time_ms = (time.time() - start_time) * 1000
+        response_time_ms = (time.monotonic() - start_time) * 1000
 
         if resp.status_code != 200:
             logger.info("[Tencent] quote HTTP %d", resp.status_code)
