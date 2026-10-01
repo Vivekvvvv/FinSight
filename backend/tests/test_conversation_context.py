@@ -176,3 +176,48 @@ def test_candidate_market_match_bj_suffix_is_cn():
     sz = {"symbol": "000001.SZ", "primaryExchange": "SZSE", "description": "Ping An Bank"}
     assert cm._match_candidate_by_market([bj, sz], "CN") == bj
     assert cm._match_candidate_by_market([bj], "US") is None
+
+
+def test_pending_clarification_ttl_survives_wall_clock_jump_backward(monkeypatch):
+    """pending 澄清的 TTL 用 naive datetime.now() 测区间：系统时钟后跳
+    （w32time 回校/NTP 回拨/VM 恢复快照）把 (now-created_at) 拉成负数 →
+    _pending_expired 恒 False → 过期澄清态永久驻留：用户早已离开澄清语境，
+    之后任何 "第1个"/"2" 式回复都对陈旧候选表做选择、把错 ticker 注进
+    新查询（错股回答）；前跳则未过期澄清瞬间作废，用户回复序号被当成新
+    查询、指代链断。锚点是纯进程内 dict 字段、无序列化消费者，TTL 区间
+    计时须用单调钟（同 beff9ef/35553af/58464b1 修复类）。"""
+    import backend.conversation.context as ctx_mod
+    import time as _time_mod
+    from datetime import datetime as _dt
+
+    mono = {"t": 1_000.0}
+    wall = {"t": _dt(2026, 10, 1, 12, 0, 0)}
+
+    class _FakeDatetime(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return wall["t"]
+
+    monkeypatch.setattr(_time_mod, "monotonic", lambda: mono["t"])
+    monkeypatch.setattr(ctx_mod, "datetime", _FakeDatetime)
+
+    cm = ContextManager()
+    cm._set_pending_clarification(
+        {
+            "ticker_candidates": [
+                {"symbol": "BIDU", "primaryExchange": "NASDAQ"},
+                {"symbol": "AI", "primaryExchange": "NYSE"},
+            ],
+            "company_names": ["某股"],
+        },
+        "查一下某股",
+        "stock",
+    )
+    assert cm.pending_clarification is not None
+
+    mono["t"] += 601.0                       # 真实经过 601s > TTL 600——应过期
+    wall["t"] = _dt(2026, 10, 1, 11, 0, 0)   # 墙钟却后跳 1h——delta 为负
+
+    out = cm._resolve_pending_clarification("第1个", None)
+    assert out is None, "过期澄清态必须被丢弃，不得拿陈旧候选解析"
+    assert cm.pending_clarification is None

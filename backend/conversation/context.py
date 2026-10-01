@@ -6,10 +6,11 @@ ContextManager - 对话上下文管理
 
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Union
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import deque
 from enum import Enum
 import re
+import time
 
 
 class MessageRole(Enum):
@@ -165,14 +166,17 @@ class ContextManager:
             "candidates": candidates,
             "original_query": query,
             "intent": intent,
-            "created_at": datetime.now(),
+            # TTL 区间计时须用单调钟锚点：datetime.now() 随系统时钟跳变——
+            # 后跳把差值拉负，过期澄清态永久驻留、陈旧候选仍会命中后续
+            # "第N个"式回复（错 ticker 注入）；前跳则未过期澄清瞬间作废。
+            "created_mono": time.monotonic(),
         }
 
     def _pending_expired(self, pending: Dict[str, Any], ttl_seconds: int = 600) -> bool:
-        created_at = pending.get("created_at")
-        if not isinstance(created_at, datetime):
+        created_mono = pending.get("created_mono")
+        if not isinstance(created_mono, (int, float)) or isinstance(created_mono, bool):
             return False
-        return (datetime.now() - created_at) > timedelta(seconds=ttl_seconds)
+        return (time.monotonic() - created_mono) > ttl_seconds
 
     def _resolve_pending_clarification(self, query: str, market_hint: Optional[str]) -> Optional[Dict[str, Any]]:
         pending = self.pending_clarification
