@@ -601,7 +601,10 @@ class ContextManager:
         """
         self.accumulated_data[key] = {
             'data': data,
-            'timestamp': datetime.now()
+            # 区间计时用单调钟（同 pending_clarification 的 created_mono）：
+            # datetime.now() 随系统时钟跳变，后跳把 age 拉负、陈旧数据
+            # 超期服役；纯进程内字段，get_all_cached_data 只导出 data。
+            'cached_mono': time.monotonic()
         }
     
     def get_cached_data(self, key: str, max_age_seconds: int = 300) -> Optional[Any]:
@@ -616,7 +619,11 @@ class ContextManager:
             return None
         
         cached = self.accumulated_data[key]
-        age = (datetime.now() - cached['timestamp']).total_seconds()
+        cached_mono = cached.get('cached_mono')
+        if not isinstance(cached_mono, (int, float)) or isinstance(cached_mono, bool):
+            # 无有效锚点不得驱逐（同 _pending_expired 语义：缺锚点永不驱逐）
+            return cached['data']
+        age = time.monotonic() - cached_mono
         
         if age > max_age_seconds:
             del self.accumulated_data[key]

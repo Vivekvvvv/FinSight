@@ -221,3 +221,38 @@ def test_pending_clarification_ttl_survives_wall_clock_jump_backward(monkeypatch
     out = cm._resolve_pending_clarification("第1个", None)
     assert out is None, "过期澄清态必须被丢弃，不得拿陈旧候选解析"
     assert cm.pending_clarification is None
+
+
+def test_accumulated_data_ttl_survives_wall_clock_jump_backward(monkeypatch):
+    """cache_data/get_cached_data 的 timestamp 用 naive datetime.now() 锚定：
+    系统时钟后跳（w32time 回校/NTP 回拨/VM 恢复快照）把 age 拉成负数 →
+    真实已过 max_age_seconds 的陈旧数据被当成仍新鲜返回——同一会话内
+    后续轮次复用早已过期的取数结果（陈旧行情/旧分析进新回答）；前跳则
+    未到期数据瞬间作废、重复打上游。锚点是纯进程内 dict 字段
+    （get_all_cached_data 只导出 data、无序列化消费者），区间计时须用
+    单调钟（同 923aa76/beff9ef/35553af/58464b1 修复类）。"""
+    import time as _time_mod
+    from datetime import datetime as _dt
+
+    import backend.conversation.context as ctx_mod
+
+    mono = {"t": 1_000.0}
+    wall = {"t": _dt(2026, 10, 1, 12, 0, 0)}
+
+    class _FakeDatetime(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return wall["t"]
+
+    monkeypatch.setattr(_time_mod, "monotonic", lambda: mono["t"])
+    monkeypatch.setattr(ctx_mod, "datetime", _FakeDatetime)
+
+    cm = ContextManager()
+    cm.cache_data("price:AAPL", {"price": 150.0})
+    assert cm.get_cached_data("price:AAPL") == {"price": 150.0}
+
+    mono["t"] += 301.0                        # 真实经过 301s > 默认 TTL 300
+    wall["t"] = _dt(2026, 10, 1, 11, 0, 0)    # 墙钟却后跳 1h——age 为负
+
+    assert cm.get_cached_data("price:AAPL") is None, "过期数据必须驱逐，不得返回陈旧值"
+    assert "price:AAPL" not in cm.accumulated_data
