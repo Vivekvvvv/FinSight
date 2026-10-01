@@ -297,3 +297,70 @@ def test_get_sec_company_facts_quarterly_rejects_non_us(monkeypatch):
     payload = sec.get_sec_company_facts_quarterly("600519.SS")
     assert payload.get("error") == "unsupported_market"
     assert payload.get("market") == "CN"
+
+
+_TICKER_MAP_PAYLOAD = {
+    "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+}
+
+
+def _patch_clocks(monkeypatch, wall, mono):
+    monkeypatch.setattr(sec.time, "time", lambda: wall["t"])
+    monkeypatch.setattr(sec.time, "monotonic", lambda: mono["t"])
+
+
+def _patch_ticker_map_http(monkeypatch, calls):
+    def _fake_http_get(url, **kwargs):
+        calls["n"] += 1
+        assert url.endswith("company_tickers.json")
+        return _FakeResponse(200, _TICKER_MAP_PAYLOAD)
+
+    monkeypatch.setattr(sec, "_http_get", _fake_http_get)
+
+
+def test_ticker_map_ttl_survives_wall_clock_jump_backward(monkeypatch):
+    """ticker→CIK 缓存 TTL 用 time.time() 存截止点：系统时钟后跳
+    （w32time 回校/NTP 大步回拨/VM 恢复快照/手动改时）把 now 拉回
+    expire_at 之前，真实已过 24h TTL 的映射被当成仍有效——SEC 回收
+    ticker 后旧 CIK 继续服役，submissions 取到别家公司的申报（错公司
+    数据进报告）。缓存是纯进程内模块全局量、无持久化无序列化消费者，
+    TTL 区间计时须用单调钟（同 58464b1/35553af/beff9ef/923aa76 修复类）。"""
+    _reset_cache()
+    wall = {"t": 1_700_000_000.0}
+    mono = {"t": 1_000.0}
+    _patch_clocks(monkeypatch, wall, mono)
+    calls = {"n": 0}
+    _patch_ticker_map_http(monkeypatch, calls)
+
+    headers = {"User-Agent": "FinSight admin@finsight.app"}
+    first = sec._load_ticker_map(headers)
+    assert calls["n"] == 1
+    assert "AAPL" in first
+
+    wall["t"] -= 30 * 86400.0                    # 墙钟后跳 30 天——expire_at 变"未来"
+    mono["t"] += sec._TICKER_CACHE_TTL_SECONDS + 1.0  # 真实已过 TTL
+
+    sec._load_ticker_map(headers)
+    assert calls["n"] == 2, "TTL 真实到期必须重取映射，不得续用陈旧 CIK"
+
+
+def test_ticker_map_ttl_not_broken_by_wall_clock_jump_forward(monkeypatch):
+    """反向：墙钟前跳把 expire_at 瞬间推成过去式，真实仅过几秒就
+    重打 company_tickers.json（每次 ~4MB 下载），TTL 保护失效。"""
+    _reset_cache()
+    wall = {"t": 1_700_000_000.0}
+    mono = {"t": 1_000.0}
+    _patch_clocks(monkeypatch, wall, mono)
+    calls = {"n": 0}
+    _patch_ticker_map_http(monkeypatch, calls)
+
+    headers = {"User-Agent": "FinSight admin@finsight.app"}
+    sec._load_ticker_map(headers)
+    assert calls["n"] == 1
+
+    wall["t"] += 10 * 86400.0                    # 墙钟前跳 10 天
+    mono["t"] += 5.0                             # 真实仅过 5s——缓存应仍有效
+
+    second = sec._load_ticker_map(headers)
+    assert calls["n"] == 1, "TTL 未到期不得重打 ticker 映射"
+    assert "AAPL" in second

@@ -98,7 +98,12 @@ def _normalize_forms(forms: str | list[str] | tuple[str, ...] | None) -> list[st
 
 def _load_ticker_map(headers: dict[str, str]) -> dict[str, dict[str, Any]]:
     global _ticker_cache, _ticker_cache_expire_at
-    now = time.time()
+    # TTL 是区间计时，必须用单调钟：time.time() 随系统时钟跳变——
+    # 前跳把 expire_at 推成过去式、每次调用都重打 ticker 映射；
+    # 后跳（或存点时刻墙钟被前拨）则 expire_at 滞留未来，过期映射
+    # 超期服役，SEC 回收 ticker 后旧 CIK 会把别家公司的申报挂到新代码下。
+    # expire_at 是纯进程内模块全局量、无持久化无序列化消费者。
+    now = time.monotonic()
     if _ticker_cache and now < _ticker_cache_expire_at:
         return _ticker_cache
 
