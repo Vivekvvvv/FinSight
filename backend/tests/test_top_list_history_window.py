@@ -102,7 +102,11 @@ def test_top_list_history_new_api_skips_poison_records(monkeypatch):
 
     monkeypatch.setattr(thp, "_http_get", fake_get)
 
-    results = thp.fetch_cn_top_list_history("600519.SS")
+    # 窗口必须钉死：默认 7 天窗锚在真实 now，硬编码 TRADE_DATE 会随时间
+    # 漂出窗口被本地日期过滤掉、新接口批被判空落回旧版（定时炸弹式红）。
+    results = thp.fetch_cn_top_list_history(
+        "600519.SS", start_date="2026-09-01", end_date="2026-09-30",
+    )
 
     assert results, "毒记录不得把整批逼回旧版"
     assert all(r["source"] == "eastmoney_datacenter" for r in results)
