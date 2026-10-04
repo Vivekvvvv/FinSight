@@ -210,11 +210,13 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
         # 合并 tickers：请求参数 + 持仓中的 tickers
         request_tickers = {t.strip().upper() for t in request.tickers if t.strip()}
 
+        position_fetch_failed = False
         try:
             stored_positions = deps.get_portfolio_positions(normalized_session) or []
         except Exception as exc:
             logger.warning("[MorningBrief] get_portfolio_positions failed")
             stored_positions = []
+            position_fetch_failed = True
 
         position_tickers = {
             str(pos.get("ticker", "")).strip().upper()
@@ -225,17 +227,22 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
         all_tickers = sorted(request_tickers | position_tickers)
 
         if not all_tickers:
-            return {
-                "success": True,
-                "brief": {
-                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                    "summary": "当前无持仓，请先添加持仓后再生成晨报。",
-                    "highlights": [],
-                    "market_mood": "neutral",
-                    "market_mood_cn": "中性",
-                    "action_items": ["请先在工作台添加持仓标的"],
-                },
+            brief: dict[str, Any] = {
+                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "highlights": [],
+                "market_mood": "neutral",
+                "market_mood_cn": "中性",
             }
+            if position_fetch_failed:
+                # 持仓读取失败 ≠ 无持仓：报"请先添加持仓"会误导用户走
+                # sync_positions 全量替换、覆盖真实持仓——失败态必须可区分。
+                brief["summary"] = "持仓数据暂时不可用，请稍后重试。"
+                brief["action_items"] = ["持仓服务暂时不可用，请稍后重试"]
+                brief["positions_unavailable"] = True
+            else:
+                brief["summary"] = "当前无持仓，请先添加持仓后再生成晨报。"
+                brief["action_items"] = ["请先在工作台添加持仓标的"]
+            return {"success": True, "brief": brief}
 
         # 检查缓存
         cache_k = _cache_key(normalized_session, all_tickers)
@@ -257,7 +264,10 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
                 graph_artifacts = result.get("artifacts") or {} if isinstance(result, dict) else {}
                 brief_data = graph_artifacts.get("brief_data") if isinstance(graph_artifacts, dict) else None
                 if isinstance(brief_data, dict) and brief_data.get("highlights"):
-                    dashboard_cache.set("__morning_brief__", cache_k, brief_data, ttl=_BRIEF_CACHE_TTL)
+                    if position_fetch_failed:
+                        brief_data = {**brief_data, "positions_unavailable": True}
+                    else:
+                        dashboard_cache.set("__morning_brief__", cache_k, brief_data, ttl=_BRIEF_CACHE_TTL)
                     return {"success": True, "brief": brief_data}
                 logger.warning("[MorningBrief] Graph Pipeline returned no brief_data, falling back to direct fetch")
             except Exception as exc:
@@ -355,9 +365,13 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
             "ticker_count": len(all_tickers),
             "priced_count": priced_count,
         }
+        if position_fetch_failed:
+            brief["positions_unavailable"] = True
 
-        # 写入缓存
-        dashboard_cache.set("__morning_brief__", cache_k, brief, ttl=_BRIEF_CACHE_TTL)
+        # 降级态 brief 不进缓存：一次存储抖动若按 30min TTL 缓存，会把
+        # "持仓缺失"假象钉死到过期，期间同 key 请求持续命中降级结果。
+        if not position_fetch_failed:
+            dashboard_cache.set("__morning_brief__", cache_k, brief, ttl=_BRIEF_CACHE_TTL)
 
         return {"success": True, "brief": brief}
 
