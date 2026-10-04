@@ -155,3 +155,87 @@ def test_dashboard_cache_invalid_stale_ttl_uses_bounded_default(monkeypatch, inv
 
     monkeypatch.setattr(cache_module.time, "time", lambda: 100.0 + 1 + cache.TTL_INSIGHTS_STALE + 0.1)
     assert cache.get_with_stale("AAPL", "insights", stale_ttl=invalid_ttl) == (None, False)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_bad_section_payload_does_not_blank_healthy_sections(monkeypatch):
+    """DashboardData 构造层缺陷：v2/g2 各段的 fetch 已按段隔离（failure
+    marker + per-section fallback_reason），但模型构造共用一个大 try——
+    任一段上游 payload 过不了 pydantic（earnings 条目 quarter 给了 dict），
+    外层 except 把 valuation/financials/targets 等全部健康段一并拖成
+    None，且各段 fallback_reason 不写，只剩 data_construction_error 一个
+    调试旗标。构造应逐段隔离：毒段 None+计 {section}_invalid，健康段照常。"""
+    cache = DashboardCache()
+    monkeypatch.setattr(dashboard_router_module, "dashboard_cache", cache)
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_snapshot", lambda *a, **k: {"price": 1}
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_market_chart", lambda *a, **k: [{"t": 1}]
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_revenue_trend", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_segment_mix", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_valuation",
+        lambda *a, **k: {"trailing_pe": 20.5},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_financial_statements",
+        lambda *a, **k: {"periods": ["2024Q4"], "revenue": [1.0]},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_technical_indicators",
+        lambda *a, **k: {"close": 1.0, "rsi": 55.0},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_peer_comparison",
+        lambda *a, **k: {"subject_symbol": "AAPL", "peers": []},
+    )
+    # 毒段：earnings 条目 quarter 给了 dict——EarningsHistoryEntry(**e) 抛
+    # ValidationError，旧代码把其余健康段一并陪葬。
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_earnings_history",
+        lambda *a, **k: [{"quarter": {"y": 2024}}],
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_analyst_targets",
+        lambda *a, **k: {"low": 100.0, "high": 150.0},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_recommendations",
+        lambda *a, **k: {"buy": 5},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_indicator_series",
+        lambda *a, **k: {"dates": ["2024-01-01"], "rsi": [50.0]},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_news",
+        lambda *a, **k: {"market": [], "impact": []},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_macro_snapshot",
+        lambda *a, **k: {"fear_greed_index": 50.0},
+    )
+
+    resp = await dashboard_router_module.get_dashboard(symbol="AAPL")
+
+    # 毒段降级为该段缺失，并计入 fallback_reasons
+    assert resp.data.earnings_history is None
+    assert "earnings_history_invalid" in resp.state.debug.get("fallback_reasons", [])
+    # 健康段不得被陪葬
+    assert resp.data.valuation is not None
+    assert resp.data.valuation.trailing_pe == 20.5
+    assert resp.data.financials is not None
+    assert resp.data.financials.periods == ["2024Q4"]
+    assert resp.data.technicals is not None
+    assert resp.data.peers is not None
+    assert resp.data.analyst_targets is not None
+    assert resp.data.analyst_targets.low == 100.0
+    assert resp.data.recommendations is not None
+    assert resp.data.indicator_series is not None
+    assert resp.data.macro_snapshot is not None

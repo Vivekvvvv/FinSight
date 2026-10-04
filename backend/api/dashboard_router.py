@@ -236,6 +236,39 @@ def _filter_charts_by_capabilities(raw_charts: dict, capabilities: Capabilities)
     }
 
 
+def _try_model(section: str, model_cls, payload):
+    """单段 pydantic 构造降级：非法 payload 只丢该段并回报 {section}_invalid，
+    不拖垮其余健康段（与 fetch 层 per-section fallback 契约对齐）。"""
+    if not payload:
+        return None, None
+    try:
+        return model_cls(**payload), None
+    except Exception:
+        logger.warning("[Dashboard] %s payload invalid", section)
+        return None, f"{section}_invalid"
+
+
+def _try_entry_list(section: str, entry_cls, items):
+    """列表段逐条过滤：毒条目丢弃、健康条目保留；全灭按段缺失处理。"""
+    if not items:
+        return None, None
+    if not isinstance(items, (list, tuple)):
+        logger.warning("[Dashboard] %s payload invalid", section)
+        return None, f"{section}_invalid"
+    built = []
+    dropped = 0
+    for item in items:
+        try:
+            built.append(entry_cls(**item))
+        except Exception:
+            dropped += 1
+    if dropped:
+        logger.warning("[Dashboard] %s dropped %d invalid entries", section, dropped)
+    if not built:
+        return None, f"{section}_invalid"
+    return built, None
+
+
 @dashboard_router.get("", response_model=DashboardResponse)
 async def get_dashboard(
     symbol: str = Query(..., min_length=1, description="资产代码"),
@@ -770,6 +803,24 @@ async def get_dashboard(
         "macro_snapshot": macro_snapshot or {},
     }
     filtered_charts = _filter_charts_by_capabilities(raw_data.get("charts", {}), capabilities)
+
+    # 模型构造逐段隔离：fetch 层已按段降级（failure marker + per-section
+    # fallback_reason），若构造仍共用一个大 try，任一段毒 payload 的
+    # ValidationError 会把其余健康段一并陪葬成 None。各段独立构造，
+    # 失败只记该段 *_invalid。
+    valuation_data, valuation_invalid = _try_model("valuation", ValuationData, v2_valuation)
+    financials_data, financials_invalid = _try_model("financials", FinancialStatement, v2_financials)
+    technicals_data, technicals_invalid = _try_model("technicals", TechnicalData, v2_technicals)
+    peers_data, peers_invalid = _try_model("peers", PeerComparisonData, v2_peers)
+    macro_data, macro_invalid = _try_model("macro_snapshot", MacroSnapshotData, raw_data.get("macro_snapshot"))
+    earnings_data, earnings_invalid = _try_entry_list("earnings_history", EarningsHistoryEntry, g2_earnings_history)
+    targets_data, targets_invalid = _try_model("analyst_targets", AnalystTargets, g2_analyst_targets)
+    recommendations_data, recs_invalid = _try_model("recommendations", RecommendationsSummary, g2_recommendations)
+    series_data, series_invalid = _try_model("indicator_series", IndicatorSeries, g2_indicator_series)
+    for section_err in (earnings_invalid, targets_invalid, recs_invalid, series_invalid):
+        if section_err:
+            fallback_reasons.append(section_err)
+
     if fallback_reasons:
         state.debug["fallback_reasons"] = fallback_reasons
 
@@ -779,21 +830,21 @@ async def get_dashboard(
             charts=filtered_charts,
             news=raw_data.get("news", {}),
             meta=meta_map,
-            valuation=ValuationData(**v2_valuation) if v2_valuation else None,
-            valuation_fallback_reason=v2_valuation_fallback,
-            financials=FinancialStatement(**v2_financials) if v2_financials else None,
-            financials_fallback_reason=v2_financials_fallback,
-            technicals=TechnicalData(**v2_technicals) if v2_technicals else None,
-            technicals_fallback_reason=v2_technicals_fallback,
-            peers=PeerComparisonData(**v2_peers) if v2_peers else None,
-            peers_fallback_reason=v2_peers_fallback,
-            macro_snapshot=MacroSnapshotData(**raw_data["macro_snapshot"]) if raw_data["macro_snapshot"] else None,
-            macro_snapshot_fallback_reason=macro_fallback_reason,
+            valuation=valuation_data,
+            valuation_fallback_reason=v2_valuation_fallback or valuation_invalid,
+            financials=financials_data,
+            financials_fallback_reason=v2_financials_fallback or financials_invalid,
+            technicals=technicals_data,
+            technicals_fallback_reason=v2_technicals_fallback or technicals_invalid,
+            peers=peers_data,
+            peers_fallback_reason=v2_peers_fallback or peers_invalid,
+            macro_snapshot=macro_data,
+            macro_snapshot_fallback_reason=macro_fallback_reason or macro_invalid,
             # Phase G2 new data
-            earnings_history=[EarningsHistoryEntry(**e) for e in g2_earnings_history] if g2_earnings_history else None,
-            analyst_targets=AnalystTargets(**g2_analyst_targets) if g2_analyst_targets else None,
-            recommendations=RecommendationsSummary(**g2_recommendations) if g2_recommendations else None,
-            indicator_series=IndicatorSeries(**g2_indicator_series) if g2_indicator_series else None,
+            earnings_history=earnings_data,
+            analyst_targets=targets_data,
+            recommendations=recommendations_data,
+            indicator_series=series_data,
         )
     except Exception as exc:
         logger.warning("[Dashboard] DashboardData construction failed")

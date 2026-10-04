@@ -872,6 +872,7 @@ def test_rounds_1501_through_1507_are_complete_unique_and_source_bound():
 
 _SAFE_AGGREGATE_LOG_EXPRESSIONS = {
     ("backend/orchestration/orchestrator.py", "len(validation.issues)"),
+    ("backend/api/dashboard_router.py", "dropped"),
     ("backend/tools/fmp.py", "len(segments)"),
     ("backend/tools/fmp.py", "len(regions)"),
     ("backend/tools/fmp.py", "len(sectors)"),
@@ -883,6 +884,7 @@ _SAFE_AGGREGATE_LOG_EXPRESSIONS = {
 }
 _SAFE_PROVIDER_LOG_EXPRESSIONS = {
     ("backend/tools/price.py", "source_func.__name__"),
+    ("backend/api/dashboard_router.py", "section"),
 }
 
 
@@ -979,8 +981,8 @@ def test_dynamic_log_expressions_match_reviewed_safe_baseline():
         {
             "exception_type": 145,
             "http_status": 11,
-            "aggregate_count": 9,
-            "provider_name": 1,
+            "aggregate_count": 10,
+            "provider_name": 4,
         }
     )
 
