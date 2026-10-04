@@ -92,16 +92,21 @@ async def analyze_news_sentiment(
             lines = text.split("\n")
             text = "\n".join(lines[1:-1])
 
-        sentiments: List[Dict[str, Any]] = json_loads_strict(text)
+        sentiments = json_loads_strict(text)
+        # json_loads_strict 只保证顶层是合法 JSON——非 list（dict/标量）
+        # 让下方按下标取值抛错；数组内非 dict 元素让 enriched.update 抛
+        # TypeError/ValueError。两种毒结构都逃逸进外层 except，把整批
+        # 合法情绪分析全换成 neutral（一条毒条目毁一批，R107-R123 同族）。
+        # 顶层非 list 按空数组、元素非 dict 按条降级。
+        if not isinstance(sentiments, list):
+            sentiments = []
 
         # 合并回原新闻
         result = []
         for i, news in enumerate(news_list):
             enriched = dict(news)
-            if i < len(sentiments):
-                enriched.update(sentiments[i])
-            else:
-                enriched.update(_neutral_sentiment())
+            sentiment = sentiments[i] if i < len(sentiments) else None
+            enriched.update(sentiment if isinstance(sentiment, dict) else _neutral_sentiment())
             result.append(enriched)
         return result
 
