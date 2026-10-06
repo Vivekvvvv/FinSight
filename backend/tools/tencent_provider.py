@@ -827,8 +827,11 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
         if resp.status_code == 200:
             payload = resp.json()
             rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
-            if rows:
-                latest = rows[0]
+            # 非 dict 毒行按条跳过取首个有效行——rows[0].get 的 AttributeError
+            # 只是碰巧落进外层 except 降级到旧版报表（margin_buy_ratio 硬编
+            # 0.0 丢真实占比）；同 fetch_cn_top_list 新版分支的 R107 口径。
+            latest = next((r for r in rows if isinstance(r, dict)), None)
+            if latest is not None:
                 margin_balance = safe_float(latest.get("RZYE"))
                 margin_buy = safe_float(latest.get("RZMRE"))
                 margin_repay = safe_float(latest.get("RZCHE"))
@@ -893,12 +896,14 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
             return None
 
         records = data["result"].get("data", [])
-        if not records:
+
+        # 取最新一条有效记录——非 dict 毒行按条跳过；records[0].get 的
+        # AttributeError 落进外层 except 后此处再无兜底，整个融资融券
+        # 查询被一条毒记录打成 None（同 R107/上方新版分支口径）。
+        latest = next((r for r in records if isinstance(r, dict)), None)
+        if latest is None:
             logger.info("[东方财富] 融资融券无数据")
             return None
-
-        # 取最新一条记录
-        latest = records[0]
 
         # 字段说明（东方财富API）：
         # TRADE_DATE: 交易日期

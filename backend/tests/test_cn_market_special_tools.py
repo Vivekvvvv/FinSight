@@ -113,3 +113,90 @@ def test_fetch_margin_trading_uses_current_eastmoney_report(monkeypatch):
     assert result["margin_buy_ratio"] == 0.0273
     assert calls[0]["params"]["reportName"] == "RPTA_WEB_RZRQ_GGMX"
     assert calls[0]["params"]["filter"] == '(SCODE="600519")'
+
+
+class _FakeResponse404:
+    status_code = 404
+
+    def json(self):
+        return {}
+
+
+def test_fetch_margin_trading_skips_poison_rows_in_new_report(monkeypatch):
+    """新版报表首行是非 dict 毒记录时不能靠 AttributeError 碰巧降级——
+    旧版兜底 404 的场景下整个融资融券查询被打成 None；应跳过毒行取首个
+    有效行（同 fetch_cn_top_list 的 R107 修复口径）。"""
+
+    def fake_http_get(url, params=None, **kwargs):
+        report = (params or {}).get("reportName")
+        if report == "RPTA_WEB_RZRQ_GGMX":
+            return _FakeResponse(
+                {
+                    "result": {
+                        "data": [
+                            "poison-row",
+                            {
+                                "DATE": "2026-06-26 00:00:00",
+                                "SCODE": "600519",
+                                "RZYE": 19566752185,
+                                "RZMRE": 399270757,
+                                "RZCHE": 962027703,
+                                "RQYL": 106809,
+                                "RQMCL": 2042,
+                                "RQCHL": 2661,
+                                "RZRQYE": 19691572386.67,
+                                "SZ": 1460882861376.63,
+                            },
+                        ]
+                    }
+                }
+            )
+        return _FakeResponse404()
+
+    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+
+    result = tencent_provider.fetch_margin_trading("600519.SS")
+
+    assert result is not None
+    assert result["margin_balance"] == 19566752185
+    assert result["margin_buy_ratio"] == 0.0273
+    assert result["source"] == "eastmoney"
+
+
+def test_fetch_margin_trading_skips_poison_rows_in_legacy_report(monkeypatch):
+    """旧版报表无后续兜底：records[0] 毒记录让 .get AttributeError 落进
+    外层 except，整批有效记录被陪葬成 None（同 R107）。"""
+
+    def fake_http_get(url, params=None, **kwargs):
+        report = (params or {}).get("reportName")
+        if report == "RPTA_WEB_RZRQ_GGMX":
+            return _FakeResponse404()
+        return _FakeResponse(
+            {
+                "code": 0,
+                "result": {
+                    "data": [
+                        42,
+                        {
+                            "TRADE_DATE": "2026-06-26 00:00:00",
+                            "RZYE": 19566752185,
+                            "RZMRE": 399270757,
+                            "RZCHE": 962027703,
+                            "RQYL": 106809,
+                            "RQMCL": 2042,
+                            "RQCHL": 2661,
+                            "RZRQYE": 19691572386.67,
+                        },
+                    ]
+                },
+            }
+        )
+
+    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+
+    result = tencent_provider.fetch_margin_trading("600519.SS")
+
+    assert result is not None
+    assert result["margin_balance"] == 19566752185
+    assert result["margin_buy_ratio"] == 0.0
+    assert result["source"] == "eastmoney"
