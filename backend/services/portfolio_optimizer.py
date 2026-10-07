@@ -58,7 +58,11 @@ def optimize_portfolio(
     for _ in range(n_simulations):
         w = np.random.dirichlet(np.ones(n))
         ret = float(w @ mean_returns)
-        vol = float(np.sqrt(w @ cov_matrix @ w))
+        # 近完美负相关/共线输入让 np.cov 产浮点非半正定矩阵：真实协方差
+        # 二次型 ≥0，w@cov@w 可落 ~-1e-18 → sqrt 出 nan → volatility 字段
+        # 透传响应 JSON 成裸 NaN 字面量 → 前端 JSON.parse 崩（同入口处
+        # np.isfinite 与 correlation NaN 修复类）。负数纯浮点噪声，钳 0。
+        vol = float(np.sqrt(max(w @ cov_matrix @ w, 0.0)))
         sharpe = (ret - risk_free_rate) / vol if vol > 0 else 0.0
         frontier.append({"weights": w.tolist(), "return": ret, "volatility": vol, "sharpe": sharpe})
 
@@ -70,7 +74,7 @@ def optimize_portfolio(
     # 等权基准
     eq_w = np.ones(n) / n
     eq_ret = float(eq_w @ mean_returns)
-    eq_vol = float(np.sqrt(eq_w @ cov_matrix @ eq_w))
+    eq_vol = float(np.sqrt(max(eq_w @ cov_matrix @ eq_w, 0.0)))
 
     def _fmt_portfolio(p: dict[str, Any], label: str) -> dict[str, Any]:
         return {

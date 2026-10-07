@@ -132,3 +132,26 @@ def test_optimize_portfolio_rejects_non_finite_returns_input():
             tickers=["A", "B"],
             n_simulations=50,
         )
+
+
+def test_near_singular_cov_sqrt_does_not_leak_nan():
+    """近完美负相关对（正股+反向ETF/多空对冲）让 np.cov 产出浮点非半正定
+    矩阵：真实协方差二次型 ≥0，但负特征值 ~-1e-18 时 w@cov@w 取到微小
+    负数 → np.sqrt(负) = nan → volatility/max_sharpe/eq_baseline 字段吐
+    NaN → FastAPI 序列化出裸 NaN 字面量 → 前端 JSON.parse 崩（同本文件
+    correlation NaN 修复类）。二次型真实值 ≥0，负数纯浮点噪声，钳到 0。"""
+    r1 = [0.01 if i % 2 == 0 else -0.02 for i in range(30)]
+    # 确定性微扰使 |cov12| 略超 sqrt(cov11*cov22)：eq_w 二次型 = -1.7e-18
+    eps = [1e-14 if i % 2 == 0 else -1e-14 for i in range(30)]
+    r2 = [-v + e for v, e in zip(r1, eps)]
+
+    result = optimize_portfolio(
+        returns_matrix=[r1, r2],
+        tickers=["LONG", "INVERSE"],
+        n_simulations=100,
+    )
+
+    assert math.isfinite(
+        result["equal_weight_baseline"]["annual_volatility"]
+    ), f"eq_vol NaN 泄漏: {result['equal_weight_baseline']}"
+    json.dumps(result, allow_nan=False)
