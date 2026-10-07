@@ -243,6 +243,25 @@ async def test_news_agent_stream_summary_tolerates_null_headline(mock_cache, moc
     assert "Real Headline" in chunks[-1]
 
 
+@pytest.mark.asyncio
+async def test_news_agent_stream_dedupe_skips_poison_items(mock_cache, mock_tools, circuit_breaker):
+    """analyze_stream 的 URL 去重循环对未过滤的上游结果裸调 item.get——
+    finnhub/tavily 原始返回混入非 dict 毒条目时 AttributeError 炸出
+    async generator，SSE 流中途裸断、已取新闻全丢（同 R107）。"""
+    mock_tools._fetch_with_finnhub_news = MagicMock(return_value=[
+        "poison-row",
+        {"headline": "Apple releases new iPhone", "url": "http://apple.com/a",
+         "source": "finnhub", "datetime": "2023-01-01"},
+    ])
+    mock_tools._search_company_news = MagicMock(return_value=[])
+    agent = NewsAgent(None, mock_cache, mock_tools, circuit_breaker)
+
+    chunks = [chunk async for chunk in agent.analyze_stream("AAPL news", "AAPL")]
+
+    done_events = [c for c in chunks if '"type": "done"' in c]
+    assert done_events, "流应在毒条目跳过后正常完成"
+
+
 def test_price_deterministic_summary_keeps_flat_change(mock_llm, mock_cache, mock_tools, circuit_breaker):
     """R64：真平盘（change_percent==0.0）不应被 `or` 丢弃，日内涨跌行仍显示。"""
     agent = PriceAgent(mock_llm, mock_cache, mock_tools, circuit_breaker)

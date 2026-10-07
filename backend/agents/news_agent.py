@@ -647,6 +647,11 @@ class NewsAgent(BaseFinancialAgent):
             seen_urls = set()
             unique_results = []
             for item in results:
+                # results 是 finnhub/tavily 未过滤的原始返回：非 dict 毒条目
+                # 的 .get AttributeError 会炸出 async generator，SSE 流中途
+                # 裸断、已取新闻全丢——按条跳过（同非流路径 305 行口径）。
+                if not isinstance(item, dict):
+                    continue
                 url = item.get("url")
                 if url and url not in seen_urls:
                     seen_urls.add(url)
