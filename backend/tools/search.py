@@ -229,8 +229,13 @@ def _search_with_duckduckgo(query: str) -> str:
             query_lower = query.lower()
             relevant_results = []
             for res in results:
-                title = res.get('title', '')
-                body = res.get('body', '')
+                # 非 dict 毒条目按条跳过；present-None/非 str 字段先归一化——
+                # 否则 title.lower() 在下方 falsy 守卫之前抛 AttributeError，
+                # 一条毒记录把整批（含已收集结果）拖进重试后全丢（同 R107）。
+                if not isinstance(res, dict):
+                    continue
+                title = str(res.get('title') or '')
+                body = str(res.get('body') or '')
                 title_lower = title.lower()
                 body_lower = body.lower()
                 
@@ -248,10 +253,14 @@ def _search_with_duckduckgo(query: str) -> str:
             
             formatted = []
             for i, res in enumerate(relevant_results[:10], 1):
-                title = res.get('title', 'No title')
-                body = res.get('body', 'No summary')
-                href = res.get('href', 'No link')
-                
+                # 同口径守卫：毒条目/present-None 在此也按条跳过，
+                # .encode 前的字段必须先归一化成 str。
+                if not isinstance(res, dict):
+                    continue
+                title = str(res.get('title') or 'No title')
+                body = str(res.get('body') or 'No summary')
+                href = str(res.get('href') or 'No link')
+
                 title = title.encode('utf-8', 'ignore').decode('utf-8').strip()
                 body = body.encode('utf-8', 'ignore').decode('utf-8').strip()
                 
@@ -387,7 +396,13 @@ def _search_with_wikipedia(query: str) -> str:
                             'url': page.url
                         }
                         break
-                    except:
+                    except Exception as exc:
+                        # 原为裸 except：连 KeyboardInterrupt/SystemExit 一起吞，且不留日志，
+                        # 歧义项全部失败时只表现为“维基百科没结果”，无从排查。
+                        # 对齐本函数下方 except Exception 的写法：只打异常类型名。
+                        logger.info(
+                            "[Search] 维基百科歧义项获取失败: %s", type(exc).__name__
+                        )
                         continue
                         
             except wikipedia.exceptions.PageError:
@@ -406,7 +421,10 @@ def _search_with_wikipedia(query: str) -> str:
                     'content': page.content[:5000],
                     'url': page.url
                 }
-            except:
+            except Exception as exc:
+                logger.info(
+                    "[Search] 维基百科兜底结果获取失败: %s", type(exc).__name__
+                )
                 return None
         
         if best_result:

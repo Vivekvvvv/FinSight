@@ -235,3 +235,40 @@ def test_exa_quota_cooldown_survives_wall_clock_jump(monkeypatch):
 
     search_tools.search("second query")
     assert calls["n"] == 1  # 冷却未真实到期，Exa 不应再被打
+
+
+def test_duckduckgo_skips_poison_result_items(monkeypatch):
+    """DDG 结果里的 present-None title/body 或非 dict 条目不能毁整批——
+    相关性过滤循环的 title.lower()/body.lower() 先于 falsy 守卫执行，
+    AttributeError 把整次查询拖进 3 次重试后抛错；DDG 是最后兜底源，
+    其失败即用户看到“所有搜索源均失败”（同 R107 缺陷类）。"""
+    fake_rows = [
+        {"title": None, "body": "apple body", "href": "http://x/1"},
+        "poison-row",
+        {"title": "Apple earnings", "body": "apple earnings body", "href": "http://x/2"},
+    ]
+    fake_ddgs = SimpleNamespace(text=lambda *_a, **_k: iter(fake_rows))
+    monkeypatch.setattr(search_tools, "DDGS", lambda **_k: fake_ddgs)
+    monkeypatch.setattr(search_tools.time, "sleep", lambda *_a, **_k: None)
+
+    result = search_tools._search_with_duckduckgo("apple earnings")
+
+    assert result is not None
+    assert "Apple earnings" in result
+
+
+def test_duckduckgo_empty_title_row_does_not_crash(monkeypatch):
+    """present-None 字段混入时，正常条目仍应输出；空标题行在格式化
+    阶段被既有 falsy 守卫丢弃而非提前炸掉循环。"""
+    fake_rows = [
+        {"title": "apple update", "body": None, "href": "http://x/1"},
+        {"title": "apple news headline", "body": "apple body text", "href": "http://x/2"},
+    ]
+    fake_ddgs = SimpleNamespace(text=lambda *_a, **_k: iter(fake_rows))
+    monkeypatch.setattr(search_tools, "DDGS", lambda **_k: fake_ddgs)
+    monkeypatch.setattr(search_tools.time, "sleep", lambda *_a, **_k: None)
+
+    result = search_tools._search_with_duckduckgo("apple news")
+
+    assert result is not None
+    assert "apple news headline" in result
