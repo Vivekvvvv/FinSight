@@ -707,6 +707,11 @@ queries 要求：
                     include_raw_content=False,
                 )
                 for item in response.get("results", []):
+                    # 非 dict 毒条目按条跳过：item.get 的 AttributeError 被外层
+                    # except 接住，毒条目之后的有效结果整批陪葬（首条毒则整个
+                    # 源静默降级）——同 _dedupe_results 的 isinstance 口径。
+                    if not isinstance(item, dict):
+                        continue
                     results.append({
                         "title": item.get("title", ""),
                         "url": item.get("url", ""),
@@ -731,6 +736,10 @@ queries 要求：
                     highlights=True,
                 )
                 for item in response.results or []:
+                    # 同 Tavily 循环口径：无 title/url 属性的毒条目按条跳过，
+                    # 否则 AttributeError 截断批次、毒条目后有效结果全丢。
+                    if not hasattr(item, "title") or not hasattr(item, "url"):
+                        continue
                     content = ""
                     if getattr(item, "highlights", None):
                         content = " ".join(item.highlights[:2])

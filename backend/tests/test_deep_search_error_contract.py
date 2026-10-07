@@ -105,6 +105,81 @@ def test_tavily_search_error_log_is_redacted(monkeypatch, caplog):
     assert "[DeepSearch] Tavily search failed" in caplog.text
 
 
+def test_tavily_poison_item_does_not_truncate_result_batch(monkeypatch):
+    """Tavily results 混入非 dict 毒条目：循环内 item.get AttributeError 被
+    外层 except 接住，毒条目之后的有效结果全部陪葬（首条毒则整个源静默
+    降级）——按条跳过与同文件 _dedupe_results 的 isinstance 口径一致。"""
+    class Tools:
+        TAVILY_API_KEY = "test-key"
+        TAVILY_AVAILABLE = True
+        EXA_API_KEY = ""
+        EXA_AVAILABLE = False
+
+    class FakeTavilyClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def search(self, **_kwargs):
+            return {
+                "results": [
+                    {"title": "ok-first", "url": "https://a/1", "content": "s1"},
+                    "poison-row",
+                    {"title": "ok-second", "url": "https://a/2", "content": "s2"},
+                ]
+            }
+
+    tavily_module = types.ModuleType("tavily")
+    tavily_module.TavilyClient = FakeTavilyClient
+    monkeypatch.setitem(sys.modules, "tavily", tavily_module)
+    agent = DeepSearchAgent(llm=None, cache=None, tools_module=Tools())
+
+    results = agent._search_web("AAPL outlook")
+
+    titles = [r.get("title") for r in results]
+    assert titles == ["ok-first", "ok-second"]
+
+
+def test_exa_poison_item_does_not_truncate_result_batch(monkeypatch):
+    """Exa response.results 混入无属性毒条目：item.highlights/item.title
+    AttributeError 截断整个批次（毒条目之后的有效结果全丢），随后静默
+    降级到本地兜底。按条跳过即可。"""
+    from types import SimpleNamespace
+
+    class Tools:
+        TAVILY_API_KEY = ""
+        TAVILY_AVAILABLE = False
+        EXA_API_KEY = "test-key"
+        EXA_AVAILABLE = True
+
+    class FakeExa:
+        def __init__(self, **_kwargs):
+            pass
+
+        def search_and_contents(self, **_kwargs):
+            return SimpleNamespace(
+                results=[
+                    "poison-row",
+                    SimpleNamespace(
+                        title="ok-exa",
+                        url="https://b/1",
+                        highlights=["h1", "h2"],
+                        text="body",
+                        published_date=None,
+                    ),
+                ]
+            )
+
+    exa_module = types.ModuleType("exa_py")
+    exa_module.Exa = FakeExa
+    monkeypatch.setitem(sys.modules, "exa_py", exa_module)
+    agent = DeepSearchAgent(llm=None, cache=None, tools_module=Tools())
+
+    results = agent._search_web("AAPL outlook")
+
+    titles = [r.get("title") for r in results]
+    assert titles == ["ok-exa"]
+
+
 def test_exa_search_error_log_is_redacted(monkeypatch, caplog):
     class Tools:
         TAVILY_API_KEY = ""
