@@ -774,6 +774,11 @@ class ToolOrchestrator:
         self._stats = {
             'total_requests': 0,
             'cache_hits': 0,
+            # 'cache_misses' 必须与 __init__ 同构：fetch 的 cache-miss 路径在
+            # per-source try 块之外做 += 1，缺键时 reset 后首个未命中请求
+            # KeyError 炸穿整个 fetch（hit 路径只在 _export_cache_metrics
+            # 的 try 内丢指标，miss 路径无保护）。
+            'cache_misses': 0,
             'fallback_used': 0,
             'total_failures': 0,
             'sources': {},

@@ -381,11 +381,29 @@ def test_reset_stats():
     
     # 重置
     orchestrator.reset_stats()
-    
+
     stats = orchestrator.get_stats()
     assert stats['orchestrator']['total_requests'] == 0
-    
+
     print("[OK] 重置统计测试通过")
+
+
+def test_reset_stats_preserves_cache_misses_counter(monkeypatch):
+    """reset_stats 重建的 _stats 缺 'cache_misses' 键：构造时该键存在
+    （fetch 在 cache-miss 路径做 += 1、_export_cache_metrics 也读它），
+    reset 后首个未命中请求在 per-source try 块之外 KeyError 炸穿
+    fetch()——公开方法把对象留在主方法必崩状态。"""
+    orchestrator = ToolOrchestrator()
+    orchestrator.sources['price'] = [
+        DataSource('mock_success', mock_source_success, 1, 60),
+    ]
+    orchestrator.fetch('price', 'AAPL')
+    orchestrator.reset_stats()
+
+    result = orchestrator.fetch('price', 'MSFT')  # 新 ticker → cache miss 路径
+
+    assert result.success is True
+    assert orchestrator.get_stats()['orchestrator']['cache_misses'] == 1
 
 
 def test_r97_all_sources_empty_sets_last_error_and_negative_cache():
