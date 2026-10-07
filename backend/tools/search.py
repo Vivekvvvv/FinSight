@@ -5,6 +5,7 @@ import time
 from typing import List
 
 from backend.utils.env_config import env_int
+from backend.utils.quote import safe_float
 
 from .env import EXA_API_KEY, TAVILY_API_KEY
 from .utils import _normalize_published_date
@@ -487,10 +488,16 @@ def _search_with_tavily(query: str) -> str:
         if results:
             formatted.append("搜索结果:")
             for i, res in enumerate(results, 1):
-                title = res.get('title', 'No title')
-                content = res.get('content', 'No content')
-                url = res.get('url', 'No link')
-                score = res.get('score', 0)
+                # 非 dict 毒条目按条跳过——res.get AttributeError 落进函数级
+                # except → RuntimeError，已收集条目连同 AI 摘要整批陪葬
+                # （同 _search_with_duckduckgo/deep_search_agent R107 口径）；
+                # present-None 字段先归一成 str 再切片，score 非数值置 0。
+                if not isinstance(res, dict):
+                    continue
+                title = str(res.get('title') or 'No title')
+                content = str(res.get('content') or 'No content')
+                url = str(res.get('url') or 'No link')
+                score = safe_float(res.get('score')) or 0.0
 
                 formatted.append(
                     f"{i}. {title} (相关性: {score:.2f})\n"
@@ -548,6 +555,11 @@ def _search_with_exa(query: str) -> str:
 
         if response.results:
             for i, res in enumerate(response.results, 1):
+                # 无 title/url 属性的毒条目按条跳过——res.title/res.url
+                # AttributeError 落进函数级 except → RuntimeError，整批
+                # 有效结果陪葬（同 deep_search_agent Exa 循环 R107 口径）。
+                if not (hasattr(res, 'title') and hasattr(res, 'url')):
+                    continue
                 title = res.title or 'No title'
                 url = res.url or 'No link'
 

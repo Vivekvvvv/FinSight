@@ -272,3 +272,63 @@ def test_duckduckgo_empty_title_row_does_not_crash(monkeypatch):
 
     assert result is not None
     assert "apple news headline" in result
+
+
+def test_tavily_poison_result_does_not_truncate_batch(monkeypatch):
+    """Tavily results 混入非 dict/present-None 毒条目：res.get 裸调与
+    content[:200] 切片对 str/None 抛 AttributeError/TypeError，落进函数级
+    except → RuntimeError("Tavily search failed")——毒条目位置之前的已
+    格式化结果和 AI 摘要连同之后全部有效条目陪葬，整个源被判失败降级
+    （与 _search_with_duckduckgo 已修的 R107 缺陷类相同）。"""
+    client = SimpleNamespace(
+        search=lambda **_kwargs: {
+            "answer": "tavily ai summary",
+            "results": [
+                {"title": "ok-first", "content": "c1", "url": "http://a/1", "score": 0.9},
+                "poison-row",
+                {"title": "null-content", "content": None, "url": "http://a/2", "score": "high"},
+                {"title": "ok-second", "content": "c2", "url": "http://a/3", "score": 0.8},
+            ],
+        }
+    )
+    monkeypatch.setattr(search_tools, "TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(search_tools, "TAVILY_AVAILABLE", True)
+    monkeypatch.setattr(search_tools, "TavilyClient", lambda **_kwargs: client)
+
+    result = search_tools._search_with_tavily("AAPL earnings")
+
+    assert "tavily ai summary" in result
+    assert "ok-first" in result
+    assert "ok-second" in result
+
+
+def test_exa_poison_result_does_not_truncate_batch(monkeypatch):
+    """Exa response.results 混入无 title/url 属性的毒条目：res.title/
+    res.url AttributeError 落进函数级 except → RuntimeError("Exa search
+    failed")，毒条目之后的有效结果与之前已收集条目整批陪葬（同 R107）。
+    按 deep_search_agent 已修口径：hasattr(title,url) 逐条跳过。"""
+    client = SimpleNamespace(
+        search_and_contents=lambda **_kwargs: SimpleNamespace(
+            results=[
+                SimpleNamespace(
+                    title="ok-exa", url="http://b/1",
+                    highlights=["h1"], text=None, published_date=None,
+                ),
+                "poison-row",
+                42,
+                SimpleNamespace(
+                    title="ok-exa-2", url="http://b/2",
+                    highlights=None, text="body", published_date=None,
+                ),
+            ]
+        )
+    )
+    monkeypatch.setattr(search_tools, "EXA_API_KEY", "test-key")
+    monkeypatch.setattr(search_tools, "EXA_AVAILABLE", True)
+    monkeypatch.setattr(search_tools, "Exa", lambda **_kwargs: client)
+
+    result = search_tools._search_with_exa("AAPL earnings")
+
+    assert result is not None
+    assert "ok-exa" in result
+    assert "ok-exa-2" in result
