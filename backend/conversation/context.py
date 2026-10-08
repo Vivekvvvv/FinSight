@@ -12,6 +12,8 @@ from enum import Enum
 import re
 import time
 
+from ._match import contains_ascii_word, contains_name, contains_suffix_code, contains_symbol, has_cjk
+
 
 class MessageRole(Enum):
     """消息角色"""
@@ -242,7 +244,7 @@ class ContextManager:
             # 误判成选股，且本路径先于 index/market 短路，会直接返回错股。
             if query_upper.strip() == sym:
                 return item
-            if len(sym) >= 2 and re.search(rf"(?<![A-Z0-9.]){re.escape(sym)}(?![A-Z0-9])", query_upper):
+            if len(sym) >= 2 and contains_symbol(query_upper, sym):
                 return item
         return None
 
@@ -272,7 +274,7 @@ class ContextManager:
         # 市场 tag 必须是 token 级匹配：裸子串让 "US"⊂"AUSTRALIAN"、
         # "US"⊂"INDUSTRIES"、"PAR"⊂"PARIS/SPARE"、"HK"⊂"HKD" 等
         # 把非目标市场候选误判进对应市场并在澄清时先返回。
-        return re.search(rf"(?<![A-Z0-9.]){re.escape(tag)}(?![A-Z0-9])", blob) is not None
+        return contains_symbol(blob, tag)
 
     def _candidate_matches_market(self, candidate: Dict[str, Any], market: str) -> bool:
         symbol = (candidate.get("symbol") or "").upper()
@@ -318,12 +320,12 @@ class ContextManager:
                     if key.startswith("."):
                         # ".l"/".t" 类代码后缀：左侧允许紧贴代码（"vod.l"→UK），
                         # 只需右侧不成词——".t" ⊂ ".txt" 会误判 JP。
-                        if re.search(re.escape(key) + r"(?![a-z0-9])", lowered):
+                        if contains_suffix_code(lowered, key):
                             return market
                     # 其余 ASCII key 必须独立成词：裸子串让 "us"⊂"discuss"、
                     # "eu"⊂"queue"、"adr"⊂"adrian" 把无关英文误判成市场偏好，
                     # 且 market_preference 持久化污染后续轮次。
-                    elif re.search(r"(?<![a-z0-9])" + re.escape(key) + r"(?![a-z0-9])", lowered):
+                    elif contains_ascii_word(lowered, key):
                         return market
                 else:
                     if key in query:
@@ -347,7 +349,7 @@ class ContextManager:
             query_u = query.upper()
             if query_u.strip() == ticker_u or (
                 len(ticker_u) >= 2
-                and re.search(rf"(?<![A-Z0-9.]){re.escape(ticker_u)}(?![A-Z0-9])", query_u)
+                and contains_symbol(query_u, ticker_u)
             ):
                 return query
             if effective_hint and info.get("market") and info.get("market") != effective_hint:
@@ -363,7 +365,7 @@ class ContextManager:
             #   出现在非股语境仍会命中——单靠字符串层面无法与真实提及区分，
             #   需词表/上下文辅助，超出本批最小改动范围，显式记录为已知边界。
             if self._company_name_matches_query(name, query) or (
-                key and re.search(r"[一-鿿]", key) and key in normalized_query
+                key and has_cjk(key) and key in normalized_query
             ):
                 return self._inject_ticker(query, name, ticker)
         return query
@@ -382,11 +384,7 @@ class ContextManager:
         非股语境仍会命中——词界只能挡粘连，分不清词组内的普通名词，需词表
         或上下文辅助，超出本批最小改动范围，显式记录为已知边界。
         """
-        if re.search(r"[一-鿿]", name):
-            return name.lower() in query.lower()
-        return bool(
-            re.search(r"(?<![a-z0-9])" + re.escape(name.lower()) + r"(?![a-z0-9])", query.lower())
-        )
+        return contains_name(query, name)
 
     def _inject_ticker(self, base_query: str, company_hint: Optional[str], ticker: str) -> str:
         if company_hint:
