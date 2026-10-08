@@ -12,6 +12,7 @@ from backend.contracts import TRACE_SCHEMA_VERSION
 from backend.graph.event_bus import emit_event
 from backend.graph.state import GraphState
 from backend.services.langfuse_tracer import langfuse_span
+from backend.tools._item import iter_dict_items
 
 # Maximum number of trace spans retained in state.
 # Older spans are dropped (FIFO) when the limit is exceeded.
@@ -225,9 +226,7 @@ def _span_data(node_name: str, state: GraphState, updates: dict[str, Any]) -> di
                 steps = plan.get("steps") or []
                 preview_steps = []
                 if isinstance(steps, list):
-                    for s in steps[:10]:
-                        if not isinstance(s, dict):
-                            continue
+                    for s in iter_dict_items(steps[:10]):
                         preview_steps.append(
                             {
                                 "id": s.get("id"),

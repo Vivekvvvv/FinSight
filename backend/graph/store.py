@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from backend.services.memory import MemoryService
+from backend.tools._item import iter_dict_items
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +74,7 @@ def _extract_summary(state: dict[str, Any], report: dict[str, Any] | None) -> st
                 candidates.append(value.strip())
         sections = report.get("sections")
         if isinstance(sections, list):
-            for item in sections:
-                if not isinstance(item, dict):
-                    continue
+            for item in iter_dict_items(sections):
                 content = item.get("content")
                 if isinstance(content, str) and content.strip():
                     candidates.append(content.strip())
@@ -197,9 +196,7 @@ def persist_memory_snapshot(
             focus_entry["sentiment"] = sentiment.strip()
 
     dedup_recent: list[dict[str, Any]] = [focus_entry]
-    for item in existing_list:
-        if not isinstance(item, dict):
-            continue
+    for item in iter_dict_items(existing_list):
         if ticker and str(item.get("ticker") or "").strip().upper() == ticker:
             continue
         dedup_recent.append(item)
