@@ -7,6 +7,7 @@ from typing import List
 from backend.utils.env_config import env_int
 from backend.utils.quote import safe_float
 
+from ._item import iter_attr_items, iter_dict_items, text_or
 from .env import EXA_API_KEY, TAVILY_API_KEY
 from .utils import _normalize_published_date
 
@@ -229,14 +230,12 @@ def _search_with_duckduckgo(query: str) -> str:
             # 验证结果相关性
             query_lower = query.lower()
             relevant_results = []
-            for res in results:
-                # 非 dict 毒条目按条跳过；present-None/非 str 字段先归一化——
-                # 否则 title.lower() 在下方 falsy 守卫之前抛 AttributeError，
-                # 一条毒记录把整批（含已收集结果）拖进重试后全丢（同 R107）。
-                if not isinstance(res, dict):
-                    continue
-                title = str(res.get('title') or '')
-                body = str(res.get('body') or '')
+            for res in iter_dict_items(results):
+                # 非 dict 毒条目由 iter_dict_items 按条跳过；present-None/非 str
+                # 字段先归一化——否则 title.lower() 在下方 falsy 守卫之前抛
+                # AttributeError，一条毒记录把整批拖进重试后全丢（同 R107）。
+                title = text_or(res.get('title'))
+                body = text_or(res.get('body'))
                 title_lower = title.lower()
                 body_lower = body.lower()
                 
@@ -253,14 +252,11 @@ def _search_with_duckduckgo(query: str) -> str:
                 relevant_results = results[:3]
             
             formatted = []
-            for i, res in enumerate(relevant_results[:10], 1):
-                # 同口径守卫：毒条目/present-None 在此也按条跳过，
-                # .encode 前的字段必须先归一化成 str。
-                if not isinstance(res, dict):
-                    continue
-                title = str(res.get('title') or 'No title')
-                body = str(res.get('body') or 'No summary')
-                href = str(res.get('href') or 'No link')
+            for i, res in enumerate(iter_dict_items(relevant_results[:10]), 1):
+                # 同口径：毒条目按条跳过，.encode 前的字段先归一成 str。
+                title = text_or(res.get('title')) or 'No title'
+                body = text_or(res.get('body')) or 'No summary'
+                href = text_or(res.get('href')) or 'No link'
 
                 title = title.encode('utf-8', 'ignore').decode('utf-8').strip()
                 body = body.encode('utf-8', 'ignore').decode('utf-8').strip()
@@ -487,16 +483,14 @@ def _search_with_tavily(query: str) -> str:
         results = response.get('results', [])
         if results:
             formatted.append("搜索结果:")
-            for i, res in enumerate(results, 1):
+            for i, res in enumerate(iter_dict_items(results), 1):
                 # 非 dict 毒条目按条跳过——res.get AttributeError 落进函数级
                 # except → RuntimeError，已收集条目连同 AI 摘要整批陪葬
                 # （同 _search_with_duckduckgo/deep_search_agent R107 口径）；
                 # present-None 字段先归一成 str 再切片，score 非数值置 0。
-                if not isinstance(res, dict):
-                    continue
-                title = str(res.get('title') or 'No title')
-                content = str(res.get('content') or 'No content')
-                url = str(res.get('url') or 'No link')
+                title = text_or(res.get('title')) or 'No title'
+                content = text_or(res.get('content')) or 'No content'
+                url = text_or(res.get('url')) or 'No link'
                 score = safe_float(res.get('score')) or 0.0
 
                 formatted.append(
@@ -554,14 +548,12 @@ def _search_with_exa(query: str) -> str:
         formatted.append("Search Results (Exa):")
 
         if response.results:
-            for i, res in enumerate(response.results, 1):
+            for i, res in enumerate(iter_attr_items(response.results, 'title', 'url'), 1):
                 # 无 title/url 属性的毒条目按条跳过——res.title/res.url
                 # AttributeError 落进函数级 except → RuntimeError，整批
                 # 有效结果陪葬（同 deep_search_agent Exa 循环 R107 口径）。
-                if not (hasattr(res, 'title') and hasattr(res, 'url')):
-                    continue
-                title = res.title or 'No title'
-                url = res.url or 'No link'
+                title = text_or(res.title) or 'No title'
+                url = text_or(res.url) or 'No link'
 
                 # 获取高亮或文本内容
                 content = ""

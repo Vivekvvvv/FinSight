@@ -6,8 +6,9 @@
 tools 文件各自写 `isinstance(x, dict)` + `.get(...) or ...` 守卫，写法分散、
 同型 bug 反复出现（see fix(search)/fix(news)/fix(price)/fix(tencent) 系列）。
 
-本模块提供两个统一入口：
+本模块提供统一入口：
   - ``iter_dict_items``：过滤掉非 dict 条目，按条跳过而不是毁整批；
+  - ``iter_attr_items``：对象型载荷（Exa 等）的缺属性守卫，同口径按条跳过；
   - ``text_or`` / ``num_or``：字段级归一化，把 present-None / 非 str 收敛到
     默认值，避免下游 `title.lower()`/`* 100` 之类的 TypeError/AttributeError。
 
@@ -64,6 +65,21 @@ def num_or(value: Any, default: float = 0.0) -> float:
     return n
 
 
+def iter_attr_items(items: Iterable[Any] | None, *required_attrs: str) -> Iterator[Any]:
+    """逐个产出同时具备 ``required_attrs`` 的条目——Exa 等对象型载荷的守卫。
+
+    等价于各循环里的 ``hasattr(x, 'title') and hasattr(x, 'url')`` 手工守卫，
+    缺属性的毒条目按条跳过而不是毁整批。``items`` 为 None/空时产出空迭代。
+    """
+    if not items:
+        return
+    for item in items:
+        if item is None:
+            continue
+        if all(hasattr(item, attr) for attr in required_attrs):
+            yield item
+
+
 def num_or_none(value: Any) -> Optional[float]:
     """同 ``num_or``，但非法值返回 ``None``——区分"0"与"无数据"。"""
     if value is None or isinstance(value, bool):
@@ -77,4 +93,4 @@ def num_or_none(value: Any) -> Optional[float]:
     return n
 
 
-__all__ = ["iter_dict_items", "text_or", "num_or", "num_or_none"]
+__all__ = ["iter_dict_items", "iter_attr_items", "text_or", "num_or", "num_or_none"]

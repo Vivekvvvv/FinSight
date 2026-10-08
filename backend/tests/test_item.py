@@ -2,7 +2,7 @@
 """tools/_item.py 归一化层测试——毒条目按条跳过、present-None/畸形字段收敛默认值。"""
 from __future__ import annotations
 
-from backend.tools._item import iter_dict_items, num_or, num_or_none, text_or
+from backend.tools._item import iter_attr_items, iter_dict_items, num_or, num_or_none, text_or
 
 
 def test_iter_dict_items_skips_poison_entries():
@@ -23,6 +23,21 @@ def test_iter_dict_items_empty_and_none():
     """None/空列表产出空迭代，由调用方区分'空'与'坏'。"""
     assert list(iter_dict_items(None)) == []
     assert list(iter_dict_items([])) == []
+
+
+def test_iter_attr_items_requires_all_attrs():
+    """对象型载荷（Exa）缺 title/url 任一属性的毒条目按条跳过——
+    同 search.py/deep_search_agent Exa 循环的 hasattr 手工守卫口径。"""
+    class _Res:
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+
+    good = _Res(title="t", url="u")
+    raw = [good, _Res(title="only-title"), _Res(url="only-url"), None, "poison"]
+    assert list(iter_attr_items(raw, "title", "url")) == [good]
+    assert list(iter_attr_items(None, "title")) == []
+    # 无 required_attrs 时等价于过滤 None
+    assert list(iter_attr_items([good, None], )) == [good]
 
 
 def test_text_or_normalizes_present_none_and_scalars():
