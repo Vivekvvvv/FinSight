@@ -6,6 +6,7 @@ import os
 from backend.utils.env_config import env_int
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.tools.http import _http_get
 from backend.utils.quote import safe_float, safe_int
 
@@ -86,9 +87,7 @@ def fetch_fund_flow(*, limit: int = 20) -> dict[str, Any]:
     if rows is None:
         return _fetch_failed("eastmoney_clist")
     items: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
+    for row in iter_dict_items(rows):
         symbol = _build_symbol(row)
         if not symbol:
             continue
@@ -122,9 +121,7 @@ def fetch_northbound(*, limit: int = 20) -> dict[str, Any]:
     if rows is None:
         return _fetch_failed("eastmoney_clist")
     items: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
+    for row in iter_dict_items(rows):
         symbol = _build_symbol(row) or str(row.get("f12") or "").strip()
         if not symbol:
             continue

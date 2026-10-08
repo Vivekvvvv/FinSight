@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from backend.utils.quote import safe_float, safe_int
 
+from ._item import iter_dict_items
 from .http import _http_get
 
 logger = logging.getLogger(__name__)
@@ -433,9 +434,7 @@ def fetch_cn_hk_financial_statements(ticker: str, periods: int = 8) -> dict[str,
         balance_rows = _fetch_finance_rows("RPT_F10_FINANCE_GBALANCE", secu_code, target_periods + 3)
         cash_rows = _fetch_finance_rows("RPT_F10_FINANCE_GCASHFLOW", secu_code, target_periods + 3)
 
-        for row in income_rows:
-            if not isinstance(row, dict):
-                continue
+        for row in iter_dict_items(income_rows):
             period = _period_label(row.get("REPORT_DATE"), row.get("REPORT_TYPE"))
             if not period:
                 continue
@@ -446,9 +445,7 @@ def fetch_cn_hk_financial_statements(ticker: str, periods: int = 8) -> dict[str,
             entry["net_income"] = safe_float(row.get("PARENT_NETPROFIT") or row.get("NETPROFIT"))
             entry["eps"] = safe_float(row.get("BASIC_EPS"))
 
-        for row in balance_rows:
-            if not isinstance(row, dict):
-                continue
+        for row in iter_dict_items(balance_rows):
             period = _period_label(row.get("REPORT_DATE"), row.get("REPORT_TYPE"))
             if not period:
                 continue
@@ -456,9 +453,7 @@ def fetch_cn_hk_financial_statements(ticker: str, periods: int = 8) -> dict[str,
             entry["total_assets"] = safe_float(row.get("TOTAL_ASSETS"))
             entry["total_liabilities"] = safe_float(row.get("TOTAL_LIABILITIES"))
 
-        for row in cash_rows:
-            if not isinstance(row, dict):
-                continue
+        for row in iter_dict_items(cash_rows):
             period = _period_label(row.get("REPORT_DATE"), row.get("REPORT_TYPE"))
             if not period:
                 continue
@@ -473,9 +468,7 @@ def fetch_cn_hk_financial_statements(ticker: str, periods: int = 8) -> dict[str,
             entry["free_cash_flow"] = free_cash_flow
     else:
         hk_rows = _fetch_finance_rows("RPT_HKF10_FN_MAININDICATOR", secu_code, target_periods + 3)
-        for row in hk_rows:
-            if not isinstance(row, dict):
-                continue
+        for row in iter_dict_items(hk_rows):
             period = _period_label(row.get("REPORT_DATE"), row.get("REPORT_TYPE"))
             if not period:
                 continue

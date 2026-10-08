@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.tools.http import _http_get
 from backend.utils.quote import safe_float
 
@@ -69,9 +70,7 @@ def fetch_nasdaq_intraday(ticker: str) -> dict[str, Any] | None:
     if not isinstance(rows, list):
         return None
     points: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
+    for row in iter_dict_items(rows):
         timestamp = _number(row.get("x"))
         value = _number(row.get("y"))
         if timestamp is None or value is None:
