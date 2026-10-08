@@ -10,6 +10,7 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+from ._item import iter_dict_items
 from .env import (
     IEX_CLOUD_API_KEY,
     MARKETSTACK_API_KEY,
@@ -164,11 +165,9 @@ def _fetch_with_iex_cloud(ticker: str, period: str = "1y") -> dict:
             data = response.json()
             if isinstance(data, list) and len(data) > 0:
                 kline_data = []
-                for item in data:
-                    # 非 dict 毒行按条跳过——否则 .get AttributeError 落进
-                    # 函数级 except，该 provider 整批返回 None（同 R107）
-                    if not isinstance(item, dict):
-                        continue
+                for item in iter_dict_items(data):
+                    # 非 dict 毒行由 iter_dict_items 按条跳过——否则 .get
+                    # AttributeError 落进函数级 except，该 provider 整批返回 None（同 R107）
                     time_str = str(item.get('date') or item.get('label') or '')
                     if not time_str:
                         continue  # 无日期K线柱无意义，丢弃
@@ -236,10 +235,8 @@ def _fetch_with_tiingo(ticker: str, period: str = "1y") -> dict:
             data = response.json()
             if isinstance(data, list) and len(data) > 0:
                 kline_data = []
-                for item in data:
+                for item in iter_dict_items(data):
                     # 毒行按条跳过（同 R107）；date present-None 也跳过切片
-                    if not isinstance(item, dict):
-                        continue
                     time_str = str(item.get('date') or '')[:10]
                     if not time_str:
                         continue  # 无日期K线柱无意义，丢弃
@@ -314,10 +311,8 @@ def _fetch_with_twelve_data(ticker: str, period: str = "1y") -> dict:
             return None
 
         kline_data = []
-        for item in values:
+        for item in iter_dict_items(values):
             # 毒行按条跳过（同 R107）
-            if not isinstance(item, dict):
-                continue
             time_str = str(item.get("datetime") or "")[:10]
             if not time_str:
                 continue  # 无日期K线柱无意义，丢弃
@@ -391,10 +386,8 @@ def _fetch_with_marketstack(ticker: str, period: str = "1y") -> dict:
             
             if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
                 kline_data = []
-                for item in data["data"]:
+                for item in iter_dict_items(data["data"]):
                     # 毒行按条跳过（同 R107）
-                    if not isinstance(item, dict):
-                        continue
                     time_str = str(item.get('date') or '')[:10]
                     if not time_str:
                         continue  # 无日期K线柱无意义，丢弃
@@ -468,11 +461,9 @@ def _fetch_with_massive_io(ticker: str, period: str = "1y") -> dict:
                 results = data.get('results', [])
                 if len(results) > 0:
                     kline_data = []
-                    for item in results:
+                    for item in iter_dict_items(results):
                         # 毒行按条跳过；item['t'] 裸索引 KeyError/TypeError
                         # 会让整个 provider 返回 None（同 R107）
-                        if not isinstance(item, dict):
-                            continue
                         ts = _safe_float_value(item.get('t'))
                         if ts is None:
                             continue

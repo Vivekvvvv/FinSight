@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.tools.http import _http_get
 from backend.utils.quote import safe_float, safe_int
 from backend.utils.strict_json import json_loads_strict
@@ -116,12 +117,10 @@ def fetch_cn_top_list_history(
             payload = resp.json()
             rows = ((payload.get("result") or {}).get("data") or []) if isinstance(payload, dict) else []
             results = []
-            for record in rows:
+            for record in iter_dict_items(rows):
                 # 非 dict 毒记录按条跳过——.get AttributeError 落进函数级
                 # except 弃掉整批走旧版；TRADE_DATE present-None 经 get 默认
                 # 不生效存 None，排序 None vs str TypeError 同样毁批（同 R107）
-                if not isinstance(record, dict):
-                    continue
                 item = {
                     "symbol": symbol.upper(),
                     "stock_code": stock_code,
@@ -174,9 +173,7 @@ def fetch_cn_top_list_history(
         # 解析每条记录；非 dict 毒条目按条跳过——.get AttributeError 落进
         # 函数级 except 整个旧版查询返回 []，无更深兜底（同 R107）
         results = []
-        for record in data_list:
-            if not isinstance(record, dict):
-                continue
+        for record in iter_dict_items(data_list):
             if record.get("SCode") != stock_code:
                 continue
 
@@ -359,8 +356,7 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
                     "total_balance": safe_float(record.get("RZRQYE")) or 0.0,
                     "source": "eastmoney",
                 }
-                for record in rows
-                if isinstance(record, dict)
+                for record in iter_dict_items(rows)
             ]
             if results:
                 return sorted(results, key=lambda x: x["date"], reverse=True)
@@ -400,9 +396,7 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
 
         # 解析历史记录；非 dict 毒记录按条跳过（同 R107）
         results = []
-        for record in records:
-            if not isinstance(record, dict):
-                continue
+        for record in iter_dict_items(records):
             results.append({
                 "symbol": symbol.upper(),
                 "stock_code": stock_code,

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 import yfinance as yf
 
+from backend.tools._item import iter_dict_items
 from backend.tools.price_history_providers import _safe_float_value
 from backend.utils.quote import safe_float
 
@@ -16,9 +17,7 @@ def _normalize_positions(positions: Any) -> List[Dict[str, Any]]:
     if not isinstance(positions, list):
         return parsed
 
-    for item in positions:
-        if not isinstance(item, dict):
-            continue
+    for item in iter_dict_items(positions):
         ticker = str(item.get("ticker") or item.get("symbol") or "").strip().upper()
         if not ticker:
             continue

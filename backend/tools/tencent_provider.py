@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.tools.http import _http_get
 from backend.utils.quote import safe_float, safe_int
 from backend.utils.strict_json import json_loads_strict
@@ -521,9 +522,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
         # 查找匹配的股票记录；非 dict 毒条目按条跳过——item.get 的
         # AttributeError 会落进外层 except 让整个旧版查询返回 None（同 R107）
         record = None
-        for item in data_list:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(data_list):
             if item.get("SCode") == stock_code:
                 record = item
                 break
@@ -830,7 +829,7 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
             # 非 dict 毒行按条跳过取首个有效行——rows[0].get 的 AttributeError
             # 只是碰巧落进外层 except 降级到旧版报表（margin_buy_ratio 硬编
             # 0.0 丢真实占比）；同 fetch_cn_top_list 新版分支的 R107 口径。
-            latest = next((r for r in rows if isinstance(r, dict)), None)
+            latest = next(iter_dict_items(rows), None)
             if latest is not None:
                 margin_balance = safe_float(latest.get("RZYE"))
                 margin_buy = safe_float(latest.get("RZMRE"))
@@ -900,7 +899,7 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
         # 取最新一条有效记录——非 dict 毒行按条跳过；records[0].get 的
         # AttributeError 落进外层 except 后此处再无兜底，整个融资融券
         # 查询被一条毒记录打成 None（同 R107/上方新版分支口径）。
-        latest = next((r for r in records if isinstance(r, dict)), None)
+        latest = next(iter_dict_items(records), None)
         if latest is None:
             logger.info("[东方财富] 融资融券无数据")
             return None
