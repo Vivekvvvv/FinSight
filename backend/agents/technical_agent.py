@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 import pandas as pd
 
+from backend.tools._item import iter_dict_items
 from backend.utils.quote import safe_float
 
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, ConflictClaim, EvidenceItem
@@ -282,9 +283,7 @@ class TechnicalAgent(BaseFinancialAgent):
         # _compute_indicators 让技术分析 agent 整体报错（同 R107-R119 类）
         if not isinstance(kline_data, list):
             return None, None
-        for item in kline_data:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(kline_data):
             close = item.get("close")
             parsed_close = safe_float(close)
             if parsed_close is None:

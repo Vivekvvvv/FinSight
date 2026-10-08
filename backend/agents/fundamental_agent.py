@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from backend.agents.base_agent import AgentOutput, BaseFinancialAgent, ConflictClaim, EvidenceItem
 from backend.services.circuit_breaker import CircuitBreaker
+from backend.tools._item import iter_dict_items
 from backend.utils.env_config import env_int
 
 
@@ -495,9 +496,7 @@ class FundamentalAgent(BaseFinancialAgent):
         }
 
     def _extract_columns(self, *tables: Any) -> List[str]:
-        for table in tables:
-            if not isinstance(table, dict):
-                continue
+        for table in iter_dict_items(tables):
             cols = table.get("columns")
             if not isinstance(cols, list) or not cols:
                 continue
@@ -640,9 +639,7 @@ class FundamentalAgent(BaseFinancialAgent):
         total = len(metric_map)
         metric_with_values = 0
         metric_with_growth = 0
-        for metric in metric_map.values():
-            if not isinstance(metric, dict):
-                continue
+        for metric in iter_dict_items(metric_map.values()):
             if self._safe_float(metric.get("latest")) is not None:
                 metric_with_values += 1
             if self._safe_float(metric.get("yoy")) is not None or self._safe_float(metric.get("qoq")) is not None:
