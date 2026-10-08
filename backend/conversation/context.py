@@ -352,9 +352,41 @@ class ContextManager:
                 return query
             if effective_hint and info.get("market") and info.get("market") != effective_hint:
                 continue
-            if (name.lower() in query.lower()) or (key and key in normalized_query):
+            # 公司名匹配须按书写系统分流（同 :350 ticker 的 token 边界口径）：
+            #   ASCII 名独立成词才算提及——裸子串让 "Apple"⊂"applepie"、
+            #   "Dell"⊂"delllaptop" 把无关英文当成显式提及并把错 ticker 注进
+            #   query/记忆；normalized_query 已删空格，"apple"⊂"applepierecipe"
+            #   同样假命中，故 ASCII 名不走该分支。
+            #   CJK 名以子串命中——中文名本来就嵌在长句里（"深度分析苹果"），
+            #   强行上 ASCII 词界会把它整段漏掉。
+            #   已知保留误报："apple pie"/"dell laptop" 这类 ASCII 名作为独立词
+            #   出现在非股语境仍会命中——单靠字符串层面无法与真实提及区分，
+            #   需词表/上下文辅助，超出本批最小改动范围，显式记录为已知边界。
+            if self._company_name_matches_query(name, query) or (
+                key and re.search(r"[一-鿿]", key) and key in normalized_query
+            ):
                 return self._inject_ticker(query, name, ticker)
         return query
+
+    @staticmethod
+    def _company_name_matches_query(name: str, query: str) -> bool:
+        """公司名该不该在 query 里命中：CJK 名走子串，ASCII 名要求词界。
+
+        R-类同型修复（对齐 :350 ticker 边界）：裸 `name.lower() in query.lower()`
+        让 "Apple"⊂"applepie"、"Dell"⊂"delllaptop" 把无关英文当成显式公司名
+        提及，提前 return 并把错 ticker 注进 query。
+
+        CJK 名（"苹果"/"茅台"）在中英混排里永远以子串出现，不能套 ASCII 词界。
+
+        已知保留误报："apple pie"/"dell laptop" 这类 ASCII 名作独立词出现在
+        非股语境仍会命中——词界只能挡粘连，分不清词组内的普通名词，需词表
+        或上下文辅助，超出本批最小改动范围，显式记录为已知边界。
+        """
+        if re.search(r"[一-鿿]", name):
+            return name.lower() in query.lower()
+        return bool(
+            re.search(r"(?<![a-z0-9])" + re.escape(name.lower()) + r"(?![a-z0-9])", query.lower())
+        )
 
     def _inject_ticker(self, base_query: str, company_hint: Optional[str], ticker: str) -> str:
         if company_hint:

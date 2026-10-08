@@ -139,6 +139,46 @@ def test_apply_company_memory_real_ticker_presence_still_skips_injection():
     assert cm._apply_company_memory("AAPL 的财报", None) == "AAPL 的财报"
 
 
+def test_apply_company_memory_ascii_name_match_requires_token_boundary():
+    """R-类: 355 行 `name.lower() in query.lower()` 裸子串——ASCII 公司名
+    粘连进相邻词时被当成显式提及并把错 ticker 注进 query：'applepie'、
+    'delllaptop'、'reapple'。与 :350 ticker 的 token 边界判定同型，
+    name 侧此前未修。"""
+    cm = ContextManager()
+    cm._remember_company("Apple", "AAPL", {"matches": [{"symbol": "AAPL", "primaryExchange": "NASDAQ"}]})
+    cm._remember_company("Dell", "DELL", {"matches": [{"symbol": "DELL", "primaryExchange": "NYSE"}]})
+    assert cm._apply_company_memory("applepie recipe", None) == "applepie recipe"
+    assert cm._apply_company_memory("delllaptop review", None) == "delllaptop review"
+
+
+def test_apply_company_memory_ascii_name_real_mention_still_injects():
+    """正例：ASCII 名独立成词时仍应注入。"""
+    cm = ContextManager()
+    cm._remember_company("Apple", "AAPL", {"matches": [{"symbol": "AAPL", "primaryExchange": "NASDAQ"}]})
+    assert "AAPL" in cm._apply_company_memory("apple earnings today", None)
+    assert "AAPL" in cm._apply_company_memory("Apple 财报", None)
+
+
+def test_apply_company_memory_ascii_name_word_group_is_known_boundary():
+    """已知边界：'apple pie'/'dell laptop' 里 ASCII 名以独立词出现仍会命中——
+    词界只能挡粘连，分不清词组内普通名词，需词表/上下文辅助，超出本批。"""
+    cm = ContextManager()
+    cm._remember_company("Apple", "AAPL", {"matches": [{"symbol": "AAPL", "primaryExchange": "NASDAQ"}]})
+    # 词界挡不住独立词，这是显式接受的已知误报，不升级为必须相等
+    out = cm._apply_company_memory("apple pie recipe", None)
+    assert isinstance(out, str)
+
+
+def test_apply_company_memory_cjk_name_substring_still_injects():
+    """CJK 名本来就以子串形式出现（'苹果公司' ⊂ 中文 query），不能用
+    ASCII 的 token 边界；'深度分析苹果' 这类含假市场词但仍含真实公司名的
+    场景必须继续命中。"""
+    cm = ContextManager()
+    cm._remember_company("苹果", "AAPL", {"matches": [{"symbol": "AAPL", "primaryExchange": "NASDAQ"}]})
+    assert "AAPL" in cm._apply_company_memory("深度分析苹果的财报", None)
+    assert "AAPL" in cm._apply_company_memory("苹果走势", None)
+
+
 def test_candidate_market_match_us_tag_needs_boundary():
     """R34: _candidate_matches_market 用 `tag in blob` —— 'US'⊂'AUSTRALIAN'、
     'US'⊂'INDUSTRIES'、'OTC'⊂'OCTOBER' 把非美候选误判成 US 并先返回。"""
