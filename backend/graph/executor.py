@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Callable, Mapping, MutableMapping
 from backend.graph.event_bus import emit_event
 from backend.graph.failure import FAILURE_STRATEGY_VERSION
 from backend.graph.json_utils import json_dumps_safe
-from backend.tools._item import iter_dict_items
+from backend.tools._item import iter_dict_items, num_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -170,15 +170,6 @@ async def execute_plan(
     }
     exec_events: list[dict[str, Any]] = []
 
-    def _as_float(value: Any) -> float | None:
-        try:
-            if value is None or isinstance(value, bool):
-                return None
-            parsed = float(value)
-            return parsed if math.isfinite(parsed) else None
-        except Exception:
-            return None
-
     def _update_signals_from_output(output: Any) -> None:
         if not isinstance(output, dict):
             return
@@ -188,19 +179,19 @@ async def execute_plan(
         if not isinstance(signals, dict):
             return
 
-        confidence = _as_float(output.get("confidence"))
+        confidence = num_or_none(output.get("confidence"))
         if confidence is not None:
             signals["latest_confidence"] = confidence
-            prev_max = _as_float(signals.get("max_confidence")) or 0.0
+            prev_max = num_or_none(signals.get("max_confidence")) or 0.0
             if confidence > prev_max:
                 signals["max_confidence"] = confidence
 
         evidence_quality = output.get("evidence_quality")
         if isinstance(evidence_quality, dict):
-            quality_score = _as_float(evidence_quality.get("overall_score"))
+            quality_score = num_or_none(evidence_quality.get("overall_score"))
             if quality_score is not None:
                 signals["latest_evidence_quality"] = quality_score
-                prev_quality_max = _as_float(signals.get("max_evidence_quality")) or 0.0
+                prev_quality_max = num_or_none(signals.get("max_evidence_quality")) or 0.0
                 if quality_score > prev_quality_max:
                     signals["max_evidence_quality"] = quality_score
 
@@ -257,10 +248,10 @@ async def execute_plan(
         escalation_stage = inputs.get("__escalation_stage") if isinstance(inputs, dict) else None
         if optional and escalation_stage == "high_cost":
             force_run = bool(inputs.get("__force_run"))
-            min_conf = _as_float(inputs.get("__run_if_min_confidence"))
+            min_conf = num_or_none(inputs.get("__run_if_min_confidence"))
             min_conf = min_conf if min_conf is not None else 0.72
             signals = artifacts.get("signals") if isinstance(artifacts.get("signals"), dict) else {}
-            current_conf = _as_float((signals or {}).get("max_confidence")) or 0.0
+            current_conf = num_or_none((signals or {}).get("max_confidence")) or 0.0
             if (not force_run) and current_conf >= min_conf:
                 duration_ms = int((time.perf_counter() - start) * 1000)
                 output = {
