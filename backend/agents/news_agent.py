@@ -6,6 +6,7 @@ import math
 from datetime import datetime
 from backend.agents.base_agent import BaseFinancialAgent, AgentOutput, EvidenceItem
 from backend.services.circuit_breaker import CircuitBreaker
+from backend.tools._item import iter_dict_items
 from backend.utils.env_config import env_float, env_int
 from backend.utils.strict_json import json_loads_strict
 from backend.agents.news_agent_helpers import (
@@ -121,9 +122,7 @@ class NewsAgent(BaseFinancialAgent):
         return _is_authoritative_domain(domain, self._AUTHORITATIVE_DOMAIN_HINTS)
     def _filter_authoritative_news(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         filtered: List[Dict[str, Any]] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(items):
             url = str(item.get("url") or "").strip()
             if not url:
                 continue
@@ -152,9 +151,7 @@ class NewsAgent(BaseFinancialAgent):
 
     def _annotate_reliability(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         annotated: List[Dict[str, Any]] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(items):
             rel = self._score_reliability_for_item(item)
             cloned = dict(item)
             cloned["source_reliability"] = rel
@@ -173,9 +170,7 @@ class NewsAgent(BaseFinancialAgent):
         scores: List[float] = []
         high_count = 0
         low_count = 0
-        for item in items:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(items):
             rel = item.get("source_reliability")
             if not isinstance(rel, dict):
                 continue
@@ -230,9 +225,7 @@ class NewsAgent(BaseFinancialAgent):
             try:
                 finnhub_items = finnhub_news(ticker)
                 if isinstance(finnhub_items, list):
-                    for item in finnhub_items:
-                        if not isinstance(item, dict):
-                            continue
+                    for item in iter_dict_items(finnhub_items):
                         item.setdefault("ticker", ticker)
                         item.setdefault("source", "finnhub")
                         results.append(item)
@@ -249,9 +242,7 @@ class NewsAgent(BaseFinancialAgent):
                 if get_news:
                     news_data = get_news(ticker)
                     if isinstance(news_data, list):
-                        for item in news_data:
-                            if not isinstance(item, dict):
-                                continue
+                        for item in iter_dict_items(news_data):
                             item.setdefault("ticker", ticker)
                             results.append(item)
                         if results:
@@ -272,9 +263,7 @@ class NewsAgent(BaseFinancialAgent):
                 if search_news:
                     t_results = search_news(f"{ticker} stock news")
                     if isinstance(t_results, list):
-                        for item in t_results:
-                            if not isinstance(item, dict):
-                                continue
+                        for item in iter_dict_items(t_results):
                             item.setdefault("ticker", ticker)
                             item.setdefault("source", "tavily")
                             results.append(item)
@@ -301,9 +290,7 @@ class NewsAgent(BaseFinancialAgent):
 
         # Deduplicate (title-level)
         normalized_results: List[Dict[str, Any]] = []
-        for item in results:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(results):
             cloned = dict(item)
             cloned["url"] = self._recover_original_article_url(cloned.get("url"))
             normalized_results.append(cloned)
@@ -359,9 +346,7 @@ class NewsAgent(BaseFinancialAgent):
                                 payload = {}
                         articles = payload.get("articles") if isinstance(payload, dict) else []
                         if isinstance(articles, list):
-                            for article in articles:
-                                if not isinstance(article, dict):
-                                    continue
+                            for article in iter_dict_items(articles):
                                 url = self._recover_original_article_url(article.get("url"))
                                 if not url:
                                     continue
@@ -402,9 +387,7 @@ class NewsAgent(BaseFinancialAgent):
 
         # Build rich context for LLM ReAct-style analysis
         news_context_parts = []
-        for item in data[:8]:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(data[:8]):
             headline = item.get("headline", item.get("title", ""))
             source = item.get("source", "")
             date = item.get("datetime", item.get("published_at", ""))
@@ -451,23 +434,22 @@ class NewsAgent(BaseFinancialAgent):
 
         # Handle None or non-list raw_data
         if raw_data and isinstance(raw_data, list):
-            for item in raw_data:
-                if isinstance(item, dict):
-                    source = item.get("source", "unknown")
-                    sources.add(source)
-                    source_reliability = item.get("source_reliability") if isinstance(item.get("source_reliability"), dict) else {}
-                    rel_score = source_reliability.get("reliability_score")
-                    confidence = item.get("confidence", 0.7)
-                    if isinstance(rel_score, (int, float)) and not isinstance(rel_score, bool) and math.isfinite(float(rel_score)):
-                        confidence = max(0.1, min(0.95, float(rel_score)))
-                    evidence.append(EvidenceItem(
-                        text=item.get("headline", item.get("title", "")),
-                        source=source,
-                        url=item.get("url"),
-                        timestamp=item.get("datetime", item.get("published_at")),
-                        confidence=confidence,
-                        meta={"source_reliability": source_reliability} if source_reliability else {},
-                    ))
+            for item in iter_dict_items(raw_data):
+                source = item.get("source", "unknown")
+                sources.add(source)
+                source_reliability = item.get("source_reliability") if isinstance(item.get("source_reliability"), dict) else {}
+                rel_score = source_reliability.get("reliability_score")
+                confidence = item.get("confidence", 0.7)
+                if isinstance(rel_score, (int, float)) and not isinstance(rel_score, bool) and math.isfinite(float(rel_score)):
+                    confidence = max(0.1, min(0.95, float(rel_score)))
+                evidence.append(EvidenceItem(
+                    text=item.get("headline", item.get("title", "")),
+                    source=source,
+                    url=item.get("url"),
+                    timestamp=item.get("datetime", item.get("published_at")),
+                    confidence=confidence,
+                    meta={"source_reliability": source_reliability} if source_reliability else {},
+                ))
         else:
             fallback_used = True
 
@@ -646,12 +628,10 @@ class NewsAgent(BaseFinancialAgent):
             # 去重并缓存
             seen_urls = set()
             unique_results = []
-            for item in results:
+            for item in iter_dict_items(results):
                 # results 是 finnhub/tavily 未过滤的原始返回：非 dict 毒条目
                 # 的 .get AttributeError 会炸出 async generator，SSE 流中途
-                # 裸断、已取新闻全丢——按条跳过（同非流路径 305 行口径）。
-                if not isinstance(item, dict):
-                    continue
+                # 裸断、已取新闻全丢——按条跳过（同非流路径口径）。
                 url = item.get("url")
                 if url and url not in seen_urls:
                     seen_urls.add(url)
@@ -708,7 +688,7 @@ class NewsAgent(BaseFinancialAgent):
         
         # 构建新闻列表
         news_list = []
-        for item in data[:5]:
+        for item in iter_dict_items(data[:5]):
             headline = item.get("headline", item.get("title", ""))
             source = item.get("source", "")
             if headline:
@@ -787,7 +767,6 @@ class NewsAgent(BaseFinancialAgent):
         # 回退 title 并跳过空标题（同 R107 缺陷类，与本函数 L709 的 if 守卫一致）。
         fallback_titles = [
             str(item.get("headline") or item.get("title") or "")
-            for item in data[:3]
-            if isinstance(item, dict)
+            for item in iter_dict_items(data[:3])
         ]
         yield f"近期新闻包括：{'; '.join(title for title in fallback_titles if title)}"
