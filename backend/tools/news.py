@@ -10,6 +10,7 @@ import yfinance as yf
 from .env import ALPHA_VANTAGE_API_KEY, finnhub_client
 from .http import _http_get
 from .search import search
+from ._item import iter_dict_items, num_or, text_or
 from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
@@ -191,17 +192,15 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
             articles = fetch_news_articles(ticker)
             if articles:
                 items: List[Dict[str, Any]] = []
-                for a in articles:
-                    # 非 dict 毒条目按条跳过（同 R107-R110 缺陷类）
-                    if not isinstance(a, dict):
-                        continue
-                    title = a.get("title") or a.get("headline") or a.get("summary") or "No title"
-                    snippet = a.get("summary") or a.get("description") or ""
+                for a in iter_dict_items(articles):
+                    # 非 dict 毒条目由 iter_dict_items 按条跳过（同 R107-R110）
+                    title = text_or(a.get("title")) or text_or(a.get("headline")) or text_or(a.get("summary")) or "No title"
+                    snippet = text_or(a.get("summary")) or text_or(a.get("description"))
                     if not _headline_is_useful(title, snippet):
                         continue
-                    source = a.get("source") or a.get("publisher") or "Unknown"
+                    source = text_or(a.get("source")) or text_or(a.get("publisher")) or "Unknown"
                     published_at = a.get("published_at") or a.get("datetime") or a.get("providerPublishTime") or 0
-                    url = a.get("url") or a.get("link") or ""
+                    url = text_or(a.get("url")) or text_or(a.get("link"))
                     item = _build_news_item(
                         title=title,
                         source=source,
@@ -226,17 +225,15 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
             news = stock.news
             if news:
                 items = []
-                for article in news:
-                    # 非 dict 毒条目按条跳过（同 R107）
-                    if not isinstance(article, dict):
-                        continue
-                    title = article.get('title', 'No title')
-                    snippet = article.get('summary') or article.get('description') or ""
+                for article in iter_dict_items(news):
+                    # 非 dict 毒条目由 iter_dict_items 按条跳过（同 R107）
+                    title = text_or(article.get('title')) or 'No title'
+                    snippet = text_or(article.get('summary')) or text_or(article.get('description'))
                     if not _headline_is_useful(title, snippet):
                         continue
-                    publisher = article.get('publisher', 'Unknown source')
-                    pub_time = article.get('providerPublishTime', 0)
-                    url = article.get('link') or article.get('url') or ''
+                    publisher = text_or(article.get('publisher')) or 'Unknown source'
+                    pub_time = num_or(article.get('providerPublishTime'))
+                    url = text_or(article.get('link')) or text_or(article.get('url'))
                     item = _build_news_item(
                         title=title,
                         source=publisher,
@@ -266,18 +263,15 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
         news = stock.news
         if news:
             items = []
-            for article in news:
-                # 非 dict 毒条目按条跳过，否则 .get 抛 AttributeError
-                # 落进方法级 except，已收集的 items 全丢（同 R107）。
-                if not isinstance(article, dict):
-                    continue
-                title = article.get('title', 'No title')
-                snippet = article.get('summary') or article.get('description') or ""
+            for article in iter_dict_items(news):
+                # 非 dict 毒条目由 iter_dict_items 按条跳过（同 R107）
+                title = text_or(article.get('title')) or 'No title'
+                snippet = text_or(article.get('summary')) or text_or(article.get('description'))
                 if not _headline_is_useful(title, snippet):
                     continue
-                publisher = article.get('publisher', 'Unknown source')
-                pub_time = article.get('providerPublishTime', 0)
-                url = article.get('link') or article.get('url') or ''
+                publisher = text_or(article.get('publisher')) or 'Unknown source'
+                pub_time = num_or(article.get('providerPublishTime'))
+                url = text_or(article.get('link')) or text_or(article.get('url'))
                 item = _build_news_item(
                     title=title,
                     source=publisher,
@@ -305,17 +299,15 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
             news = finnhub_client.company_news(ticker, _from=from_date, to=to_date)
             if news:
                 items = []
-                for article in news:
-                    # 非 dict 毒条目按条跳过（同方法1/R107）
-                    if not isinstance(article, dict):
-                        continue
-                    title = article.get('headline', 'No title')
-                    snippet = article.get('summary') or ""
+                for article in iter_dict_items(news):
+                    # 非 dict 毒条目由 iter_dict_items 按条跳过（同方法1/R107）
+                    title = text_or(article.get('headline')) or 'No title'
+                    snippet = text_or(article.get('summary'))
                     if not _headline_is_useful(title, snippet):
                         continue
-                    source = article.get('source', 'Unknown')
-                    pub_time = article.get('datetime', 0)
-                    url = article.get('url') or ''
+                    source = text_or(article.get('source')) or 'Unknown'
+                    pub_time = num_or(article.get('datetime'))
+                    url = text_or(article.get('url'))
                     item = _build_news_item(
                         title=title,
                         source=source,
@@ -344,20 +336,17 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
         feed = data.get('feed')
         if isinstance(feed, list) and feed:
             items = []
-            for article in feed:
-                # 单条毒记录（非 dict / present-None 字段）按条跳过；
-                # 否则落进方法级 except 会连已收集的 items 一起丢（同 R107）。
-                if not isinstance(article, dict):
-                    continue
-                title = article.get('title') or 'No title'
-                source = article.get('source') or 'Unknown'
+            for article in iter_dict_items(feed):
+                # 单条毒记录由 iter_dict_items 按条跳过（同 R107）
+                title = text_or(article.get('title')) or 'No title'
+                source = text_or(article.get('source')) or 'Unknown'
                 date_str = str(article.get('time_published') or '')[:8]
                 if date_str:
                     date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-                snippet = article.get('summary') or ""
+                snippet = text_or(article.get('summary'))
                 if not _headline_is_useful(title, snippet):
                     continue
-                url = article.get('url') or article.get('link') or ''
+                url = text_or(article.get('url')) or text_or(article.get('link'))
                 item = _build_news_item(
                     title=title,
                     source=source,
@@ -381,9 +370,8 @@ def get_company_news(ticker: str, limit: int = 5) -> List[Dict[str, Any]]:
     fallback_text = search(f"{ticker} company latest news stock")
     items = _build_search_news_items(fallback_text, limit=limit, max_age_days=7)
     if items:
-        for item in items:
-            if isinstance(item, dict):
-                item.setdefault("ticker", ticker)
+        for item in iter_dict_items(items):
+            item.setdefault("ticker", ticker)
         return items
     return []
 
@@ -579,9 +567,7 @@ def get_event_calendar(ticker: str, days_ahead: int = 30) -> Dict[str, Any]:
     def _dedupe_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         seen = set()
         output = []
-        for event in events:
-            if not isinstance(event, dict):
-                continue
+        for event in iter_dict_items(events):
             key = (event.get("date"), event.get("title"), event.get("source"))
             if key in seen:
                 continue
@@ -635,10 +621,8 @@ def get_news_sentiment(ticker: str, limit: int = 5) -> str:
             raw_ts = item.get('ticker_sentiment') or []
             if not isinstance(raw_ts, (list, tuple)):
                 raw_ts = []
-            for ts in raw_ts:
-                # 单条畸形记录跳过即可，不能让整个情绪结果变 fetch failed
-                if not isinstance(ts, dict):
-                    continue
+            for ts in iter_dict_items(raw_ts):
+                # 单条畸形记录由 iter_dict_items 按条跳过
                 if str(ts.get('ticker') or '').upper() == symbol_upper:
                     return ts.get('ticker_sentiment_score'), ts.get('ticker_sentiment_label')
             return item.get('overall_sentiment_score'), item.get('overall_sentiment_label')
@@ -650,22 +634,19 @@ def get_news_sentiment(ticker: str, limit: int = 5) -> str:
         scores: List[float] = []
         # limit 语义是"最多 limit 条有效输出"：先过滤后计数，否则毒记录
         # 会烧掉 [:limit] 的名额，其后好记录被切掉（同 R60 缺陷类）。
-        for item in feed_items:
+        for item in iter_dict_items(feed_items):
             if len(lines) >= limit:
                 break
-            # feed 里混入非 dict 条目/present-None 字段时按条跳过；
-            # 否则单条毒记录会落进函数级 except，整批结果全丢。
-            if not isinstance(item, dict):
-                continue
-            title = item.get('title') or 'No title'
-            source = item.get('source') or 'Unknown'
+            # 单条毒记录由 iter_dict_items 按条跳过（同 R60 缺陷类）
+            title = text_or(item.get('title')) or 'No title'
+            source = text_or(item.get('source')) or 'Unknown'
             time_published = item.get('time_published') or ''
             date_str = str(time_published)[:8]
             if date_str and len(date_str) == 8:
                 date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
             else:
                 date_str = 'Unknown date'
-            url = item.get('url') or item.get('link') or ''
+            url = text_or(item.get('url')) or text_or(item.get('link'))
             score, label = _extract_sentiment(item, ticker)
             sentiment_desc = "N/A"
             try:
@@ -764,22 +745,20 @@ def get_market_news_headlines(limit: int = 5) -> str:
                 continue
             if articles:
                 lines = []
-                for a in articles:
-                    # 非 dict 毒条目按条跳过（同 R107）
-                    if not isinstance(a, dict):
-                        continue
-                    title = a.get("title") or a.get("headline") or a.get("summary") or "No title"
-                    snippet = a.get("summary") or a.get("description") or ""
+                for a in iter_dict_items(articles):
+                    # 非 dict 毒条目由 iter_dict_items 按条跳过（同 R107）
+                    title = text_or(a.get("title")) or text_or(a.get("headline")) or text_or(a.get("summary")) or "No title"
+                    snippet = text_or(a.get("summary")) or text_or(a.get("description"))
                     if not _headline_is_useful(title, snippet):
                         continue
-                    source = a.get("source") or a.get("publisher") or "Unknown"
+                    source = text_or(a.get("source")) or text_or(a.get("publisher")) or "Unknown"
                     published_at = a.get("published_at") or a.get("datetime") or a.get("providerPublishTime") or 0
                     if isinstance(published_at, str):
                         date_str = published_at.split("T")[0]
                     else:
                         # UTC 取日（同文件 568/978 行惯例），裸 fromtimestamp 按本地时区跨零点偏一天
                         date_str = datetime.fromtimestamp(published_at, tz=UTC).strftime("%Y-%m-%d") if published_at else "Recent"
-                    url = a.get("url") or a.get("link") or ""
+                    url = text_or(a.get("url")) or text_or(a.get("link"))
                     line = _format_headline_line(date_str, title, source, url, snippet)
                     lines.append(f"{len(lines) + 1}. {line}")
                     if len(lines) >= limit:
