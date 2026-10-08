@@ -80,14 +80,13 @@ def _build_grounding_corpus(
             parts.append(_safe_str(output.get("text")))
             evidence = output.get("evidence")
             if isinstance(evidence, list):
-                for ev in evidence[:12]:
-                    if isinstance(ev, dict):
-                        parts.extend([
-                            _safe_str(ev.get("title")),
-                            _safe_str(ev.get("snippet")),
-                            _safe_str(ev.get("url")),
-                            _safe_str(ev.get("source")),
-                        ])
+                for ev in iter_dict_items(evidence[:12]):
+                    parts.extend([
+                        _safe_str(ev.get("title")),
+                        _safe_str(ev.get("snippet")),
+                        _safe_str(ev.get("url")),
+                        _safe_str(ev.get("source")),
+                    ])
         else:
             parts.append(_safe_str(output))
 

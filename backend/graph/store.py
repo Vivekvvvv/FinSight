@@ -139,9 +139,8 @@ def load_memory_context(
     recent_focuses_raw = preferences.get("recent_focuses")
     recent_focuses: list[dict[str, Any]] = []
     if isinstance(recent_focuses_raw, list):
-        for item in recent_focuses_raw:
-            if isinstance(item, dict):
-                recent_focuses.append(item)
+        for item in iter_dict_items(recent_focuses_raw):
+            recent_focuses.append(item)
             if len(recent_focuses) >= _RECENT_FOCUS_LOAD_LIMIT:
                 break
 
