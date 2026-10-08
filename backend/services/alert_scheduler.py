@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from backend.agents.risk_agent import RiskAgent, RiskLevel
 from backend.services.subscription_service import SubscriptionService
 from backend.services.email_service import EmailService
+from backend.tools._item import iter_dict_items
 
 from backend.services.alert_providers import (
     PriceSnapshot,
@@ -352,9 +353,7 @@ class NewsAlertScheduler:
 
             # 相关性：优先 related_tickers 命中，其次标题出现 ticker 型 token
             related: List[Dict] = []
-            for art in articles:
-                if not isinstance(art, dict):
-                    continue
+            for art in iter_dict_items(articles):
                 pub_dt = art.get("published_at")
                 if isinstance(pub_dt, str):
                     try:

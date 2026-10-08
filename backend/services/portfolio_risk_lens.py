@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import re
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.utils.quote import safe_float
 
 
@@ -44,11 +45,9 @@ def calculate_portfolio_risk_lens(
     if not positions:
         return _empty_risk_lens()
 
-    reports = [report for report in (reports or []) if isinstance(report, dict)]
+    reports = list(iter_dict_items(reports or []))
     normalized_positions = []
-    for position in positions:
-        if not isinstance(position, dict):
-            continue
+    for position in iter_dict_items(positions):
         item = dict(position)
         ticker = item.get("ticker")
         if not isinstance(ticker, str):

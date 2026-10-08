@@ -22,6 +22,7 @@ from pathlib import Path
 import re
 from uuid import uuid4
 
+from backend.tools._item import iter_dict_items
 from backend.utils.env_config import env_int
 from backend.utils.quote import safe_int
 from backend.utils.strict_json import json_load_strict
@@ -138,9 +139,7 @@ class SubscriptionService:
         for email, subs in self.subscriptions.items():
             if not isinstance(subs, list):
                 continue
-            for sub in subs:
-                if not isinstance(sub, dict):
-                    continue
+            for sub in iter_dict_items(subs):
                 if sub.get("email") != email:
                     sub["email"] = email
                     changed = True
@@ -259,9 +258,7 @@ class SubscriptionService:
             return []
         cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=max(1, ALERT_EVENTS_TTL_DAYS))
         keep: List[Dict] = []
-        for item in events:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(events):
             triggered_at = self._to_utc_naive(self._parse_iso(str(item.get("triggered_at") or "")))
             if triggered_at is None:
                 continue
@@ -676,9 +673,7 @@ class SubscriptionService:
 
         since_dt = self._to_utc_naive(self._parse_iso(since)) if since else None
         events: List[Dict] = []
-        for sub in subscriptions:
-            if not isinstance(sub, dict):
-                continue
+        for sub in iter_dict_items(subscriptions):
             for item in self._prune_recent_events(sub.get("recent_events") or []):
                 triggered = self._to_utc_naive(self._parse_iso(str(item.get("triggered_at") or "")))
                 if since_dt and triggered and triggered < since_dt:
