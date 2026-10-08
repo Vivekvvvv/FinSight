@@ -6,6 +6,7 @@ import os
 from backend.utils.env_config import env_int
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.tools.http import _http_get
 from backend.utils.quote import safe_float, safe_int
 
@@ -46,7 +47,7 @@ def fetch_concept_map(*, keyword: str = "", limit: int = 20) -> dict[str, Any]:
                 data = payload.get("data")
                 diff = data.get("diff") if isinstance(data, dict) else None
                 if isinstance(diff, list):
-                    rows = [item for item in diff if isinstance(item, dict)]
+                    rows = list(iter_dict_items(diff))
     except Exception as exc:
         logger.info("fetch_concept_map failed: %s", type(exc).__name__)
 

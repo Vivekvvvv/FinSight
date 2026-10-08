@@ -8,6 +8,7 @@ from urllib.parse import quote
 import requests
 import yfinance as yf
 
+from ._item import iter_dict_items
 from .env import ALPHA_VANTAGE_API_KEY, OPENFIGI_API_KEY, EODHD_API_KEY, finnhub_client
 from .http import _http_get, _http_post
 from .search import search
@@ -469,9 +470,7 @@ def _infer_revision_signal(eps_revisions: List[Dict[str, Any]]) -> str:
         return "unknown"
 
     score = 0.0
-    for row in eps_revisions:
-        if not isinstance(row, dict):
-            continue
+    for row in iter_dict_items(eps_revisions):
         up_7 = safe_float(row.get("upLast7days")) or 0.0
         up_30 = safe_float(row.get("upLast30days")) or 0.0
         # yfinance 列名是 downLast7days（全小写 days）——旧代码读
@@ -564,8 +563,8 @@ def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
             return
         if source not in sources:
             sources.append(source)
-        for item in items:
-            symbol = item.get("symbol") if isinstance(item, dict) else None
+        for item in iter_dict_items(items):
+            symbol = item.get("symbol")
             if not symbol or symbol in seen:
                 continue
             matches.append(item)
@@ -584,11 +583,9 @@ def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
             lookup = finnhub_client.symbol_lookup(company)
             results = lookup.get("result", []) if isinstance(lookup, dict) else []
             finnhub_matches = []
-            for item in results:
+            for item in iter_dict_items(results):
                 # 非 dict 毒条目按条跳过——.get AttributeError 落进源级
                 # except，该源已收集 matches 整体丢弃退到 search（同 R107）
-                if not isinstance(item, dict):
-                    continue
                 symbol = item.get("displaySymbol") or item.get("symbol")
                 if not symbol:
                     continue
@@ -641,10 +638,8 @@ def _openfigi_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]
     data = resp.json()
     results = data.get("data", []) if isinstance(data, dict) else []
     matches: List[Dict[str, Any]] = []
-    for item in results:
+    for item in iter_dict_items(results):
         # 非 dict 毒条目按条跳过（同 R107）
-        if not isinstance(item, dict):
-            continue
         symbol = item.get("ticker")
         if not symbol:
             continue
@@ -672,10 +667,8 @@ def _eodhd_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]]:
     if not isinstance(data, list):
         return []
     matches: List[Dict[str, Any]] = []
-    for item in data[: max(limit, 5)]:
+    for item in iter_dict_items(data[: max(limit, 5)]):
         # 非 dict 毒条目按条跳过（同 R107）
-        if not isinstance(item, dict):
-            continue
         symbol = item.get("Code") or item.get("code")
         exchange = item.get("Exchange") or item.get("exchange") or ""
         if symbol and exchange and "." not in symbol:

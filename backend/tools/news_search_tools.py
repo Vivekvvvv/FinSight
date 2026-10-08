@@ -8,6 +8,7 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from ._item import iter_dict_items
 from .env import finnhub_client
 from backend.utils.quote import safe_float
 
@@ -180,9 +181,7 @@ def _fetch_finnhub_market_news(limit: int = 5, max_age_hours: int = 48) -> tuple
     if not isinstance(items, (list, tuple)):
         items = []
     lines = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
+    for item in iter_dict_items(items):
         ts = item.get("datetime")
         if not ts:
             continue

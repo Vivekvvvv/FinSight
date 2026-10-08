@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 import requests
 
+from backend.tools._item import iter_dict_items
 from backend.tools.env import FMP_API_KEY
 from backend.utils.quote import safe_float, safe_int
 
@@ -118,12 +119,11 @@ def get_revenue_product_segmentation(symbol: str) -> list[dict]:
 
     if not segments_raw:
         # 尝试其他格式
-        for item in data:
-            if isinstance(item, dict):
-                for key, value in item.items():
-                    if key != "date" and isinstance(value, dict):
-                        segments_raw = value
-                        break
+        for item in iter_dict_items(data):
+            for key, value in item.items():
+                if key != "date" and isinstance(value, dict):
+                    segments_raw = value
+                    break
             if segments_raw:
                 break
 
@@ -189,12 +189,11 @@ def get_revenue_geographic_segmentation(symbol: str) -> list[dict]:
     regions_raw = latest.get(symbol, {}) if isinstance(latest, dict) else {}
 
     if not regions_raw:
-        for item in data:
-            if isinstance(item, dict):
-                for key, value in item.items():
-                    if key != "date" and isinstance(value, dict):
-                        regions_raw = value
-                        break
+        for item in iter_dict_items(data):
+            for key, value in item.items():
+                if key != "date" and isinstance(value, dict):
+                    regions_raw = value
+                    break
             if regions_raw:
                 break
 
@@ -251,10 +250,7 @@ def get_etf_sector_weights(symbol: str) -> list[dict]:
         return []
 
     sectors = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-
+    for item in iter_dict_items(data):
         sector = item.get("sector", "")
         weight_str = item.get("weightPercentage", "0%")
 
@@ -299,10 +295,7 @@ def get_etf_holdings(symbol: str, limit: int = 50) -> list[dict]:
         return []
 
     holdings = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-
+    for item in iter_dict_items(data):
         asset = item.get("asset", "")
         name = item.get("name", "")
         weight_str = item.get("weightPercentage", "0")
@@ -376,10 +369,7 @@ def get_index_constituents(symbol: str, limit: int = 10) -> list[dict]:
         return []
 
     constituents = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-
+    for item in iter_dict_items(data):
         sym = item.get("symbol", "")
         name = item.get("name", "")
         sector = item.get("sector", "")

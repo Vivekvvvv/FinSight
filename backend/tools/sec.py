@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict
 
+from ._item import iter_dict_items
 from .http import _http_get
 from backend.utils.quote import safe_float
 
@@ -114,9 +115,7 @@ def _load_ticker_map(headers: dict[str, str]) -> dict[str, dict[str, Any]]:
     rows = payload.values() if isinstance(payload, dict) else payload
 
     mapping: dict[str, dict[str, Any]] = {}
-    for item in rows:
-        if not isinstance(item, dict):
-            continue
+    for item in iter_dict_items(rows):
         ticker = str(item.get("ticker") or "").strip().upper()
         cik_value = item.get("cik_str")
         if not ticker or cik_value is None:
@@ -234,9 +233,7 @@ def _extract_companyfacts_metric(
             entries = units.get(unit)
             if not isinstance(entries, list):
                 continue
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
+            for entry in iter_dict_items(entries):
                 if not _is_quarterly_companyfacts_entry(entry):
                     continue
                 period = _parse_companyfacts_period(entry)
