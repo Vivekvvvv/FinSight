@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from backend.tools._item import iter_dict_items
 from backend.utils.quote import safe_float
 
 from backend.dashboard.data_providers import (
@@ -425,9 +426,7 @@ def _infer_equity_market(symbol: str) -> str:
 
 def _build_ohlcv_frame_from_rows(rows: list[dict[str, Any]]) -> Optional[pd.DataFrame]:
     records: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
+    for row in iter_dict_items(rows):
         dt = pd.to_datetime(row.get("time"), errors="coerce")
         if pd.isna(dt):
             continue

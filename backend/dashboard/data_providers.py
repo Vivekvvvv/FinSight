@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from backend.tools._item import iter_dict_items
 from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
@@ -118,9 +119,7 @@ def _match_report_value(
     # 第一遍：标签子串 或 规范化 concept 全等（剥掉 us-gaap_/ifrs-full_ 等
     # 命名空间）。完整匹配必须优先于子串——"assets" 子串会命中 AssetsCurrent
     # 等分项概念，而 bs 行按报表顺序分项恒在合计之前 → 合计字段拿到分项值。
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
+    for row in iter_dict_items(rows):
         label = str(row.get("label") or "").strip().lower()
         concept = str(row.get("concept") or "").strip().lower()
         value = safe_float(row.get("value"))
@@ -133,9 +132,7 @@ def _match_report_value(
     # 第二遍：宽松 concept 子串兜底——变体 concept 名（如
     # revenuefromcontractwithcustomerexcludingassessedtax、salesrevenuenet）
     # 且标签不含关键词时仍能命中，保持既有行为。
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
+    for row in iter_dict_items(rows):
         concept = str(row.get("concept") or "").strip().lower()
         value = safe_float(row.get("value"))
         if value is None:
@@ -233,9 +230,7 @@ def _fetch_financial_statements_from_finnhub(symbol: str, periods: int = 8) -> d
         return None
 
     parsed: list[dict[str, Any]] = []
-    for item in rows:
-        if not isinstance(item, dict):
-            continue
+    for item in iter_dict_items(rows):
         report = item.get("report")
         if not isinstance(report, dict):
             continue
