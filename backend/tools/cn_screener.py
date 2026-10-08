@@ -17,6 +17,7 @@ import os
 from backend.utils.env_config import env_int
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.tools.http import _http_get
 from backend.utils.quote import safe_float
 
@@ -84,7 +85,7 @@ def _fetch_page(*, fs: str, fid: str, po: int, page: int) -> list[dict[str, Any]
             data = payload.get("data")
             diff = data.get("diff") if isinstance(data, dict) else None
             if isinstance(diff, list):
-                return [row for row in diff if isinstance(row, dict)]
+                return list(iter_dict_items(diff))
             if data is not None:
                 return []
         except Exception as exc:

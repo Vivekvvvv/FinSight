@@ -5,6 +5,7 @@ import threading
 import time
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.tools.http import _http_get
 from backend.utils.quote import safe_float
 
@@ -64,7 +65,7 @@ def _fetch_items() -> list[dict[str, Any]] | None:
         rows = data.get("rows") if isinstance(data, dict) else None
         if not isinstance(rows, list):
             return None
-        items = [_build_item(row) for row in rows if isinstance(row, dict)]
+        items = [_build_item(row) for row in iter_dict_items(rows)]
         return [item for item in items if item is not None]
     except Exception as exc:
         logger.info("Nasdaq public screener failed: %s", type(exc).__name__)

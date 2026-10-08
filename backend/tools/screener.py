@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 
+from backend.tools._item import iter_dict_items
 from backend.tools.env import FMP_API_KEY
 from backend.tools.http import _http_get
 from backend.tools.us_screener import nasdaq_screen_stocks
@@ -202,6 +203,8 @@ def _fmp_screener_unavailable_status() -> int | None:
 
 
 def _clean_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = int(value)
     except Exception:
@@ -334,9 +337,7 @@ def screen_stocks(
             return _with_fmp_fallback_note(_yfinance_screen_stocks(market_norm, payload_filters, limit_norm, sort_key, sort_dir))
 
         items: list[dict[str, Any]] = []
-        for row in raw:
-            if not isinstance(row, dict):
-                continue
+        for row in iter_dict_items(raw):
             symbol = str(row.get("symbol") or "").strip().upper()
             if not symbol:
                 continue

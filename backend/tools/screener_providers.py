@@ -12,6 +12,7 @@ from typing import Any
 
 import yfinance as yf
 
+from backend.tools._item import iter_dict_items
 from backend.tools.env import ALPHA_VANTAGE_API_KEY
 from backend.tools.http import _http_get
 from backend.tools.cn_hk_market import fetch_cn_hk_quote_metrics
@@ -683,9 +684,7 @@ def _alpha_vantage_screen_stocks(
         seen: set[str] = set()
         items: list[dict[str, Any]] = []
         active_filters = filters if isinstance(filters, dict) else {}
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
+        for row in iter_dict_items(rows):
             symbol = str(row.get("ticker") or "").strip().upper()
             if not symbol or symbol in seen:
                 continue
@@ -965,8 +964,7 @@ def _passes_screener_filters(item: dict[str, Any], filters: dict[str, Any] | Non
 def _build_cn_hk_item(*, symbol: str, market: str, metrics: dict[str, Any]) -> dict[str, Any]:
     static_by_symbol = {
         str(item.get("symbol") or "").upper(): item
-        for item in _STATIC_FALLBACK_ITEMS.get(market, [])
-        if isinstance(item, dict)
+        for item in iter_dict_items(_STATIC_FALLBACK_ITEMS.get(market, []))
     }
     static = static_by_symbol.get(symbol.upper(), {})
     last_price = _clean_float(metrics.get("last_price"))
@@ -1004,8 +1002,7 @@ def _get_fast_info_value(info: Any, *names: str) -> Any:
 def _build_yfinance_item(*, symbol: str, market: str, fast_info: Any) -> dict[str, Any]:
     static_by_symbol = {
         str(item.get("symbol") or "").upper(): item
-        for item in _STATIC_FALLBACK_ITEMS.get(market, [])
-        if isinstance(item, dict)
+        for item in iter_dict_items(_STATIC_FALLBACK_ITEMS.get(market, []))
     }
     static = static_by_symbol.get(symbol.upper(), {})
 
@@ -1051,7 +1048,7 @@ def _static_fallback_items(market: str, filters: dict[str, Any] | None) -> list[
     market_norm = str(market or "US").strip().upper()
     active_filters = filters if isinstance(filters, dict) else {}
     items: list[dict[str, Any]] = []
-    for item in _STATIC_FALLBACK_ITEMS.get(market_norm, []):
+    for item in iter_dict_items(_STATIC_FALLBACK_ITEMS.get(market_norm, [])):
         price = _clean_float(item.get("price"))
         market_cap = _clean_float(item.get("market_cap"))
         volume = _clean_float(item.get("volume"))
