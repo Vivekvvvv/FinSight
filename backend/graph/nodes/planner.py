@@ -20,6 +20,7 @@ from backend.graph.event_bus import emit_event
 from backend.graph.state import GraphState
 from backend.graph.nodes.planner_stub import planner_stub
 from backend.services.llm_retry import ainvoke_with_rate_limit_retry, is_rate_limit_error
+from backend.tools._item import iter_dict_items
 from backend.utils.env_config import env_float, env_int
 from backend.utils.strict_json import json_loads_strict
 
@@ -343,9 +344,7 @@ def _enforce_policy(plan_payload: dict[str, Any], state: GraphState) -> tuple[di
         steps = []
 
     filtered_steps: list[dict[str, Any]] = []
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
+    for step in iter_dict_items(steps):
         kind = step.get("kind")
         name = step.get("name")
         if kind == "tool" and isinstance(name, str) and name in allowed_tools:

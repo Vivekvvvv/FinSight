@@ -17,6 +17,7 @@ from backend.graph.adapters import (
 from backend.graph.executor import execute_plan
 from backend.graph.failure import FAILURE_STRATEGY_VERSION
 from backend.graph.json_utils import json_dumps_safe
+from backend.tools._item import iter_dict_items
 from backend.utils.quote import safe_int
 from backend.utils.strict_json import json_loads_strict
 from backend.graph.state import GraphState
@@ -93,9 +94,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
     selection_payload = subject.get("selection_payload") if isinstance(subject, dict) else None
     evidence_pool: list[dict[str, Any]] = []
     if isinstance(selection_payload, list) and selection_payload:
-        for item in selection_payload:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(selection_payload):
             evidence_pool.append(
                 {
                     "title": item.get("title") or item.get("headline") or "",
@@ -443,9 +442,7 @@ async def execute_plan_stub(state: GraphState) -> dict:
     # Dedupe by url or title+source
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
-    for e in evidence_pool:
-        if not isinstance(e, dict):
-            continue
+    for e in iter_dict_items(evidence_pool):
         key = e.get("url") or f"{e.get('title')}|{e.get('source')}"
         if not key or key in seen:
             continue

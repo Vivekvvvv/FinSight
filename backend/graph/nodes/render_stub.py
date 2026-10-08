@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage
 
 from backend.graph.nodes.compare_gate import should_render_compare, is_compare_operation
 from backend.graph.state import GraphState
+from backend.tools._item import iter_dict_items
 from backend.utils.env_config import env_int
 
 
@@ -61,9 +62,7 @@ def _format_evidence_links(evidence_pool: list[dict] | None) -> str:
     if not isinstance(evidence_pool, list) or not evidence_pool:
         return ""
     lines: list[str] = []
-    for item in evidence_pool:
-        if not isinstance(item, dict):
-            continue
+    for item in iter_dict_items(evidence_pool):
         title = str(item.get("title") or "(untitled)").strip()
         url = str(item.get("url") or "").strip()
         if not url:
@@ -141,9 +140,7 @@ def render_stub(state: GraphState) -> dict:
         if not selection_payload:
             return "- （未提供 selection）"
         lines = []
-        for s in selection_payload[:8]:
-            if not isinstance(s, dict):
-                continue
+        for s in iter_dict_items(selection_payload[:8]):
             title = s.get("title") or s.get("headline") or "(untitled)"
             src = s.get("source")
             ts = s.get("ts") or s.get("datetime") or s.get("published_at")
@@ -190,9 +187,7 @@ def render_stub(state: GraphState) -> dict:
         ]
         section_hits: dict[str, list[str]] = {}
 
-        for item in evidence_pool:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(evidence_pool):
             text = " ".join([str(item.get("title") or ""), str(item.get("snippet") or "")])
             if not text.strip():
                 continue

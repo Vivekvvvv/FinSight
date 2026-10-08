@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable, Mapping, MutableMapping
 from backend.graph.event_bus import emit_event
 from backend.graph.failure import FAILURE_STRATEGY_VERSION
 from backend.graph.json_utils import json_dumps_safe
+from backend.tools._item import iter_dict_items
 
 logger = logging.getLogger(__name__)
 
@@ -104,9 +105,7 @@ def summarize_selection(inputs: dict[str, Any]) -> str:
         return "（未提供 selection，可跳过）"
 
     lines = []
-    for item in selection[:8]:
-        if not isinstance(item, dict):
-            continue
+    for item in iter_dict_items(selection[:8]):
         title = item.get("title") or item.get("headline") or "(untitled)"
         snippet = item.get("snippet") or item.get("summary")
         lines.append(f"- {title}")

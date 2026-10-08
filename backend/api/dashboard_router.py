@@ -55,6 +55,7 @@ from backend.dashboard.schemas import (
     WatchItem,
 )
 from backend.dashboard.widget_selector import select_capabilities
+from backend.tools._item import iter_dict_items
 from backend.utils.env_config import env_float, env_int
 
 logger = logging.getLogger(__name__)
@@ -173,9 +174,7 @@ def _extract_as_of(payload: object) -> str:
 
     if isinstance(payload, list) and payload:
         latest = ""
-        for item in payload:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(payload):
             for key in ("as_of", "updated_at", "timestamp", "ts", "time"):
                 iso = _as_iso(item.get(key))
                 if iso and (not latest or iso > latest):

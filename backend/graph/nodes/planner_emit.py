@@ -7,6 +7,7 @@ from backend.graph.capability_registry import REPORT_AGENT_CANDIDATES
 from backend.graph.event_bus import emit_event
 from backend.graph.failure import utc_now_iso
 from backend.graph.state import GraphState
+from backend.tools._item import iter_dict_items
 
 
 def _dedupe_agent_names(items: list[str]) -> list[str]:
@@ -26,9 +27,7 @@ def _extract_selected_agents(plan_dict: dict[str, Any]) -> list[str]:
     if not isinstance(steps, list):
         return []
     names: list[str] = []
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
+    for step in iter_dict_items(steps):
         if str(step.get("kind") or "") != "agent":
             continue
         name = str(step.get("name") or "").strip()
@@ -53,9 +52,7 @@ def _build_plan_steps_summary(plan_dict: dict[str, Any]) -> list[dict[str, Any]]
     if not isinstance(raw_steps, list):
         return []
     summary: list[dict[str, Any]] = []
-    for step in raw_steps[:24]:
-        if not isinstance(step, dict):
-            continue
+    for step in iter_dict_items(raw_steps[:24]):
         summary.append(
             {
                 "id": str(step.get("id") or "").strip() or "unknown",
