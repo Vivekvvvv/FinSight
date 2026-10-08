@@ -28,6 +28,7 @@ from backend.orchestration.trace_schema import create_trace_event
 from backend.security.ssrf import is_safe_url
 from backend.security.pinned_http import safe_pinned_request
 from backend.services.circuit_breaker import CircuitBreaker
+from backend.tools._item import iter_attr_items, iter_dict_items, num_or_none, text_or
 from backend.utils.env_config import env_float, env_int
 from backend.utils.strict_json import json_loads_strict
 
@@ -327,7 +328,9 @@ class DeepSearchAgent(BaseFinancialAgent):
         results = self._filter_results(results, query=query, ticker=ticker)[:self.MAX_RESULTS]
         docs = await asyncio.to_thread(self._fetch_documents, results)
         if docs:
-            sources = sorted({doc.get("source", "web") for doc in docs if isinstance(doc, dict)})
+            # present-None 的 source 会让 set 混入 None→sorted 对 None/str
+            # 比较抛 TypeError；text_or 兜底 "web" 保持原默认语义。
+            sources = sorted({text_or(doc.get("source")) or "web" for doc in iter_dict_items(docs)})
             logger.info("[DeepSearch] documents fetched")
 
         # 降级策略：如果文档抓取全部失败但搜索有结果，用搜索 snippet 构建降级文档
@@ -503,7 +506,7 @@ queries 要求：
                 "overall_score": 0.0,
             }
 
-        valid_docs = [doc for doc in docs if isinstance(doc, dict)]
+        valid_docs = list(iter_dict_items(docs))
         if not valid_docs:
             return {
                 "doc_count": 0,
@@ -706,19 +709,17 @@ queries 要求：
                     include_answer=False,
                     include_raw_content=False,
                 )
-                for item in response.get("results", []):
-                    # 非 dict 毒条目按条跳过：item.get 的 AttributeError 被外层
-                    # except 接住，毒条目之后的有效结果整批陪葬（首条毒则整个
-                    # 源静默降级）——同 _dedupe_results 的 isinstance 口径。
-                    if not isinstance(item, dict):
-                        continue
+                for item in iter_dict_items(response.get("results", [])):
+                    # 非 dict 毒条目由 iter_dict_items 按条跳过：item.get 的
+                    # AttributeError 被外层 except 接住，毒条目之后的有效结果
+                    # 整批陪葬（首条毒则整个源静默降级）——同 _dedupe_results 口径。
                     results.append({
-                        "title": item.get("title", ""),
-                        "url": item.get("url", ""),
-                        "snippet": item.get("content", ""),
+                        "title": text_or(item.get("title")),
+                        "url": text_or(item.get("url")),
+                        "snippet": text_or(item.get("content")),
                         "source": "tavily",
                         "published_date": item.get("published_date") or item.get("published_at"),
-                        "score": item.get("score"),
+                        "score": num_or_none(item.get("score")),
                     })
             except Exception as exc:
                 logger.info("[DeepSearch] Tavily search failed")
@@ -735,19 +736,17 @@ queries 要求：
                     text=True,
                     highlights=True,
                 )
-                for item in response.results or []:
+                for item in iter_attr_items(response.results, "title", "url"):
                     # 同 Tavily 循环口径：无 title/url 属性的毒条目按条跳过，
                     # 否则 AttributeError 截断批次、毒条目后有效结果全丢。
-                    if not hasattr(item, "title") or not hasattr(item, "url"):
-                        continue
                     content = ""
                     if getattr(item, "highlights", None):
                         content = " ".join(item.highlights[:2])
                     elif getattr(item, "text", None):
                         content = item.text[:300]
                     results.append({
-                        "title": item.title or "",
-                        "url": item.url or "",
+                        "title": text_or(item.title),
+                        "url": text_or(item.url),
                         "snippet": content,
                         "source": "exa",
                         "published_date": getattr(item, "published_date", None),
@@ -763,9 +762,7 @@ queries 要求：
                 logger.info("[DeepSearch] Search fallback failed")
 
         trusted_count = 0
-        for item in results:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(results):
             domain = self._normalized_domain_from_url(item.get("url") or "")
             if self._is_trusted_finance_domain(domain):
                 trusted_count += 1
@@ -779,12 +776,10 @@ queries 要求：
                 feed_items = feed_search(query, max_results=5, authoritative_only=True)
                 existing_urls = {
                     str(item.get("url") or "").strip()
-                    for item in results
-                    if isinstance(item, dict) and str(item.get("url") or "").strip()
+                    for item in iter_dict_items(results)
+                    if str(item.get("url") or "").strip()
                 }
-                for item in feed_items:
-                    if not isinstance(item, dict):
-                        continue
+                for item in iter_dict_items(feed_items):
                     url = str(item.get("url") or "").strip()
                     if not url or url in existing_urls:
                         continue
@@ -901,9 +896,7 @@ queries 要求：
             os.getenv("DEEPSEARCH_STRICT_FINANCE_SOURCES", "true")
         ).strip().lower() in {"1", "true", "yes", "on"}
         scored: List[Tuple[float, Dict[str, Any]]] = []
-        for item in results:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(results):
             if self._is_blocked_result(item):
                 continue
             domain = self._normalized_domain_from_url(item.get("url") or "")
@@ -945,9 +938,7 @@ queries 要求：
     def _dedupe_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         deduped_by_url: Dict[str, Dict[str, Any]] = {}
         order: List[str] = []
-        for item in results:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(results):
             # str(... or "")：上游（tavily enrichment）可写入 {"url": None}——
             # .get("url","") 在 key 存在但值为 null 时返回 None，None.strip()
             # AttributeError 会抛出 _initial_search 让整条 research 全灭；
@@ -986,7 +977,7 @@ queries 要求：
     def _build_snippet_docs(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """当文档抓取全部失败时，从搜索 snippet 构建降级文档。"""
         docs: List[Dict[str, Any]] = []
-        for item in results[: self.MAX_DOCS]:
+        for item in iter_dict_items(results[: self.MAX_DOCS]):
             snippet = str(item.get("snippet") or "").strip()
             title = str(item.get("title") or "").strip()
             if not snippet and not title:
@@ -1016,7 +1007,7 @@ queries 要求：
     def _fetch_documents(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         docs: List[Dict[str, Any]] = []
         degraded_docs: List[Dict[str, Any]] = []
-        for item in results[: self.MAX_DOCS]:
+        for item in iter_dict_items(results[: self.MAX_DOCS]):
             doc = self._fetch_document(item)
             if not doc:
                 continue
@@ -1437,12 +1428,12 @@ queries 要求：
             return 0.2
         source_set = {
             str(doc.get("source") or self._infer_source(str(doc.get("url") or "")) or "web").strip().lower()
-            for doc in docs if isinstance(doc, dict)
+            for doc in iter_dict_items(docs)
         }
         source_set.discard("")
         source_diversity = len(source_set)
 
-        degraded_count = sum(1 for doc in docs if isinstance(doc, dict) and doc.get("degraded"))
+        degraded_count = sum(1 for doc in iter_dict_items(docs) if doc.get("degraded"))
         degraded_ratio = degraded_count / max(1, len(docs))
 
         base = 0.55
