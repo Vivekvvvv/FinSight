@@ -10,6 +10,8 @@ import logging
 import re
 from typing import Any
 
+from backend.tools._item import iter_dict_items
+
 
 logger = logging.getLogger(__name__)
 
@@ -212,9 +214,7 @@ def _compute_unresolved_unsupported_claims(
         return []
 
     unresolved: list[dict[str, str]] = []
-    for item in claims:
-        if not isinstance(item, dict):
-            continue
+    for item in iter_dict_items(claims):
         claim = str(item.get("claim") or "").strip()
         if not claim:
             continue

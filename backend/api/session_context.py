@@ -19,6 +19,7 @@ from backend.contracts import contract_manifest
 from backend.conversation.context import ContextManager
 from backend.orchestration.tools_bridge import get_global_orchestrator
 from backend.services.report_index import get_report_index_store
+from backend.tools._item import iter_dict_items
 
 logger = logging.getLogger("backend.api.main")
 
@@ -72,9 +73,7 @@ def _build_trace_digest(state: dict[str, Any] | None) -> dict[str, Any]:
     trace = payload.get("trace") if isinstance(payload.get("trace"), dict) else {}
     spans = trace.get("spans") if isinstance(trace.get("spans"), list) else []
     first_nodes: list[str] = []
-    for span in spans[:10]:
-        if not isinstance(span, dict):
-            continue
+    for span in iter_dict_items(spans[:10]):
         node = span.get("node")
         if isinstance(node, str) and node:
             first_nodes.append(node)

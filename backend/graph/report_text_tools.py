@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from backend.tools._item import iter_dict_items
 from backend.utils.strict_json import json_loads_strict
 
 
@@ -228,17 +229,13 @@ def _harden_report_payload(payload: dict[str, Any]) -> dict[str, Any]:
         sections = []
 
     repaired_sections: list[dict[str, Any]] = []
-    for section in sections:
-        if not isinstance(section, dict):
-            continue
+    for section in iter_dict_items(sections):
         contents = section.get("contents")
         if not isinstance(contents, list):
             contents = []
 
         repaired_contents: list[dict[str, Any]] = []
-        for content in contents:
-            if not isinstance(content, dict):
-                continue
+        for content in iter_dict_items(contents):
             content_type = _safe_str(content.get("type") or "text").strip() or "text"
             text = _safe_str(content.get("content") or "")
             if content_type == "text" and text:
@@ -270,9 +267,7 @@ def _harden_report_payload(payload: dict[str, Any]) -> dict[str, Any]:
         summary = _sanitize_report_text_block(summary, max_lines=2, max_chars=420)
     if not summary.strip():
         for section in repaired_sections:
-            for content in section.get("contents") or []:
-                if not isinstance(content, dict):
-                    continue
+            for content in iter_dict_items(section.get("contents") or []):
                 if _safe_str(content.get("type") or "") != "text":
                     continue
                 candidate = _safe_str(content.get("content") or "").strip()

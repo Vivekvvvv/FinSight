@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from backend.graph.report_text_tools import _safe_str
+from backend.tools._item import iter_dict_items
 
 
 _GROUNDING_CLAIM_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -49,9 +50,7 @@ def _build_grounding_corpus(
 ) -> str:
     parts: list[str] = []
 
-    for citation in citations:
-        if not isinstance(citation, dict):
-            continue
+    for citation in iter_dict_items(citations):
         parts.extend([
             _safe_str(citation.get("title")),
             _safe_str(citation.get("snippet")),

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from backend.graph.state import GraphState
+from backend.tools._item import iter_dict_items
 
 
 def normalize_ui_context(state: GraphState) -> dict:
@@ -17,9 +18,7 @@ def normalize_ui_context(state: GraphState) -> dict:
 
     uniq = []
     seen = set()
-    for sel in selections:
-        if not isinstance(sel, dict):
-            continue
+    for sel in iter_dict_items(selections):
         raw_type = sel.get("type")
         normalized_type = raw_type.strip().lower() if isinstance(raw_type, str) else raw_type
         # Legacy: `report` used to mean "input document". Normalize to `doc`.

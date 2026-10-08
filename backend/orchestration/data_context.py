@@ -13,6 +13,8 @@ import math
 import os
 import re
 
+from backend.tools._item import iter_dict_items
+
 
 def _nonnegative_finite_float(value: object, default: float) -> float:
     if isinstance(value, bool):
@@ -147,9 +149,7 @@ def extract_context_fields(
     elif isinstance(data, list):
         # pick the latest timestamp-like field if available
         candidate_times: List[datetime] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(data):
             item_as_of, item_currency, item_adjustment = _extract_from_mapping(item)
             if not resolved_currency:
                 resolved_currency = item_currency

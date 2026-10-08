@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from backend.tools import get_stock_historical_data as _get_stock_historical_data
+from backend.tools._item import iter_dict_items
 
 
 def compute_technical_snapshot(ticker: str) -> str:
@@ -28,9 +29,7 @@ def compute_technical_snapshot(ticker: str) -> str:
 
         closes = []
         last_time = None
-        for item in kline:
-            if not isinstance(item, dict):
-                continue
+        for item in iter_dict_items(kline):
             close = item.get("close")
             parsed_close = safe_float(close)
             if parsed_close is None:
