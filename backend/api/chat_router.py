@@ -105,7 +105,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
 
                 report = build_report_payload(state=state, query=resolved_query, thread_id=thread_id)
             except Exception as _report_exc:
-                _logger.warning("[chat/supervisor] report build failed")
+                _logger.warning("[chat/supervisor] report build failed: %s", type(_report_exc).__name__)
                 report = None
 
             report_quality, quality_blocked = apply_quality_to_report(report)
@@ -151,7 +151,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            _logger.error("[chat/supervisor] failed")
+            _logger.error("[chat/supervisor] failed: %s", type(exc).__name__)
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/chat/supervisor/stream")

@@ -109,7 +109,7 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
             logger.warning("timeline invalid value")
             raise HTTPException(status_code=400, detail="Invalid timeline request") from exc
         except Exception as exc:
-            logger.error("获取时间线失败")
+            logger.error("获取时间线失败: %s", type(exc).__name__)
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router

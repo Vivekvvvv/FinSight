@@ -58,7 +58,7 @@ async def _resolve_quote_for_portfolio(ticker: str) -> tuple[dict[str, Any] | No
         logger.warning("[portfolio] quote timeout")
         return None, None
     except Exception as exc:
-        logger.warning("[portfolio] quote failed")
+        logger.warning("[portfolio] quote failed: %s", type(exc).__name__)
         return None, None
 
 
@@ -434,7 +434,7 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
                 continue
             returns_matrix.append(daily_returns)
         except Exception as e:
-            logger.warning("获取历史数据失败")
+            logger.warning("获取历史数据失败: %s", type(e).__name__)
             failed.append(t)
 
     valid_tickers = [t for t in tickers if t not in failed]
