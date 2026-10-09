@@ -105,7 +105,7 @@ def _load_user_config() -> dict:
                 return {}
             logger.warning('[Config] Corrupt user_config.json moved to a backup')
         except OSError as exc:
-            logger.warning('[Config] Failed to read user_config.json')
+            logger.warning('[Config] Failed to read user_config.json: %s', type(exc).__name__)
     return {}
 
 
