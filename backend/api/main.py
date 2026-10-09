@@ -305,7 +305,7 @@ def _init_default_user_config() -> None:
             os.replace(temp_path, USER_CONFIG_PATH)
             logger.info("[Config] wrote default user config")
         except Exception as _exc:
-            logger.warning("[Config] failed to write default user config")
+            logger.warning("[Config] failed to write default user config: %s", type(_exc).__name__)
         finally:
             if os.path.exists(temp_path):
                 try:
@@ -391,7 +391,7 @@ async def lifespan(app: FastAPI):
         rag_observability_status = get_rag_observability_store().ensure_schema() if hasattr(get_rag_observability_store(), 'ensure_schema') else False
         logger.info("[RAGObservability] initialization completed")
     except Exception as exc:
-        logger.error("[RAGObservability] initialization failed in lifespan")
+        logger.error("[RAGObservability] initialization failed in lifespan: %s", type(exc).__name__)
 
     rag_retention_enabled = _env_bool("RAG_OBSERVABILITY_RETENTION_ENABLED", "true")
     if rag_retention_enabled:
@@ -404,7 +404,7 @@ async def lifespan(app: FastAPI):
                 deleted = get_rag_observability_store().cleanup_retention()
                 logger.info("[RAGObservability] retention cleanup completed")
             except Exception as exc:
-                logger.error("[RAGObservability] retention cleanup failed")
+                logger.error("[RAGObservability] retention cleanup failed: %s", type(exc).__name__)
 
         sched = start_interval_scheduler(
             _run_rag_observability_retention_cycle,
@@ -422,7 +422,7 @@ async def lifespan(app: FastAPI):
         await aget_graph_runner()
         logger.info("[GraphRunner] initialized in lifespan")
     except Exception as exc:
-        logger.error("[GraphRunner] initialization failed in lifespan")
+        logger.error("[GraphRunner] initialization failed in lifespan: %s", type(exc).__name__)
 
     try:
         yield
@@ -430,14 +430,14 @@ async def lifespan(app: FastAPI):
         try:
             flush_langfuse()
             shutdown_langfuse()
-        except Exception:
-            logger.debug("[LangFuse] flush/shutdown error on shutdown (ignored)")
+        except Exception as exc:
+            logger.debug("[LangFuse] flush/shutdown error on shutdown (ignored): %s", type(exc).__name__)
         scheduler_count = len(_schedulers)
         for sched in list(_schedulers):
             try:
                 sched.shutdown(wait=True)
             except Exception as e:
-                logger.error("[Scheduler] shutdown error")
+                logger.error("[Scheduler] shutdown error: %s", type(e).__name__)
         if scheduler_count:
             logger.info("[Scheduler] all schedulers stopped.")
         _schedulers.clear()
@@ -448,7 +448,7 @@ async def lifespan(app: FastAPI):
             reset_graph_runner()
             logger.info("[GraphRunner] checkpointer/runner caches cleared on shutdown")
         except Exception as e:
-            logger.error("[GraphRunner] shutdown cleanup error")
+            logger.error("[GraphRunner] shutdown cleanup error: %s", type(e).__name__)
 
 app = FastAPI(
     title="FinSight API",
@@ -487,7 +487,7 @@ async def security_gate(request: Request, call_next):
         except Exception as exc:
             # Supabase 抖动/超时抛 RuntimeError/TimeoutError：认证上游不可用应是
             # 503 而非裸 500（R35），不泄露内部栈
-            logger.error("rag access check failed due to upstream auth error")
+            logger.error("rag access check failed due to upstream auth error: %s", type(exc).__name__)
             return JSONResponse(status_code=503, content={"detail": "Auth upstream unavailable"})
         # rag 路径此前直接 return，完全绕过限流（且使主路径的"按用户限流"
         # 分支成为死代码）——在本分支内按登录用户限流（R40）
