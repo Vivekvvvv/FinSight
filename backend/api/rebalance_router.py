@@ -123,7 +123,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                     return ticker, None
                 return ticker, price
             except Exception as exc:
-                logger.warning("[rebalance] failed to load live price")
+                logger.warning("[rebalance] failed to load live price: %s", type(exc).__name__)
                 return ticker, None
 
         price_pairs = await asyncio.gather(*[_fetch_live_price(ticker) for ticker in tickers])
@@ -147,7 +147,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                 info = await asyncio.to_thread(deps.get_company_info, ticker)
                 return ticker, _extract_sector(info)
             except Exception as exc:
-                logger.warning("[rebalance] failed to load sector")
+                logger.warning("[rebalance] failed to load sector: %s", type(exc).__name__)
                 return ticker, None
 
         if missing_sector_tickers:
@@ -180,7 +180,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
         try:
             suggestion = await deps.rebalance_engine.generate(ctx)
         except Exception as exc:
-            logger.error("Rebalance engine failed")
+            logger.error("Rebalance engine failed: %s", type(exc).__name__)
             raise HTTPException(
                 status_code=500, detail="Failed to generate rebalance suggestion"
             ) from exc
@@ -193,7 +193,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                 data=suggestion.model_dump(),
             )
         except Exception as exc:
-            logger.error("Failed to save suggestion")
+            logger.error("Failed to save suggestion: %s", type(exc).__name__)
             # Non-fatal: return the suggestion even if persistence fails
 
         return suggestion
@@ -381,7 +381,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
             try:
                 suggestion = await deps.rebalance_engine.generate(ctx)
             except Exception as exc:
-                logger.error("Rebalance streaming engine failed")
+                logger.error("Rebalance streaming engine failed: %s", type(exc).__name__)
                 yield _sse("error", {"message": "调仓建议生成失败，请稍后重试。"})
                 return
 
@@ -393,7 +393,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                     data=suggestion.model_dump(),
                 )
             except Exception as exc:
-                logger.warning("Failed to save streamed suggestion")
+                logger.warning("Failed to save streamed suggestion: %s", type(exc).__name__)
 
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             yield _sse("progress", {
