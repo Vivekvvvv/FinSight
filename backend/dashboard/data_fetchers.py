@@ -701,11 +701,11 @@ def fetch_financial_statements(symbol: str, periods: int = 8) -> dict[str, Any] 
         logger.warning("[DataService] fetch_financial_statements failed: %s", type(exc).__name__)
         sec_fallback = _fetch_financial_statements_from_sec_companyfacts(symbol, periods=periods)
         if sec_fallback:
-            logger.info("[DataService] financials exception fallback via SEC companyfacts")
+            logger.info("[DataService] financials exception fallback via SEC companyfacts: %s", type(exc).__name__)
             return sec_fallback
         fallback = _fetch_financial_statements_from_finnhub(symbol, periods=periods)
         if fallback:
-            logger.info("[DataService] financials exception fallback via Finnhub")
+            logger.info("[DataService] financials exception fallback via Finnhub: %s", type(exc).__name__)
             return fallback
         return None
 
