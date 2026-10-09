@@ -456,7 +456,7 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
             result["warnings"] = [f"{t} 数据不足，已跳过" for t in failed]
         return result
     except Exception as e:
-        logger.error("组合优化失败")
+        logger.error("组合优化失败: %s", type(e).__name__)
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
 

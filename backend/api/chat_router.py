@@ -342,7 +342,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            _logger.error("[chat/add-chart-data] failed")
+            _logger.error("[chat/add-chart-data] failed: %s", type(exc).__name__)
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router

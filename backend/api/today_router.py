@@ -191,7 +191,7 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
         except Exception as exc:
             # 不再压成 200+空骨架（审计 F/项目规则 3）：空骨架会被前端当正常数据渲染，
             # 后端故障对用户和监控完全不可见；WelcomePage 已有 catch+errorMsg 处理 500。
-            logger.error("今日工作台生成失败")
+            logger.error("今日工作台生成失败: %s", type(exc).__name__)
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router
