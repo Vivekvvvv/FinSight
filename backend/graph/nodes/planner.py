@@ -831,7 +831,7 @@ async def planner(state: GraphState) -> dict:
         llm_factory = lambda: create_llm(temperature=_planner_temp)  # noqa: E731
     except Exception as exc:
         error_code = "planner_llm_init_error"
-        logger.error("[Planner] LLM initialization failed")
+        logger.error("[Planner] LLM initialization failed: %s", type(exc).__name__)
         append_failure(
             trace,
             node="planner",
@@ -910,7 +910,7 @@ async def planner(state: GraphState) -> dict:
             payload, parse_meta = _load_json_with_repair(json_text)
         except Exception as first_parse_exc:
             parse_error_info = _build_parse_error_info(raw_text, first_parse_exc)
-            logger.warning("[Planner] invalid JSON from first LLM output")
+            logger.warning("[Planner] invalid JSON from first LLM output: %s", type(first_parse_exc).__name__)
             await emit_event(
                 {
                     "type": "thinking",
@@ -967,7 +967,7 @@ async def planner(state: GraphState) -> dict:
                     "first_attempt": parse_error_info,
                     "second_attempt": second_error_info,
                 }
-                logger.warning("[Planner] invalid JSON after retry")
+                logger.warning("[Planner] invalid JSON after retry: %s", type(second_parse_exc).__name__)
                 raise
         if not isinstance(payload, dict):
             raise ValueError("PlanIR payload must be a JSON object")
