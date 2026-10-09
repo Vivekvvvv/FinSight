@@ -94,7 +94,7 @@ def _index_report_async(*, session_id: str, report: dict[str, Any], state: dict[
             trace_digest=_build_trace_digest(state),
         )
     except Exception as exc:
-        logger.error("report index async upsert failed: %s", type(exc).__name__)
+        logger.error("report index async upsert failed")
 
 
 def _schedule_report_index(*, session_id: str, report: dict[str, Any], state: dict[str, Any] | None) -> None:
@@ -108,7 +108,7 @@ def _schedule_report_index(*, session_id: str, report: dict[str, Any], state: di
             lambda: _index_report_async(session_id=session_id, report=report, state=state),
         )
     except Exception as exc:
-        logger.error("schedule async report indexing failed: %s", type(exc).__name__)
+        logger.error("schedule async report indexing failed")
 
 
 def _is_raw_trace_event(payload: dict[str, Any]) -> bool:
@@ -201,7 +201,7 @@ def _update_session_context(
             metadata=metadata,
         )
     except Exception as exc:
-        logger.error("failed to update session context: %s", type(exc).__name__)
+        logger.error("failed to update session context")
 
 
 def _build_ui_context(request: ChatRequest) -> Dict[str, Any]:
@@ -235,5 +235,5 @@ def _get_orchestrator_safe():
     try:
         return get_global_orchestrator()
     except Exception as exc:
-        logger.error("failed to initialize orchestrator: %s", type(exc).__name__)
+        logger.error("failed to initialize orchestrator")
         return None

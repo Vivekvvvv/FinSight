@@ -399,7 +399,7 @@ class _PostgresHybridStore:
                         )
                     )
                 except Exception as exc:  # pragma: no cover - depends on pgvector runtime config
-                    logger.warning('RAG v2 ivfflat index skipped: %s', type(exc).__name__)
+                    logger.warning('RAG v2 ivfflat index skipped')
             self._schema_ready = True
 
     @staticmethod
@@ -428,7 +428,7 @@ class _PostgresHybridStore:
             if row and row[0]:
                 return safe_int(row[0], 0) or 0
         except Exception as exc:
-            logger.debug('RAG v2 embedding dimension lookup failed: %s', type(exc).__name__)
+            logger.debug('RAG v2 embedding dimension lookup failed')
         return None
 
     def ingest_documents(self, docs: Iterable[RAGDocument]) -> dict[str, Any]:

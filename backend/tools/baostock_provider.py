@@ -31,7 +31,7 @@ def _load_baostock() -> Any | None:
 
         return bs
     except Exception as exc:
-        logger.info('[BaoStock] package unavailable: %s', type(exc).__name__)
+        logger.info('[BaoStock] package unavailable')
         return None
 
 
@@ -81,14 +81,14 @@ def _history_rows(symbol: str, *, days: int = 90) -> list[dict[str, Any]]:
             )
         return rows
     except Exception as exc:
-        logger.info('[BaoStock] history failed: %s', type(exc).__name__)
+        logger.info('[BaoStock] history failed')
         return []
     finally:
         if logged_in:
             try:
                 bs.logout()
             except Exception as exc:
-                logger.debug('[BaoStock] logout failed: %s', type(exc).__name__)
+                logger.debug('[BaoStock] logout failed')
 
 
 def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:

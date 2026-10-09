@@ -160,7 +160,7 @@ class ChatHistoryStore:
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError) as exc:
             backup_path = path.with_name(f"{path.name}.{uuid4().hex}.corrupt")
             os.replace(path, backup_path)
-            logger.warning('Backed up corrupt chat history file: %s', type(exc).__name__)
+            logger.warning('Backed up corrupt chat history file')
             return {"session_id": session_id, "messages": []}
         data.setdefault("session_id", session_id)
         data.setdefault("messages", [])

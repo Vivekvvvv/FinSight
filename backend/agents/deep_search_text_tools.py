@@ -37,7 +37,7 @@ def _extract_pdf_text(data: bytes) -> str:
                 pages.append(page.extract_text() or "")
             return "\n".join(pages)
         except Exception as exc:
-            logger.info("[DeepSearch] PDF parse failed: %s", type(exc).__name__)
+            logger.info("[DeepSearch] PDF parse failed")
             return ""
 
 

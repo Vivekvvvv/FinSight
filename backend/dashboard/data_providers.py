@@ -36,7 +36,7 @@ def _finnhub_request(path: str, params: Optional[dict[str, Any]] = None) -> Any 
             return None
         return payload
     except Exception as exc:
-        logger.warning("[DataService] Finnhub request failed: %s", type(exc).__name__)
+        logger.warning("[DataService] Finnhub request failed")
         return None
 
 
@@ -106,7 +106,7 @@ def _fetch_valuation_from_cn_hk_market(symbol: str) -> dict[str, Any] | None:
             return None
         return result
     except Exception as exc:
-        logger.warning("[DataService] CN/HK valuation fallback failed: %s", type(exc).__name__)
+        logger.warning("[DataService] CN/HK valuation fallback failed")
         return None
 
 
@@ -178,7 +178,7 @@ def _fetch_financial_statements_from_sec_companyfacts(symbol: str, periods: int 
         )
         return result if has_any_value else None
     except Exception as exc:
-        logger.warning("[DataService] SEC companyfacts fallback failed: %s", type(exc).__name__)
+        logger.warning("[DataService] SEC companyfacts fallback failed")
         return None
 
 
@@ -218,7 +218,7 @@ def _fetch_financial_statements_from_cn_hk_market(symbol: str, periods: int = 8)
         )
         return result if has_any_value else None
     except Exception as exc:
-        logger.warning("[DataService] CN/HK financials fallback failed: %s", type(exc).__name__)
+        logger.warning("[DataService] CN/HK financials fallback failed")
         return None
 
 

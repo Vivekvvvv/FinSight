@@ -106,10 +106,10 @@ def create_timeline_router(deps: TimelineRouterDeps) -> APIRouter:
         except ValueError as exc:
             # 路由层无显式 raise ValueError；服务层 ISO 解析会吞掉 ValueError。
             # 该分支仅作防御，禁止回传 str(exc) 以免未来服务/解析路径泄露内部细节。
-            logger.warning("timeline invalid value: %s", type(exc).__name__)
+            logger.warning("timeline invalid value")
             raise HTTPException(status_code=400, detail="Invalid timeline request") from exc
         except Exception as exc:
-            logger.error("获取时间线失败: %s", type(exc).__name__)
+            logger.error("获取时间线失败")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router

@@ -57,12 +57,12 @@ class CheckpointerBundle:
             try:
                 await cm.__aexit__(None, None, None)
             except Exception as exc:
-                logger.error("failed to close async checkpointer context: %s", type(exc).__name__)
+                logger.error("failed to close async checkpointer context")
         if self._stack is not None:
             try:
                 self._stack.close()
             except Exception as exc:
-                logger.error("failed to close sync checkpointer stack asynchronously: %s", type(exc).__name__)
+                logger.error("failed to close sync checkpointer stack asynchronously")
             finally:
                 self._stack = None
 
@@ -71,7 +71,7 @@ class CheckpointerBundle:
             try:
                 self._stack.close()
             except Exception as exc:
-                logger.error("failed to close sync checkpointer stack: %s", type(exc).__name__)
+                logger.error("failed to close sync checkpointer stack")
             finally:
                 self._stack = None
         if self._async_cm is not None:
@@ -196,7 +196,7 @@ def _build_sync_bundle() -> CheckpointerBundle:
     except Exception as exc:
         if not allow_fallback:
             raise
-        logger.warning("LangGraph sync checkpointer fallback to memory: %s", type(exc).__name__)
+        logger.warning("LangGraph sync checkpointer fallback to memory")
         return _memory_bundle(reason=type(exc).__name__, fallback_used=True)
 
 
@@ -230,7 +230,7 @@ async def _build_async_bundle() -> CheckpointerBundle:
     except Exception as exc:
         if not allow_fallback:
             raise
-        logger.warning("LangGraph async checkpointer fallback to memory: %s", type(exc).__name__)
+        logger.warning("LangGraph async checkpointer fallback to memory")
         return _memory_bundle(reason=type(exc).__name__, fallback_used=True)
 
 
@@ -269,7 +269,7 @@ async def aget_checkpointer_bundle() -> CheckpointerBundle:
             try:
                 await old_bundle.aclose()
             except Exception as exc:
-                logger.error("failed to close stale async checkpointer bundle: %s", type(exc).__name__)
+                logger.error("failed to close stale async checkpointer bundle")
         if _async_bundle is None:
             _async_bundle = await _build_async_bundle()
             _async_bundle_loop_id = loop_id
@@ -341,7 +341,7 @@ def reset_checkpointer_caches() -> None:
         try:
             _async_bundle.close()
         except Exception as exc:
-            logger.error("failed to close cached async bundle: %s", type(exc).__name__)
+            logger.error("failed to close cached async bundle")
     _async_bundle = None
     _async_lock = None
     _async_bundle_loop_id = None
@@ -350,7 +350,7 @@ def reset_checkpointer_caches() -> None:
         bundle = get_checkpointer_bundle()
         bundle.close()
     except Exception as exc:
-        logger.error("failed to close cached sync bundle during sync reset: %s", type(exc).__name__)
+        logger.error("failed to close cached sync bundle during sync reset")
     get_checkpointer_bundle.cache_clear()
 
 
@@ -360,7 +360,7 @@ async def areset_checkpointer_caches() -> None:
         try:
             await _async_bundle.aclose()
         except Exception as exc:
-            logger.error("failed to close async bundle: %s", type(exc).__name__)
+            logger.error("failed to close async bundle")
     _async_bundle = None
     _async_lock = None
     _async_bundle_loop_id = None
@@ -369,7 +369,7 @@ async def areset_checkpointer_caches() -> None:
         bundle = get_checkpointer_bundle()
         bundle.close()
     except Exception as exc:
-        logger.error("failed to close cached sync bundle during async reset: %s", type(exc).__name__)
+        logger.error("failed to close cached sync bundle during async reset")
     get_checkpointer_bundle.cache_clear()
 
 

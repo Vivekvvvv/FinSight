@@ -84,7 +84,7 @@ async def _run_blocking(
     except asyncio.TimeoutError:
         logger.warning("[Dashboard] request timed out")
     except Exception as exc:
-        logger.warning("[Dashboard] request failed: %s", type(exc).__name__)
+        logger.warning("[Dashboard] request failed")
     return None
 
 
@@ -846,7 +846,7 @@ async def get_dashboard(
             indicator_series=series_data,
         )
     except Exception as exc:
-        logger.warning("[Dashboard] DashboardData construction failed: %s", type(exc).__name__)
+        logger.warning("[Dashboard] DashboardData construction failed")
         data = DashboardData(
             snapshot=raw_data.get("snapshot", {}),
             charts=filtered_charts,

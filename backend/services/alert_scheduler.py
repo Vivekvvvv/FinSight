@@ -133,7 +133,7 @@ class PriceChangeScheduler:
             try:
                 snapshot = self.price_fetcher(sub["ticker"])
             except Exception as exc:
-                logger.warning('Price fetch failed: %s', type(exc).__name__)
+                logger.warning('Price fetch failed')
                 continue
             if snapshot is None:
                 continue
@@ -229,7 +229,7 @@ class PriceChangeScheduler:
                     change_percent=snapshot.change_percent,
                 )
             except Exception as exc:
-                logger.warning('Email send raised: %s', type(exc).__name__)
+                logger.warning('Email send raised')
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -346,7 +346,7 @@ class NewsAlertScheduler:
             try:
                 articles = self.news_fetcher(sub["ticker"])
             except Exception as exc:
-                logger.warning('News fetch failed: %s', type(exc).__name__)
+                logger.warning('News fetch failed')
                 continue
             if not articles:
                 continue
@@ -429,7 +429,7 @@ class NewsAlertScheduler:
                     change_percent=None,
                 )
             except Exception as exc:
-                logger.warning('News email send raised: %s', type(exc).__name__)
+                logger.warning('News email send raised')
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],
@@ -555,7 +555,7 @@ class RiskAlertScheduler:
             try:
                 snapshot = self.price_fetcher(sub["ticker"])
             except Exception as exc:
-                logger.warning('Risk price fetch failed: %s', type(exc).__name__)
+                logger.warning('Risk price fetch failed')
                 continue
             if snapshot is None:
                 continue
@@ -594,7 +594,7 @@ class RiskAlertScheduler:
                     change_percent=snapshot.change_percent,
                 )
             except Exception as exc:
-                logger.warning('Risk email send raised: %s', type(exc).__name__)
+                logger.warning('Risk email send raised')
                 self.subscription_service.record_alert_attempt(
                     sub["email"],
                     sub["ticker"],

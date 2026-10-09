@@ -89,7 +89,7 @@ def _get_llm():
         logger.info("[Insights] LLM initialized for dashboard scorers")
         return _llm_instance
     except Exception as exc:
-        logger.warning("[Insights] LLM init failed; dashboard scorers will use fallback: %s", type(exc).__name__)
+        logger.warning("[Insights] LLM init failed; dashboard scorers will use fallback")
         return None
 
 
@@ -185,7 +185,7 @@ class DashboardScorer(ABC):
             logger.warning("[Insights] scorer timed out")
             return self._make_fallback_card(data, now_iso)
         except Exception as exc:
-            logger.warning("[Insights] scorer failed: %s", type(exc).__name__)
+            logger.warning("[Insights] scorer failed")
             return self._make_fallback_card(data, now_iso)
 
     async def _call_llm(self, llm: Any, prompt: str) -> str:

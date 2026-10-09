@@ -103,9 +103,9 @@ def _load_user_config() -> dict:
                 os.replace(USER_CONFIG_PATH, backup_path)
             except FileNotFoundError:
                 return {}
-            logger.warning('[Config] Corrupt user_config.json moved to a backup: %s', type(exc).__name__)
+            logger.warning('[Config] Corrupt user_config.json moved to a backup')
         except OSError as exc:
-            logger.warning('[Config] Failed to read user_config.json: %s', type(exc).__name__)
+            logger.warning('[Config] Failed to read user_config.json')
     return {}
 
 

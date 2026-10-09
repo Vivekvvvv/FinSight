@@ -101,7 +101,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/create] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/create] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/research-notes")
@@ -156,7 +156,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/list] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/list] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     # 注意：必须注册在 GET /api/research-notes/{note_id} 之前，
@@ -199,7 +199,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/semantic-search] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/semantic-search] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/research-notes/{note_id}")
@@ -226,7 +226,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/get] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/get] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.put("/api/research-notes/{note_id}")
@@ -261,7 +261,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/update] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/update] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.delete("/api/research-notes/{note_id}")
@@ -293,7 +293,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/delete] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/delete] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     # ── Image Endpoints ──
@@ -331,7 +331,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/upload-image] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/upload-image] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/notes/images/{user_id}/{note_id}/{filename}")
@@ -363,7 +363,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/get-image] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/get-image] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/research-notes/{note_id}/images")
@@ -393,7 +393,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/list-images] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/list-images] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.delete("/api/research-notes/{note_id}/images/{filename}")
@@ -422,7 +422,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/delete-image] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/delete-image] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/api/research-notes/vectorize-all")
@@ -449,7 +449,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("[research-notes/vectorize-all] failed: %s", type(exc).__name__)
+            logger.error("[research-notes/vectorize-all] failed")
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     return router

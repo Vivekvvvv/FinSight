@@ -70,7 +70,7 @@ async def _llm_classify_financial(query: str) -> tuple[bool, int]:
             return score >= _FINANCIAL_CONFIDENCE_THRESHOLD, score
         return False, 0
     except Exception as exc:
-        logger.debug("[resolve_subject] Tier-3 LLM classify failed: %s", type(exc).__name__)
+        logger.debug("[resolve_subject] Tier-3 LLM classify failed")
         return False, 0
 
 

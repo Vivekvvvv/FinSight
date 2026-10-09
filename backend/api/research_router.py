@@ -99,7 +99,7 @@ async def generate_report(request: ReportGenerateRequest):
             elif isinstance(info, str) and info.strip():
                 data_context["company_info"] = info
         except Exception as exc:
-            logger.warning("company info context unavailable: %s", type(exc).__name__)
+            logger.warning("company info context unavailable")
 
         if request.report_type in ["fundamental", "comprehensive"]:
             try:
@@ -107,7 +107,7 @@ async def generate_report(request: ReportGenerateRequest):
                 if fin and not fin.get("error"):
                     data_context["financials"] = fin
             except Exception as exc:
-                logger.warning("financial context unavailable: %s", type(exc).__name__)
+                logger.warning("financial context unavailable")
 
         if request.include_technical and request.report_type in ["technical", "comprehensive"]:
             try:
@@ -115,7 +115,7 @@ async def generate_report(request: ReportGenerateRequest):
                 if price and not price.get("error"):
                     data_context["price_data"] = price
             except Exception as exc:
-                logger.warning("technical context unavailable: %s", type(exc).__name__)
+                logger.warning("technical context unavailable")
 
         if request.include_news and request.report_type == "comprehensive":
             try:
@@ -129,7 +129,7 @@ async def generate_report(request: ReportGenerateRequest):
                 elif news:
                     data_context["news"] = news
             except Exception as exc:
-                logger.warning("news context unavailable: %s", type(exc).__name__)
+                logger.warning("news context unavailable")
 
         report = await generator.generate_report(
             ticker=request.ticker,
@@ -139,7 +139,7 @@ async def generate_report(request: ReportGenerateRequest):
         return ReportResponse(**report)
 
     except Exception as exc:
-        logger.error("生成报告失败: %s", type(exc).__name__)
+        logger.error("生成报告失败")
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
@@ -167,7 +167,7 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
         try:
             financials = get_financial_statements(request.ticker) or {}
         except Exception as exc:
-            logger.warning("获取财报失败: %s", type(exc).__name__)
+            logger.warning("获取财报失败")
 
         try:
             raw_info = get_company_info(request.ticker)
@@ -179,7 +179,7 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
             elif isinstance(raw_info, str) and raw_info.strip():
                 company_info = {"profile": raw_info}
         except Exception as exc:
-            logger.warning("company info unavailable: %s", type(exc).__name__)
+            logger.warning("company info unavailable")
 
         if not financials or financials.get("error"):
             raise HTTPException(status_code=422, detail="无法获取该股票财报数据，请确认代码正确")
@@ -194,7 +194,7 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("财报分析失败: %s", type(exc).__name__)
+        logger.error("财报分析失败")
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
@@ -222,7 +222,7 @@ async def news_sentiment(request: NewsSentimentRequest):
                 elif isinstance(raw, list):
                     news_list = raw
             except Exception as exc:
-                logger.warning("获取新闻失败: %s", type(exc).__name__)
+                logger.warning("获取新闻失败")
 
         if not news_list:
             return {"ticker": request.ticker, "news": [], "aggregate": {
@@ -242,7 +242,7 @@ async def news_sentiment(request: NewsSentimentRequest):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("新闻情绪分析失败: %s", type(exc).__name__)
+        logger.error("新闻情绪分析失败")
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
@@ -277,7 +277,7 @@ async def smart_qa(request: SmartQARequest):
                     change = _chg if _chg is not None else quote.get("change_pct", "N/A")
                     context_parts.append(f"【最新行情】{ticker} 现价 {price}，涨跌幅 {change}%")
             except Exception as exc:
-                logger.warning("stock price unavailable: %s", type(exc).__name__)
+                logger.warning("stock price unavailable")
 
             # 2. 最新新闻（最多3条）
             try:
@@ -292,7 +292,7 @@ async def smart_qa(request: SmartQARequest):
                     titles = [n.get("title", "") for n in news_items[:3] if n.get("title")]
                     context_parts.append("【今日相关新闻】\n" + "\n".join(f"- {t}" for t in titles))
             except Exception as exc:
-                logger.warning("company news unavailable: %s", type(exc).__name__)
+                logger.warning("company news unavailable")
 
             # 3. A股特色数据
             from backend.tools.baostock_provider import is_cn_symbol
@@ -308,7 +308,7 @@ async def smart_qa(request: SmartQARequest):
                             f"【龙虎榜】今日上榜，机构{direction} {abs(net_buy)/1e8:.2f}亿元"
                         )
                 except Exception as exc:
-                    logger.warning("top list unavailable: %s", type(exc).__name__)
+                    logger.warning("top list unavailable")
 
                 # 北向资金
                 try:
@@ -321,7 +321,7 @@ async def smart_qa(request: SmartQARequest):
                             f"【北向资金】今日{direction} {abs(north)/1e8:.2f}亿元"
                         )
                 except Exception as exc:
-                    logger.warning("north flow unavailable: %s", type(exc).__name__)
+                    logger.warning("north flow unavailable")
 
                 # 融资余额
                 try:
@@ -333,7 +333,7 @@ async def smart_qa(request: SmartQARequest):
                             f"【融资融券】融资余额 {bal/1e8:.2f}亿元"
                         )
                 except Exception as exc:
-                    logger.warning("margin trading unavailable: %s", type(exc).__name__)
+                    logger.warning("margin trading unavailable")
 
         # 构建最终prompt
         context_block = ""
@@ -364,5 +364,5 @@ async def smart_qa(request: SmartQARequest):
         }
 
     except Exception as exc:
-        logger.error("智能问答失败: %s", type(exc).__name__)
+        logger.error("智能问答失败")
         raise HTTPException(status_code=500, detail="Internal server error") from exc
