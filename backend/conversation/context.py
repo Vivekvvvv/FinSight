@@ -75,6 +75,9 @@ class ContextManager:
         }
         self.accumulated_data: Dict[str, Any] = {}  # 已收集的数据缓存
         self.session_start: datetime = datetime.now()
+        # 会话时长是区间计时，须用单调钟锚点：datetime.now() 随系统时钟
+        # 跳变——后跳把 duration 拉负，前跳把短会话记成数小时。
+        self._session_start_mono: float = time.monotonic()
         self.last_long_response: Optional[str] = None  # 最近的长文本（报告/长回答）
     
     def add_turn(
@@ -707,7 +710,7 @@ class ContextManager:
             'company_memory_count': len(self.company_memory),
             'cached_data_keys': list(self.accumulated_data.keys()),
             'user_preferences': self.user_preferences,
-            'session_duration_seconds': (datetime.now() - self.session_start).total_seconds(),
+            'session_duration_seconds': time.monotonic() - self._session_start_mono,
         }
     
     def get_focus_summary(self) -> str:
