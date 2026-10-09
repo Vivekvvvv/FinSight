@@ -179,7 +179,7 @@ def chunk_document(
         else:
             chunks = _chunk_long_text(text, max_chunk_size=chunk_sz, overlap=chunk_ov)
     except Exception as exc:
-        logger.error('Chunking failed, falling back to whole doc')
+        logger.error('Chunking failed, falling back to whole doc: %s', type(exc).__name__)
         chunks = [text]
 
     # Filter out empty chunks
