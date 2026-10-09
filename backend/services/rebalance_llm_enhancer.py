@@ -96,7 +96,7 @@ class AgentBackedEnhancer:
                                 headlines.append(item.strip()[:100])
                     data["news"] = headlines
                 except Exception as exc:
-                    logger.debug('[rebalance-enhancer] news fetch failed')
+                    logger.debug('[rebalance-enhancer] news fetch failed: %s', type(exc).__name__)
 
             if self._get_company_info:
                 try:
@@ -105,7 +105,7 @@ class AgentBackedEnhancer:
                         data["sector"] = raw.get("sector") or raw.get("finnhubIndustry") or ""
                         data["industry"] = raw.get("industry") or ""
                 except Exception as exc:
-                    logger.debug('[rebalance-enhancer] info fetch failed')
+                    logger.debug('[rebalance-enhancer] info fetch failed: %s', type(exc).__name__)
 
             return ticker, data
 
@@ -126,7 +126,7 @@ class AgentBackedEnhancer:
         try:
             llm = self._create_llm_fn(temperature=0.2)
         except Exception as exc:
-            logger.warning('[rebalance-enhancer] LLM init failed')
+            logger.warning('[rebalance-enhancer] LLM init failed: %s', type(exc).__name__)
             return candidates
 
         # Build prompt
@@ -170,7 +170,7 @@ class AgentBackedEnhancer:
             content = response.content if hasattr(response, "content") else str(response)
             enhancements = self._parse_llm_response(content)
         except Exception as exc:
-            logger.warning('[rebalance-enhancer] LLM call failed')
+            logger.warning('[rebalance-enhancer] LLM call failed: %s', type(exc).__name__)
             return candidates
 
         if not enhancements:
