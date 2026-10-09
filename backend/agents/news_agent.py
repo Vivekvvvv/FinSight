@@ -146,7 +146,7 @@ class NewsAgent(BaseFinancialAgent):
                 ):
                     return payload
         except Exception as exc:
-            logger.debug("[NewsAgent] source reliability scoring failed")
+            logger.debug("[NewsAgent] source reliability scoring failed: %s", type(exc).__name__)
         return {"reliability_score": 0.55, "reliability_tier": "medium", "reason": "default"}
 
     def _annotate_reliability(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -202,7 +202,7 @@ class NewsAgent(BaseFinancialAgent):
             if isinstance(payload, dict):
                 return payload
         except Exception as exc:
-            logger.debug("[NewsAgent] event calendar load failed")
+            logger.debug("[NewsAgent] event calendar load failed: %s", type(exc).__name__)
             return {}
         return {}
 
@@ -232,7 +232,7 @@ class NewsAgent(BaseFinancialAgent):
                     if results:
                         self.circuit_breaker.record_success("finnhub")
             except Exception as e:
-                logger.info("[NewsAgent] _fetch_with_finnhub_news failed")
+                logger.info("[NewsAgent] _fetch_with_finnhub_news failed: %s", type(e).__name__)
                 self.circuit_breaker.record_failure("finnhub")
 
         # 2) Fallback to get_company_news if finnhub tool not present
@@ -253,7 +253,7 @@ class NewsAgent(BaseFinancialAgent):
                             results.extend(parsed_news)
                             self.circuit_breaker.record_success("news_api")
             except Exception as e:
-                logger.info("[NewsAgent] get_company_news failed")
+                logger.info("[NewsAgent] get_company_news failed: %s", type(e).__name__)
                 self.circuit_breaker.record_failure("news_api")
 
         # 3) Secondary fallback to tavily-style tool
@@ -270,7 +270,7 @@ class NewsAgent(BaseFinancialAgent):
                         if t_results:
                             self.circuit_breaker.record_success("tavily")
             except Exception as e:
-                logger.info("[NewsAgent] _search_company_news failed")
+                logger.info("[NewsAgent] _search_company_news failed: %s", type(e).__name__)
                 self.circuit_breaker.record_failure("tavily")
 
         # 4) Legacy text search fallback
@@ -285,7 +285,7 @@ class NewsAgent(BaseFinancialAgent):
                             results.extend(parsed_search)
                             self.circuit_breaker.record_success("search")
             except Exception as e:
-                logger.info("[NewsAgent] search fallback failed")
+                logger.info("[NewsAgent] search fallback failed: %s", type(e).__name__)
                 self.circuit_breaker.record_failure("search")
 
         # Deduplicate (title-level)
@@ -363,7 +363,7 @@ class NewsAgent(BaseFinancialAgent):
                                     }
                                 )
                     except Exception as exc:
-                        logger.debug("[NewsAgent] authoritative feed supplement failed")
+                        logger.debug("[NewsAgent] authoritative feed supplement failed: %s", type(exc).__name__)
                 authoritative = self._filter_authoritative_news(unique_results)
             if authoritative:
                 unique_results = authoritative
@@ -463,7 +463,7 @@ class NewsAgent(BaseFinancialAgent):
                     **self._last_convergence,
                 ))
             except Exception as exc:
-                logger.debug("[NewsAgent] convergence trace creation failed")
+                logger.debug("[NewsAgent] convergence trace creation failed: %s", type(exc).__name__)
 
         # Fallback observability
         fallback_reason = None
@@ -580,7 +580,7 @@ class NewsAgent(BaseFinancialAgent):
                             }, ensure_ascii=False)
                 except Exception as e:
                     self.circuit_breaker.record_failure("finnhub")
-                    logger.warning("[NewsAgent] Finnhub stream fetch failed")
+                    logger.warning("[NewsAgent] Finnhub stream fetch failed: %s", type(e).__name__)
                     yield json.dumps({
                         "type": "source_done",
                         "source": "finnhub",
@@ -723,7 +723,7 @@ class NewsAgent(BaseFinancialAgent):
                         yield chunk.content
                 return
             except Exception as stream_exc:
-                logger.info("[NewsAgent] stream summary failed; falling back to retry invoke")
+                logger.info("[NewsAgent] stream summary failed; falling back to retry invoke: %s", type(stream_exc).__name__)
                 try:
                     from backend.services.llm_retry import ainvoke_with_rate_limit_retry
 
@@ -758,7 +758,7 @@ class NewsAgent(BaseFinancialAgent):
                         yield text
                         return
                 except Exception as invoke_exc:
-                    logger.info("[NewsAgent] invoke summary fallback failed")
+                    logger.info("[NewsAgent] invoke summary fallback failed: %s", type(invoke_exc).__name__)
         
         # 简单方法：直接拼接标题
         # str(... or ...)：流式路径按 URL 去重不过滤空标题，{"headline": null}
