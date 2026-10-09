@@ -6,8 +6,6 @@ Supports hot-reload via file modification time check
 
 from enum import Enum
 from typing import Dict, List
-import os
-import time
 import logging
 
 logger = logging.getLogger(__name__)
@@ -102,7 +100,6 @@ class KeywordsConfig:
         if self._initialized:
             return
         self._initialized = True
-        self._load_time = time.time()
         logger.info("[KeywordsConfig] Initialized")
 
     @property
