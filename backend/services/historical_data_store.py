@@ -147,7 +147,7 @@ def _fetch_baostock(ticker: str, start: str, end: str, adjust: str) -> list[dict
             import baostock as bs
             bs.logout()
         except Exception as logout_exc:
-            logger.debug('baostock logout failed')
+            logger.debug('baostock logout failed: %s', type(logout_exc).__name__)
         return []
 
 
@@ -361,7 +361,7 @@ def fetch_and_cache_kline(
                 for p in kdata if isinstance(p, dict) and p.get("close")
             ]
         except Exception as exc:
-            logger.warning('historical fallback failed')
+            logger.warning('historical fallback failed: %s', type(exc).__name__)
             return []
 
     cleaned = _clean(rows)
