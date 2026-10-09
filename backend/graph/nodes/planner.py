@@ -1007,7 +1007,7 @@ async def planner(state: GraphState) -> dict:
         retryable = is_rate_limit_error(exc)
         error_code = "planner_llm_call_error"
         public_parse_error = _public_parse_error_info(parse_error_info)
-        logger.error("[Planner] LLM planning failed")
+        logger.error("[Planner] LLM planning failed: %s", type(exc).__name__)
         append_failure(
             trace,
             node="planner",
