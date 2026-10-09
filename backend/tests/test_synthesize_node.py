@@ -85,13 +85,14 @@ def test_narrative_llm_init_error_log_is_redacted(monkeypatch, caplog):
     import backend.llm_config as llm_config
 
     synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+    narrative_mod = importlib.import_module("backend.graph.nodes.synthesize_narrative")
     sentinel = "PRIVATE_NARRATIVE_INIT_DETAIL"
 
     def _fail_create_llm(**_kwargs):
         raise RuntimeError(sentinel)
 
     monkeypatch.setattr(llm_config, "create_llm", _fail_create_llm)
-    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+    caplog.set_level(logging.WARNING, logger=narrative_mod.__name__)
 
     result = _run(synth_mod._generate_narrative_draft(_deep_verifier_state(), {}, {}))
 
@@ -105,6 +106,7 @@ def test_narrative_llm_call_error_trace_and_log_are_redacted(monkeypatch, caplog
     import backend.llm_config as llm_config
 
     synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+    narrative_mod = importlib.import_module("backend.graph.nodes.synthesize_narrative")
     sentinel = "PRIVATE_NARRATIVE_CALL_DETAIL"
     trace = {}
 
@@ -112,8 +114,8 @@ def test_narrative_llm_call_error_trace_and_log_are_redacted(monkeypatch, caplog
         raise RuntimeError(sentinel)
 
     monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: object())
-    monkeypatch.setattr(synth_mod, "ainvoke_with_rate_limit_retry", _fail_call)
-    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+    monkeypatch.setattr(narrative_mod, "ainvoke_with_rate_limit_retry", _fail_call)
+    caplog.set_level(logging.WARNING, logger=narrative_mod.__name__)
 
     result = _run(synth_mod._generate_narrative_draft(_deep_verifier_state(), {}, trace))
 
