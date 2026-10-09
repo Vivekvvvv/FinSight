@@ -119,7 +119,7 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                     email = resolved_user_id if "@" in resolved_user_id else f"{resolved_user_id}@example.com"
                     alert_events = await asyncio.to_thread(deps.subscription_service.list_alert_events, email, limit=10)
                 except Exception as exc:
-                    logger.warning("today alert events unavailable")
+                    logger.warning("today alert events unavailable: %s", type(exc).__name__)
 
             # 计算待复查报告
             watchlist_tickers = [w.get("ticker", "") for w in watchlist_items if w.get("ticker")]

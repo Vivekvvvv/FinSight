@@ -214,7 +214,7 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
         try:
             stored_positions = deps.get_portfolio_positions(normalized_session) or []
         except Exception as exc:
-            logger.warning("[MorningBrief] get_portfolio_positions failed")
+            logger.warning("[MorningBrief] get_portfolio_positions failed: %s", type(exc).__name__)
             stored_positions = []
             position_fetch_failed = True
 
@@ -271,7 +271,7 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
                     return {"success": True, "brief": brief_data}
                 logger.warning("[MorningBrief] Graph Pipeline returned no brief_data, falling back to direct fetch")
             except Exception as exc:
-                logger.warning("[MorningBrief] Graph Pipeline failed; falling back to direct fetch")
+                logger.warning("[MorningBrief] Graph Pipeline failed; falling back to direct fetch: %s", type(exc).__name__)
 
         # ── Fallback: 直接数据获取（原始实现） ──
         # 并发获取所有 ticker 的快照和新闻
@@ -287,14 +287,14 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
                 if parsed:
                     snapshot = parsed
             except Exception as exc:
-                logger.debug("[MorningBrief] price fetch failed")
+                logger.debug("[MorningBrief] price fetch failed: %s", type(exc).__name__)
 
             # 获取新闻标题
             try:
                 raw_news = await asyncio.to_thread(deps.get_company_news, ticker, 5)
                 news_headline = _extract_headline(raw_news, ticker)
             except Exception as exc:
-                logger.debug("[MorningBrief] news fetch failed")
+                logger.debug("[MorningBrief] news fetch failed: %s", type(exc).__name__)
 
             price = safe_float(snapshot.get("price"))
             change = safe_float(snapshot.get("change"))
