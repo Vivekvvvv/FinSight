@@ -1261,7 +1261,7 @@ SECURITY_HARDENING_ROUNDS_1301_1400 = [
     ("R1385", "backend/graph/nodes/synthesize_narrative.py", "[Synthesize/narrative] LLM init failed", "type(exc).__name__"),
     ("R1386", "backend/graph/nodes/synthesize_narrative.py", "[Synthesize/narrative] LLM call failed; using template fallback", "type(exc).__name__"),
     ("R1387", "backend/graph/nodes/synthesize.py", "[Synthesize] LLM call failed; falling back to stub", "type(exc).__name__"),
-    ("R1388", "backend/graph/report_builder.py", "[ReportBuilder] build_report_payload failed", "type(exc).__name__"),
+    ("R1388", "backend/graph/report_payload.py", "[ReportBuilder] build_report_payload failed", "type(exc).__name__"),
     ("R1389", "backend/graph/runner.py", "graph trace metadata update failed", "type(exc).__name__"),
     ("R1390", "backend/graph/store.py", "[graph.store] init memory service failed", "type(exc).__name__"),
     ("R1391", "backend/graph/store.py", "[graph.store] load profile failed", "type(exc).__name__"),

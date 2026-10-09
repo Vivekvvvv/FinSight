@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import backend.graph.report_builder as report_builder_module
+import backend.graph.report_payload as report_payload_module
 from backend.graph.report_builder import (
     _count_content_chars,
     _sanitize_deep_search_summary,
@@ -15,7 +15,7 @@ def test_build_report_payload_redacts_fallback_error(monkeypatch, caplog):
     def fail_build(**_kwargs):
         raise RuntimeError(secret)
 
-    monkeypatch.setattr(report_builder_module, "_build_report_payload_impl", fail_build)
+    monkeypatch.setattr(report_payload_module, "_build_report_payload_impl", fail_build)
 
     report = build_report_payload(
         state={"output_mode": "investment_report"},
