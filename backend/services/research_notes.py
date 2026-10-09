@@ -31,7 +31,7 @@ def _parse_tags(value: object) -> list[str]:
         if not isinstance(parsed, list):
             raise ValueError("tags must be a list")
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        logger.warning('invalid stored research note tags')
+        logger.warning('invalid stored research note tags: %s', type(exc).__name__)
         return []
     return [tag.strip()[:64] for tag in parsed[:20] if isinstance(tag, str) and tag.strip()]
 
@@ -138,7 +138,7 @@ def create_note(
         from backend.services.notes_rag import vectorize_note as _vn
         _vn(note_id, title, content or "")
     except Exception as exc:
-            logger.warning('note vectorization failed')
+            logger.warning('note vectorization failed: %s', type(exc).__name__)
 
     return note_id
 
@@ -206,7 +206,7 @@ def update_note(
                 from backend.services.notes_rag import vectorize_note as _vn
                 _vn(note_id, note.get("title", ""), note.get("content", ""))
         except Exception as exc:
-            logger.warning('note re-vectorization failed')
+            logger.warning('note re-vectorization failed: %s', type(exc).__name__)
 
     return updated
 
