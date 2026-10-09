@@ -273,7 +273,7 @@ class InsightsOrchestrator:
             await self._generate_fresh(symbol)
             logger.info("[Insights] Background refresh completed")
         except Exception as exc:
-            logger.warning("[Insights] Background refresh failed")
+            logger.warning("[Insights] Background refresh failed: %s", type(exc).__name__)
         finally:
             _refresh_tasks.pop(symbol, None)
 
@@ -376,7 +376,7 @@ class InsightsOrchestrator:
         except asyncio.TimeoutError:
             logger.warning("[Insights] fetch timeout")
         except Exception as exc:
-                logger.warning("[Insights] fetch failed")
+                logger.warning("[Insights] fetch failed: %s", type(exc).__name__)
         return None
 
     def _fetch_technicals(self, symbol: str) -> dict[str, Any] | None:
