@@ -25,6 +25,7 @@ def test_deep_verifier_import_error_is_redacted(monkeypatch, caplog):
     import importlib
 
     synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+    verifier_mod = importlib.import_module("backend.graph.nodes.synthesize_verifier")
 
     sentinel = "PRIVATE_VERIFIER_IMPORT_DETAIL"
     real_import = builtins.__import__
@@ -35,7 +36,7 @@ def test_deep_verifier_import_error_is_redacted(monkeypatch, caplog):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", _import)
-    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+    caplog.set_level(logging.WARNING, logger=verifier_mod.__name__)
 
     result = _run(
         synth_mod._run_deep_report_verifier(
@@ -55,6 +56,7 @@ def test_deep_verifier_runtime_error_is_redacted(monkeypatch, caplog):
     import backend.llm_config as llm_config
 
     synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+    verifier_mod = importlib.import_module("backend.graph.nodes.synthesize_verifier")
 
     sentinel = "PRIVATE_VERIFIER_RUNTIME_DETAIL"
 
@@ -62,8 +64,8 @@ def test_deep_verifier_runtime_error_is_redacted(monkeypatch, caplog):
         raise RuntimeError(sentinel)
 
     monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: object())
-    monkeypatch.setattr(synth_mod, "ainvoke_with_rate_limit_retry", _fail_verification)
-    caplog.set_level(logging.WARNING, logger=synth_mod.__name__)
+    monkeypatch.setattr(verifier_mod, "ainvoke_with_rate_limit_retry", _fail_verification)
+    caplog.set_level(logging.WARNING, logger=verifier_mod.__name__)
 
     result = _run(
         synth_mod._run_deep_report_verifier(
