@@ -63,7 +63,7 @@ def _normalize_domain(url: str) -> str:
         # 导致 wsj.com 权威匹配失败、WSJ 全量文章被丢（R20 同类，R48）。
         return (urlparse(str(url or "").strip()).hostname or "").lower().removeprefix("www.")
     except Exception as exc:
-        logger.debug('authoritative domain normalization failed')
+        logger.debug('authoritative domain normalization failed: %s', type(exc).__name__)
         return ""
 
 
@@ -117,7 +117,7 @@ def _parse_feed_items(feed_name: str, xml_text: str) -> list[dict[str, Any]]:
     try:
         root = ET.fromstring(xml_text)
     except Exception as exc:
-        logger.debug('authoritative feed XML parse failed')
+        logger.debug('authoritative feed XML parse failed: %s', type(exc).__name__)
         return []
 
     rows: list[dict[str, Any]] = []
@@ -151,7 +151,7 @@ def _fetch_feed(url: str) -> str:
             return ""
         return str(getattr(resp, "text", "") or "")
     except Exception as exc:
-        logger.debug('authoritative feed request failed')
+        logger.debug('authoritative feed request failed: %s', type(exc).__name__)
         return ""
 
 
