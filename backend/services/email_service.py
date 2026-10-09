@@ -86,7 +86,7 @@ class EmailService:
             smtplib.SMTPSenderRefused,
             smtplib.SMTPDataError,
         ) as exc:
-            logger.error('[EmailService] Permanent SMTP error')
+            logger.error('[EmailService] Permanent SMTP error: %s', type(exc).__name__)
             return False, "permanent", "Email delivery rejected"
         except Exception as exc:  # noqa: BLE001 - 保持外部接口兼容
             logger.error('[EmailService] Unexpected error: %s', type(exc).__name__)

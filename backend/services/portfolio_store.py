@@ -296,7 +296,7 @@ def list_suggestions(session_id: str, limit: int = 10) -> list[dict[str, Any]]:
             if not isinstance(parsed, dict):
                 raise ValueError("suggestion payload must be an object")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning('stored rebalance suggestion parse failed')
+            logger.warning('stored rebalance suggestion parse failed: %s', type(exc).__name__)
             parsed = {}
         result.append({
             "suggestion_id": r[0],
