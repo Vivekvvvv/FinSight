@@ -6,7 +6,7 @@
 
 3. **禁止把异常压成 200 响应**：路由层新代码不要 `except Exception: return {"success": False, "error": str(exc)}`；让 FastAPI 异常处理器返回正确状态码。存量代码顺手改，但不专门大改。
 
-4. **新代码不进上帝文件**：`graph/nodes/synthesize.py`(2718 行)、`graph/report_builder.py`(2228)、`tools/price.py`(2179)、`dashboard/data_service.py`(1771)、`handlers/chat_handler.py`(1587) 只减不增；新功能放独立模块，从这些文件里 import。
+4. **新代码不进上帝文件**：`graph/nodes/synthesize.py`、`graph/report_builder.py`、`tools/price.py`、`dashboard/data_service.py` 只减不增；新功能放独立模块，从这些文件里 import。
 
 5. **验证命令**：改后端必跑 `.\.venv\Scripts\python.exe -m pytest -q`（至少跑受影响模块的测试文件）；改前端必跑 `frontend-vue` 下 `npm run typecheck && npm run build`。测试路径见 `pytest.ini`（`backend/tests` + `tests`）。
 
