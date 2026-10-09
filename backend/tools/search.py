@@ -123,7 +123,7 @@ def search(query: str) -> str:
             error_msg = str(e) if e else "未知错误"
             if _is_quota_error(error_msg):
                 _EXA_QUOTA_BLOCKED_UNTIL = time.monotonic() + max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS)
-                logger.warning("[Search] Exa quota exhausted; temporarily disabled")
+                logger.warning("[Search] Exa quota exhausted; temporarily disabled: %s", type(e).__name__)
             logger.info("[Search] Exa 搜索失败: %s", type(e).__name__)
 
     # 1.尝试 Tavily Search (AI搜索)
@@ -148,7 +148,7 @@ def search(query: str) -> str:
             error_msg = str(e) if e else "未知错误"
             if _is_quota_error(error_msg):
                 _TAVILY_QUOTA_BLOCKED_UNTIL = time.monotonic() + max(60, _SEARCH_QUOTA_COOLDOWN_SECONDS)
-                logger.warning("[Search] Tavily quota exhausted; temporarily disabled")
+                logger.warning("[Search] Tavily quota exhausted; temporarily disabled: %s", type(e).__name__)
             # 忽略 Tavily 错误，继续尝试下一个源
             logger.info("[Search] Tavily 搜索失败: %s", type(e).__name__)
 
