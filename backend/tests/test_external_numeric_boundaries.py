@@ -102,11 +102,11 @@ NUMERIC_BOUNDARY_ROUNDS = [
 
 # Each tuple binds one R401-R500 fix to a concrete function and source expression.
 NUMERIC_BOUNDARY_ROUNDS_401_500 = [
-    ("R401", "backend/tools/price.py", "_fetch_with_alpha_vantage", "price = _safe_float_value(quote.get('05. price'))", 1),
-    ("R402", "backend/tools/price.py", "_fetch_with_alpha_vantage", "change = _safe_float_value(quote.get('09. change'))", 1),
-    ("R403", "backend/tools/price.py", "_fetch_with_alpha_vantage", "change_percent = _safe_float_value(change_percent_str)", 1),
-    ("R404", "backend/tools/price.py", "_fetch_with_twelve_data_price", 'price = _safe_float_value(latest.get("close"))', 1),
-    ("R405", "backend/tools/price.py", "_fetch_with_twelve_data_price", 'prev_close = _safe_float_value(values[1]["close"])', 1),
+    ("R401", "backend/tools/price_providers.py", "_fetch_with_alpha_vantage", "price = _safe_float_value(quote.get('05. price'))", 1),
+    ("R402", "backend/tools/price_providers.py", "_fetch_with_alpha_vantage", "change = _safe_float_value(quote.get('09. change'))", 1),
+    ("R403", "backend/tools/price_providers.py", "_fetch_with_alpha_vantage", "change_percent = _safe_float_value(change_percent_str)", 1),
+    ("R404", "backend/tools/price_providers.py", "_fetch_with_twelve_data_price", 'price = _safe_float_value(latest.get("close"))', 1),
+    ("R405", "backend/tools/price_providers.py", "_fetch_with_twelve_data_price", 'prev_close = _safe_float_value(values[1]["close"])', 1),
     ("R406", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"open": _safe_float_value(row[\'Open\'])', 1),
     ("R407", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"high": _safe_float_value(row[\'High\'])', 1),
     ("R408", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"low": _safe_float_value(row[\'Low\'])', 1),
@@ -179,21 +179,21 @@ NUMERIC_BOUNDARY_ROUNDS_401_500 = [
     ("R475", "backend/services/historical_data_store.py", "_clean", '"high"', 1),
     ("R476", "backend/services/historical_data_store.py", "_clean", '"low"', 1),
     ("R477", "backend/services/historical_data_store.py", "_clean", 'safe_float(r.get("volume"))', 1),
-    ("R478", "backend/tools/price.py", "_fetch_with_finnhub", "_safe_float_value(quote.get('c'))", 1),
-    ("R479", "backend/tools/price.py", "_fetch_with_finnhub", "_safe_float_value(quote.get('d'))", 1),
-    ("R480", "backend/tools/price.py", "_fetch_with_finnhub", "_safe_float_value(quote.get('dp'))", 1),
-    ("R481", "backend/tools/price.py", "_fetch_with_yfinance", "_safe_float_value(hist['Close'].iloc[-1])", 1),
-    ("R482", "backend/tools/price.py", "_fetch_with_yfinance", "_safe_float_value(hist['Close'].iloc[-2])", 1),
-    ("R483", "backend/tools/price.py", "_fetch_yahoo_api_v8", "_safe_float_value(meta.get('regularMarketPrice'))", 1),
-    ("R484", "backend/tools/price.py", "_fetch_yahoo_api_v8", "_safe_float_value(meta.get('previousClose')", 1),
-    ("R485", "backend/tools/price.py", "_fetch_with_pandas_datareader", "_safe_float_value(df['Close'].iloc[0])", 1),
-    ("R486", "backend/tools/price.py", "_fetch_with_pandas_datareader", "_safe_float_value(df['Close'].iloc[1])", 1),
-    ("R487", "backend/tools/price.py", "_scrape_yahoo_finance", "_safe_float_value(price_elem.get('value'))", 1),
-    ("R488", "backend/tools/price.py", "_scrape_yahoo_finance", "_safe_float_value(change_elem.get('value'))", 1),
-    ("R489", "backend/tools/price.py", "_scrape_yahoo_finance", "_safe_float_value(change_percent_elem.get('value'))", 1),
-    ("R490", "backend/tools/price.py", "_fetch_index_price", "_safe_float_value(closes[-1])", 1),
-    ("R491", "backend/tools/price.py", "_fetch_index_price", "_safe_float_value(closes[-2])", 1),
-    ("R492", "backend/tools/price.py", "_fetch_with_stooq_price", "_safe_float_value(close)", 1),
+    ("R478", "backend/tools/price_providers.py", "_fetch_with_finnhub", "_safe_float_value(quote.get('c'))", 1),
+    ("R479", "backend/tools/price_providers.py", "_fetch_with_finnhub", "_safe_float_value(quote.get('d'))", 1),
+    ("R480", "backend/tools/price_providers.py", "_fetch_with_finnhub", "_safe_float_value(quote.get('dp'))", 1),
+    ("R481", "backend/tools/price_providers.py", "_fetch_with_yfinance", "_safe_float_value(hist['Close'].iloc[-1])", 1),
+    ("R482", "backend/tools/price_providers.py", "_fetch_with_yfinance", "_safe_float_value(hist['Close'].iloc[-2])", 1),
+    ("R483", "backend/tools/price_providers.py", "_fetch_yahoo_api_v8", "_safe_float_value(meta.get('regularMarketPrice'))", 1),
+    ("R484", "backend/tools/price_providers.py", "_fetch_yahoo_api_v8", "_safe_float_value(meta.get('previousClose')", 1),
+    ("R485", "backend/tools/price_providers.py", "_fetch_with_pandas_datareader", "_safe_float_value(df['Close'].iloc[0])", 1),
+    ("R486", "backend/tools/price_providers.py", "_fetch_with_pandas_datareader", "_safe_float_value(df['Close'].iloc[1])", 1),
+    ("R487", "backend/tools/price_providers.py", "_scrape_yahoo_finance", "_safe_float_value(price_elem.get('value'))", 1),
+    ("R488", "backend/tools/price_providers.py", "_scrape_yahoo_finance", "_safe_float_value(change_elem.get('value'))", 1),
+    ("R489", "backend/tools/price_providers.py", "_scrape_yahoo_finance", "_safe_float_value(change_percent_elem.get('value'))", 1),
+    ("R490", "backend/tools/price_providers.py", "_fetch_index_price", "_safe_float_value(closes[-1])", 1),
+    ("R491", "backend/tools/price_providers.py", "_fetch_index_price", "_safe_float_value(closes[-2])", 1),
+    ("R492", "backend/tools/price_providers.py", "_fetch_with_stooq_price", "_safe_float_value(close)", 1),
     ("R493", "backend/tools/price_portfolio.py", "_calc_from_hist", "_safe_float_value(hist['Close'].iloc[-1])", 1),
     ("R494", "backend/tools/price_portfolio.py", "_calc_from_hist", "_safe_float_value(ytd_hist['Close'].iloc[0])", 1),
     ("R495", "backend/tools/price_portfolio.py", "_calc_from_hist", "_safe_float_value(one_year_hist['Close'].iloc[0])", 1),
@@ -1250,11 +1250,12 @@ def test_download_history_fallback_rejects_non_finite_ohlcv(monkeypatch, field, 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e309"])
 def test_alpha_vantage_quote_rejects_non_finite_fields(monkeypatch, field, value):
     from backend.tools import price as module
+    from backend.tools import price_providers as providers
 
     quote = {"05. price": "100", "09. change": "1", "10. change percent": "1%"}
     quote[field] = f"{value}%" if field == "10. change percent" else value
     monkeypatch.setattr(
-        module,
+        providers,
         "_http_get",
         lambda *_args, **_kwargs: SimpleNamespace(
             raise_for_status=lambda: None,
@@ -1269,12 +1270,13 @@ def test_alpha_vantage_quote_rejects_non_finite_fields(monkeypatch, field, value
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e309"])
 def test_twelve_data_quote_rejects_non_finite_close(monkeypatch, field, value):
     from backend.tools import price as module
+    from backend.tools import price_providers as providers
 
     values = [{"close": "100"}, {"close": "99"}]
     values[0 if field == "latest" else 1]["close"] = value
-    monkeypatch.setattr(module, "TWELVE_DATA_API_KEY", "test-key")
+    monkeypatch.setattr(providers, "TWELVE_DATA_API_KEY", "test-key")
     monkeypatch.setattr(
-        module,
+        providers,
         "_http_get",
         lambda *_args, **_kwargs: SimpleNamespace(
             status_code=200,
@@ -1355,10 +1357,11 @@ def test_baostock_fetch_preserves_row_with_invalid_numeric_field(monkeypatch, fi
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_finnhub_quote_rejects_non_finite_fields(monkeypatch, field, value):
     from backend.tools import price as module
+    from backend.tools import price_providers as providers
 
     quote = {"c": 100.0, "d": 1.0, "dp": 1.0}
     quote[field] = value
-    monkeypatch.setattr(module, "finnhub_client", SimpleNamespace(quote=lambda _ticker: quote))
+    monkeypatch.setattr(providers, "finnhub_client", SimpleNamespace(quote=lambda _ticker: quote))
 
     result = module._fetch_with_finnhub("AAPL")
 
@@ -1396,11 +1399,12 @@ def test_yfinance_quote_rejects_non_finite_closes(monkeypatch, row_index, value)
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_yahoo_v8_quote_rejects_non_finite_fields(monkeypatch, field, value):
     from backend.tools import price as module
+    from backend.tools import price_providers as providers
 
     meta = {"regularMarketPrice": 100.0, "previousClose": 99.0}
     meta[field] = value
     monkeypatch.setattr(
-        module,
+        providers,
         "_http_get",
         lambda *_args, **_kwargs: SimpleNamespace(
             raise_for_status=lambda: None,
@@ -1438,6 +1442,7 @@ def test_pandas_datareader_quote_rejects_non_finite_closes(monkeypatch, row_inde
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e309"])
 def test_yahoo_scraped_quote_rejects_non_finite_fields(monkeypatch, field, value):
     from backend.tools import price as module
+    from backend.tools import price_providers as providers
 
     values = {"regularMarketPrice": "100", "regularMarketChange": "1", "regularMarketChangePercent": "0.01"}
     values[field] = value
@@ -1446,7 +1451,7 @@ def test_yahoo_scraped_quote_rejects_non_finite_fields(monkeypatch, field, value
         for name, raw in values.items()
     )
     monkeypatch.setattr(
-        module,
+        providers,
         "_http_get",
         lambda *_args, **_kwargs: SimpleNamespace(raise_for_status=lambda: None, text=html),
     )
@@ -1463,12 +1468,13 @@ def test_yahoo_scraped_quote_rejects_non_finite_fields(monkeypatch, field, value
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_index_quote_rejects_non_finite_closes(monkeypatch, row_index, value):
     from backend.tools import price as module
+    from backend.tools import price_providers as providers
 
     closes = [99.0, 100.0]
     closes[row_index] = value
     monkeypatch.setattr(module.yf, "download", lambda *_args, **_kwargs: pd.DataFrame({"Close": closes}))
-    monkeypatch.setattr(module, "_fetch_with_stooq_price", lambda _ticker: None)
-    monkeypatch.setattr(module, "_fallback_price_value", lambda _ticker: None)
+    monkeypatch.setattr(providers, "_fetch_with_stooq_price", lambda _ticker: None)
+    monkeypatch.setattr(providers, "_fallback_price_value", lambda _ticker: None)
 
     result = module._fetch_index_price("^GSPC")
 
@@ -1484,9 +1490,10 @@ def test_index_quote_rejects_non_finite_closes(monkeypatch, row_index, value):
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_stooq_quote_rejects_non_finite_close(monkeypatch, value):
     from backend.tools import price as module
+    from backend.tools import price_providers as providers
 
     monkeypatch.setattr(
-        module,
+        providers,
         "_http_get",
         lambda *_args, **_kwargs: SimpleNamespace(
             status_code=200,

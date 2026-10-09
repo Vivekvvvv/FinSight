@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from backend.tools import price
 from backend.tools import price_history_providers as php
+from backend.tools import price_providers
 
 
 class _UnformattableTicker:
@@ -136,7 +137,7 @@ def test_alpha_vantage_price_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE https://api-key@alpha.example.com"
     caplog.set_level("INFO")
     monkeypatch.setattr(
-        price,
+        price_providers,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -154,7 +155,7 @@ def test_finnhub_price_error_log_is_redacted(monkeypatch, caplog):
         def quote(self, _ticker):
             raise RuntimeError(secret)
 
-    monkeypatch.setattr(price, "finnhub_client", _FailingClient())
+    monkeypatch.setattr(price_providers, "finnhub_client", _FailingClient())
 
     assert price._fetch_with_finnhub("AAPL") is None
     assert secret not in caplog.text
@@ -178,9 +179,9 @@ def test_yfinance_price_error_log_is_redacted(monkeypatch, caplog):
 def test_twelve_data_price_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE https://api-key@twelve.example.com"
     caplog.set_level("INFO")
-    monkeypatch.setattr(price, "TWELVE_DATA_API_KEY", "test-key")
+    monkeypatch.setattr(price_providers, "TWELVE_DATA_API_KEY", "test-key")
     monkeypatch.setattr(
-        price,
+        price_providers,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -194,7 +195,7 @@ def test_yahoo_api_price_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE http://proxy-user:secret@proxy.local/yahoo"
     caplog.set_level("INFO")
     monkeypatch.setattr(
-        price,
+        price_providers,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -208,7 +209,7 @@ def test_google_finance_price_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE http://proxy-user:secret@proxy.local/google"
     caplog.set_level("INFO")
     monkeypatch.setattr(
-        price,
+        price_providers,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -222,7 +223,7 @@ def test_cnbc_price_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE http://proxy-user:secret@proxy.local/cnbc"
     caplog.set_level("INFO")
     monkeypatch.setattr(
-        price,
+        price_providers,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -252,7 +253,7 @@ def test_yahoo_page_price_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE http://proxy-user:secret@proxy.local/yahoo-page"
     caplog.set_level("INFO")
     monkeypatch.setattr(
-        price,
+        price_providers,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -270,8 +271,8 @@ def test_index_yfinance_price_error_log_is_redacted(monkeypatch, caplog):
         "download",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
-    monkeypatch.setattr(price, "_fetch_with_stooq_price", lambda _ticker: None)
-    monkeypatch.setattr(price, "_fallback_price_value", lambda _ticker: None)
+    monkeypatch.setattr(price_providers, "_fetch_with_stooq_price", lambda _ticker: None)
+    monkeypatch.setattr(price_providers, "_fallback_price_value", lambda _ticker: None)
 
     assert price._fetch_index_price("^GSPC") is None
     assert secret not in caplog.text
@@ -282,7 +283,7 @@ def test_search_price_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE https://search-token@search.example.com"
     caplog.set_level("INFO")
     monkeypatch.setattr(
-        price,
+        price_providers,
         "search",
         lambda _query: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -296,7 +297,7 @@ def test_stooq_price_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/stooq-quote"
     caplog.set_level("INFO")
     monkeypatch.setattr(
-        price,
+        price_providers,
         "_map_to_stooq_symbol",
         lambda _ticker: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -751,7 +752,7 @@ def test_alpha_vantage_price_note_log_is_redacted(monkeypatch, caplog):
         raise_for_status=lambda: None,
         json=lambda: {"Note": secret},
     )
-    monkeypatch.setattr(price, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(price_providers, "_http_get", lambda *_args, **_kwargs: response)
 
     assert price._fetch_with_alpha_vantage("AAPL") is None
     assert secret not in caplog.text
@@ -765,7 +766,7 @@ def test_alpha_vantage_price_error_response_log_is_redacted(monkeypatch, caplog)
         raise_for_status=lambda: None,
         json=lambda: {"Error Message": secret},
     )
-    monkeypatch.setattr(price, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(price_providers, "_http_get", lambda *_args, **_kwargs: response)
 
     assert price._fetch_with_alpha_vantage("AAPL") is None
     assert secret not in caplog.text
