@@ -109,7 +109,7 @@ def _parse_stored_tags(value: object) -> list[str]:
         if not isinstance(parsed, list):
             raise ValueError("tags must be a list")
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        logger.warning('stored portfolio tags parse failed')
+        logger.warning('stored portfolio tags parse failed: %s', type(exc).__name__)
         return []
     return _normalize_tags(parsed) or []
 
@@ -147,7 +147,7 @@ def get_positions(session_id: str) -> list[dict[str, Any]]:
             shares = _finite_number(r[1], field="shares")
             avg_cost = _finite_number(r[2], field="avg_cost", allow_none=True)
         except ValueError as exc:
-            logger.warning('Skipping invalid stored portfolio position')
+            logger.warning('Skipping invalid stored portfolio position: %s', type(exc).__name__)
             continue
         tags = _parse_stored_tags(r[5])
         result.append(

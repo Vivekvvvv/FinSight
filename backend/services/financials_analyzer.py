@@ -107,10 +107,10 @@ async def analyze_financials(
         return result
 
     except json.JSONDecodeError as exc:
-        logger.warning("[FinancialsAnalyzer] LLM返回非JSON，fallback")
+        logger.warning("[FinancialsAnalyzer] LLM返回非JSON，fallback: %s", type(exc).__name__)
         return _fallback_result(ticker, "Internal server error")
     except Exception as exc:
-        logger.error("[FinancialsAnalyzer] 分析失败")
+        logger.error("[FinancialsAnalyzer] 分析失败: %s", type(exc).__name__)
         return _fallback_result(ticker, "Internal server error")
 
 
