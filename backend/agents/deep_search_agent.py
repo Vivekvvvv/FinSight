@@ -1360,10 +1360,10 @@ queries 要求：
                 logger.warning("[DeepSearch] LLM call failed: %s", type(exc).__name__)
                 if outer < max_outer_retries - 1:
                     backoff = 5.0 * (outer + 1)
-                    logger.info("[DeepSearch] Waiting before outer retry")
+                    logger.info("[DeepSearch] Waiting before outer retry: %s", type(exc).__name__)
                     await asyncio.sleep(backoff)
                 else:
-                    logger.error("[DeepSearch] All outer retries exhausted")
+                    logger.error("[DeepSearch] All outer retries exhausted: %s", type(exc).__name__)
         return ""
 
     def _extract_json(self, text: str) -> Dict[str, Any]:
