@@ -10,6 +10,7 @@ fetch_cn_top_list 静默丢失 buy_seats/sell_seats 全部席位（一个坏行�
 from __future__ import annotations
 
 from backend.tools import tencent_provider
+from backend.tools import tencent_market_providers
 
 
 class _Resp:
@@ -35,7 +36,7 @@ def _seat_payload_text() -> str:
 
 def test_one_missing_seat_amount_does_not_lose_all_seats(monkeypatch):
     monkeypatch.setattr(
-        tencent_provider,
+        tencent_market_providers,
         "_http_get",
         lambda *a, **k: _Resp(_seat_payload_text()),
     )
@@ -63,7 +64,7 @@ def test_seats_fetch_failure_still_returns_none(monkeypatch):
         status_code = 500
         text = ""
 
-    monkeypatch.setattr(tencent_provider, "_http_get", lambda *a, **k: _Bad())
+    monkeypatch.setattr(tencent_market_providers, "_http_get", lambda *a, **k: _Bad())
     assert tencent_provider._fetch_top_list_seats("600519") is None
 
 
@@ -108,7 +109,7 @@ def _route_top_list(monkeypatch, new_api_payload):
             return _JsonResp(new_api_payload)
         return _TextResp(_LEGACY_TOP_LIST_TEXT)
 
-    monkeypatch.setattr(tencent_provider, "_http_get", fake_get)
+    monkeypatch.setattr(tencent_market_providers, "_http_get", fake_get)
 
 
 def test_top_list_none_date_falls_back_to_legacy(monkeypatch):
@@ -170,7 +171,7 @@ def test_seats_skip_non_dict_entries(monkeypatch):
         'var data_tab_3 = {"not":"a list"};'  # 非 list → [:5] TypeError 变体
     )
     monkeypatch.setattr(
-        tencent_provider, "_http_get", lambda *a, **k: _TextResp(text)
+        tencent_market_providers, "_http_get", lambda *a, **k: _TextResp(text)
     )
 
     seats = tencent_provider._fetch_top_list_seats("600519", "2026-09-24")

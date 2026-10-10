@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from backend.tools import tencent_provider
+from backend.tools import tencent_market_providers
 
 
 class _FakeResponse:
@@ -42,7 +43,7 @@ def test_fetch_cn_top_list_uses_current_eastmoney_datacenter(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+    monkeypatch.setattr(tencent_market_providers, "_http_get", fake_http_get)
 
     result = tencent_provider.fetch_cn_top_list("000001.SZ", include_seats=False)
 
@@ -71,7 +72,7 @@ def test_fetch_cn_top_list_hides_stale_records(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+    monkeypatch.setattr(tencent_market_providers, "_http_get", fake_http_get)
 
     assert tencent_provider.fetch_cn_top_list("600519.SS", include_seats=False) is None
 
@@ -102,7 +103,7 @@ def test_fetch_margin_trading_uses_current_eastmoney_report(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+    monkeypatch.setattr(tencent_market_providers, "_http_get", fake_http_get)
 
     result = tencent_provider.fetch_margin_trading("600519.SS")
 
@@ -153,7 +154,7 @@ def test_fetch_margin_trading_skips_poison_rows_in_new_report(monkeypatch):
             )
         return _FakeResponse404()
 
-    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+    monkeypatch.setattr(tencent_market_providers, "_http_get", fake_http_get)
 
     result = tencent_provider.fetch_margin_trading("600519.SS")
 
@@ -192,7 +193,7 @@ def test_fetch_margin_trading_skips_poison_rows_in_legacy_report(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+    monkeypatch.setattr(tencent_market_providers, "_http_get", fake_http_get)
 
     result = tencent_provider.fetch_margin_trading("600519.SS")
 

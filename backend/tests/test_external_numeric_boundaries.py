@@ -378,7 +378,7 @@ NUMERIC_BOUNDARY_ROUNDS_601_700 = [
     ("R666", "backend/tools/cn_hk_market.py", "_eastmoney_get_json", "safe_int(timeout, _EASTMONEY_TIMEOUT) or _EASTMONEY_TIMEOUT", 1),
     ("R667", "backend/tools/cn_hk_market.py", "_http_get_text", "safe_int(timeout, 3) or 3", 1),
     ("R668", "backend/tools/cn_hk_market.py", "fetch_cn_hk_financial_statements", "safe_int(periods, 8)", 1),
-    ("R669", "backend/tools/tencent_provider.py", "_is_recent_eastmoney_date", "safe_int(max_age_days, 90)", 1),
+    ("R669", "backend/tools/tencent_market_providers.py", "_is_recent_eastmoney_date", "safe_int(max_age_days, 90)", 1),
     ("R670", "backend/tools/tencent_history_providers.py", "fetch_cn_top_list_history", "safe_int(days, 30)", 1),
     ("R671", "backend/tools/tencent_history_providers.py", "fetch_margin_trading_history", "safe_int(days, 90)", 1),
     ("R672", "backend/tools/wayback.py", "resolve_wayback_snapshot", "safe_int(timeout, _WAYBACK_TIMEOUT) or _WAYBACK_TIMEOUT", 1),

@@ -9,6 +9,7 @@ dict（分时列表）解析——但真实结构是字符串列表（每行
 from __future__ import annotations
 
 from backend.tools import tencent_provider
+from backend.tools import tencent_market_providers
 
 
 class _FakeResp:
@@ -22,7 +23,7 @@ class _FakeResp:
 
 
 def test_north_flow_parses_kamt_rtmin_rows(monkeypatch):
-    monkeypatch.setattr(tencent_provider, "_http_get", lambda *a, **k: _FakeResp())
+    monkeypatch.setattr(tencent_market_providers, "_http_get", lambda *a, **k: _FakeResp())
 
     result = tencent_provider.fetch_north_flow(date="2026-07-06")
 
@@ -41,7 +42,7 @@ def test_north_flow_returns_zero_when_all_rows_premarket(monkeypatch):
         status_code = 200
         text = 'jQuery({"rc":0,"data":{"s2n":["09:15,-,-,-,-"]}})'
 
-    monkeypatch.setattr(tencent_provider, "_http_get", lambda *a, **k: _EmptyResp())
+    monkeypatch.setattr(tencent_market_providers, "_http_get", lambda *a, **k: _EmptyResp())
     result = tencent_provider.fetch_north_flow(date="2026-07-06")
     assert result is not None
     assert result["north_flow"] == 0.0
