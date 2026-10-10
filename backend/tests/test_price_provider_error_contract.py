@@ -359,7 +359,7 @@ def test_initial_yfinance_historical_error_log_is_redacted(monkeypatch, caplog):
             return SimpleNamespace(empty=True)
 
     monkeypatch.setattr(price.yf, "Ticker", _Ticker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
     monkeypatch.setattr(price.time, "sleep", lambda _seconds: None)
 
     result = price.get_stock_historical_data("AAPL")
@@ -381,9 +381,9 @@ def test_alpha_vantage_historical_error_log_is_redacted(monkeypatch, caplog):
             return SimpleNamespace(empty=True)
 
     monkeypatch.setattr(price.yf, "Ticker", _Ticker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "test-key")
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "test-key")
     monkeypatch.setattr(
-        price,
+        php,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -416,10 +416,10 @@ def test_retry_yfinance_historical_error_log_is_redacted(monkeypatch, caplog):
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _Ticker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
     monkeypatch.setattr(price.time, "sleep", lambda _seconds: None)
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: expected)
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: expected)
 
     assert price.get_stock_historical_data("AAPL") == expected
     assert secret not in caplog.text
@@ -444,10 +444,10 @@ def test_finnhub_historical_orchestrator_error_log_is_redacted(monkeypatch, capl
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "test-key")
-    monkeypatch.setattr(price, "finnhub_client", _FailingFinnhub())
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: expected)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "test-key")
+    monkeypatch.setattr(php, "finnhub_client", _FailingFinnhub())
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: expected)
 
     assert price.get_stock_historical_data("AAPL") == expected
     assert secret not in caplog.text
@@ -468,14 +468,14 @@ def test_yahoo_historical_orchestrator_error_log_is_redacted(monkeypatch, caplog
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
     monkeypatch.setattr(
-        price,
+        php,
         "_fetch_with_yahoo_scrape_historical",
         lambda *_args: (_ for _ in ()).throw(RuntimeError(secret)),
     )
-    monkeypatch.setattr(price, "_fetch_with_iex_cloud", lambda *_args: expected)
+    monkeypatch.setattr(php, "_fetch_with_iex_cloud", lambda *_args: expected)
 
     assert price.get_stock_historical_data("AAPL") == expected
     assert secret not in caplog.text
@@ -500,10 +500,10 @@ def test_index_historical_orchestrator_error_log_is_redacted(monkeypatch, caplog
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_fetch_with_stooq_history", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_iex_cloud", lambda *_args: expected)
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_fetch_with_stooq_history", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_iex_cloud", lambda *_args: expected)
 
     assert price.get_stock_historical_data("^GSPC") == expected
     assert secret not in caplog.text
@@ -524,15 +524,15 @@ def test_iex_historical_orchestrator_error_log_is_redacted(monkeypatch, caplog):
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
     monkeypatch.setattr(
-        price,
+        php,
         "_fetch_with_iex_cloud",
         lambda *_args: (_ for _ in ()).throw(RuntimeError(secret)),
     )
-    monkeypatch.setattr(price, "_fetch_with_tiingo", lambda *_args: expected)
+    monkeypatch.setattr(php, "_fetch_with_tiingo", lambda *_args: expected)
 
     assert price.get_stock_historical_data("AAPL") == expected
     assert secret not in caplog.text
@@ -553,16 +553,16 @@ def test_tiingo_historical_orchestrator_error_log_is_redacted(monkeypatch, caplo
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_iex_cloud", lambda *_args: None)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_iex_cloud", lambda *_args: None)
     monkeypatch.setattr(
-        price,
+        php,
         "_fetch_with_tiingo",
         lambda *_args: (_ for _ in ()).throw(RuntimeError(secret)),
     )
-    monkeypatch.setattr(price, "_fetch_with_twelve_data", lambda *_args: expected)
+    monkeypatch.setattr(php, "_fetch_with_twelve_data", lambda *_args: expected)
 
     assert price.get_stock_historical_data("AAPL") == expected
     assert secret not in caplog.text
@@ -583,17 +583,17 @@ def test_twelve_data_historical_orchestrator_error_log_is_redacted(monkeypatch, 
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_iex_cloud", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_tiingo", lambda *_args: None)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_iex_cloud", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_tiingo", lambda *_args: None)
     monkeypatch.setattr(
-        price,
+        php,
         "_fetch_with_twelve_data",
         lambda *_args: (_ for _ in ()).throw(RuntimeError(secret)),
     )
-    monkeypatch.setattr(price, "_fetch_with_marketstack", lambda *_args: expected)
+    monkeypatch.setattr(php, "_fetch_with_marketstack", lambda *_args: expected)
 
     assert price.get_stock_historical_data("AAPL") == expected
     assert secret not in caplog.text
@@ -614,18 +614,18 @@ def test_marketstack_historical_orchestrator_error_log_is_redacted(monkeypatch, 
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_iex_cloud", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_tiingo", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_twelve_data", lambda *_args: None)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_iex_cloud", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_tiingo", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_twelve_data", lambda *_args: None)
     monkeypatch.setattr(
-        price,
+        php,
         "_fetch_with_marketstack",
         lambda *_args: (_ for _ in ()).throw(RuntimeError(secret)),
     )
-    monkeypatch.setattr(price, "_fetch_with_massive_io", lambda *_args: expected)
+    monkeypatch.setattr(php, "_fetch_with_massive_io", lambda *_args: expected)
 
     assert price.get_stock_historical_data("AAPL") == expected
     assert secret not in caplog.text
@@ -646,19 +646,19 @@ def test_massive_historical_orchestrator_error_log_is_redacted(monkeypatch, capl
         "interval": "1d",
     }
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_iex_cloud", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_tiingo", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_twelve_data", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_marketstack", lambda *_args: None)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_iex_cloud", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_tiingo", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_twelve_data", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_marketstack", lambda *_args: None)
     monkeypatch.setattr(
-        price,
+        php,
         "_fetch_with_massive_io",
         lambda *_args: (_ for _ in ()).throw(RuntimeError(secret)),
     )
-    monkeypatch.setattr(price, "_fetch_with_stooq_history", lambda *_args: expected)
+    monkeypatch.setattr(php, "_fetch_with_stooq_history", lambda *_args: expected)
 
     assert price.get_stock_historical_data("AAPL") == expected
     assert secret not in caplog.text
@@ -675,16 +675,16 @@ def test_stooq_historical_orchestrator_error_log_is_redacted(monkeypatch, caplog
 
     monkeypatch.setattr(price.yf, "Ticker", _FailingTicker)
     monkeypatch.setattr(price.yf, "download", lambda *_args, **_kwargs: SimpleNamespace(empty=True))
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_iex_cloud", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_tiingo", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_twelve_data", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_marketstack", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_massive_io", lambda *_args: None)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_iex_cloud", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_tiingo", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_twelve_data", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_marketstack", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_massive_io", lambda *_args: None)
     monkeypatch.setattr(
-        price,
+        php,
         "_fetch_with_stooq_history",
         lambda *_args: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -711,15 +711,15 @@ def test_final_yfinance_historical_error_log_is_redacted(monkeypatch, caplog):
         "download",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_iex_cloud", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_tiingo", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_twelve_data", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_marketstack", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_massive_io", lambda *_args: None)
-    monkeypatch.setattr(price, "_fetch_with_stooq_history", lambda *_args: None)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_fetch_with_yahoo_scrape_historical", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_iex_cloud", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_tiingo", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_twelve_data", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_marketstack", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_massive_io", lambda *_args: None)
+    monkeypatch.setattr(php, "_fetch_with_stooq_history", lambda *_args: None)
     monkeypatch.setattr(price.time, "sleep", lambda _seconds: None)
 
     result = price.get_stock_historical_data("AAPL")
@@ -878,8 +878,8 @@ def test_alpha_vantage_historical_error_response_log_is_redacted(monkeypatch, ca
 
     response = SimpleNamespace(json=lambda: {"Error Message": secret})
     monkeypatch.setattr(price.yf, "Ticker", _EmptyTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "test-key")
-    monkeypatch.setattr(price, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "test-key")
+    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
     monkeypatch.setattr(price.time, "sleep", lambda _seconds: None)
 
     assert price.get_stock_historical_data("AAPL") == {"error": "No historical data for AAPL"}
@@ -900,8 +900,8 @@ def test_alpha_vantage_historical_rate_limit_log_is_redacted(monkeypatch, caplog
 
     response = SimpleNamespace(json=lambda: {"Note": secret})
     monkeypatch.setattr(price.yf, "Ticker", _EmptyTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "test-key")
-    monkeypatch.setattr(price, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "test-key")
+    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
     monkeypatch.setattr(price.time, "sleep", lambda _seconds: None)
 
     assert price.get_stock_historical_data("AAPL") == {"error": "No historical data for AAPL"}
@@ -922,8 +922,8 @@ def test_alpha_vantage_historical_note_log_is_redacted(monkeypatch, caplog):
 
     response = SimpleNamespace(json=lambda: {"Note": secret})
     monkeypatch.setattr(price.yf, "Ticker", _EmptyTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "test-key")
-    monkeypatch.setattr(price, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "test-key")
+    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
     monkeypatch.setattr(price.time, "sleep", lambda _seconds: None)
 
     assert price.get_stock_historical_data("AAPL") == {"error": "No historical data for AAPL"}
@@ -1013,9 +1013,9 @@ def test_alpha_vantage_historical_skips_poison_daily_rows(monkeypatch):
         "2026-09-21": _day("98", "99"),
     }})
     monkeypatch.setattr(price.yf, "Ticker", _EmptyTicker)
-    monkeypatch.setattr(price, "ALPHA_VANTAGE_API_KEY", "test-key")
-    monkeypatch.setattr(price, "FINNHUB_API_KEY", "")
-    monkeypatch.setattr(price, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(php, "ALPHA_VANTAGE_API_KEY", "test-key")
+    monkeypatch.setattr(php, "FINNHUB_API_KEY", "")
+    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
     monkeypatch.setattr(price.time, "sleep", lambda _seconds: None)
     for fn_name in (
         "_fetch_with_yahoo_scrape_historical", "_fetch_with_iex_cloud",
@@ -1023,7 +1023,7 @@ def test_alpha_vantage_historical_skips_poison_daily_rows(monkeypatch):
         "_fetch_with_marketstack", "_fetch_with_massive_io",
         "_fetch_with_stooq_history",
     ):
-        monkeypatch.setattr(price, fn_name, lambda *_args: None)
+        monkeypatch.setattr(php, fn_name, lambda *_args: None)
 
     result = price.get_stock_historical_data("AAPL", period="5d")
 
