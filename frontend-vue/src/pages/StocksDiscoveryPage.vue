@@ -1109,6 +1109,7 @@ watch(displayedItems, () => {
 <style scoped>
 .stocks-page {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -1168,7 +1169,7 @@ watch(displayedItems, () => {
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(156px, auto) minmax(160px, 1.1fr) repeat(5, minmax(96px, 0.7fr)) minmax(88px, auto);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   align-items: end;
   padding: 14px;
@@ -1185,8 +1186,12 @@ watch(displayedItems, () => {
 }
 
 .market-tabs {
-  min-width: 156px;
-  flex-wrap: nowrap;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.filters .market-tabs {
+  grid-column: 1 / -1;
 }
 
 .market-tabs button,
@@ -1225,6 +1230,7 @@ label {
 input,
 select {
   width: 100%;
+  min-width: 0;
   border-radius: 14px;
   padding: 9px 11px;
 }
