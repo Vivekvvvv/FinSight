@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from backend.tools import price
 from backend.tools import price_history_providers as php
 from backend.tools import price_providers
+from backend.tools import price_history_vendor_providers as phv
 
 
 class _UnformattableTicker:
@@ -32,7 +33,7 @@ def test_yahoo_scrape_outer_error_does_not_dump_traceback(caplog, capsys):
 def test_massive_outer_error_does_not_dump_traceback(monkeypatch, caplog, capsys):
     secret = "PRIVATE postgres://price:secret@db/massive"
     caplog.set_level("INFO")
-    monkeypatch.setattr(php, "MASSIVE_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "MASSIVE_API_KEY", "test-key")
 
     result = price._fetch_with_massive_io(_UnformattableTicker(secret))
     captured = capsys.readouterr()
@@ -52,7 +53,7 @@ def test_yahoo_scrape_url_error_log_is_redacted(monkeypatch, caplog):
     def _fail_get(*_args, **_kwargs):
         raise RuntimeError(secret)
 
-    monkeypatch.setattr(php, "_http_get", _fail_get)
+    monkeypatch.setattr(phv, "_http_get", _fail_get)
 
     assert price._fetch_with_yahoo_scrape_historical("AAPL") is None
     assert secret not in caplog.text
@@ -62,9 +63,9 @@ def test_yahoo_scrape_url_error_log_is_redacted(monkeypatch, caplog):
 def test_iex_historical_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/iex"
     caplog.set_level("INFO")
-    monkeypatch.setattr(php, "IEX_CLOUD_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "IEX_CLOUD_API_KEY", "test-key")
     monkeypatch.setattr(
-        php,
+        phv,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -77,9 +78,9 @@ def test_iex_historical_error_log_is_redacted(monkeypatch, caplog):
 def test_tiingo_historical_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/tiingo"
     caplog.set_level("INFO")
-    monkeypatch.setattr(php, "TIINGO_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "TIINGO_API_KEY", "test-key")
     monkeypatch.setattr(
-        php,
+        phv,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -92,9 +93,9 @@ def test_tiingo_historical_error_log_is_redacted(monkeypatch, caplog):
 def test_twelve_data_historical_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/twelve"
     caplog.set_level("INFO")
-    monkeypatch.setattr(php, "TWELVE_DATA_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "TWELVE_DATA_API_KEY", "test-key")
     monkeypatch.setattr(
-        php,
+        phv,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -107,9 +108,9 @@ def test_twelve_data_historical_error_log_is_redacted(monkeypatch, caplog):
 def test_marketstack_historical_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://price:secret@db/marketstack"
     caplog.set_level("INFO")
-    monkeypatch.setattr(php, "MARKETSTACK_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "MARKETSTACK_API_KEY", "test-key")
     monkeypatch.setattr(
-        php,
+        phv,
         "_http_get",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
     )
@@ -126,7 +127,7 @@ def test_stooq_historical_error_log_is_redacted(monkeypatch, caplog):
     def _fail_mapping(_ticker):
         raise RuntimeError(secret)
 
-    monkeypatch.setattr(php, "_map_to_stooq_symbol", _fail_mapping)
+    monkeypatch.setattr(phv, "_map_to_stooq_symbol", _fail_mapping)
 
     assert price._fetch_with_stooq_history("AAPL") is None
     assert secret not in caplog.text
@@ -780,8 +781,8 @@ def test_twelve_data_historical_status_log_is_redacted(monkeypatch, caplog):
         status_code=200,
         json=lambda: {"status": "error", "message": secret},
     )
-    monkeypatch.setattr(php, "TWELVE_DATA_API_KEY", "test-key")
-    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(phv, "TWELVE_DATA_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "_http_get", lambda *_args, **_kwargs: response)
 
     assert price._fetch_with_twelve_data("AAPL") is None
     assert secret not in caplog.text
@@ -795,8 +796,8 @@ def test_marketstack_historical_error_response_log_is_redacted(monkeypatch, capl
         status_code=200,
         json=lambda: {"error": {"message": secret}},
     )
-    monkeypatch.setattr(php, "MARKETSTACK_API_KEY", "test-key")
-    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(phv, "MARKETSTACK_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "_http_get", lambda *_args, **_kwargs: response)
 
     assert price._fetch_with_marketstack("AAPL") is None
     assert secret not in caplog.text
@@ -810,8 +811,8 @@ def test_massive_historical_status_log_is_redacted(monkeypatch, caplog):
         status_code=200,
         json=lambda: {"status": secret},
     )
-    monkeypatch.setattr(php, "MASSIVE_API_KEY", "test-key")
-    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(phv, "MASSIVE_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "_http_get", lambda *_args, **_kwargs: response)
 
     assert price._fetch_with_massive_io("AAPL") is None
     assert secret not in caplog.text
@@ -825,8 +826,8 @@ def test_massive_historical_error_detail_is_not_logged(monkeypatch, caplog):
         status_code=200,
         json=lambda: {"status": "ERROR", "error": secret},
     )
-    monkeypatch.setattr(php, "MASSIVE_API_KEY", "test-key")
-    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(phv, "MASSIVE_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "_http_get", lambda *_args, **_kwargs: response)
 
     assert price._fetch_with_massive_io("AAPL") is None
     assert secret not in caplog.text
@@ -841,8 +842,8 @@ def test_massive_historical_http_body_is_not_logged(monkeypatch, caplog):
         text=secret,
         json=lambda: {},
     )
-    monkeypatch.setattr(php, "MASSIVE_API_KEY", "test-key")
-    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(phv, "MASSIVE_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "_http_get", lambda *_args, **_kwargs: response)
 
     assert price._fetch_with_massive_io("AAPL") is None
     assert secret not in caplog.text
@@ -857,8 +858,8 @@ def test_massive_historical_http_json_error_is_not_logged(monkeypatch, caplog):
         text="",
         json=lambda: {"error": secret},
     )
-    monkeypatch.setattr(php, "MASSIVE_API_KEY", "test-key")
-    monkeypatch.setattr(php, "_http_get", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(phv, "MASSIVE_API_KEY", "test-key")
+    monkeypatch.setattr(phv, "_http_get", lambda *_args, **_kwargs: response)
 
     assert price._fetch_with_massive_io("AAPL") is None
     assert secret not in caplog.text
@@ -935,9 +936,9 @@ def test_fallback_price_search_branch_extracts_number(monkeypatch):
     r"""_fallback_price_value 搜索兜底：正则 r"\\d" 双反斜杠会编译成
     “字面反斜杠 + d”，永远匹配不到正常数字文本，整条搜索兜底失效。
     修复后应能从搜索结果中提取指数水平。"""
-    monkeypatch.setattr(php, "_map_to_stooq_symbol", lambda _ticker: None)
+    monkeypatch.setattr(phv, "_map_to_stooq_symbol", lambda _ticker: None)
     monkeypatch.setattr(
-        php,
+        phv,
         "search",
         lambda _query: "benchmark index level today: 123,456 points",
     )
@@ -978,9 +979,9 @@ def test_provider_kline_loops_skip_poison_items(monkeypatch):
     ]
 
     for key_name, fn, payload, expected_time in cases:
-        monkeypatch.setattr(php, key_name, "test-key")
+        monkeypatch.setattr(phv, key_name, "test-key")
         response = SimpleNamespace(status_code=200, json=lambda p=payload: p)
-        monkeypatch.setattr(php, "_http_get", lambda *a, **k: response)
+        monkeypatch.setattr(phv, "_http_get", lambda *a, **k: response)
 
         result = fn("AAPL")
 

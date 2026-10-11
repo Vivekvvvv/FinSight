@@ -17,7 +17,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 
 NUMERIC_BOUNDARY_ROUNDS = [
-    ("R301", "backend/tools/price_history_providers.py", '"close": _safe_float_value(item.get(\'close\'))'),
+    ("R301", "backend/tools/price_history_vendor_providers.py", '"close": _safe_float_value(item.get(\'close\'))'),
     ("R322", "backend/agents/technical_agent.py", "parsed_close = safe_float(close)"),
     ("R323", "backend/langchain_technical.py", "parsed_close = safe_float(close)"),
     ("R324", "backend/tools/financial.py", "row[col] = safe_float(value)"),
@@ -66,23 +66,23 @@ NUMERIC_BOUNDARY_ROUNDS = [
     ("R367", "backend/tools/price_portfolio.py", 'weight = _safe_float_value(item.get("weight"))'),
     ("R368", "backend/tools/price_portfolio.py", 'quantity = _safe_float_value(item.get("quantity"))'),
     ("R369", "backend/tools/price.py", 'value = _safe_float_value(subset.loc[idx, "impliedVolatility"])'),
-    ("R370", "backend/tools/price_history_providers.py", "return _safe_float_value(close)"),
-    ("R371", "backend/tools/price_history_providers.py", 'val = _safe_float_value(token.replace(",", ""))'),
-    ("R372", "backend/tools/price_history_providers.py", '"open": _safe_float_value(item.get(\'open\'))'),
-    ("R373", "backend/tools/price_history_providers.py", '"high": _safe_float_value(item.get(\'high\'))'),
-    ("R374", "backend/tools/price_history_providers.py", '"low": _safe_float_value(item.get(\'low\'))'),
-    ("R375", "backend/tools/price_history_providers.py", '"close": _safe_float_value(item.get(\'close\'))'),
-    ("R376", "backend/tools/price_history_providers.py", '"volume": _safe_float_value(item.get(\'volume\'))'),
+    ("R370", "backend/tools/price_history_vendor_providers.py", "return _safe_float_value(close)"),
+    ("R371", "backend/tools/price_history_vendor_providers.py", 'val = _safe_float_value(token.replace(",", ""))'),
+    ("R372", "backend/tools/price_history_vendor_providers.py", '"open": _safe_float_value(item.get(\'open\'))'),
+    ("R373", "backend/tools/price_history_vendor_providers.py", '"high": _safe_float_value(item.get(\'high\'))'),
+    ("R374", "backend/tools/price_history_vendor_providers.py", '"low": _safe_float_value(item.get(\'low\'))'),
+    ("R375", "backend/tools/price_history_vendor_providers.py", '"close": _safe_float_value(item.get(\'close\'))'),
+    ("R376", "backend/tools/price_history_vendor_providers.py", '"volume": _safe_float_value(item.get(\'volume\'))'),
     ("R377", "backend/tools/price_history_providers.py", '"open": _safe_float_value(day_data["1. open"])'),
     ("R378", "backend/tools/price_history_providers.py", '"high": _safe_float_value(day_data["2. high"])'),
     ("R379", "backend/tools/price_history_providers.py", '"low": _safe_float_value(day_data["3. low"])'),
     ("R380", "backend/tools/price_history_providers.py", '"close": _safe_float_value(day_data["4. close"])'),
     ("R381", "backend/tools/price_history_providers.py", '"volume": _safe_float_value(day_data.get("5. volume"))'),
-    ("R382", "backend/tools/price_history_providers.py", "close_val = _safe_float_value(row[close_key])"),
-    ("R383", "backend/tools/price_history_providers.py", '"open": _safe_float_value(row[open_key])'),
-    ("R384", "backend/tools/price_history_providers.py", '"high": _safe_float_value(row[high_key])'),
-    ("R385", "backend/tools/price_history_providers.py", '"low": _safe_float_value(row[low_key])'),
-    ("R386", "backend/tools/price_history_providers.py", '"volume": _safe_float_value(row.get(volume_key))'),
+    ("R382", "backend/tools/price_history_vendor_providers.py", "close_val = _safe_float_value(row[close_key])"),
+    ("R383", "backend/tools/price_history_vendor_providers.py", '"open": _safe_float_value(row[open_key])'),
+    ("R384", "backend/tools/price_history_vendor_providers.py", '"high": _safe_float_value(row[high_key])'),
+    ("R385", "backend/tools/price_history_vendor_providers.py", '"low": _safe_float_value(row[low_key])'),
+    ("R386", "backend/tools/price_history_vendor_providers.py", '"volume": _safe_float_value(row.get(volume_key))'),
     ("R387", "backend/dashboard/data_fetchers.py", "parsed = safe_float(value)"),
     ("R388", "backend/dashboard/news_ranking.py", "parsed_half_life = safe_float(half_life_hours)"),
     ("R389", "backend/api/market_router.py", "confidence = safe_float(confidence_raw) or 0.0"),
@@ -107,30 +107,30 @@ NUMERIC_BOUNDARY_ROUNDS_401_500 = [
     ("R403", "backend/tools/price_providers.py", "_fetch_with_alpha_vantage", "change_percent = _safe_float_value(change_percent_str)", 1),
     ("R404", "backend/tools/price_providers.py", "_fetch_with_twelve_data_price", 'price = _safe_float_value(latest.get("close"))', 1),
     ("R405", "backend/tools/price_providers.py", "_fetch_with_twelve_data_price", 'prev_close = _safe_float_value(values[1]["close"])', 1),
-    ("R406", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"open": _safe_float_value(row[\'Open\'])', 1),
-    ("R407", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"high": _safe_float_value(row[\'High\'])', 1),
-    ("R408", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"low": _safe_float_value(row[\'Low\'])', 1),
-    ("R409", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"close": _safe_float_value(row[\'Close\'])', 1),
-    ("R410", "backend/tools/price_history_providers.py", "_fetch_with_yahoo_scrape_historical", '"volume": _safe_float_value(row.get(\'Volume\'))', 1),
-    ("R411", "backend/tools/price_history_providers.py", "_fetch_with_tiingo", '"open": _safe_float_value(item.get(\'open\'))', 1),
-    ("R412", "backend/tools/price_history_providers.py", "_fetch_with_tiingo", '"high": _safe_float_value(item.get(\'high\'))', 1),
-    ("R413", "backend/tools/price_history_providers.py", "_fetch_with_tiingo", '"low": _safe_float_value(item.get(\'low\'))', 1),
-    ("R414", "backend/tools/price_history_providers.py", "_fetch_with_tiingo", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
-    ("R415", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"open": _safe_float_value(item.get("open"))', 1),
-    ("R416", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"high": _safe_float_value(item.get("high"))', 1),
-    ("R417", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"low": _safe_float_value(item.get("low"))', 1),
-    ("R418", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"close": _safe_float_value(item.get("close"))', 1),
-    ("R419", "backend/tools/price_history_providers.py", "_fetch_with_twelve_data", '"volume": _safe_float_value(item.get("volume"))', 1),
-    ("R420", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"open": _safe_float_value(item.get(\'open\'))', 1),
-    ("R421", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"high": _safe_float_value(item.get(\'high\'))', 1),
-    ("R422", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"low": _safe_float_value(item.get(\'low\'))', 1),
-    ("R423", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"close": _safe_float_value(item.get(\'close\'))', 1),
-    ("R424", "backend/tools/price_history_providers.py", "_fetch_with_marketstack", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
-    ("R425", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"open": _safe_float_value(item.get(\'o\'))', 1),
-    ("R426", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"high": _safe_float_value(item.get(\'h\'))', 1),
-    ("R427", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"low": _safe_float_value(item.get(\'l\'))', 1),
-    ("R428", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"close": _safe_float_value(item.get(\'c\'))', 1),
-    ("R429", "backend/tools/price_history_providers.py", "_fetch_with_massive_io", '"volume": _safe_float_value(item.get(\'v\'))', 1),
+    ("R406", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"open": _safe_float_value(row[\'Open\'])', 1),
+    ("R407", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"high": _safe_float_value(row[\'High\'])', 1),
+    ("R408", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"low": _safe_float_value(row[\'Low\'])', 1),
+    ("R409", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"close": _safe_float_value(row[\'Close\'])', 1),
+    ("R410", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"volume": _safe_float_value(row.get(\'Volume\'))', 1),
+    ("R411", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", '"open": _safe_float_value(item.get(\'open\'))', 1),
+    ("R412", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", '"high": _safe_float_value(item.get(\'high\'))', 1),
+    ("R413", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", '"low": _safe_float_value(item.get(\'low\'))', 1),
+    ("R414", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
+    ("R415", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"open": _safe_float_value(item.get("open"))', 1),
+    ("R416", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"high": _safe_float_value(item.get("high"))', 1),
+    ("R417", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"low": _safe_float_value(item.get("low"))', 1),
+    ("R418", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"close": _safe_float_value(item.get("close"))', 1),
+    ("R419", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"volume": _safe_float_value(item.get("volume"))', 1),
+    ("R420", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"open": _safe_float_value(item.get(\'open\'))', 1),
+    ("R421", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"high": _safe_float_value(item.get(\'high\'))', 1),
+    ("R422", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"low": _safe_float_value(item.get(\'low\'))', 1),
+    ("R423", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"close": _safe_float_value(item.get(\'close\'))', 1),
+    ("R424", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
+    ("R425", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"open": _safe_float_value(item.get(\'o\'))', 1),
+    ("R426", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"high": _safe_float_value(item.get(\'h\'))', 1),
+    ("R427", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"low": _safe_float_value(item.get(\'l\'))', 1),
+    ("R428", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"close": _safe_float_value(item.get(\'c\'))', 1),
+    ("R429", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"volume": _safe_float_value(item.get(\'v\'))', 1),
     ("R430", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"open": _safe_float_value(row[\'Open\'])', 1),
     ("R431", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"high": _safe_float_value(row[\'High\'])', 1),
     ("R432", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"low": _safe_float_value(row[\'Low\'])', 1),
@@ -970,7 +970,7 @@ def test_screener_finite_thresholds_still_filter_static_items(filter_name, value
 @pytest.mark.parametrize("field", ["open", "high", "low", "close", "volume"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_iex_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price_history_providers as module
+    from backend.tools import price_history_vendor_providers as module
 
     row = {"date": "2026-01-02", "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 10.0}
     row[field] = value
@@ -985,7 +985,7 @@ def test_iex_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_tiingo_history_rejects_non_finite_close(monkeypatch, value):
-    from backend.tools import price_history_providers as module
+    from backend.tools import price_history_vendor_providers as module
 
     row = {
         "date": "2026-01-02T00:00:00Z",
@@ -1011,7 +1011,7 @@ def test_tiingo_history_rejects_non_finite_close(monkeypatch, value):
 @pytest.mark.parametrize("field", ["open", "high", "low", "volume"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_tiingo_history_rejects_other_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price_history_providers as module
+    from backend.tools import price_history_vendor_providers as module
 
     row = {
         "date": "2026-01-02T00:00:00Z",
@@ -1047,7 +1047,7 @@ def test_tiingo_history_rejects_other_non_finite_ohlcv(monkeypatch, field, value
 def test_json_history_providers_reject_non_finite_ohlcv(
     monkeypatch, function_name, key_name, payload_factory, field, value
 ):
-    from backend.tools import price_history_providers as module
+    from backend.tools import price_history_vendor_providers as module
 
     row = {
         "datetime": "2026-01-02T00:00:00Z",
@@ -1075,7 +1075,7 @@ def test_json_history_providers_reject_non_finite_ohlcv(
 @pytest.mark.parametrize("field", ["open", "high", "low", "close", "volume"])
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
 def test_massive_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price_history_providers as module
+    from backend.tools import price_history_vendor_providers as module
 
     api_field = {"open": "o", "high": "h", "low": "l", "close": "c", "volume": "v"}[field]
     row = {"t": 1_767_312_000_000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0}
@@ -1099,7 +1099,7 @@ def test_massive_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
 @pytest.mark.parametrize("field", ["Open", "High", "Low", "Close", "Volume"])
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e309"])
 def test_yahoo_scrape_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price_history_providers as module
+    from backend.tools import price_history_vendor_providers as module
 
     row = {
         "Date": "2026-01-02",
@@ -1597,7 +1597,7 @@ def test_news_sentiment_rejects_non_finite_score(monkeypatch, value):
 @pytest.mark.parametrize("field", ["Open", "High", "Low", "Close", "Volume"])
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
 def test_stooq_history_rejects_non_finite_ohlcv(monkeypatch, field, value):
-    from backend.tools import price_history_providers as module
+    from backend.tools import price_history_vendor_providers as module
 
     row = {"Date": "2026-01-02", "Open": "1", "High": "2", "Low": "0.5", "Close": "1.5", "Volume": "10"}
     row[field] = value

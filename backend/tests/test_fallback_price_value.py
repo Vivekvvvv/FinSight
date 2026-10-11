@@ -4,7 +4,7 @@ r"""R65：_fallback_price_value 搜索兜底取首个 \d{3,6}——"S&P 500" 里
 直接当现价展示给用户。应优先带千分位/小数的数字并跳过裸年份。"""
 from __future__ import annotations
 
-import backend.tools.price_history_providers as php
+import backend.tools.price_history_vendor_providers as php
 
 
 def _force_search_branch(monkeypatch, text: str):
