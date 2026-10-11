@@ -344,7 +344,10 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <KlinePanel :symbol="activeSymbol" />
+    <details class="kline-fold">
+      <summary>标的 K 线 · {{ activeSymbol || '未设置' }}</summary>
+      <KlinePanel :symbol="activeSymbol" />
+    </details>
 
     <div class="chat-grid">
       <main class="page-card chat-thread">
@@ -466,7 +469,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 22px;
-  padding: 26px;
+  padding: 14px 18px;
   background:
     linear-gradient(135deg, var(--fin-primary-soft), transparent 38%),
     var(--fin-card);
@@ -710,6 +713,42 @@ textarea {
   min-height: 72px;
   max-height: 150px;
   resize: vertical;
+}
+
+@supports (field-sizing: content) {
+  .composer textarea {
+    height: auto;
+    min-height: 92px;
+    field-sizing: content;
+  }
+}
+
+.kline-fold {
+  border: 1px solid var(--fin-border);
+  border-radius: var(--fin-radius-lg, 18px);
+  background: var(--fin-card);
+  box-shadow: var(--fin-shadow);
+  overflow: hidden;
+}
+
+.kline-fold summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 10px 16px;
+  color: var(--fin-muted);
+  font-size: 13px;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.kline-fold[open] summary {
+  border-bottom: 1px solid var(--fin-border);
+}
+
+.kline-fold .kline-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 @media (max-width: 1080px) {
