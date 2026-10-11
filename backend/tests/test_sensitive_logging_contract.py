@@ -706,7 +706,7 @@ SECURITY_HARDENING_ROUNDS_1401_1500 = [
     ('R1412', 'backend/rag/observability_runtime.py', 'invalid stored RAG payload_json', 'type(exc).__name__'),
     ('R1413', 'backend/rag/observability_runtime.py', 'invalid stored RAG metadata_json', 'type(exc).__name__'),
     ('R1414', 'backend/rag/observability_runtime.py', 'invalid stored RAG metadata', 'type(exc).__name__'),
-    ('R1415', 'backend/rag/observability_store.py', 'invalid stored RAG JSON', 'type(exc).__name__'),
+    ('R1415', 'backend/rag/observability_sql_store.py', 'invalid stored RAG JSON', 'type(exc).__name__'),
     ('R1416', 'backend/rag/observability_store.py', '[RAGObservability] 缓存 ingest 批次失败', 'type(exc).__name__'),
     ('R1417', 'backend/rag/observability_store.py', '[RAGObservability] 创建查询运行失败', 'type(exc).__name__'),
     ('R1418', 'backend/rag/observability_store.py', '[RAGObservability] 记录失败查询时出错', 'type(inner_exc).__name__'),

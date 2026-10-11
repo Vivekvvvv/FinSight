@@ -43,7 +43,7 @@ STRICT_JSON_ENTRYPOINTS = [
     ("R306", "backend/graph/nodes/planner_json.py", "return json_loads_strict(candidate, strict=False)", 1),
     ("R307", "backend/llm_config.py", "payload = json_load_strict(f)", 1),
     ("R308", "backend/rag/observability_runtime.py", "return json_loads_strict(value)", 1),
-    ("R309", "backend/rag/observability_store.py", "return json_loads_strict(value)", 1),
+    ("R309", "backend/rag/observability_sql_store.py", "return json_loads_strict(value)", 1),
     ("R310", "backend/services/chat_history.py", "data = json_loads_strict(path.read_text", 1),
     ("R311", "backend/services/entitlements.py", "data = json_load_strict(f)", 1),
     ("R312", "backend/services/financials_analyzer.py", "result = json_loads_strict(text)", 1),
