@@ -1620,12 +1620,17 @@ select {
   display: grid;
   gap: 10px;
   padding: 14px;
+  overflow: hidden;
 }
 
 .stock-head {
   display: flex;
   justify-content: space-between;
   gap: 16px;
+}
+
+.stock-head > div {
+  min-width: 0;
 }
 
 .symbol {
@@ -1645,12 +1650,12 @@ select {
 }
 
 .meta-line {
-  flex-wrap: nowrap;
   overflow: hidden;
 }
 
 .meta-line span {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border-radius: 999px;
   padding: 4px 9px;
