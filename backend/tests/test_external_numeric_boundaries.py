@@ -201,7 +201,7 @@ NUMERIC_BOUNDARY_ROUNDS_401_500 = [
     ("R497", "backend/tools/price_portfolio.py", "_calc_from_kline", "_safe_float_value(ytd_df['close'].iloc[0])", 1),
     ("R498", "backend/tools/price_portfolio.py", "_calc_from_kline", "_safe_float_value(one_year_df['close'].iloc[0])", 1),
     ("R499", "backend/dashboard/scorers.py", "_parse_response", 'safe_float(parsed.get("score"))', 1),
-    ("R500", "backend/tools/news.py", "get_news_sentiment", "score_val = safe_float(score)", 1),
+    ("R500", "backend/tools/news_market_providers.py", "get_news_sentiment", "score_val = safe_float(score)", 1),
 ]
 
 
@@ -385,7 +385,7 @@ NUMERIC_BOUNDARY_ROUNDS_601_700 = [
     ("R673", "backend/tools/wayback.py", "fetch_via_wayback", "safe_int(timeout, _WAYBACK_TIMEOUT) or _WAYBACK_TIMEOUT", 1),
     ("R674", "backend/tools/news.py", "get_company_news", "safe_int(limit, 5) or 5", 1),
     ("R675", "backend/tools/news_search_tools.py", "_to_date_candidate", "timestamp = safe_float(value)", 1),
-    ("R676", "backend/tools/news.py", "get_event_calendar", "safe_int(days_ahead, 30) or 30", 1),
+    ("R676", "backend/tools/news_market_providers.py", "get_event_calendar", "safe_int(days_ahead, 30) or 30", 1),
     ("R677", "backend/tools/fmp.py", "get_etf_sector_weights", 'safe_float(str(weight_str).replace("%", "").strip()) or 0.0', 1),
     ("R678", "backend/tools/fmp.py", "get_etf_holdings", 'safe_float(str(weight_str).replace("%", "").strip()) or 0.0', 1),
     ("R679", "backend/orchestration/orchestrator.py", "fetch", 'safe_int(os.getenv("CACHE_NEGATIVE_TTL"), 60)', 1),
@@ -1566,7 +1566,7 @@ def test_dashboard_scorer_invalid_score_preserves_llm_content(value):
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e309", "invalid"])
 def test_news_sentiment_rejects_non_finite_score(monkeypatch, value):
-    from backend.tools import news as module
+    from backend.tools import news_market_providers as module
 
     monkeypatch.setattr(module, "ALPHA_VANTAGE_API_KEY", "test-key")
     monkeypatch.setattr(

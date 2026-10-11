@@ -4,6 +4,7 @@ import types
 from datetime import UTC, datetime
 
 from backend.tools import news
+from backend.tools import news_market_providers
 
 
 def test_get_news_sentiment_redacts_fetch_exception(monkeypatch):
@@ -12,8 +13,8 @@ def test_get_news_sentiment_redacts_fetch_exception(monkeypatch):
     def _fail_get(*_args, **_kwargs):
         raise RuntimeError(sentinel)
 
-    monkeypatch.setattr(news, "ALPHA_VANTAGE_API_KEY", "configured")
-    monkeypatch.setattr(news, "_http_get", _fail_get)
+    monkeypatch.setattr(news_market_providers, "ALPHA_VANTAGE_API_KEY", "configured")
+    monkeypatch.setattr(news_market_providers, "_http_get", _fail_get)
 
     result = news.get_news_sentiment("AAPL")
 
@@ -68,8 +69,8 @@ def test_get_news_sentiment_skips_poison_feed_items(monkeypatch):
         def json(self):
             return payload
 
-    monkeypatch.setattr(news, "ALPHA_VANTAGE_API_KEY", "configured")
-    monkeypatch.setattr(news, "_http_get", lambda *a, **k: _Resp())
+    monkeypatch.setattr(news_market_providers, "ALPHA_VANTAGE_API_KEY", "configured")
+    monkeypatch.setattr(news_market_providers, "_http_get", lambda *a, **k: _Resp())
 
     result = news.get_news_sentiment("AAPL")
 
@@ -247,10 +248,21 @@ def test_index_and_market_news_skip_non_dict_feed_items(monkeypatch):
     monkeypatch.setattr(
         news, "search", lambda *a, **k: search_called.append(True) or ""
     )
+    monkeypatch.setattr(
+        news_market_providers,
+        "search",
+        lambda *a, **k: search_called.append(True) or "",
+    )
     monkeypatch.setattr(news, "ALPHA_VANTAGE_API_KEY", "")
     monkeypatch.setattr(news, "finnhub_client", None)
-    monkeypatch.setattr(news, "_fetch_rss_headlines", lambda *a, **k: ([], False))
-    monkeypatch.setattr(news, "_fetch_finnhub_market_news", lambda *a, **k: ([], False))
+    monkeypatch.setattr(
+        news_market_providers, "_fetch_rss_headlines", lambda *a, **k: ([], False)
+    )
+    monkeypatch.setattr(
+        news_market_providers,
+        "_fetch_finnhub_market_news",
+        lambda *a, **k: ([], False),
+    )
 
     class _EmptyResp:
         def json(self):
