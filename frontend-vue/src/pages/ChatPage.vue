@@ -22,6 +22,26 @@ const threadEl = ref<HTMLElement | null>(null);
 const traceEvents = ref<ExecutionTraceEvent[]>([]);
 const hydrating = ref(true);
 const openTraceMessageId = ref<string | null>(null);
+const TRACE_AUTO_OPEN_KEY = 'finsight.trace_auto_open';
+const traceAutoOpen = ref(
+  typeof localStorage !== 'undefined' ? localStorage.getItem(TRACE_AUTO_OPEN_KEY) !== '0' : true,
+);
+
+function toggleTrace(item: ChatStreamMessage) {
+  const opening = openTraceMessageId.value !== item.id;
+  openTraceMessageId.value = opening ? item.id : null;
+  // 记住用户选择：展开过=以后流式时自动展示，收起过=以后默认折叠
+  traceAutoOpen.value = opening;
+  try {
+    localStorage.setItem(TRACE_AUTO_OPEN_KEY, opening ? '1' : '0');
+  } catch {
+    /* localStorage 不可用时忽略 */
+  }
+}
+
+function foldTrace(item: ChatStreamMessage) {
+  if (openTraceMessageId.value === item.id) openTraceMessageId.value = null;
+}
 
 const suggestions = [
   'AAPL 最近的基本面如何？',
@@ -176,7 +196,9 @@ async function send(text?: string): Promise<void> {
   const assistantMessage: ChatStreamMessage = { id: `assistant-${Date.now()}`, role: 'assistant', content: '', status: 'streaming', traceEvents: traceEvents.value };
   let pendingContent = '';
   messages.value = [...messages.value, userMessage, assistantMessage];
-  openTraceMessageId.value = assistantMessage.id;
+  if (traceAutoOpen.value) {
+    openTraceMessageId.value = assistantMessage.id;
+  }
   input.value = '';
   await scrollToBottom();
   try {
@@ -215,6 +237,7 @@ async function send(text?: string): Promise<void> {
         });
         assistantMessage.traceEvents = traceEvents.value;
         messages.value = [...messages.value];
+        foldTrace(assistantMessage);
       },
       onError: (message) => {
         assistantMessage.status = 'error';
@@ -230,6 +253,7 @@ async function send(text?: string): Promise<void> {
         });
         assistantMessage.traceEvents = traceEvents.value;
         messages.value = [...messages.value];
+        foldTrace(assistantMessage);
       },
     }, { signal: streamAbort.signal });
     if (assistantMessage.status === 'streaming') {
@@ -240,6 +264,7 @@ async function send(text?: string): Promise<void> {
     errorMsg.value = reportFriendlyError(error, 'AI 助手暂时无法完成请求，请稍后重试。');
     assistantMessage.traceEvents = traceEvents.value;
     messages.value = [...messages.value];
+    foldTrace(assistantMessage);
   } finally {
     sending.value = false;
     await scrollToBottom();
@@ -394,8 +419,9 @@ onUnmounted(() => {
                 <button
                   class="trace-toggle"
                   type="button"
-                  @click="openTraceMessageId = openTraceMessageId === item.id ? null : item.id"
+                  @click="toggleTrace(item)"
                 >
+                  <span class="chev">{{ openTraceMessageId === item.id ? '▾' : '▸' }}</span>
                   <span>执行过程</span>
                   <strong>{{ traceSummary(item.traceEvents, item.status === 'streaming').done }}/{{ traceSummary(item.traceEvents, item.status === 'streaming').total }}</strong>
                   <em :class="{ live: item.status === 'streaming' }">{{ traceSummary(item.traceEvents, item.status === 'streaming').label }}</em>
@@ -673,6 +699,12 @@ pre {
   cursor: pointer;
   font-size: 13px;
   font-weight: 850;
+}
+
+.trace-toggle .chev {
+  color: var(--fin-muted);
+  font-size: 11px;
+  width: 12px;
 }
 
 .trace-toggle strong {
