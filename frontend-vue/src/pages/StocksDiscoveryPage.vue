@@ -1624,6 +1624,7 @@ select {
 
 .stock-card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 14px;
   overflow: hidden;
