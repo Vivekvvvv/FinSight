@@ -7,6 +7,7 @@ import pandas as pd
 
 from backend.dashboard import data_service
 from backend.dashboard import data_fetchers
+from backend.dashboard import data_fetchers_equity
 from backend.dashboard import peer_service
 
 
@@ -22,7 +23,7 @@ def test_fetch_valuation_uses_finnhub_fallback_when_yfinance_empty(monkeypatch):
         lambda symbol: {"market_cap": 123.0, "trailing_pe": 20.0, "forward_pe": 18.0},
     )
     monkeypatch.setattr(
-        data_fetchers,
+        data_fetchers_equity,
         "_fetch_valuation_from_finnhub",
         lambda symbol: {"market_cap": 123.0, "trailing_pe": 20.0, "forward_pe": 18.0},
     )
@@ -61,7 +62,7 @@ def test_fetch_financials_uses_finnhub_fallback_when_yfinance_missing(monkeypatc
         lambda symbol, periods=8: fallback_payload,
     )
     monkeypatch.setattr(
-        data_fetchers,
+        data_fetchers_equity,
         "_fetch_financial_statements_from_finnhub",
         lambda symbol, periods=8: fallback_payload,
     )
@@ -71,7 +72,7 @@ def test_fetch_financials_uses_finnhub_fallback_when_yfinance_missing(monkeypatc
         lambda symbol, periods=8: None,
     )
     monkeypatch.setattr(
-        data_fetchers,
+        data_fetchers_equity,
         "_fetch_financial_statements_from_sec_companyfacts",
         lambda symbol, periods=8: None,
     )
@@ -150,7 +151,7 @@ def test_fetch_financials_prefers_sec_companyfacts_before_finnhub(monkeypatch):
         lambda symbol, periods=8: sec_payload,
     )
     monkeypatch.setattr(
-        data_fetchers,
+        data_fetchers_equity,
         "_fetch_financial_statements_from_sec_companyfacts",
         lambda symbol, periods=8: sec_payload,
     )
@@ -160,7 +161,7 @@ def test_fetch_financials_prefers_sec_companyfacts_before_finnhub(monkeypatch):
         lambda symbol, periods=8: None,
     )
     monkeypatch.setattr(
-        data_fetchers,
+        data_fetchers_equity,
         "_fetch_financial_statements_from_finnhub",
         lambda symbol, periods=8: None,
     )
@@ -188,7 +189,7 @@ def test_fetch_financials_uses_cn_hk_route_for_cn_symbol(monkeypatch):
         lambda symbol, periods=8: payload,
     )
     monkeypatch.setattr(
-        data_fetchers,
+        data_fetchers_equity,
         "_fetch_financial_statements_from_cn_hk_market",
         lambda symbol, periods=8: payload,
     )
