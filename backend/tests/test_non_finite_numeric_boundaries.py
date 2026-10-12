@@ -100,6 +100,33 @@ def test_report_validator_rejects_boolean_section_confidence(value):
     assert report["sections"][0]["confidence"] is None
 
 
+def test_policy_gate_rejects_boolean_weights_and_scores():
+    from backend.graph.nodes.policy_gate import _apply_persona_weights
+
+    weighted = _apply_persona_weights(
+        {"selected": ["a_agent", "b_agent"], "scores": {"a_agent": True, "b_agent": 2.0}},
+        {"agent_weights": {"a": False, "b": True}},
+    )
+
+    assert weighted["scores"] == {"a_agent": 0.0, "b_agent": 2.0}
+    assert "persona_weights_applied" not in weighted
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_policy_gate_rejects_boolean_budget_override(value):
+    from backend.graph.nodes.policy_gate import policy_gate
+
+    output = policy_gate(
+        {
+            "output_mode": "brief",
+            "ui_context": {"budget_override": value},
+            "subject": {"subject_type": "company"},
+        }
+    )
+
+    assert output["policy"]["budget"]["max_rounds"] == 3
+
+
 @pytest.mark.parametrize(
     ("env_name", "default"),
     [

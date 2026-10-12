@@ -51,6 +51,8 @@ def _apply_persona_weights(
     def _w(agent_name: str) -> float:
         key = (agent_name or "").lower().removesuffix("_agent")
         v = weights_raw.get(key, 1.0)
+        if isinstance(v, bool):
+            return 1.0
         try:
             value = float(v)
             if not math.isfinite(value):
@@ -63,12 +65,15 @@ def _apply_persona_weights(
     applied: dict[str, float] = {}
     skewed = False
     for name, base in scores.items():
-        try:
-            base_f = float(base) if base is not None else 0.0
-            if not math.isfinite(base_f):
-                base_f = 0.0
-        except (TypeError, ValueError):
+        if isinstance(base, bool):
             base_f = 0.0
+        else:
+            try:
+                base_f = float(base) if base is not None else 0.0
+                if not math.isfinite(base_f):
+                    base_f = 0.0
+            except (TypeError, ValueError):
+                base_f = 0.0
         w = _w(name)
         weighted[name] = base_f * w
         if abs(w - 1.0) > 1e-6:
@@ -257,7 +262,11 @@ def policy_gate(state: GraphState) -> dict:
         budget = {"max_rounds": 3, "max_tools": 4}
 
     # Apply budget_override from ui_context (validated: 1-10)
-    if isinstance(budget_override, (int, float)) and math.isfinite(float(budget_override)):
+    if (
+        not isinstance(budget_override, bool)
+        and isinstance(budget_override, (int, float))
+        and math.isfinite(float(budget_override))
+    ):
         clamped = max(1, min(10, int(budget_override)))
         budget["max_rounds"] = clamped
 
