@@ -793,6 +793,27 @@ def test_backtest_strategy_params_reject_booleans():
     )
     assert macd["params"] == {"fast": 12, "slow": 26, "signal": 9}
     assert rsi["params"] == {"period": 14, "oversold": 30.0, "overbought": 70.0}
+
+
+def test_portfolio_position_payload_rejects_boolean_shares():
+    from backend.api.portfolio_router import PortfolioPositionPayload
+        PortfolioPositionPayload(ticker="AAPL", shares=True)
+
+
+def test_update_position_request_rejects_boolean_shares():
+    from pydantic import ValidationError
+    from backend.api.portfolio_router import UpdatePositionRequest
+    with pytest.raises(ValidationError):
+        UpdatePositionRequest(shares=True)
+
+
+def test_portfolio_optimize_request_rejects_boolean_risk_free_rate():
+    from pydantic import ValidationError
+    from backend.api.portfolio_router import PortfolioOptimizeRequest
+    with pytest.raises(ValidationError):
+        PortfolioOptimizeRequest(tickers=["AAPL", "MSFT"], risk_free_rate=True)
+
+
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
 def test_configuration_and_persisted_numeric_values_fall_back(value, tmp_path):
     from backend.api.agent_router import _normalize_preferences
