@@ -21,6 +21,57 @@ def _deep_verifier_state():
     }
 
 
+def test_stub_render_vars_does_not_format_boolean_technical_metrics():
+    from backend.graph.nodes.synthesize import _stub_render_vars
+
+    state = {
+        "query": "technical",
+        "output_mode": "brief",
+        "operation": {"name": "qa"},
+        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+        "plan_ir": {
+            "steps": [{"id": "tech", "kind": "tool", "name": "get_technical_snapshot"}]
+        },
+        "artifacts": {
+            "step_results": {
+                "tech": {"output": {"ma20": True, "ma50": False, "ma200": 200.0}}
+            }
+        },
+    }
+
+    render_vars = _stub_render_vars(state)
+    snapshot = render_vars["technical_snapshot"]
+
+    assert "MA20 1.00" not in snapshot
+    assert "MA50 0.00" not in snapshot
+
+
+def test_stub_render_vars_ignores_boolean_fundamental_yoy():
+    from backend.graph.nodes.synthesize import _stub_render_vars
+
+    state = {
+        "query": "fundamental",
+        "output_mode": "brief",
+        "operation": {"name": "qa"},
+        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+        "plan_ir": {"steps": [{"id": "fund", "kind": "agent", "name": "fundamental_agent"}]},
+        "artifacts": {
+            "step_results": {
+                "fund": {
+                    "output": {
+                        "summary": "ok",
+                        "evidence": [{"text": "revenue", "meta": {"yoy": True}}],
+                    }
+                }
+            }
+        },
+    }
+
+    render_vars = _stub_render_vars(state)
+
+    assert "同比增长" not in render_vars["conclusion"]
+
+
 def test_deep_verifier_import_error_is_redacted(monkeypatch, caplog):
     import importlib
 
