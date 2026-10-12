@@ -24,6 +24,8 @@ class BacktestEngine:
 
     @staticmethod
     def _finite_number(value: Any) -> float | None:
+        if isinstance(value, bool):
+            return None
         try:
             parsed = float(value)
         except (TypeError, ValueError, OverflowError):

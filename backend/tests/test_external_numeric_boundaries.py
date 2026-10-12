@@ -766,6 +766,33 @@ def test_plan_budget_rejects_boolean_limits():
         PlanBudget(max_rounds=True, max_tools=1)
 
 
+def test_backtest_rejects_boolean_numeric_values():
+    from backend.services.backtest_engine import BacktestEngine
+    engine = BacktestEngine(default_fee_bps=True, default_slippage_bps=False)
+    assert engine.default_fee_bps == 5.0
+    assert engine.default_slippage_bps == 3.0
+    points = BacktestEngine._normalize_points(
+        [
+            {"time": "2026-01-01", "close": True},
+            {"time": "2026-01-02", "close": 100.0},
+        ]
+    )
+    assert [(point.time, point.close) for point in points] == [("2026-01-02", 100.0)]
+def test_backtest_strategy_params_reject_booleans():
+    from backend.services.backtest_strategies import build_strategy_signals
+    closes = [100.0] * 60
+    macd = build_strategy_signals(
+        "macd",
+        closes,
+        {"fast": True, "slow": False, "signal": True},
+    )
+    rsi = build_strategy_signals(
+        "rsi",
+        closes,
+        {"period": True, "oversold": True, "overbought": False},
+    )
+    assert macd["params"] == {"fast": 12, "slow": 26, "signal": 9}
+    assert rsi["params"] == {"period": 14, "oversold": 30.0, "overbought": 70.0}
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
 def test_configuration_and_persisted_numeric_values_fall_back(value, tmp_path):
     from backend.api.agent_router import _normalize_preferences

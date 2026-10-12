@@ -5,6 +5,8 @@ from typing import Any
 
 
 def _int_param(value: Any, default: int) -> int:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = int(value)
     except (TypeError, ValueError, OverflowError):
@@ -13,6 +15,8 @@ def _int_param(value: Any, default: int) -> int:
 
 
 def _int_value(value: Any, default: int) -> int:
+    if isinstance(value, bool):
+        return default
     try:
         return int(value)
     except (TypeError, ValueError, OverflowError):
@@ -20,6 +24,8 @@ def _int_value(value: Any, default: int) -> int:
 
 
 def _float_param(value: Any, default: float) -> float:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = float(value)
     except (TypeError, ValueError, OverflowError):
