@@ -77,6 +77,13 @@ class ExecuteRequest(BaseModel):
         description="Per-agent depth + budget preferences from frontend UI",
     )
 
+    @field_validator("budget", mode="before")
+    @classmethod
+    def reject_boolean_budget(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("budget must not be boolean")
+        return value
+
     @field_validator("agent_preferences")
     @classmethod
     def validate_agent_preferences_size(cls, value: dict | None) -> dict | None:

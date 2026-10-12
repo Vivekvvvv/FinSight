@@ -730,6 +730,42 @@ def test_screener_request_rejects_boolean_pagination(field):
         ScreenerRunRequest(**{field: True})
 
 
+def test_ai_task_rejects_boolean_priority():
+    from pydantic import ValidationError
+
+    from backend.services.task_generator import AITask
+
+    with pytest.raises(ValidationError):
+        AITask(id="task", title="task", category="review", priority=True)
+
+
+def test_execute_request_rejects_boolean_budget():
+    from pydantic import ValidationError
+
+    from backend.api.execution_router import ExecuteRequest
+
+    with pytest.raises(ValidationError):
+        ExecuteRequest(query="analyze", budget=True)
+
+
+def test_ai_task_response_rejects_boolean_priority():
+    from pydantic import ValidationError
+
+    from backend.api.task_schemas import AITaskResponse
+
+    with pytest.raises(ValidationError):
+        AITaskResponse(id="task", title="task", category="review", priority=True)
+
+
+def test_plan_budget_rejects_boolean_limits():
+    from pydantic import ValidationError
+
+    from backend.graph.plan_ir import PlanBudget
+
+    with pytest.raises(ValidationError):
+        PlanBudget(max_rounds=True, max_tools=1)
+
+
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
 def test_configuration_and_persisted_numeric_values_fall_back(value, tmp_path):
     from backend.api.agent_router import _normalize_preferences

@@ -8,12 +8,19 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PlanBudget(BaseModel):
     max_rounds: int = Field(ge=0, le=50)
     max_tools: int = Field(ge=0, le=50)
+
+    @field_validator("max_rounds", "max_tools", mode="before")
+    @classmethod
+    def reject_boolean_limits(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("plan budget limits must not be boolean")
+        return value
 
     model_config = {"extra": "forbid"}
 
@@ -66,4 +73,3 @@ def plan_ir_json_schema() -> dict[str, Any]:
 
 def validate_plan_ir(payload: Any) -> PlanIR:
     return PlanIR.model_validate(payload)
-
