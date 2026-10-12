@@ -635,6 +635,44 @@ def test_langchain_tool_inputs_still_accept_boolean_flags():
     assert BacktestInput(ticker="AAPL", t_plus_one=False).t_plus_one is False
 
 
+
+
+def test_rebalance_constraints_reject_boolean_percentages():
+    from pydantic import ValidationError
+
+    from backend.api.rebalance_schemas import RebalanceConstraints
+
+    with pytest.raises(ValidationError):
+        RebalanceConstraints(max_single_position_pct=True)
+
+
+def test_rebalance_action_rejects_boolean_weights():
+    from pydantic import ValidationError
+
+    from backend.api.rebalance_schemas import RebalanceAction
+
+    with pytest.raises(ValidationError):
+        RebalanceAction(ticker="AAPL", action="buy", current_weight=True, target_weight=10, delta_weight=10)
+
+
+def test_rebalance_action_rejects_boolean_priority():
+    from pydantic import ValidationError
+
+    from backend.api.rebalance_schemas import RebalanceAction
+
+    with pytest.raises(ValidationError):
+        RebalanceAction(ticker="AAPL", action="buy", current_weight=0, target_weight=10, delta_weight=10, priority=True)
+
+
+def test_expected_impact_rejects_boolean_turnover():
+    from pydantic import ValidationError
+
+    from backend.api.rebalance_schemas import ExpectedImpact
+
+    with pytest.raises(ValidationError):
+        ExpectedImpact(estimated_turnover_pct=True)
+
+
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
 def test_configuration_and_persisted_numeric_values_fall_back(value, tmp_path):
     from backend.api.agent_router import _normalize_preferences

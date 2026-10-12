@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import math
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -45,6 +45,19 @@ class RebalanceConstraints(BaseModel):
     sector_concentration_limit: float = Field(default=40.0, ge=0, le=100)
     min_action_delta_pct: float = Field(default=1.0, ge=0, allow_inf_nan=False)
 
+    @field_validator(
+        "max_single_position_pct",
+        "max_turnover_pct",
+        "sector_concentration_limit",
+        "min_action_delta_pct",
+        mode="before",
+    )
+    @classmethod
+    def reject_boolean_percentages(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("rebalance percentages must not be boolean")
+        return value
+
 
 class RebalanceAction(BaseModel):
     ticker: str
@@ -57,11 +70,32 @@ class RebalanceAction(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     evidence_snapshots: list[EvidenceSnapshot] = Field(default_factory=list)
 
+    @field_validator("current_weight", "target_weight", "delta_weight", mode="before")
+    @classmethod
+    def reject_boolean_weights(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("rebalance weights must not be boolean")
+        return value
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def reject_boolean_priority(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("rebalance priority must not be boolean")
+        return value
+
 
 class ExpectedImpact(BaseModel):
     diversification_delta: str = ""
     risk_delta: str = ""
     estimated_turnover_pct: float = 0.0
+
+    @field_validator("estimated_turnover_pct", mode="before")
+    @classmethod
+    def reject_boolean_turnover(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("estimated_turnover_pct must not be boolean")
+        return value
 
 
 class RebalanceSuggestion(BaseModel):
