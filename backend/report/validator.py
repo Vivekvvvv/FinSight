@@ -90,7 +90,10 @@ class ReportValidator:
 
             # 3. 数值校验
             try:
-                confidence_score = float(data.get("confidence_score", 0.5))
+                raw_confidence_score = data.get("confidence_score", 0.5)
+                if isinstance(raw_confidence_score, bool):
+                    raise ValueError("confidence_score must be finite")
+                confidence_score = float(raw_confidence_score)
                 if not math.isfinite(confidence_score):
                     raise ValueError("confidence_score must be finite")
                 confidence_score = max(0.0, min(1.0, confidence_score))
@@ -106,6 +109,8 @@ class ReportValidator:
                         published_date = str(c.get("published_date", ""))
                         confidence = c.get("confidence", 0.7)
                         try:
+                            if isinstance(confidence, bool):
+                                raise ValueError("citation confidence must be finite")
                             confidence = float(confidence)
                             if not math.isfinite(confidence):
                                 raise ValueError("citation confidence must be finite")
@@ -126,6 +131,8 @@ class ReportValidator:
                                     pass
                         else:
                             try:
+                                if isinstance(freshness_hours, bool):
+                                    raise ValueError("citation freshness must be finite")
                                 freshness_hours = float(freshness_hours)
                                 if not math.isfinite(freshness_hours):
                                     raise ValueError("citation freshness must be finite")
@@ -208,12 +215,17 @@ class ReportValidator:
         """递归解析章节"""
         title = str(data.get("title", "Untitled Section"))
         try:
-            order = int(data.get("order", default_order))
+            raw_order = data.get("order", default_order)
+            if isinstance(raw_order, bool):
+                raise ValueError("section order must be numeric")
+            order = int(raw_order)
         except (TypeError, ValueError, OverflowError):
             order = default_order
         confidence = data.get("confidence", None)
         if confidence is not None:
             try:
+                if isinstance(confidence, bool):
+                    raise ValueError("section confidence must be finite")
                 confidence = float(confidence)
                 if not math.isfinite(confidence):
                     raise ValueError("section confidence must be finite")

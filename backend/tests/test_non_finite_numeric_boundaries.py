@@ -52,6 +52,54 @@ def test_report_validator_repairs_non_finite_numeric_fields(value):
     assert report["sections"][0]["confidence"] is None
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_report_validator_rejects_boolean_confidence_score(value):
+    from backend.report.validator import ReportValidator
+
+    report = ReportValidator.validate_and_fix(
+        {"confidence_score": value},
+        as_dict=True,
+    )
+
+    assert report["confidence_score"] == 0.5
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_report_validator_rejects_boolean_citation_confidence(value):
+    from backend.report.validator import ReportValidator
+
+    report = ReportValidator.validate_and_fix(
+        {"citations": [{"title": "source", "confidence": value}]},
+        as_dict=True,
+    )
+
+    assert report["citations"][0]["confidence"] == 0.7
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_report_validator_rejects_boolean_freshness_hours(value):
+    from backend.report.validator import ReportValidator
+
+    report = ReportValidator.validate_and_fix(
+        {"citations": [{"title": "source", "freshness_hours": value}]},
+        as_dict=True,
+    )
+
+    assert report["citations"][0]["freshness_hours"] == 24.0
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_report_validator_rejects_boolean_section_confidence(value):
+    from backend.report.validator import ReportValidator
+
+    report = ReportValidator.validate_and_fix(
+        {"sections": [{"title": "section", "confidence": value}]},
+        as_dict=True,
+    )
+
+    assert report["sections"][0]["confidence"] is None
+
+
 @pytest.mark.parametrize(
     ("env_name", "default"),
     [

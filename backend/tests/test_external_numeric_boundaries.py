@@ -814,6 +814,15 @@ def test_portfolio_optimize_request_rejects_boolean_risk_free_rate():
         PortfolioOptimizeRequest(tickers=["AAPL", "MSFT"], risk_free_rate=True)
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_report_validator_defaults_boolean_section_order(value):
+    from backend.report.validator import ReportValidator
+
+    section = ReportValidator._parse_section({"title": "test", "order": value}, 7)
+
+    assert section.order == 7
+
+
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
 def test_configuration_and_persisted_numeric_values_fall_back(value, tmp_path):
     from backend.api.agent_router import _normalize_preferences
