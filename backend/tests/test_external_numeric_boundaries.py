@@ -546,6 +546,95 @@ def test_backtest_numeric_parameters_use_existing_defaults(value):
     assert macd["params"] == {"fast": 12, "slow": 26, "signal": 9}
 
 
+def test_event_calendar_input_rejects_boolean_days_ahead():
+    from pydantic import ValidationError
+
+    from backend.langchain_tools import EventCalendarInput
+
+    with pytest.raises(ValidationError):
+        EventCalendarInput(ticker="AAPL", days_ahead=True)
+
+
+def test_authoritative_media_input_rejects_boolean_max_results():
+    from pydantic import ValidationError
+
+    from backend.langchain_tools import AuthoritativeMediaInput
+
+    with pytest.raises(ValidationError):
+        AuthoritativeMediaInput(query="market", max_results=True)
+
+
+def test_earnings_transcript_input_rejects_boolean_limit():
+    from pydantic import ValidationError
+
+    from backend.langchain_tools import EarningsTranscriptInput
+
+    with pytest.raises(ValidationError):
+        EarningsTranscriptInput(ticker="AAPL", limit=True)
+
+
+@pytest.mark.parametrize(
+    ("model_name", "field", "payload"),
+    [
+        ("MacroOfficialInput", "max_results", {}),
+        ("LocalFilingsInput", "limit", {"ticker": "600519.SS"}),
+        ("SecFilingsInput", "limit", {"ticker": "AAPL"}),
+        ("SecMaterialEventsInput", "limit", {"ticker": "AAPL"}),
+        ("SecCompanyFactsInput", "limit", {"ticker": "AAPL"}),
+        ("ScreenerInput", "limit", {}),
+        ("ScreenerInput", "page", {}),
+        ("CNMarketInput", "limit", {}),
+        ("BacktestInput", "initial_cash", {"ticker": "AAPL"}),
+        ("BacktestInput", "fee_bps", {"ticker": "AAPL"}),
+        ("BacktestInput", "slippage_bps", {"ticker": "AAPL"}),
+        ("FactorExposureInput", "lookback_days", {"positions": []}),
+        ("StressTestInput", "lookback_days", {"positions": []}),
+    ],
+)
+def test_langchain_tool_inputs_reject_boolean_numeric_fields(model_name, field, payload):
+    from pydantic import ValidationError
+
+    import backend.langchain_tools as langchain_tools
+
+    model = getattr(langchain_tools, model_name)
+    with pytest.raises(ValidationError):
+        model(**payload, **{field: True})
+
+
+@pytest.mark.parametrize(
+    ("model_name", "payload", "expected"),
+    [
+        ("MacroOfficialInput", {"max_results": 5}, {"max_results": 5}),
+        ("LocalFilingsInput", {"ticker": "600519.SS", "limit": 3}, {"limit": 3}),
+        ("SecFilingsInput", {"ticker": "AAPL", "limit": 20}, {"limit": 20}),
+        ("ScreenerInput", {"limit": 50, "page": 2}, {"limit": 50, "page": 2}),
+        ("CNMarketInput", {"limit": 100}, {"limit": 100}),
+        (
+            "BacktestInput",
+            {"ticker": "AAPL", "initial_cash": 5000.0, "fee_bps": 1.5, "slippage_bps": 0.0},
+            {"initial_cash": 5000.0, "fee_bps": 1.5, "slippage_bps": 0.0},
+        ),
+        ("FactorExposureInput", {"positions": [], "lookback_days": 60}, {"lookback_days": 60}),
+    ],
+)
+def test_langchain_tool_inputs_keep_accepting_real_numbers(model_name, payload, expected):
+    """加固不能顺手把正常数值也挡掉。"""
+    import backend.langchain_tools as langchain_tools
+
+    instance = getattr(langchain_tools, model_name)(**payload)
+
+    for field, value in expected.items():
+        assert getattr(instance, field) == value
+
+
+def test_langchain_tool_inputs_still_accept_boolean_flags():
+    """同名模型里真正的 bool 字段不受影响。"""
+    from backend.langchain_tools import AuthoritativeMediaInput, BacktestInput
+
+    assert AuthoritativeMediaInput(query="cpi", authoritative_only=False).authoritative_only is False
+    assert BacktestInput(ticker="AAPL", t_plus_one=False).t_plus_one is False
+
+
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
 def test_configuration_and_persisted_numeric_values_fall_back(value, tmp_path):
     from backend.api.agent_router import _normalize_preferences

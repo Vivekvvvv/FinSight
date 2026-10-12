@@ -15,6 +15,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from backend.langchain_technical import compute_technical_snapshot
+from backend.utils.pydantic_numeric import RejectBooleanNumbers
 
 # Prefer backend.tools; fall back to a sibling tools.py for compatibility.
 try:  # pragma: no cover - import guard
@@ -157,7 +158,7 @@ class OptionChainInput(BaseModel):
     )
 
 
-class EventCalendarInput(BaseModel):
+class EventCalendarInput(RejectBooleanNumbers):
     """Event calendar inputs."""
 
     ticker: str = Field(description="Ticker symbol, e.g. 'AAPL'")
@@ -171,7 +172,7 @@ class SourceReliabilityInput(BaseModel):
     url: str = Field(default="", description="Optional article URL")
 
 
-class AuthoritativeMediaInput(BaseModel):
+class AuthoritativeMediaInput(RejectBooleanNumbers):
     """Authoritative media retrieval inputs."""
 
     query: str = Field(description="Query for authoritative media coverage")
@@ -179,28 +180,28 @@ class AuthoritativeMediaInput(BaseModel):
     authoritative_only: bool = Field(default=True, description="Keep only trusted media domains")
 
 
-class EarningsTranscriptInput(BaseModel):
+class EarningsTranscriptInput(RejectBooleanNumbers):
     """Free transcript lookup inputs."""
 
     ticker: str = Field(description="Ticker symbol, e.g. 'AAPL'")
     limit: int = Field(default=6, ge=1, le=20, description="Maximum transcript rows")
 
 
-class MacroOfficialInput(BaseModel):
+class MacroOfficialInput(RejectBooleanNumbers):
     """Official macro release inputs (BLS/BEA/FED)."""
 
     query: str = Field(default="", description="Optional macro topic query, e.g. 'US CPI payrolls'")
     max_results: int = Field(default=10, ge=1, le=30, description="Maximum official release rows")
 
 
-class LocalFilingsInput(BaseModel):
+class LocalFilingsInput(RejectBooleanNumbers):
     """Local market filing lookup inputs for CN/HK symbols."""
 
     ticker: str = Field(description="Ticker symbol, e.g. '600519.SS' or '0700.HK'")
     limit: int = Field(default=8, ge=1, le=20, description="Maximum filing rows")
 
 
-class SecFilingsInput(BaseModel):
+class SecFilingsInput(RejectBooleanNumbers):
     """SEC filing lookup inputs."""
 
     ticker: str = Field(description="US ticker symbol, e.g. 'AAPL'")
@@ -211,21 +212,21 @@ class SecFilingsInput(BaseModel):
     limit: int = Field(default=12, ge=1, le=50, description="Maximum filing rows to return")
 
 
-class SecMaterialEventsInput(BaseModel):
+class SecMaterialEventsInput(RejectBooleanNumbers):
     """SEC 8-K material events lookup inputs."""
 
     ticker: str = Field(description="US ticker symbol, e.g. 'AAPL'")
     limit: int = Field(default=10, ge=1, le=50, description="Maximum event rows to return")
 
 
-class SecCompanyFactsInput(BaseModel):
+class SecCompanyFactsInput(RejectBooleanNumbers):
     """SEC company facts quarterly inputs."""
 
     ticker: str = Field(description="US ticker symbol, e.g. 'AAPL'")
     limit: int = Field(default=8, ge=1, le=12, description="Maximum quarterly periods to return")
 
 
-class FactorExposureInput(BaseModel):
+class FactorExposureInput(RejectBooleanNumbers):
     """Portfolio factor exposure inputs."""
 
     positions: list[dict[str, Any]] = Field(
@@ -234,7 +235,7 @@ class FactorExposureInput(BaseModel):
     lookback_days: int = Field(default=252, ge=30, le=1260, description="Historical lookback window")
 
 
-class StressTestInput(BaseModel):
+class StressTestInput(RejectBooleanNumbers):
     """Portfolio stress-test inputs."""
 
     positions: list[dict[str, Any]] = Field(
@@ -253,7 +254,7 @@ class EmptyInput(BaseModel):
     pass
 
 
-class ScreenerInput(BaseModel):
+class ScreenerInput(RejectBooleanNumbers):
     """Stock screener inputs."""
 
     market: str = Field(default="US", description="US/CN/HK")
@@ -264,14 +265,14 @@ class ScreenerInput(BaseModel):
     sort_order: str = Field(default="desc", description="asc or desc")
 
 
-class CNMarketInput(BaseModel):
+class CNMarketInput(RejectBooleanNumbers):
     """CN market list query inputs."""
 
     limit: int = Field(default=20, ge=1, le=200, description="max rows")
     keyword: str = Field(default="", description="optional keyword for concept filtering")
 
 
-class BacktestInput(BaseModel):
+class BacktestInput(RejectBooleanNumbers):
     """Strategy backtest inputs."""
 
     ticker: str = Field(description="ticker, e.g. AAPL or 600519.SS")
