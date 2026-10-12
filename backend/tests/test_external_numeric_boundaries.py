@@ -673,6 +673,63 @@ def test_expected_impact_rejects_boolean_turnover():
         ExpectedImpact(estimated_turnover_pct=True)
 
 
+@pytest.mark.parametrize("field", ["initial_cash", "fee_bps", "slippage_bps"])
+def test_backtest_request_rejects_boolean_numeric_fields(field):
+    from pydantic import ValidationError
+
+    from backend.api.schemas import BacktestRequest
+
+    with pytest.raises(ValidationError):
+        BacktestRequest(ticker="AAPL", **{field: True})
+
+
+def test_classification_info_rejects_boolean_confidence():
+    from pydantic import ValidationError
+
+    from backend.api.schemas import ClassificationInfo
+
+    with pytest.raises(ValidationError):
+        ClassificationInfo(confidence=True)
+
+
+def test_chart_detect_response_rejects_boolean_confidence():
+    from pydantic import ValidationError
+
+    from backend.api.schemas import ChartDetectResponse
+
+    with pytest.raises(ValidationError):
+        ChartDetectResponse(success=True, confidence=True)
+
+
+@pytest.mark.parametrize("field", ["price_threshold", "price_target"])
+def test_subscription_request_rejects_boolean_prices(field):
+    from pydantic import ValidationError
+
+    from backend.api.schemas import SubscriptionRequest
+
+    with pytest.raises(ValidationError):
+        SubscriptionRequest(email="a@example.com", ticker="AAPL", **{field: True})
+
+
+def test_cn_market_query_rejects_boolean_limit():
+    from pydantic import ValidationError
+
+    from backend.api.schemas import CNMarketQueryRequest
+
+    with pytest.raises(ValidationError):
+        CNMarketQueryRequest(limit=True)
+
+
+@pytest.mark.parametrize("field", ["limit", "page"])
+def test_screener_request_rejects_boolean_pagination(field):
+    from pydantic import ValidationError
+
+    from backend.api.schemas import ScreenerRunRequest
+
+    with pytest.raises(ValidationError):
+        ScreenerRunRequest(**{field: True})
+
+
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
 def test_configuration_and_persisted_numeric_values_fall_back(value, tmp_path):
     from backend.api.agent_router import _normalize_preferences

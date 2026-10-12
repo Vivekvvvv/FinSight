@@ -136,6 +136,13 @@ class SubscriptionRequest(BaseModel):
     def default_alert_types(cls, v):
         return v or ["price_change", "news"]
 
+    @field_validator("price_threshold", "price_target", mode="before")
+    @classmethod
+    def reject_boolean_prices(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("subscription prices must not be boolean")
+        return value
+
     @field_validator("alert_types")
     @classmethod
     def validate_alert_types(cls, v):
@@ -181,6 +188,13 @@ class ScreenerRunRequest(BaseModel):
     sort_by: str = Field("marketCap", max_length=64, description="sort key")
     sort_order: Literal["asc", "desc"] = Field("desc", description="sort order")
 
+    @field_validator("limit", "page", mode="before")
+    @classmethod
+    def reject_boolean_pagination(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("pagination values must not be boolean")
+        return value
+
     @field_validator("filters")
     @classmethod
     def validate_screener_filters(cls, value: dict[str, Any]) -> dict[str, Any]:
@@ -202,6 +216,8 @@ class ScreenerRunRequest(BaseModel):
             if isinstance(item, str) and len(item) > 256:
                 raise ValueError("screener filter value is too long")
             if key in numeric_keys and item not in (None, ""):
+                if isinstance(item, bool):
+                    raise ValueError("invalid numeric screener filter")
                 try:
                     number = float(item)
                 except (TypeError, ValueError) as exc:
@@ -214,6 +230,13 @@ class ScreenerRunRequest(BaseModel):
 class CNMarketQueryRequest(BaseModel):
     limit: int = Field(20, ge=1, le=200, description="max rows")
     keyword: Optional[str] = Field(None, max_length=128, description="optional keyword filter")
+
+    @field_validator("limit", mode="before")
+    @classmethod
+    def reject_boolean_limit(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("limit must not be boolean")
+        return value
 
 
 class BacktestRequest(BaseModel):
@@ -238,6 +261,13 @@ class BacktestRequest(BaseModel):
     )
     t_plus_one: bool = Field(True, description="enable T+1 sell restriction")
     market: Optional[Literal["US", "CN", "HK"]] = Field(None, description="market hint")
+
+    @field_validator("initial_cash", "fee_bps", "slippage_bps", mode="before")
+    @classmethod
+    def reject_boolean_numeric_fields(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("backtest numeric fields must not be boolean")
+        return value
 
     @field_validator("start_date", "end_date")
     @classmethod
@@ -339,6 +369,13 @@ class ClassificationInfo(BaseModel):
     method: Optional[str] = Field(None, description="classification method")
     confidence: Optional[float] = Field(None, description="classification confidence")
 
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def reject_boolean_confidence(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("classification confidence must not be boolean")
+        return value
+
 
 class ThinkingStep(BaseModel):
     stage: str = Field(..., description="stage name")
@@ -431,6 +468,13 @@ class ChartDetectResponse(BaseResponse):
     data_dimension: str = Field("none", description="data dimension")
     confidence: float = Field(0.0, description="confidence")
     reason: str = Field("", description="reason")
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def reject_boolean_confidence(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("chart confidence must not be boolean")
+        return value
 
 
 class ChartDataResponse(BaseResponse):
