@@ -175,6 +175,7 @@ data/*.db-wal
 data/*.sqlite
 data/memory/*.json
 data/subscriptions.json
+data/user_plans.json
 data/notes/
 data/research_notes.db
 backend/data/*.sqlite
