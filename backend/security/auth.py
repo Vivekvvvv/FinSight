@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +28,23 @@ def is_dev_mode() -> bool:
     return env_bool("DEV_MODE", "false")
 
 
+# user_id 同时是 memory 存储键与 session_id 的中间分段，两处校验都只接受
+# [A-Za-z0-9._-]{1,64}（backend/services/memory.py _USER_ID_PATTERN、
+# backend/api/session_context.py _SESSION_PART_PATTERN）。配置里越界的
+# user_id（例如直接填邮箱）会让该主体的会话端点全线 422/500，且用户侧无法
+# 绕过：/api/me 下发的就是这个值，require_matching_identity 又不许换。
+_PRINCIPAL_USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def _safe_principal_user_id(candidate: str | None, fallback: str) -> str:
+    text = str(candidate or "").strip()
+    if _PRINCIPAL_USER_ID_PATTERN.fullmatch(text):
+        return text
+    if text:
+        logger.warning("Configured principal user_id is not storage-safe; falling back to derived id")
+    return fallback
+
+
 @dataclass(frozen=True)
 class Principal:
     user_id: str
@@ -44,7 +62,7 @@ class Principal:
 
 
 def dev_principal(user_id: str | None = None, email: str | None = None) -> Principal:
-    resolved_user = (user_id or os.getenv("DEV_USER_ID") or "default_user").strip()
+    resolved_user = _safe_principal_user_id(user_id or os.getenv("DEV_USER_ID"), "default_user")
     resolved_email = (email or os.getenv("DEV_USER_EMAIL") or "dev@example.invalid").strip()
     return Principal(user_id=resolved_user, email=resolved_email, role="admin", auth_type="dev")
 
@@ -87,7 +105,7 @@ def principal_from_api_key(api_key: str) -> Principal:
             row = mappings.get(api_key) if isinstance(mappings, dict) else None
             if isinstance(row, dict):
                 return Principal(
-                    user_id=str(row.get("user_id") or api_key_fingerprint(api_key)),
+                    user_id=_safe_principal_user_id(row.get("user_id"), api_key_fingerprint(api_key)),
                     email=str(row.get("email") or "").strip() or None,
                     role=str(row.get("role") or "user").strip().lower() or "user",
                     auth_type="api_key",
@@ -103,7 +121,7 @@ def principal_from_api_key(api_key: str) -> Principal:
     # API_AUTH_PRINCIPALS（R68）。
     role = "admin" if secure_secret_in(api_key, admin_keys) else "user"
     return Principal(
-        user_id=os.getenv("API_AUTH_DEFAULT_USER_ID") or api_key_fingerprint(api_key),
+        user_id=_safe_principal_user_id(os.getenv("API_AUTH_DEFAULT_USER_ID"), api_key_fingerprint(api_key)),
         email=os.getenv("API_AUTH_DEFAULT_EMAIL") or "api-user@example.invalid",
         role=role,
         auth_type="api_key",
