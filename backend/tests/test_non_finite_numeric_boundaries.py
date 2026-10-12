@@ -127,6 +127,28 @@ def test_policy_gate_rejects_boolean_budget_override(value):
     assert output["policy"]["budget"]["max_rounds"] == 3
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_macro_agent_rejects_boolean_quality_confidence(value):
+    from backend.agents.macro_agent import MacroAgent
+
+    agent = MacroAgent(None, None, None)
+    output = agent._format_output(
+        "summary",
+        {"status": "success", "evidence_quality": {"overall_score": value}},
+    )
+
+    assert output.confidence == 0.6
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_macro_agent_rejects_boolean_indicator_inputs(value):
+    from backend.agents.macro_agent import MacroAgent
+
+    agent = MacroAgent(None, MagicMock(), MagicMock())
+
+    assert agent._extract_numeric_metrics({"fed_rate": value}) == {}
+
+
 @pytest.mark.parametrize(
     ("env_name", "default"),
     [

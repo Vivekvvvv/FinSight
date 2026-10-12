@@ -488,7 +488,11 @@ class MacroAgent(BaseFinancialAgent):
 
         overall_quality = evidence_quality.get("overall_score") if isinstance(evidence_quality, dict) else None
         try:
-            confidence = float(overall_quality) if overall_quality is not None else 0.6
+            confidence = (
+                0.6
+                if isinstance(overall_quality, bool)
+                else (float(overall_quality) if overall_quality is not None else 0.6)
+            )
         except (TypeError, ValueError, OverflowError):
             confidence = 0.6
         if not math.isfinite(confidence):
@@ -519,7 +523,7 @@ class MacroAgent(BaseFinancialAgent):
         for key in self._INDICATORS:
             value = payload.get(key)
             try:
-                if value is not None:
+                if value is not None and not isinstance(value, bool):
                     parsed = float(value)
                     if math.isfinite(parsed):
                         values[key] = parsed
