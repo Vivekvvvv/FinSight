@@ -27,6 +27,8 @@ def _env_int(name: str, default: int, *, min_value: int = 0, max_value: int = 10
 
 
 def _finite_float(value: Any, default: float) -> float:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = float(value)
     except (TypeError, ValueError, OverflowError):

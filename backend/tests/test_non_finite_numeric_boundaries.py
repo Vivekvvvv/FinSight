@@ -149,6 +149,27 @@ def test_macro_agent_rejects_boolean_indicator_inputs(value):
     assert agent._extract_numeric_metrics({"fed_rate": value}) == {}
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_rebalance_ignores_boolean_prices(value):
+    from backend.services.rebalance_engine import _get_price
+
+    assert _get_price("AAPL", {"AAPL": value}) == 0.0
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_screener_clean_int_ignores_boolean_values(value):
+    from backend.tools.screener import _clean_int
+
+    assert _clean_int(value, default=20, minimum=1, maximum=200) == 20
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_execute_plan_finite_float_ignores_boolean_values(value):
+    from backend.graph.nodes.execute_plan_helpers import _finite_float
+
+    assert _finite_float(value, 0.25) == 0.25
+
+
 @pytest.mark.parametrize(
     ("env_name", "default"),
     [

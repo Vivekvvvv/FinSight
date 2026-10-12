@@ -90,7 +90,7 @@ def _get_price(ticker: str, live_prices: dict[str, float]) -> float:
     """Return live price if available, else optional mock price."""
     price = live_prices.get(ticker)
     try:
-        parsed_price = float(price) if price is not None else None
+        parsed_price = None if isinstance(price, bool) else (float(price) if price is not None else None)
     except (TypeError, ValueError, OverflowError):
         parsed_price = None
     if parsed_price is not None and math.isfinite(parsed_price) and parsed_price > 0:
