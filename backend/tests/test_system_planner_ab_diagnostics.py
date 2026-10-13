@@ -18,6 +18,9 @@ def _load_app():
 def client(monkeypatch):
     monkeypatch.setenv("API_AUTH_ENABLED", "false")
     monkeypatch.setenv("API_AUTH_KEYS", "planner-test-key")
+    # internal 身份须显式声明（R68 fail-close）：仅在 API_AUTH_KEYS 里不等于 admin，
+    # 诊断通道不再把任意 consumer key 升级成 internal。
+    monkeypatch.setenv("API_AUTH_ADMIN_KEYS", "planner-test-key")
     app = _load_app()
     with TestClient(app) as test_client:
         yield test_client

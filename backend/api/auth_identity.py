@@ -19,6 +19,7 @@ from backend.api.security_config import (
 )
 from backend.security.auth import (
     env_bool as _auth_env_bool,
+    principal_from_api_key,
     secure_secret_in,
     secure_secret_matches,
 )
@@ -76,7 +77,14 @@ def _resolve_rag_observability_dev_user_identity(token: str) -> Optional[Dict[st
 
 def _is_internal_api_key_authorized(request: Request) -> bool:
     api_key = _extract_api_key(request)
-    return bool(api_key and secure_secret_in(api_key, _parse_api_keys()))
+    if not (api_key and secure_secret_in(api_key, _parse_api_keys())):
+        return False
+    # R68 的 fail-close 在这条路径上原本缺失：只要持有任一 API_AUTH_KEYS 就被赋
+    # role=internal，而 internal 被 _is_admin_principal 当 admin —— 发给下游
+    # consumer 的普通 key 因此能读 RAG 诊断的未脱敏数据(include=raw，含用户
+    # query_text/文档正文)并执行 soft-delete 写操作，同一把 key 在主通道却是
+    # role=user。内部身份必须显式配 API_AUTH_ADMIN_KEYS 或 API_AUTH_PRINCIPALS。
+    return principal_from_api_key(api_key).is_admin
 
 
 def _auth_identity_cache_ttl_seconds() -> int:

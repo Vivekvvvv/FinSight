@@ -82,6 +82,8 @@ def test_internal_health_requires_internal_api_key(monkeypatch):
     main = _configure_auth(monkeypatch)
     monkeypatch.setenv('DEV_MODE', 'true')
     monkeypatch.setenv('API_AUTH_KEYS', 'internal-health-key')
+    # internal 身份须显式声明（R68 fail-close）：仅在 API_AUTH_KEYS 里不等于 admin
+    monkeypatch.setenv('API_AUTH_ADMIN_KEYS', 'internal-health-key')
     monkeypatch.setattr(
         auth_identity,
         '_fetch_supabase_user_identity',
@@ -141,10 +143,44 @@ def test_rag_diagnostics_soft_delete_is_read_only_for_logged_in_user(monkeypatch
     assert 'read-only' in str(response.json().get('detail', '')).lower()
 
 
+def test_non_admin_api_key_is_not_internal_on_rag_path(monkeypatch):
+    """普通 consumer key 不得在 RAG 诊断通道被升级为 internal。
+
+    同一把 key 在主通道是 role=user（POST /api/config 返回 403），若这里仍按
+    "在 API_AUTH_KEYS 里即 internal" 判定，它就能读 include=raw 的未脱敏数据
+    （query_text / 文档正文）并执行 soft-delete 写操作。
+    """
+    main = _configure_auth(monkeypatch)
+    monkeypatch.setenv('API_AUTH_ENABLED', 'false')
+    monkeypatch.setenv('API_AUTH_KEYS', 'consumer-key-1,ops-key-1')
+    monkeypatch.setenv('API_AUTH_ADMIN_KEYS', 'ops-key-1')
+    monkeypatch.delenv('API_AUTH_PRINCIPALS', raising=False)
+
+    with TestClient(main.app) as client:
+        consumer = client.post(
+            '/diagnostics/rag/runs/run-1/soft-delete',
+            headers={'x-api-key': 'consumer-key-1'},
+            json={'deleted_by': 'consumer'},
+        )
+        ops = client.post(
+            '/diagnostics/rag/runs/run-1/soft-delete',
+            headers={'x-api-key': 'ops-key-1'},
+            json={'deleted_by': 'ops'},
+        )
+
+    # consumer key 既不是 internal、也没有 Supabase 身份 -> 在中间件读闸即 401，
+    # 到不了 mutation 闸；ops key 显式在 API_AUTH_ADMIN_KEYS 里，仍可写。
+    assert consumer.status_code == 401
+    assert consumer.json().get('detail') == 'Authentication required'
+    assert ops.status_code == 200
+
+
 def test_rag_diagnostics_soft_delete_allows_internal_api_key(monkeypatch):
     main = _configure_auth(monkeypatch)
     monkeypatch.setenv('API_AUTH_ENABLED', 'false')
     monkeypatch.setenv('API_AUTH_KEYS', 'release-key-1')
+    # internal 身份须显式声明（R68 fail-close）：仅在 API_AUTH_KEYS 里不等于 admin
+    monkeypatch.setenv('API_AUTH_ADMIN_KEYS', 'release-key-1')
 
     with TestClient(main.app) as client:
         response = client.post(
