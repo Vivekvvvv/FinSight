@@ -225,7 +225,7 @@ def test_executor_non_finite_timeout_uses_default(monkeypatch, env_name, default
     assert _env_float(env_name, default) == default
 
 
-@pytest.mark.parametrize("value", NON_FINITE)
+@pytest.mark.parametrize("value", NON_FINITE + [True, False])
 def test_executor_ignores_non_finite_agent_signals(value):
     from backend.graph.executor import execute_plan
 
@@ -740,7 +740,7 @@ def test_news_agent_format_rejects_boolean_average_reliability(value):
     assert all("reliability is low" not in risk for risk in output.risks)
 
 
-@pytest.mark.parametrize("value", NON_FINITE)
+@pytest.mark.parametrize("value", NON_FINITE + [True])
 def test_bge_embedding_falls_back_for_non_finite_dense_values(value):
     from backend.rag.embedder import _BGEM3Wrapper
 
