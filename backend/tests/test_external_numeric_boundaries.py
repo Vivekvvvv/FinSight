@@ -546,6 +546,167 @@ def test_backtest_numeric_parameters_use_existing_defaults(value):
     assert macd["params"] == {"fast": 12, "slow": 26, "signal": 9}
 
 
+def test_backtest_rejects_boolean_numeric_values():
+    from backend.services.backtest_engine import BacktestEngine
+
+    engine = BacktestEngine(default_fee_bps=True, default_slippage_bps=False)
+    assert engine.default_fee_bps == 5.0
+    assert engine.default_slippage_bps == 3.0
+    points = BacktestEngine._normalize_points(
+        [
+            {"time": "2026-01-01", "close": True},
+            {"time": "2026-01-02", "close": 100.0},
+        ]
+    )
+    assert [(point.time, point.close) for point in points] == [("2026-01-02", 100.0)]
+
+
+def test_backtest_strategy_params_reject_booleans():
+    from backend.services.backtest_strategies import build_strategy_signals
+
+    closes = [100.0] * 60
+    macd = build_strategy_signals(
+        "macd",
+        closes,
+        {"fast": True, "slow": False, "signal": True},
+    )
+    rsi = build_strategy_signals(
+        "rsi",
+        closes,
+        {"period": True, "oversold": True, "overbought": False},
+    )
+
+    assert macd["params"] == {"fast": 12, "slow": 26, "signal": 9}
+    assert rsi["params"] == {"period": 14, "oversold": 30.0, "overbought": 70.0}
+
+
+@pytest.mark.parametrize("field", ["initial_cash", "fee_bps", "slippage_bps"])
+def test_backtest_request_rejects_boolean_numeric_fields(field):
+    from pydantic import ValidationError
+
+    from backend.api.schemas import BacktestRequest
+
+    with pytest.raises(ValidationError):
+        BacktestRequest(ticker="AAPL", **{field: True})
+
+
+def test_portfolio_position_payload_rejects_boolean_shares():
+    from pydantic import ValidationError
+
+    from backend.api.portfolio_router import PortfolioPositionPayload
+
+    with pytest.raises(ValidationError):
+        PortfolioPositionPayload(ticker="AAPL", shares=True)
+
+
+def test_update_position_request_rejects_boolean_shares():
+    from pydantic import ValidationError
+
+    from backend.api.portfolio_router import UpdatePositionRequest
+
+    with pytest.raises(ValidationError):
+        UpdatePositionRequest(shares=True)
+
+
+def test_portfolio_optimize_request_rejects_boolean_risk_free_rate():
+    from pydantic import ValidationError
+
+    from backend.api.portfolio_router import PortfolioOptimizeRequest
+
+    with pytest.raises(ValidationError):
+        PortfolioOptimizeRequest(tickers=["AAPL", "MSFT"], risk_free_rate=True)
+
+
+def test_rebalance_constraints_reject_boolean_percentages():
+    from pydantic import ValidationError
+
+    from backend.api.rebalance_schemas import RebalanceConstraints
+
+    with pytest.raises(ValidationError):
+        RebalanceConstraints(max_single_position_pct=True)
+
+
+def test_rebalance_action_rejects_boolean_weights():
+    from pydantic import ValidationError
+
+    from backend.api.rebalance_schemas import RebalanceAction
+
+    with pytest.raises(ValidationError):
+        RebalanceAction(ticker="AAPL", action="buy", current_weight=True, target_weight=10, delta_weight=10)
+
+
+def test_rebalance_action_rejects_boolean_priority():
+    from pydantic import ValidationError
+
+    from backend.api.rebalance_schemas import RebalanceAction
+
+    with pytest.raises(ValidationError):
+        RebalanceAction(ticker="AAPL", action="buy", current_weight=0, target_weight=10, delta_weight=10, priority=True)
+
+
+def test_expected_impact_rejects_boolean_turnover():
+    from pydantic import ValidationError
+
+    from backend.api.rebalance_schemas import ExpectedImpact
+
+    with pytest.raises(ValidationError):
+        ExpectedImpact(estimated_turnover_pct=True)
+
+
+def test_classification_info_rejects_boolean_confidence():
+    from pydantic import ValidationError
+
+    from backend.api.schemas import ClassificationInfo
+
+    with pytest.raises(ValidationError):
+        ClassificationInfo(confidence=True)
+
+
+def test_chart_detect_response_rejects_boolean_confidence():
+    from pydantic import ValidationError
+
+    from backend.api.schemas import ChartDetectResponse
+
+    with pytest.raises(ValidationError):
+        ChartDetectResponse(success=True, confidence=True)
+
+
+def test_ai_task_rejects_boolean_priority():
+    from pydantic import ValidationError
+
+    from backend.services.task_generator import AITask
+
+    with pytest.raises(ValidationError):
+        AITask(id="task", title="task", category="review", priority=True)
+
+
+def test_execute_request_rejects_boolean_budget():
+    from pydantic import ValidationError
+
+    from backend.api.execution_router import ExecuteRequest
+
+    with pytest.raises(ValidationError):
+        ExecuteRequest(query="analyze", budget=True)
+
+
+def test_ai_task_response_rejects_boolean_priority():
+    from pydantic import ValidationError
+
+    from backend.api.task_schemas import AITaskResponse
+
+    with pytest.raises(ValidationError):
+        AITaskResponse(id="task", title="task", category="review", priority=True)
+
+
+def test_plan_budget_rejects_boolean_limits():
+    from pydantic import ValidationError
+
+    from backend.graph.plan_ir import PlanBudget
+
+    with pytest.raises(ValidationError):
+        PlanBudget(max_rounds=True, max_tools=1)
+
+
 def test_event_calendar_input_rejects_boolean_days_ahead():
     from pydantic import ValidationError
 
@@ -635,72 +796,6 @@ def test_langchain_tool_inputs_still_accept_boolean_flags():
     assert BacktestInput(ticker="AAPL", t_plus_one=False).t_plus_one is False
 
 
-
-
-def test_rebalance_constraints_reject_boolean_percentages():
-    from pydantic import ValidationError
-
-    from backend.api.rebalance_schemas import RebalanceConstraints
-
-    with pytest.raises(ValidationError):
-        RebalanceConstraints(max_single_position_pct=True)
-
-
-def test_rebalance_action_rejects_boolean_weights():
-    from pydantic import ValidationError
-
-    from backend.api.rebalance_schemas import RebalanceAction
-
-    with pytest.raises(ValidationError):
-        RebalanceAction(ticker="AAPL", action="buy", current_weight=True, target_weight=10, delta_weight=10)
-
-
-def test_rebalance_action_rejects_boolean_priority():
-    from pydantic import ValidationError
-
-    from backend.api.rebalance_schemas import RebalanceAction
-
-    with pytest.raises(ValidationError):
-        RebalanceAction(ticker="AAPL", action="buy", current_weight=0, target_weight=10, delta_weight=10, priority=True)
-
-
-def test_expected_impact_rejects_boolean_turnover():
-    from pydantic import ValidationError
-
-    from backend.api.rebalance_schemas import ExpectedImpact
-
-    with pytest.raises(ValidationError):
-        ExpectedImpact(estimated_turnover_pct=True)
-
-
-@pytest.mark.parametrize("field", ["initial_cash", "fee_bps", "slippage_bps"])
-def test_backtest_request_rejects_boolean_numeric_fields(field):
-    from pydantic import ValidationError
-
-    from backend.api.schemas import BacktestRequest
-
-    with pytest.raises(ValidationError):
-        BacktestRequest(ticker="AAPL", **{field: True})
-
-
-def test_classification_info_rejects_boolean_confidence():
-    from pydantic import ValidationError
-
-    from backend.api.schemas import ClassificationInfo
-
-    with pytest.raises(ValidationError):
-        ClassificationInfo(confidence=True)
-
-
-def test_chart_detect_response_rejects_boolean_confidence():
-    from pydantic import ValidationError
-
-    from backend.api.schemas import ChartDetectResponse
-
-    with pytest.raises(ValidationError):
-        ChartDetectResponse(success=True, confidence=True)
-
-
 @pytest.mark.parametrize("field", ["price_threshold", "price_target"])
 def test_subscription_request_rejects_boolean_prices(field):
     from pydantic import ValidationError
@@ -728,116 +823,6 @@ def test_screener_request_rejects_boolean_pagination(field):
 
     with pytest.raises(ValidationError):
         ScreenerRunRequest(**{field: True})
-
-
-def test_ai_task_rejects_boolean_priority():
-    from pydantic import ValidationError
-
-    from backend.services.task_generator import AITask
-
-    with pytest.raises(ValidationError):
-        AITask(id="task", title="task", category="review", priority=True)
-
-
-def test_execute_request_rejects_boolean_budget():
-    from pydantic import ValidationError
-
-    from backend.api.execution_router import ExecuteRequest
-
-    with pytest.raises(ValidationError):
-        ExecuteRequest(query="analyze", budget=True)
-
-
-def test_ai_task_response_rejects_boolean_priority():
-    from pydantic import ValidationError
-
-    from backend.api.task_schemas import AITaskResponse
-
-    with pytest.raises(ValidationError):
-        AITaskResponse(id="task", title="task", category="review", priority=True)
-
-
-def test_plan_budget_rejects_boolean_limits():
-    from pydantic import ValidationError
-
-    from backend.graph.plan_ir import PlanBudget
-
-    with pytest.raises(ValidationError):
-        PlanBudget(max_rounds=True, max_tools=1)
-
-
-def test_backtest_rejects_boolean_numeric_values():
-    from backend.services.backtest_engine import BacktestEngine
-    engine = BacktestEngine(default_fee_bps=True, default_slippage_bps=False)
-    assert engine.default_fee_bps == 5.0
-    assert engine.default_slippage_bps == 3.0
-    points = BacktestEngine._normalize_points(
-        [
-            {"time": "2026-01-01", "close": True},
-            {"time": "2026-01-02", "close": 100.0},
-        ]
-    )
-    assert [(point.time, point.close) for point in points] == [("2026-01-02", 100.0)]
-def test_backtest_strategy_params_reject_booleans():
-    from backend.services.backtest_strategies import build_strategy_signals
-    closes = [100.0] * 60
-    macd = build_strategy_signals(
-        "macd",
-        closes,
-        {"fast": True, "slow": False, "signal": True},
-    )
-    rsi = build_strategy_signals(
-        "rsi",
-        closes,
-        {"period": True, "oversold": True, "overbought": False},
-    )
-    assert macd["params"] == {"fast": 12, "slow": 26, "signal": 9}
-    assert rsi["params"] == {"period": 14, "oversold": 30.0, "overbought": 70.0}
-
-
-def test_portfolio_position_payload_rejects_boolean_shares():
-    from pydantic import ValidationError
-
-    from backend.api.portfolio_router import PortfolioPositionPayload
-
-    with pytest.raises(ValidationError):
-        PortfolioPositionPayload(ticker="AAPL", shares=True)
-
-
-def test_update_position_request_rejects_boolean_shares():
-    from pydantic import ValidationError
-
-    from backend.api.portfolio_router import UpdatePositionRequest
-
-    with pytest.raises(ValidationError):
-        UpdatePositionRequest(shares=True)
-
-
-def test_portfolio_optimize_request_rejects_boolean_risk_free_rate():
-    from pydantic import ValidationError
-
-    from backend.api.portfolio_router import PortfolioOptimizeRequest
-
-    with pytest.raises(ValidationError):
-        PortfolioOptimizeRequest(tickers=["AAPL", "MSFT"], risk_free_rate=True)
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_report_validator_defaults_boolean_section_order(value):
-    from backend.report.validator import ReportValidator
-
-    section = ReportValidator._parse_section({"title": "test", "order": value}, 7)
-
-    assert section.order == 7
-
-
-def test_screener_request_rejects_boolean_numeric_filter():
-    from pydantic import ValidationError
-
-    from backend.api.schemas import ScreenerRunRequest
-
-    with pytest.raises(ValidationError):
-        ScreenerRunRequest(filters={"priceMoreThan": True})
 
 
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
@@ -988,6 +973,24 @@ def test_report_validator_defaults_infinite_section_order():
     section = ReportValidator._parse_section({"title": "test", "order": float("inf")}, 7)
 
     assert section.order == 7
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_report_validator_defaults_boolean_section_order(value):
+    from backend.report.validator import ReportValidator
+
+    section = ReportValidator._parse_section({"title": "test", "order": value}, 7)
+
+    assert section.order == 7
+
+
+def test_screener_request_rejects_boolean_numeric_filter():
+    from pydantic import ValidationError
+
+    from backend.api.schemas import ScreenerRunRequest
+
+    with pytest.raises(ValidationError):
+        ScreenerRunRequest(filters={"priceMoreThan": True})
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
