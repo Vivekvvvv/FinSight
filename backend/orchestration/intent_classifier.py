@@ -386,7 +386,9 @@ class IntentClassifier:
         scores = {
             intent: float(score)
             for intent, score in raw_scores.items()
-            if isinstance(score, (int, float)) and math.isfinite(float(score))
+            if isinstance(score, (int, float))
+            and not isinstance(score, bool)
+            and math.isfinite(float(score))
         }
 
         if not scores:

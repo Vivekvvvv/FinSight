@@ -83,6 +83,21 @@ class TestIntentClassifierEmbedding:
         assert result.confidence == 0.4
         assert "price" not in result.scores
 
+    def test_embedding_classifier_ignores_boolean_scores(self, monkeypatch):
+        monkeypatch.setattr(
+            self.classifier._embedding_classifier,
+            "compute_similarity",
+            lambda _query: {
+                AgentIntent.PRICE: True,
+                AgentIntent.NEWS: 0.4,
+            },
+        )
+
+        result = self.classifier._embedding_classify("update", "update", [])
+
+        assert result.intent == AgentIntent.NEWS
+        assert "price" not in result.scores
+
     def test_price_intent_prefers_rule_fast_path(self):
         """测试价格查询 - 规则快速路径"""
         test_cases = [
