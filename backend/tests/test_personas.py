@@ -80,6 +80,12 @@ def test_agent_weights_non_finite_values_use_neutral_weight(value):
     assert weights.news == 1.0
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_agent_weights_boolean_values_use_neutral_weight(value):
+    weights = AgentWeights(news=value)
+    assert weights.news == 1.0
+
+
 def test_agent_weights_get_lookup_handles_agent_suffix():
     w = AgentWeights(fundamental=1.5)
     assert w.get("fundamental") == pytest.approx(1.5)

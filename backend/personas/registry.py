@@ -54,13 +54,13 @@ class AgentWeights(BaseModel):
 
     @field_validator(
         "fundamental", "macro", "risk", "price", "technical", "news", "deep_search",
-        mode="after",
+        mode="before",
     )
     @classmethod
-    def _clamp(cls, v: float) -> float:
+    def _clamp(cls, v: object) -> float:
         # Hard lower bound 0.2 → prevents total suppression of any agent
         # Upper bound 3.0 → prevents pathological domination
-        if v is None:
+        if v is None or isinstance(v, bool):
             return 1.0
         value = float(v)
         if not math.isfinite(value):
