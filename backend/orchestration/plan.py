@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import partial
 import asyncio
+import logging
 import time
 import uuid
 import json
@@ -18,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Callable, Awaitable
 from backend.orchestration.budget import BudgetExceededError, BudgetManager
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -103,7 +106,16 @@ class PlanBuilder:
                 if user_timeouts:
                     timeouts.update(user_timeouts)
         except Exception:
-            pass
+            # 静默回退会让用户配的 agent_timeouts 无声失效且无从排查（CLAUDE.md 规则 2）。
+            # 不搬 *.corrupt 备份：user_config.json 的所有权在 api/config_router.py，
+            # 这里只读，动文件会和写方抢。
+            # 不打 str(exc)：异常内容可能含敏感信息。
+            # type(exc).__name__ 属 R701-1507 封板基线内的 exception_type 类，
+            # 121 处计数之一，勿删（删了契约测试会因计数不符失败）。
+            logger.warning(
+                "[PlanBuilder] Failed to load agent_timeouts from user_config.json (%s); using defaults",
+                type(exc).__name__,
+            )
 
         for key in list(timeouts.keys()):
             raw_value = os.getenv(f"FINSIGHT_AGENT_TIMEOUT_{key.upper()}")
