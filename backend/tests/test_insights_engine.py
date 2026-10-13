@@ -164,13 +164,22 @@ class TestClampScore:
     def test_clamp_boundary_max(self):
         assert clamp_score(10.0) == 10.0
 
-    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "bad"])
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "bad", True, False])
     def test_clamp_non_finite_or_invalid_is_neutral(self, value):
         assert clamp_score(value) == 5.0
 
-    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "bad"])
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "bad", True, False])
     def test_contribution_non_finite_or_invalid_is_neutral(self, value):
         assert _clip_contribution(value) == 0.0
+
+
+def test_metric_formatters_reject_boolean_values():
+    from backend.dashboard.insights_scorer import _fmt_float, _fmt_int
+
+    assert _fmt_float(True) is None
+    assert _fmt_float(False) is None
+    assert _fmt_int(True) is None
+    assert _fmt_int(False) is None
 
 
 class TestScoreTechnical:
