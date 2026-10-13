@@ -117,6 +117,16 @@ def test_embed_rejects_invalid_vectors(monkeypatch, vector):
     assert rag_module._embed("text") is None
 
 
+def test_embed_rejects_boolean_vector_components(monkeypatch):
+    import backend.services.notes_rag as rag_module
+
+    embedder = MagicMock()
+    embedder.embed_texts.return_value.dense = [[True, 0.1]]
+    monkeypatch.setattr(rag_module, "_get_embedder", lambda: embedder)
+
+    assert rag_module._embed("text") is None
+
+
 def test_semantic_search_falls_back_to_keyword_when_no_embedder():
     """embed 返回 None 时应调用关键词搜索作为降级"""
     keyword_results = [{"note_id": "1", "title": "关键词命中"}]

@@ -86,6 +86,8 @@ def _embed(text: str) -> list[float] | None:
         result = embedder.embed_texts([text])
         vecs = result.dense
         if vecs and vecs[0]:
+            if any(isinstance(value, bool) for value in vecs[0]):
+                return None
             vector = [float(value) for value in vecs[0]]
             if vector and all(math.isfinite(value) for value in vector):
                 return vector
