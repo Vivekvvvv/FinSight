@@ -45,6 +45,8 @@ from backend.utils.strict_json import json_loads_strict
 def _finite_optional_float(value: Any) -> float | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     try:
         parsed = float(value)
     except (TypeError, ValueError, OverflowError):

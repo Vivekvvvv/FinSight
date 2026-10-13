@@ -949,6 +949,13 @@ def test_rag_observability_scores_reject_invalid_values(value):
     assert store_score(value) is None
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_rag_observability_scores_reject_boolean_values(value):
+    from backend.rag.observability_store import _finite_optional_float
+
+    assert _finite_optional_float(value) is None
+
+
 @pytest.mark.parametrize("value", NON_FINITE + ["bad"])
 def test_rag_observability_store_builds_finite_hit_records(value):
     from backend.rag.observability_models import QueryRunRecord, SearchRunContext
