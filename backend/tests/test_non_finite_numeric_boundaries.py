@@ -754,7 +754,7 @@ def test_reranker_falls_back_for_invalid_model_scores(monkeypatch, scores):
     assert service.rerank("query", documents) == documents
 
 
-@pytest.mark.parametrize("value", NON_FINITE + ["bad"])
+@pytest.mark.parametrize("value", NON_FINITE + ["bad", True, False])
 def test_hybrid_scores_reject_invalid_numeric_values(value):
     from backend.rag.hybrid_service import SparseVector, _cosine, _finite_score, _sparse_score
 
@@ -763,7 +763,7 @@ def test_hybrid_scores_reject_invalid_numeric_values(value):
     assert _finite_score(value) == 0.0
 
 
-@pytest.mark.parametrize("value", NON_FINITE)
+@pytest.mark.parametrize("value", NON_FINITE + [True, False])
 def test_postgres_vector_literal_rejects_non_finite_components(value):
     from backend.rag.hybrid_service import _vector_literal
 
@@ -771,7 +771,7 @@ def test_postgres_vector_literal_rejects_non_finite_components(value):
         _vector_literal([value])
 
 
-@pytest.mark.parametrize("value", NON_FINITE + [0, -1, "bad"])
+@pytest.mark.parametrize("value", NON_FINITE + [0, -1, "bad", True, False])
 def test_alert_price_boundary_rejects_invalid_values(value):
     from backend.services.alert_scheduler import _positive_finite_float
 
