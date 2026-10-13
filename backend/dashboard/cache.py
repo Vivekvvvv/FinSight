@@ -52,6 +52,8 @@ class DashboardCache:
 
     @staticmethod
     def _normalize_ttl(value: Any, fallback: int) -> float:
+        if isinstance(value, bool):
+            return float(fallback)
         try:
             ttl = float(value)
         except (TypeError, ValueError, OverflowError):

@@ -28,6 +28,14 @@ def test_cache_rejects_invalid_jitter_ratio(monkeypatch, value):
     assert cache._jitter_ratio == 0.1
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_cache_rejects_boolean_ttl(value):
+    cache = DataCache()
+
+    with pytest.raises(ValueError, match="ttl must be numeric"):
+        cache.set("key", "value", ttl=value)
+
+
 def test_basic_set_get():
     """测试基本的 set/get 操作"""
     cache = DataCache()
