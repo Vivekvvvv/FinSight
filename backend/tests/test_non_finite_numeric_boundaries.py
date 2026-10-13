@@ -100,116 +100,6 @@ def test_report_validator_rejects_boolean_section_confidence(value):
     assert report["sections"][0]["confidence"] is None
 
 
-def test_policy_gate_rejects_boolean_weights_and_scores():
-    from backend.graph.nodes.policy_gate import _apply_persona_weights
-
-    weighted = _apply_persona_weights(
-        {"selected": ["a_agent", "b_agent"], "scores": {"a_agent": True, "b_agent": 2.0}},
-        {"agent_weights": {"a": False, "b": True}},
-    )
-
-    assert weighted["scores"] == {"a_agent": 0.0, "b_agent": 2.0}
-    assert "persona_weights_applied" not in weighted
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_policy_gate_rejects_boolean_budget_override(value):
-    from backend.graph.nodes.policy_gate import policy_gate
-
-    output = policy_gate(
-        {
-            "output_mode": "brief",
-            "ui_context": {"budget_override": value},
-            "subject": {"subject_type": "company"},
-        }
-    )
-
-    assert output["policy"]["budget"]["max_rounds"] == 3
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_macro_agent_rejects_boolean_quality_confidence(value):
-    from backend.agents.macro_agent import MacroAgent
-
-    agent = MacroAgent(None, None, None)
-    output = agent._format_output(
-        "summary",
-        {"status": "success", "evidence_quality": {"overall_score": value}},
-    )
-
-    assert output.confidence == 0.6
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_macro_agent_rejects_boolean_indicator_inputs(value):
-    from backend.agents.macro_agent import MacroAgent
-
-    agent = MacroAgent(None, MagicMock(), MagicMock())
-
-    assert agent._extract_numeric_metrics({"fed_rate": value}) == {}
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_rebalance_ignores_boolean_prices(value):
-    from backend.services.rebalance_engine import _get_price
-
-    assert _get_price("AAPL", {"AAPL": value}) == 0.0
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_screener_clean_int_ignores_boolean_values(value):
-    from backend.tools.screener import _clean_int
-
-    assert _clean_int(value, default=20, minimum=1, maximum=200) == 20
-
-
-@pytest.mark.parametrize("value", [True, False])
-def test_execute_plan_finite_float_ignores_boolean_values(value):
-    from backend.graph.nodes.execute_plan_helpers import _finite_float
-
-    assert _finite_float(value, 0.25) == 0.25
-
-
-def test_bge_embedding_rejects_boolean_dense_components():
-    from backend.rag.embedder import _BGEM3Wrapper
-
-    class FakeModel:
-        def encode(self, *_args, **_kwargs):
-            return {
-                "dense_vecs": [[True] * 1024],
-                "lexical_weights": [{}],
-            }
-
-    wrapper = _BGEM3Wrapper()
-    wrapper._model = FakeModel()
-    result = wrapper.encode(["boolean dense"])
-
-    assert result.dense[0] != [1.0] * 1024
-
-
-def test_bge_embedding_drops_boolean_sparse_weights():
-    from backend.rag.embedder import _BGEM3Wrapper
-
-    class FakeModel:
-        def encode(self, *_args, **_kwargs):
-            return {
-                "dense_vecs": [[0.0] * 1024],
-                "lexical_weights": [{"bad": True, "good": 0.5}],
-            }
-
-    wrapper = _BGEM3Wrapper()
-    wrapper._model = FakeModel()
-    result = wrapper.encode(["sparse"])
-
-    assert result.sparse[0].weights == {"good": 0.5}
-
-
-@pytest.mark.parametrize(
-    "scores",
-    [[float("nan"), 0.5], [float("inf"), 0.5], [0.5], [True, 0.5], [False, 0.5]],
-)
-
-
 @pytest.mark.parametrize(
     ("env_name", "default"),
     [
@@ -317,6 +207,18 @@ def test_policy_gate_rejects_non_finite_weights_and_scores(value):
     assert all(math.isfinite(score) for score in weighted["scores"].values())
 
 
+def test_policy_gate_rejects_boolean_weights_and_scores():
+    from backend.graph.nodes.policy_gate import _apply_persona_weights
+
+    weighted = _apply_persona_weights(
+        {"selected": ["a_agent", "b_agent"], "scores": {"a_agent": True, "b_agent": 2.0}},
+        {"agent_weights": {"a": False, "b": True}},
+    )
+
+    assert weighted["scores"] == {"a_agent": 0.0, "b_agent": 2.0}
+    assert "persona_weights_applied" not in weighted
+
+
 @pytest.mark.parametrize("value", NON_FINITE)
 def test_policy_gate_rejects_non_finite_boolean_and_budget_inputs(value):
     from backend.graph.nodes.policy_gate import _is_truthy, policy_gate
@@ -332,8 +234,36 @@ def test_policy_gate_rejects_non_finite_boolean_and_budget_inputs(value):
     assert output["policy"]["budget"]["max_rounds"] == 3
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_policy_gate_rejects_boolean_budget_override(value):
+    from backend.graph.nodes.policy_gate import policy_gate
+
+    output = policy_gate(
+        {
+            "output_mode": "brief",
+            "ui_context": {"budget_override": value},
+            "subject": {"subject_type": "company"},
+        }
+    )
+
+    assert output["policy"]["budget"]["max_rounds"] == 3
+
+
 @pytest.mark.parametrize("value", NON_FINITE)
 def test_macro_agent_rejects_non_finite_quality_confidence(value):
+    from backend.agents.macro_agent import MacroAgent
+
+    agent = MacroAgent(None, None, None)
+    output = agent._format_output(
+        "summary",
+        {"status": "success", "evidence_quality": {"overall_score": value}},
+    )
+
+    assert output.confidence == 0.6
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_macro_agent_rejects_boolean_quality_confidence(value):
     from backend.agents.macro_agent import MacroAgent
 
     agent = MacroAgent(None, None, None)
@@ -401,6 +331,27 @@ def test_rebalance_ignores_non_finite_positions_and_prices(value):
 
     assert diagnosis.position_values == {"MSFT": 100.0}
     assert math.isfinite(diagnosis.total_value)
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_rebalance_ignores_boolean_prices(value):
+    from backend.services.rebalance_engine import _get_price
+
+    assert _get_price("AAPL", {"AAPL": value}) == 0.0
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_screener_clean_int_ignores_boolean_values(value):
+    from backend.tools.screener import _clean_int
+
+    assert _clean_int(value, default=20, minimum=1, maximum=200) == 20
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_execute_plan_finite_float_ignores_boolean_values(value):
+    from backend.graph.nodes.execute_plan_helpers import _finite_float
+
+    assert _finite_float(value, 0.25) == 0.25
 
 
 def _backtest_series(days: int = 60) -> list[dict[str, object]]:
@@ -760,6 +711,23 @@ def test_bge_embedding_falls_back_for_non_finite_dense_values(value):
     assert any(component != 0.0 for component in result.dense[0])
 
 
+def test_bge_embedding_rejects_boolean_dense_components():
+    from backend.rag.embedder import _BGEM3Wrapper
+
+    class FakeModel:
+        def encode(self, *_args, **_kwargs):
+            return {
+                "dense_vecs": [[True] * 1024],
+                "lexical_weights": [{}],
+            }
+
+    wrapper = _BGEM3Wrapper()
+    wrapper._model = FakeModel()
+    result = wrapper.encode(["boolean dense"])
+
+    assert result.dense[0] != [1.0] * 1024
+
+
 def test_bge_embedding_falls_back_for_wrong_dense_dimension():
     from backend.rag.embedder import _BGEM3Wrapper
 
@@ -782,6 +750,23 @@ def test_bge_embedding_drops_invalid_sparse_weights(value):
             return {
                 "dense_vecs": [[0.0] * 1024],
                 "lexical_weights": [{"bad": value, "good": 0.5}],
+            }
+
+    wrapper = _BGEM3Wrapper()
+    wrapper._model = FakeModel()
+    result = wrapper.encode(["sparse"])
+
+    assert result.sparse[0].weights == {"good": 0.5}
+
+
+def test_bge_embedding_drops_boolean_sparse_weights():
+    from backend.rag.embedder import _BGEM3Wrapper
+
+    class FakeModel:
+        def encode(self, *_args, **_kwargs):
+            return {
+                "dense_vecs": [[0.0] * 1024],
+                "lexical_weights": [{"bad": True, "good": 0.5}],
             }
 
     wrapper = _BGEM3Wrapper()
@@ -1108,6 +1093,15 @@ def test_macro_agent_rejects_non_finite_indicator_inputs(value):
     )
     assert merged["selected"]["fed_rate"] == 5.0
     assert all(math.isfinite(item["value"]) for item in merged["indicators"] if item["value"] is not None)
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_macro_agent_rejects_boolean_indicator_inputs(value):
+    from backend.agents.macro_agent import MacroAgent
+
+    agent = MacroAgent(None, MagicMock(), MagicMock())
+
+    assert agent._extract_numeric_metrics({"fed_rate": value}) == {}
 
 
 @pytest.mark.parametrize(
