@@ -75,6 +75,8 @@ class _CrossEncoderWrapper:
     def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         model = self._load()
         scores = model.predict(pairs)
+        if any(isinstance(score, bool) for score in scores):
+            raise ValueError("invalid reranker scores")
         return [float(score) for score in scores]
 
 
@@ -149,7 +151,11 @@ class RerankerService:
         try:
             pairs = [(query, str(doc.get(content_key) or "")) for doc in doc_list]
             scores = _get_reranker().predict(pairs)
-            if len(scores) != len(doc_list) or not all(math.isfinite(score) for score in scores):
+            if (
+                len(scores) != len(doc_list)
+                or any(isinstance(score, bool) for score in scores)
+                or not all(math.isfinite(score) for score in scores)
+            ):
                 raise ValueError("invalid reranker scores")
             ranked = sorted(zip(doc_list, scores), key=lambda item: item[1], reverse=True)
             return [{**doc, "rerank_score": score} for doc, score in ranked[:top_n]]

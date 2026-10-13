@@ -735,7 +735,10 @@ def test_bge_embedding_drops_invalid_sparse_weights(value):
     assert result.sparse[0].weights == {"good": 0.5}
 
 
-@pytest.mark.parametrize("scores", [[float("nan"), 0.5], [float("inf"), 0.5], [0.5]])
+@pytest.mark.parametrize(
+    "scores",
+    [[float("nan"), 0.5], [float("inf"), 0.5], [0.5], [True, 0.5], [False, 0.5]],
+)
 def test_reranker_falls_back_for_invalid_model_scores(monkeypatch, scores):
     from backend.rag import reranker as module
 
