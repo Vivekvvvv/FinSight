@@ -244,7 +244,11 @@ def create_system_router(deps: SystemRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/diagnostics/planner-ab")
-    @router.get("/diagnostics/planner_ab")
+    # 别名不进 OpenAPI：FastAPI 生成 operationId 时把 \W 全替换为 _，
+    # planner-ab 与 planner_ab 归一化成同一个 id，spec 里出现重复 operationId
+    # 违反 OpenAPI 规范，客户端代码生成器会丢方法或报错。
+    # 路由与 security_gate 的路径匹配都不受影响，两个 URL 继续可用。
+    @router.get("/diagnostics/planner_ab", include_in_schema=False)
     def diagnostics_planner_ab(request: Request):
         _require_rag_read_access(request)
         try:
