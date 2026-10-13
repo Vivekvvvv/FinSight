@@ -1080,6 +1080,19 @@ def test_price_agent_omits_non_finite_change_percent(value):
     assert "inf" not in output.summary.lower()
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_price_agent_omits_boolean_change_percent(value):
+    from backend.agents.price_agent import PriceAgent
+
+    agent = PriceAgent(None, MagicMock(), MagicMock())
+    output = agent._format_output(
+        "",
+        {"ticker": "AAPL", "price": 100.0, "change_percent": value},
+    )
+
+    assert "日内变动" not in output.summary
+
+
 @pytest.mark.parametrize("value", NON_FINITE)
 def test_macro_agent_rejects_non_finite_indicator_inputs(value):
     from backend.agents.macro_agent import MacroAgent
