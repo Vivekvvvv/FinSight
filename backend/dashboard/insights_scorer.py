@@ -23,7 +23,7 @@ def _safe_get(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
 
 
 def _finite_number(value: Any) -> float | None:
-    if not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     try:
         number = float(value)
@@ -34,6 +34,8 @@ def _finite_number(value: Any) -> float | None:
 
 def clamp_score(value: float) -> float:
     """Clamp score to [1, 10] range, rounded to 1 decimal."""
+    if isinstance(value, bool):
+        return 5.0
     try:
         score = float(value)
     except (TypeError, ValueError, OverflowError):
@@ -364,6 +366,8 @@ def score_overview(
 # ---------------------------------------------------------------------------
 
 def _clip_contribution(value: float, low: float = -5.0, high: float = 5.0) -> float:
+    if isinstance(value, bool):
+        return 0.0
     try:
         contribution = float(value)
     except (TypeError, ValueError, OverflowError):
@@ -689,7 +693,7 @@ def _label(score: float) -> str:
 
 def _fmt_float(val: Any, suffix: str = "", pct: bool = False) -> str | None:
     """安全格式化浮点数为字符串，返回 None 表示无效值。"""
-    if not isinstance(val, (int, float)) or not math.isfinite(val):
+    if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
         return None
     if pct:
         return f"{val:.2%}{suffix}"
@@ -697,7 +701,7 @@ def _fmt_float(val: Any, suffix: str = "", pct: bool = False) -> str | None:
 
 
 def _fmt_int(val: Any, suffix: str = "") -> str | None:
-    if not isinstance(val, (int, float)) or not math.isfinite(val):
+    if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
         return None
     return f"{int(val):,}{suffix}"
 

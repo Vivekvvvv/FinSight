@@ -831,6 +831,15 @@ def test_report_validator_defaults_boolean_section_order(value):
     assert section.order == 7
 
 
+def test_screener_request_rejects_boolean_numeric_filter():
+    from pydantic import ValidationError
+
+    from backend.api.schemas import ScreenerRunRequest
+
+    with pytest.raises(ValidationError):
+        ScreenerRunRequest(filters={"priceMoreThan": True})
+
+
 @pytest.mark.parametrize("value", ["invalid", float("nan"), float("inf"), float("-inf")])
 def test_configuration_and_persisted_numeric_values_fall_back(value, tmp_path):
     from backend.api.agent_router import _normalize_preferences
@@ -1166,6 +1175,22 @@ def test_shared_numeric_boundaries_reject_integer_overflow():
     value = 10**1000
     assert safe_float(value) is None
     assert _finite_number(value) is None
+
+
+def test_insights_finite_number_rejects_booleans():
+    from backend.dashboard.insights_scorer import _finite_number
+
+    assert _finite_number(True) is None
+    assert _finite_number(False) is None
+
+
+def test_deep_search_numeric_helpers_reject_booleans():
+    from backend.agents.deep_search_agent import _finite_float, _finite_int
+
+    assert _finite_float(True, 0.25) == 0.25
+    assert _finite_float(False, 0.25) == 0.25
+    assert _finite_int(True, 99) == 99
+    assert _finite_int(False, 99) == 99
 
 
 def test_screener_non_finite_cache_expiry_does_not_create_permanent_hit(monkeypatch):
