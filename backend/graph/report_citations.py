@@ -92,7 +92,7 @@ def _build_filing_section_citations(citations: list[dict[str, Any]]) -> list[dic
 
 def _safe_confidence(value: Any, default: float = 0.7) -> float:
     """Convert confidence to float safely — handles 'high'/'medium'/'low' strings."""
-    if value is None:
+    if value is None or isinstance(value, bool):
         return default
     # docstring 承诺处理 high/medium/low，但旧实现只 float()，三者都抛
     # ValueError 塌成 default（0.7）→ 信号丢失。补 label 映射兑现契约；数字

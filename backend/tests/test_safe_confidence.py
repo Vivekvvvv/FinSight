@@ -33,6 +33,11 @@ def test_none_and_garbage_fall_back_to_default():
     assert _safe_confidence([], default=0.4) == 0.4
 
 
+def test_boolean_confidence_falls_back_to_default():
+    assert _safe_confidence(True) == 0.7
+    assert _safe_confidence(False, default=0.4) == 0.4
+
+
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_non_finite_confidence_falls_back_to_default(value):
     assert _safe_confidence(value) == 0.7
