@@ -148,6 +148,72 @@ def test_portfolio_writes_reject_non_finite_numbers(monkeypatch):
     assert calls == []
 
 
+def test_portfolio_writes_reject_overflowing_magnitudes(monkeypatch):
+    """单个字段有限、乘积溢出的持仓不得落盘。
+
+    allow_inf_nan=False 只校验字段本身：shares=1e300 与 avg_cost=1e300 都能通过，
+    但 shares*avg_cost=inf 会被写进持仓，之后 /api/portfolio/summary 与 /api/today
+    在响应序列化阶段抛 ValueError("Out of range float values are not JSON compliant")
+    —— 异常在路由 try 之外，只能回裸 500，且持仓已落盘，每次读都 500。
+    """
+    monkeypatch.setenv("DEV_MODE", "true")
+    from backend.api import main
+    from backend.api import portfolio_router as module
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        main,
+        "_rate_limiter",
+        main.SimpleRateLimiter(limit_per_window=100, window_seconds=60, enabled=False),
+    )
+    monkeypatch.setattr(module, "update_position", lambda **_kwargs: calls.append("update"))
+    monkeypatch.setattr(module, "sync_positions", lambda *_args, **_kwargs: calls.append("sync"))
+    session_id = "private:default_user:default"
+
+    with TestClient(main.app) as client:
+        sync_resp = client.post(
+            "/api/portfolio/positions",
+            json={
+                "session_id": session_id,
+                "positions": [{"ticker": "HUGE", "shares": 1e300, "avg_cost": 1e300}],
+            },
+        )
+        bulk_resp = client.post(
+            "/api/portfolio/bulk",
+            json={
+                "session_id": session_id,
+                "positions": [{"ticker": "HUGE", "shares": 1, "avg_cost": 1e300}],
+            },
+        )
+        update_resp = client.put(
+            "/api/portfolio/positions/HUGE",
+            params={"session_id": session_id},
+            json={"shares": 1e308, "avg_cost": 1},
+        )
+        # 边界：上限本身仍放行，超出一点即 422
+        at_limit_resp = client.post(
+            "/api/portfolio/positions",
+            json={
+                "session_id": session_id,
+                "positions": [{"ticker": "EDGE", "shares": 1e12, "avg_cost": 1e12}],
+            },
+        )
+        over_limit_resp = client.post(
+            "/api/portfolio/positions",
+            json={
+                "session_id": session_id,
+                "positions": [{"ticker": "EDGE", "shares": 1.1e12, "avg_cost": 1}],
+            },
+        )
+
+    assert sync_resp.status_code == 422
+    assert bulk_resp.status_code == 422
+    assert update_resp.status_code == 422
+    assert over_limit_resp.status_code == 422
+    assert at_limit_resp.status_code == 200
+    assert calls == ["sync"]
+
+
 def test_portfolio_summary_does_not_fetch_quote_for_invalid_stored_ticker(monkeypatch):
     monkeypatch.setenv("DEV_MODE", "true")
     from backend.api import main
