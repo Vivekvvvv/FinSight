@@ -187,7 +187,9 @@ def build_runtime_quality_reasons(
     grounding_rate = None
     if isinstance(grounding_stats, dict):
         rate = grounding_stats.get("grounding_rate")
-        if isinstance(rate, (int, float)):
+        if isinstance(rate, bool):
+            grounding_rate = 0.0
+        elif isinstance(rate, (int, float)):
             grounding_rate = float(rate)
             if not math.isfinite(grounding_rate):
                 grounding_rate = 0.0
@@ -359,7 +361,7 @@ def record_quality_metrics(quality: dict[str, Any], *, source: str) -> None:
         grounding = inputs.get("grounding")
         if isinstance(grounding, dict):
             raw = grounding.get("grounding_rate")
-            if isinstance(raw, (int, float)):
+            if not isinstance(raw, bool) and isinstance(raw, (int, float)):
                 grounding_rate = float(raw)
                 if not math.isfinite(grounding_rate):
                     grounding_rate = None
@@ -367,7 +369,7 @@ def record_quality_metrics(quality: dict[str, Any], *, source: str) -> None:
         metrics = quality.get("metrics")
         if isinstance(metrics, dict):
             raw = metrics.get("grounding_rate")
-            if isinstance(raw, (int, float)):
+            if not isinstance(raw, bool) and isinstance(raw, (int, float)):
                 grounding_rate = float(raw)
                 if not math.isfinite(grounding_rate):
                     grounding_rate = None

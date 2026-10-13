@@ -961,6 +961,18 @@ def test_runtime_quality_defaults_non_finite_missing_counts():
     }
 
 
+def test_runtime_quality_rejects_boolean_grounding_rate():
+    from backend.report.quality_engine import build_runtime_quality_reasons
+
+    reasons = build_runtime_quality_reasons(
+        quality_hints={},
+        grounding_stats={"grounding_rate": True},
+        verifier_claims=[],
+    )
+
+    assert "GROUNDING_RATE_BELOW_MIN" in {item.get("code") for item in reasons}
+
+
 def test_report_validator_defaults_infinite_section_order():
     from backend.report.validator import ReportValidator
 

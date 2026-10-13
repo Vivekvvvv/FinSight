@@ -5,6 +5,7 @@ from backend.report.quality_engine import (
     apply_quality_to_report,
     build_runtime_quality_reasons,
     evaluate_runtime_report_quality,
+    record_quality_metrics,
 )
 
 
@@ -121,3 +122,22 @@ def test_runtime_quality_non_finite_grounding_rate_fails_closed(grounding_rate):
     )
     assert isinstance(block_reason, dict)
     assert block_reason.get("actual") == 0.0
+
+
+def test_record_quality_metrics_ignores_boolean_grounding_rate(monkeypatch):
+    observed = []
+    monkeypatch.setattr(
+        "backend.report.quality_engine.observe_report_quality_grounding_rate",
+        lambda **kwargs: observed.append(kwargs),
+    )
+
+    record_quality_metrics(
+        {
+            "state": "pass",
+            "inputs": {"grounding": {"grounding_rate": True}},
+            "metrics": {"grounding_rate": 0.8},
+        },
+        source="test",
+    )
+
+    assert observed == [{"grounding_rate": 0.8, "source": "test"}]
