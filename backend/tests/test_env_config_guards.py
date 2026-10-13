@@ -140,6 +140,18 @@ def test_rate_limiter_invalid_environment_uses_defaults(monkeypatch):
     assert limiter.window_seconds == 60
 
 
+def test_rate_limiter_numeric_helpers_reject_booleans():
+    """bool 经 int()/float() 会静默变成 1/0：RATE_LIMIT_* 环境变量若被
+    错误赋成布尔值，限流桶会被偷偷调成 1 req/min 或 1 token 保底——
+    辅助函数必须把 bool 当非法输入回退默认。"""
+    from backend.services import rate_limiter
+
+    assert rate_limiter._nonnegative_int(True, 60) == 60
+    assert rate_limiter._nonnegative_int(False, 60) == 60
+    assert rate_limiter._positive_finite_float(True, 60.0) == 60.0
+    assert rate_limiter._positive_finite_float(False, 60.0) == 60.0
+
+
 def test_rate_limiter_window_survives_wall_clock_jump_backward(monkeypatch):
     """限流桶时间戳用 time.time() 存：系统时钟后跳（VM 快照恢复/手动改时/
     NTP 大步回拨）把 now 拉到 bucket 条目之前——now-bucket[0]<0 → 条目永不
