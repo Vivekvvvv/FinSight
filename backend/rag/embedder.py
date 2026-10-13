@@ -178,7 +178,10 @@ class _BGEM3Wrapper:
         for idx, text in enumerate(texts):
             if raw_dense is not None:
                 try:
-                    dense_row = [float(value) for value in raw_dense[idx]]
+                    raw_row = raw_dense[idx]
+                    if any(isinstance(value, bool) for value in raw_row):
+                        raise ValueError("boolean dense component")
+                    dense_row = [float(value) for value in raw_row]
                 except (TypeError, ValueError, OverflowError, IndexError):
                     dense_row = []
                 if len(dense_row) != _BGE_M3_DIM or not all(math.isfinite(value) for value in dense_row):
@@ -196,6 +199,8 @@ class _BGEM3Wrapper:
                 if isinstance(row, dict):
                     for key, value in row.items():
                         try:
+                            if isinstance(value, bool):
+                                raise ValueError("boolean sparse weight")
                             parsed = float(value)
                         except (TypeError, ValueError, OverflowError):
                             continue

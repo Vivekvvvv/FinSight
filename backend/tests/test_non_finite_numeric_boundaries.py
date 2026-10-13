@@ -170,6 +170,46 @@ def test_execute_plan_finite_float_ignores_boolean_values(value):
     assert _finite_float(value, 0.25) == 0.25
 
 
+def test_bge_embedding_rejects_boolean_dense_components():
+    from backend.rag.embedder import _BGEM3Wrapper
+
+    class FakeModel:
+        def encode(self, *_args, **_kwargs):
+            return {
+                "dense_vecs": [[True] * 1024],
+                "lexical_weights": [{}],
+            }
+
+    wrapper = _BGEM3Wrapper()
+    wrapper._model = FakeModel()
+    result = wrapper.encode(["boolean dense"])
+
+    assert result.dense[0] != [1.0] * 1024
+
+
+def test_bge_embedding_drops_boolean_sparse_weights():
+    from backend.rag.embedder import _BGEM3Wrapper
+
+    class FakeModel:
+        def encode(self, *_args, **_kwargs):
+            return {
+                "dense_vecs": [[0.0] * 1024],
+                "lexical_weights": [{"bad": True, "good": 0.5}],
+            }
+
+    wrapper = _BGEM3Wrapper()
+    wrapper._model = FakeModel()
+    result = wrapper.encode(["sparse"])
+
+    assert result.sparse[0].weights == {"good": 0.5}
+
+
+@pytest.mark.parametrize(
+    "scores",
+    [[float("nan"), 0.5], [float("inf"), 0.5], [0.5], [True, 0.5], [False, 0.5]],
+)
+
+
 @pytest.mark.parametrize(
     ("env_name", "default"),
     [
