@@ -3,6 +3,8 @@
 import asyncio
 import logging
 
+import pytest
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -32,6 +34,20 @@ def test_normalize_agent_output_repairs_invalid_shapes():
     assert isinstance(out.get("data_sources"), list)
     assert isinstance(out.get("risks"), list)
     assert isinstance(out.get("trace"), list)
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_normalize_agent_output_rejects_boolean_confidence(value):
+    import backend.graph.adapters.agent_adapter as adapter
+
+    out = adapter._normalize_agent_output(
+        step_name="news_agent",
+        output={"summary": "news ok", "confidence": value},
+        query="q",
+        ticker="MSFT",
+    )
+
+    assert out["confidence"] == 0.3
 
 
 def test_normalize_agent_output_returns_fallback_on_empty_summary():

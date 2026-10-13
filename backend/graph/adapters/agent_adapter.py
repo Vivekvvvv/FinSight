@@ -188,8 +188,9 @@ def _normalize_agent_output(*, step_name: str, output: Any, query: str, ticker: 
         )
     payload["summary"] = summary[:5000]
 
+    raw_confidence = payload.get("confidence", 0.3)
     try:
-        confidence = float(payload.get("confidence", 0.3))
+        confidence = 0.3 if isinstance(raw_confidence, bool) else float(raw_confidence)
     except Exception:
         confidence = 0.3
     if not math.isfinite(confidence):
