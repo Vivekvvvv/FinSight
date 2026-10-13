@@ -796,20 +796,28 @@ def test_backtest_strategy_params_reject_booleans():
 
 
 def test_portfolio_position_payload_rejects_boolean_shares():
+    from pydantic import ValidationError
+
     from backend.api.portfolio_router import PortfolioPositionPayload
+
+    with pytest.raises(ValidationError):
         PortfolioPositionPayload(ticker="AAPL", shares=True)
 
 
 def test_update_position_request_rejects_boolean_shares():
     from pydantic import ValidationError
+
     from backend.api.portfolio_router import UpdatePositionRequest
+
     with pytest.raises(ValidationError):
         UpdatePositionRequest(shares=True)
 
 
 def test_portfolio_optimize_request_rejects_boolean_risk_free_rate():
     from pydantic import ValidationError
+
     from backend.api.portfolio_router import PortfolioOptimizeRequest
+
     with pytest.raises(ValidationError):
         PortfolioOptimizeRequest(tickers=["AAPL", "MSFT"], risk_free_rate=True)
 
