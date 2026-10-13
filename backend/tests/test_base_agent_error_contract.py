@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -161,3 +162,44 @@ async def test_analyze_stream_redacts_search_error(monkeypatch):
 
     assert events[-1] == {"type": "error", "agent": "base", "message": "Search failed"}
     assert secret not in str(events)
+
+
+def _stuck_agent() -> BaseFinancialAgent:
+    agent = BaseFinancialAgent(llm=None, cache=None)
+
+    async def never_ending(*_args, **_kwargs):
+        await asyncio.sleep(10_000)
+
+    async def _noop_gaps(_summary):
+        return []
+
+    agent._initial_search = never_ending
+    agent._first_summary = never_ending
+    agent._identify_gaps = _noop_gaps
+    return agent
+
+
+@pytest.mark.asyncio
+async def test_research_on_event_does_not_swallow_task_cancellation():
+    """on_event 回调的 try/except 若写成裸 except，KeyboardInterrupt/
+    CancelledError 会被吞掉——agent 在已取消的任务里继续跑。"""
+
+    class Cancelled(Exception):
+        pass
+
+    def cancelled_callback(_event):
+        raise KeyboardInterrupt()  # noqa: WPS424
+
+    agent = _stuck_agent()
+    with pytest.raises(KeyboardInterrupt):
+        await agent.research("q", "AAPL", on_event=cancelled_callback)
+
+
+@pytest.mark.asyncio
+async def test_research_normal_callback_exception_is_swallowed(caplog):
+    def broken_callback(_event):
+        raise RuntimeError("callback boom")
+
+    agent = _stuck_agent()
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(agent.research("q", "AAPL", on_event=broken_callback), timeout=5)

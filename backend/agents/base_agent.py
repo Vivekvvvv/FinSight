@@ -274,7 +274,7 @@ class BaseFinancialAgent:
                     "agent": self.AGENT_NAME, 
                     "details": {"message": f"正在搜索: {query[:30]}..."}
                 })
-            except: logger.debug("on_event callback error in search notification")
+            except Exception: logger.debug("on_event callback error in search notification")
             
         results = await self._initial_search(query, ticker)
         result_count = None
@@ -300,7 +300,7 @@ class BaseFinancialAgent:
             
             if on_event:
                 try: on_event({"event": "agent_action", "agent": self.AGENT_NAME, "details": {"message": f"发现信息缺口，进行第 {i+1} 轮补充搜索..."}})
-                except: logger.debug("on_event callback error in search notification")
+                except Exception: logger.debug("on_event callback error in search notification")
 
             _log_event("reflection_gap", {"round": i + 1, "gaps": gaps})
             new_data = await self._targeted_search(gaps, ticker)
