@@ -684,6 +684,62 @@ def test_news_agent_annotation_rejects_non_finite_source_reliability(monkeypatch
     assert "confidence" not in annotated[0]
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_news_agent_annotation_rejects_boolean_source_reliability(monkeypatch, value):
+    from backend.agents.news_agent import NewsAgent
+
+    agent = NewsAgent(None, MagicMock(), MagicMock())
+    monkeypatch.setattr(
+        agent,
+        "_score_reliability_for_item",
+        lambda _item: {"reliability_score": value},
+    )
+
+    annotated = agent._annotate_reliability([{"title": "item"}])
+
+    assert "confidence" not in annotated[0]
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_news_agent_score_rejects_boolean_source_reliability(monkeypatch, value):
+    from backend.agents.news_agent import NewsAgent
+
+    tools = MagicMock()
+    tools.score_news_source_reliability.return_value = {"reliability_score": value}
+    agent = NewsAgent(None, MagicMock(), tools)
+
+    assert agent._score_reliability_for_item({"source": "x", "url": "https://x.test"})["reliability_score"] == 0.55
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_news_agent_summary_rejects_boolean_source_reliability(value):
+    from backend.agents.news_agent import NewsAgent
+
+    agent = NewsAgent(None, MagicMock(), MagicMock())
+
+    summary = agent._summarize_reliability(
+        [{"source_reliability": {"reliability_score": value}}]
+    )
+
+    assert summary["count"] == 0
+    assert summary["avg_reliability"] is None
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_news_agent_format_rejects_boolean_average_reliability(value):
+    from backend.agents.news_agent import NewsAgent
+
+    agent = NewsAgent(None, MagicMock(), MagicMock())
+    agent._last_reliability_summary = {"avg_reliability": value, "low_reliability_count": 0}
+    output = agent._format_output(
+        "summary",
+        [{"title": "item", "source": "source", "confidence": 0.4}],
+    )
+
+    assert output.confidence == 0.8
+    assert all("reliability is low" not in risk for risk in output.risks)
+
+
 @pytest.mark.parametrize("value", NON_FINITE)
 def test_bge_embedding_falls_back_for_non_finite_dense_values(value):
     from backend.rag.embedder import _BGEM3Wrapper
