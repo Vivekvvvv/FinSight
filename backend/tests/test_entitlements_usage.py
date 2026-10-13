@@ -46,21 +46,13 @@ def test_build_usage_view_returns_all_quota_keys(tmp_path):
 
 def test_usage_admin_unlimited(tmp_path):
     _configure_storage(tmp_path)
-    from backend.security.auth import Principal
     from backend.services.entitlements import build_usage_view
 
     # admin role -> all quotas should report limit=-1, remaining=-1
-    usage = build_usage_view("ops")
-    # Without principal role hint build_usage_view uses get_plan(user_id)
-    # which falls back to free; admin path tested via /api/me/usage instead.
-    assert usage["max_alerts"]["limit"] == 3  # free plan default
-
-    # Now via direct service:
-    from backend.services.entitlements import get_entitlements_service
-    ent = get_entitlements_service().get_entitlements("ops", role="admin")
-    assert ent["plan"] == "admin"
-    assert ent["limits"]["max_alerts"] == -1
-    _ = Principal  # silence linter
+    usage = build_usage_view("ops", role="admin")
+    assert all(entry["plan"] == "admin" for entry in usage.values())
+    assert all(entry["limit"] == -1 for entry in usage.values())
+    assert all(entry["remaining"] == -1 for entry in usage.values())
 
 
 def test_usage_counts_actual_subscriptions(tmp_path, monkeypatch):
@@ -117,7 +109,7 @@ def test_api_me_usage_endpoint(tmp_path, monkeypatch):
     from backend.api import main as main_module
     from backend.security.auth import Principal
 
-    fake = Principal(user_id="usage_user", email="u@x", role="user", auth_type="dev")
+    fake = Principal(user_id="usage_user", email="u@x", role="admin", auth_type="dev")
     monkeypatch.setattr(main_module, "dev_principal", lambda: fake)
 
     from backend.api.main import app
@@ -128,8 +120,10 @@ def test_api_me_usage_endpoint(tmp_path, monkeypatch):
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["success"] is True
-        assert data["plan"] == "free"
+        assert data["plan"] == "admin"
         assert "max_reports_per_day" in data["usage"]
+        assert data["usage"]["max_reports_per_day"]["plan"] == "admin"
+        assert data["usage"]["max_reports_per_day"]["limit"] == -1
 
 
 def test_api_plans_returns_all_tiers(tmp_path, monkeypatch):

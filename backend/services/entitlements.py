@@ -208,10 +208,12 @@ class EntitlementsService:
         """返回用户当前 plan。admin role 始终返回 admin plan。"""
         if str(role or "").strip().lower() in {"admin", "internal"}:
             return "admin"
-        record = self._plans.get(str(user_id or "").strip())
-        if not isinstance(record, dict):
-            return DEFAULT_PLAN
-        return normalize_plan(record.get("plan"))
+        with self._lock:
+            self._load()
+            record = self._plans.get(str(user_id or "").strip())
+            if not isinstance(record, dict):
+                return DEFAULT_PLAN
+            return normalize_plan(record.get("plan"))
 
     def set_plan(self, user_id: str, plan: str, *, source: str = "manual") -> str:
         """更新用户 plan, 返回规范化后的 plan。"""
@@ -329,6 +331,7 @@ def build_usage_view(
     user_id: str,
     *,
     email: Optional[str] = None,
+    role: str = "user",
 ) -> Dict[str, Dict[str, Any]]:
     """计算用户当前各 quota 的 used 数; 返回 {quota_key: {used, limit, plan, remaining, allowed}}.
 
@@ -336,7 +339,7 @@ def build_usage_view(
     懒 import 取, 避免 entitlements 模块在 import 时拖出整个 web 栈。
     """
     service = get_entitlements_service()
-    plan = service.get_plan(user_id)  # admin role 走另一条路径
+    plan = service.get_plan(user_id, role=role)
     limits = PLAN_LIMITS.get(plan, PLAN_LIMITS[DEFAULT_PLAN])
 
     result: Dict[str, Dict[str, Any]] = {}

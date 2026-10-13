@@ -48,6 +48,9 @@ def create_entitlements_router() -> APIRouter:
             "email": current_user.email,
             "role": current_user.role,
             "auth_type": current_user.auth_type,
+            # session_id 是 require_matching_identity 的校验基准（Principal.session_id）。
+            # 不下发前端只能自造，非 dev 鉴权下所有会话端点必然 403。
+            "session_id": current_user.session_id,
         }
 
     @router.get("/api/me/entitlements")
@@ -55,13 +58,21 @@ def create_entitlements_router() -> APIRouter:
         service = get_entitlements_service()
         ent = service.get_entitlements(current_user.user_id, role=current_user.role)
         # 同时返回 usage view, 前端一次拉取就能拿到 plan + 实时配额
-        usage = build_usage_view(current_user.user_id, email=current_user.email)
+        usage = build_usage_view(
+            current_user.user_id,
+            email=current_user.email,
+            role=current_user.role,
+        )
         return {"success": True, "usage": usage, **ent}
 
     @router.get("/api/me/usage")
     async def get_my_usage(current_user: Principal = Depends(get_current_user)) -> Dict[str, Any]:
         """轻量端点 — 用于前端定时刷新 usage (例如 PlanBadge tooltip)。"""
-        usage = build_usage_view(current_user.user_id, email=current_user.email)
+        usage = build_usage_view(
+            current_user.user_id,
+            email=current_user.email,
+            role=current_user.role,
+        )
         plan = get_entitlements_service().get_plan(current_user.user_id, role=current_user.role)
         return {"success": True, "user_id": current_user.user_id, "plan": plan, "usage": usage}
 
