@@ -30,7 +30,7 @@ def normalize_market_freshness(source: str, raw: Any = None, *, cached: bool = F
 
 def normalize_market_fallback_level(source: str, raw: Any = None, *, cached: bool = False) -> int:
     try:
-        if raw is not None:
+        if raw is not None and not isinstance(raw, bool):
             return max(0, int(raw))
     except (TypeError, ValueError, OverflowError):
         pass

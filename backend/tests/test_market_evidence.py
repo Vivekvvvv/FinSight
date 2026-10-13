@@ -1,4 +1,13 @@
-from backend.utils.market_evidence import attach_financials_evidence, attach_market_evidence
+from backend.utils.market_evidence import (
+    attach_financials_evidence,
+    attach_market_evidence,
+    normalize_market_fallback_level,
+)
+
+
+def test_market_fallback_level_ignores_boolean_raw_values():
+    assert normalize_market_fallback_level("unknown", True) == 0
+    assert normalize_market_fallback_level("baostock", False) == 1
 
 
 def test_demo_market_payload_gets_demo_evidence():
