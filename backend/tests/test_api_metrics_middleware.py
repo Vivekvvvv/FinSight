@@ -45,6 +45,18 @@ def _sample(name: str, labels: dict) -> float | None:
     return registry.get_sample_value(name, labels)
 
 
+def test_registry_is_prometheus_default_registry():
+    """GET /metrics 的读方是 system_router.metrics_endpoint，走
+    backend/metrics.py 的无参 generate_latest() ——读默认全局注册表。
+    本模块若仍用私有 CollectorRegistry()，7 个 finsight_* 指标一个
+    都出不去（实测交集为 0）。钉住 registry 必须是全局常规约定。"""
+    from prometheus_client import REGISTRY
+
+    from backend.monitoring import prometheus_exporter
+
+    assert prometheus_exporter.registry is REGISTRY
+
+
 def test_records_request_with_route_template_label(client):
     client.get("/api/mtw/quote/600519.SS")
 

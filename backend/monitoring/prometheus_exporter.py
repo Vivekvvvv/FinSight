@@ -3,14 +3,19 @@ Prometheus Exporter for FinSight API monitoring.
 Exports custom metrics for API performance, data source health, and cache efficiency.
 """
 
-from prometheus_client import Counter, Histogram, Gauge, Info, CollectorRegistry, generate_latest
+from prometheus_client import Counter, Histogram, Gauge, Info, REGISTRY, generate_latest
 from prometheus_client.exposition import CONTENT_TYPE_LATEST
 from fastapi import APIRouter, Response
 from typing import Optional
 import time
 
-# 创建自定义注册表
-registry = CollectorRegistry()
+# 用默认全局注册表，而非私有 CollectorRegistry()。
+# 原因：GET /metrics 由 api/system_router.py:227 的 metrics_endpoint 提供服务
+# （它先注册，Starlette 按顺序匹配，本模块下方的同路径 handler 永远不可达），
+# 而它走 backend/metrics.py 的 generate_latest()——无参，读的是默认注册表。
+# 私有注册表导致本模块这 7 个 finsight_* 指标一个都出不去（实测交集为 0），
+# init_app_info() 也是在往没人读的注册表里写。
+registry = REGISTRY
 
 # ============================================================================
 # API 请求指标
