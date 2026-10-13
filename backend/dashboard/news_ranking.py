@@ -102,6 +102,8 @@ def _ts_seconds(ts: Any) -> Optional[int]:
     if ts is None:
         return None
     try:
+        if isinstance(ts, bool):
+            return None
         if isinstance(ts, (int, float)):
             return int(ts)
         if isinstance(ts, pd.Timestamp):
@@ -298,7 +300,9 @@ def _to_news_item(item: Any) -> dict[str, Any]:
         summary = item.get("summary") or item.get("snippet") or item.get("content") or ""
         tags = item.get("tags")  # Phase H: pass through server-computed tags
 
-        if isinstance(ts, (int, float)):
+        if isinstance(ts, bool):
+            ts = ""
+        elif isinstance(ts, (int, float)):
             try:
                 ts = datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
             except Exception:

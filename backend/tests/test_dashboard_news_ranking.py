@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from backend.dashboard.data_service import fetch_news
+from backend.dashboard.news_ranking import _to_news_item, _ts_seconds
+
+
+def test_news_timestamp_helpers_reject_booleans():
+    assert _ts_seconds(True) is None
+    assert _ts_seconds(False) is None
+    assert _to_news_item({"title": "bad ts", "ts": True})["ts"] == ""
 
 
 def test_fetch_news_returns_ranking_meta_v2(monkeypatch):
