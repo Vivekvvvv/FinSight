@@ -5,6 +5,8 @@ from typing import Any, Optional
 def _normalize_published_date(value: Any) -> Optional[str]:
     if not value:
         return None
+    if isinstance(value, bool):
+        return None
     if isinstance(value, datetime):
         return value.strftime("%Y-%m-%d")
     if isinstance(value, (int, float)):

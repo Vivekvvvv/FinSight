@@ -7,6 +7,12 @@ Tests for news parsing utilities.
 from datetime import datetime
 
 from backend import tools
+from backend.tools.utils import _normalize_published_date
+
+
+def test_normalize_published_date_rejects_booleans():
+    assert _normalize_published_date(True) is None
+    assert _normalize_published_date(False) is None
 
 
 def test_format_search_news_items_detects_recent_items():
