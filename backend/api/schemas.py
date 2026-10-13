@@ -336,17 +336,6 @@ class ChartDataRequest(BaseModel):
     summary: str = Field(..., description="chart summary")
 
 
-class ConfigRequest(BaseModel):
-    llm_provider: Optional[str] = None
-    llm_model: Optional[str] = None
-    llm_api_key: Optional[str] = None
-    llm_api_base: Optional[str] = None
-    llm_endpoints: Optional[list[dict[str, Any]]] = None
-    layout_mode: str = Field("centered", description="layout mode")
-
-    model_config = {"extra": "allow"}
-
-
 class ExportPdfRequest(BaseModel):
     messages: list[dict[str, Any]] = Field(..., description="messages")
     charts: list[dict[str, Any]] = Field(default_factory=list, description="charts")
