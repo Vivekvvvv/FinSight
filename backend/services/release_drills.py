@@ -85,6 +85,8 @@ def evaluate_rollout_thresholds(
         if stage.latency_mean_ms is not None:
             finite_values[f"stages[{index}].latency_mean_ms"] = stage.latency_mean_ms
     for name, value in finite_values.items():
+        if isinstance(value, bool):
+            raise ValueError(f"{name} must be finite")
         if not math.isfinite(float(value)):
             raise ValueError(f"{name} must be finite")
     baseline_p95 = max(float(stages[0].latency_p95_ms), 1e-6)

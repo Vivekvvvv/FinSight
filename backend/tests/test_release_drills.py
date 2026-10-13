@@ -78,6 +78,23 @@ def test_evaluate_rollout_thresholds_rejects_non_finite_metrics(
         )
 
 
+def test_evaluate_rollout_thresholds_rejects_boolean_citation_coverage():
+    with pytest.raises(ValueError, match="citation_coverage"):
+        evaluate_rollout_thresholds(
+            stages=[RolloutStageMetrics(10, 10, 10, 0, 100.0)],
+            citation_coverage=True,
+        )
+
+
+def test_evaluate_rollout_thresholds_rejects_boolean_threshold():
+    with pytest.raises(ValueError, match="max_5xx_ratio"):
+        evaluate_rollout_thresholds(
+            stages=[RolloutStageMetrics(10, 10, 10, 0, 100.0)],
+            citation_coverage=1.0,
+            thresholds=RollbackThresholds(max_5xx_ratio=True),
+        )
+
+
 @pytest.mark.parametrize(
     ("stage", "field"),
     [
