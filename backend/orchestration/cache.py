@@ -116,6 +116,8 @@ class DataCache:
             ttl: 过期时间（秒），如果不指定则根据 data_type 使用默认值
             data_type: 数据类型，用于确定默认 TTL
         """
+        if isinstance(ttl, bool):
+            raise ValueError("ttl must be numeric")
         if ttl is None:
             ttl = self.DEFAULT_TTL.get(data_type, self.DEFAULT_TTL['default'])
         if self._jitter_ratio and ttl:
