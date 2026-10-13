@@ -778,6 +778,20 @@ def test_alert_price_boundary_rejects_invalid_values(value):
     assert _positive_finite_float(value) is None
 
 
+def test_safe_float_rejects_boolean_values():
+    from backend.utils.quote import safe_float
+
+    assert safe_float(True) is None
+    assert safe_float(False) is None
+
+
+def test_safe_int_rejects_boolean_values():
+    from backend.utils.quote import safe_int
+
+    assert safe_int(True) is None
+    assert safe_int(False, 7) == 7
+
+
 @pytest.mark.parametrize("field", ["last_price", "previous_close"])
 @pytest.mark.parametrize("value", NON_FINITE)
 def test_yfinance_rejects_non_finite_quote_values(monkeypatch, field, value):

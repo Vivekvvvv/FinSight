@@ -37,7 +37,7 @@ def _fallback_level(source: str) -> int:
 
 def safe_float(value: Any) -> Optional[float]:
     """Convert *value* to float; return None for invalid numbers."""
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
     try:
         out = float(value)
@@ -50,7 +50,7 @@ def safe_float(value: Any) -> Optional[float]:
 
 def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
     """Convert *value* to int; return *default* for invalid numbers."""
-    if value is None:
+    if value is None or isinstance(value, bool):
         return default
     if isinstance(value, float) and not math.isfinite(value):
         return default
