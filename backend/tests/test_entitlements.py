@@ -101,6 +101,9 @@ def test_entitlements_instances_do_not_overwrite_each_other(tmp_path):
     first.set_plan("alice", "pro")
     second.set_plan("bob", "team")
 
+    assert first.get_plan("bob") == "team"
+    assert second.get_plan("alice") == "pro"
+
     reloaded = EntitlementsService()
     assert reloaded.get_plan("alice") == "pro"
     assert reloaded.get_plan("bob") == "team"
@@ -170,6 +173,9 @@ def test_api_me_returns_current_principal(tmp_path, monkeypatch):
             "email": "vue@example.invalid",
             "role": "admin",
             "auth_type": "dev",
+            # 前端必须拿到权威 session_id，否则自造的值会被
+            # require_matching_identity 在非 dev 鉴权下全部 403
+            "session_id": "private:vue_user:default",
         }
 
 

@@ -24,6 +24,7 @@ export interface MeResponse {
   email?: string | null;
   role: string;
   auth_type?: string;
+  session_id?: string;
 }
 
 export interface WatchlistItem {
