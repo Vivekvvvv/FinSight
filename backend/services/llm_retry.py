@@ -46,6 +46,8 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _positive_int(value: object, default: int) -> int:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = int(value)
     except Exception:
@@ -54,6 +56,8 @@ def _positive_int(value: object, default: int) -> int:
 
 
 def _nonnegative_finite_float(value: object, default: float) -> float:
+    if isinstance(value, bool):
+        return default
     try:
         parsed = float(value)
     except Exception:
