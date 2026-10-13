@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 def _positive_finite_float(value: object) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
     try:
         parsed = float(value)
     except (TypeError, ValueError, OverflowError):
@@ -68,7 +70,7 @@ def _parse_pub_datetime(raw: Any) -> Optional[datetime]:
     yfinance 旧版给 epoch（providerPublishTime），新版给 ISO 串（content.pubDate），
     两种都须与 cutoff/lookback 的 naive-UTC 基准一致（审计 C3）。
     """
-    if raw is None:
+    if raw is None or isinstance(raw, bool):
         return None
     try:
         return datetime.fromtimestamp(float(raw), tz=timezone.utc).replace(tzinfo=None)

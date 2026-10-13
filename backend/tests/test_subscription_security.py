@@ -178,6 +178,24 @@ def test_subscription_service_rejects_non_finite_numeric_values(
     assert not storage_path.exists()
 
 
+@pytest.mark.parametrize("field", ["price_threshold", "price_target"])
+@pytest.mark.parametrize("value", [True, False])
+def test_subscription_service_rejects_boolean_numeric_values(
+    monkeypatch, tmp_path, field, value
+):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+
+    with pytest.raises(ValueError, match=f"{field} must be finite"):
+        service.subscribe("alice@example.invalid", "AAPL", **{field: value})
+
+    assert service.get_subscriptions("alice@example.invalid") == []
+    assert not storage_path.exists()
+
+
 def test_subscription_storage_key_controls_delivery_email(monkeypatch, tmp_path):
     from backend.services import subscription_service as subs
 
