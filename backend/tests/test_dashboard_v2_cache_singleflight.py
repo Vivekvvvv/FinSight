@@ -239,3 +239,73 @@ async def test_dashboard_bad_section_payload_does_not_blank_healthy_sections(mon
     assert resp.data.recommendations is not None
     assert resp.data.indicator_series is not None
     assert resp.data.macro_snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_dashboard_no_construction_fallback_when_healthy(monkeypatch):
+    """构造层不得再有整体兜底：旧代码的中毒样品（earnings 条目 quarter
+    给 dict）会落进外层 except，把 news/meta 整体重建、其余健康段陪葬成
+    None 并写 state.debug["data_construction_error"]。逐段隔离后该旗标
+    无写入方，健康响应必须携带每段自己的值。"""
+    cache = DashboardCache()
+    monkeypatch.setattr(dashboard_router_module, "dashboard_cache", cache)
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_snapshot", lambda *a, **k: {"price": 1}
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_market_chart", lambda *a, **k: [{"t": 1}]
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_revenue_trend", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_segment_mix", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_valuation",
+        lambda *a, **k: {"trailing_pe": 20.5},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_financial_statements",
+        lambda *a, **k: {"periods": ["2024Q4"], "revenue": [1.0]},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_technical_indicators",
+        lambda *a, **k: {"close": 1.0, "rsi": 55.0},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_peer_comparison",
+        lambda *a, **k: {"subject_symbol": "AAPL", "peers": []},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_earnings_history",
+        lambda *a, **k: [{"quarter": {"y": 2024}}],
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_analyst_targets",
+        lambda *a, **k: {"low": 100.0, "high": 150.0},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_recommendations",
+        lambda *a, **k: {"buy": 5},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_indicator_series",
+        lambda *a, **k: {"dates": ["2024-01-01"], "rsi": [50.0]},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_news",
+        lambda *a, **k: {"market": [{"title": "t"}], "impact": []},
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_macro_snapshot",
+        lambda *a, **k: {"fear_greed_index": 50.0},
+    )
+
+    resp = await dashboard_router_module.get_dashboard(symbol="AAPL")
+
+    assert resp.success is True
+    assert "data_construction_error" not in resp.state.debug
+    assert resp.data.news == {"market": [{"title": "t"}], "impact": []}
+    assert resp.data.macro_snapshot is not None
+    assert resp.data.macro_snapshot.fear_greed_index == 50.0

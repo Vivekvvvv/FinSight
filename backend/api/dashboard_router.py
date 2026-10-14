@@ -816,44 +816,81 @@ async def get_dashboard(
     targets_data, targets_invalid = _try_model("analyst_targets", AnalystTargets, g2_analyst_targets)
     recommendations_data, recs_invalid = _try_model("recommendations", RecommendationsSummary, g2_recommendations)
     series_data, series_invalid = _try_model("indicator_series", IndicatorSeries, g2_indicator_series)
-    for section_err in (earnings_invalid, targets_invalid, recs_invalid, series_invalid):
+    for section_err in (
+        valuation_invalid,
+        financials_invalid,
+        technicals_invalid,
+        peers_invalid,
+        macro_invalid,
+        earnings_invalid,
+        targets_invalid,
+        recs_invalid,
+        series_invalid,
+    ):
         if section_err:
             fallback_reasons.append(section_err)
 
     if fallback_reasons:
         state.debug["fallback_reasons"] = fallback_reasons
 
-    try:
-        data = DashboardData(
-            snapshot=raw_data.get("snapshot", {}),
-            charts=filtered_charts,
-            news=raw_data.get("news", {}),
-            meta=meta_map,
-            valuation=valuation_data,
-            valuation_fallback_reason=v2_valuation_fallback or valuation_invalid,
-            financials=financials_data,
-            financials_fallback_reason=v2_financials_fallback or financials_invalid,
-            technicals=technicals_data,
-            technicals_fallback_reason=v2_technicals_fallback or technicals_invalid,
-            peers=peers_data,
-            peers_fallback_reason=v2_peers_fallback or peers_invalid,
-            macro_snapshot=macro_data,
-            macro_snapshot_fallback_reason=macro_fallback_reason or macro_invalid,
-            # Phase G2 new data
-            earnings_history=earnings_data,
-            analyst_targets=targets_data,
-            recommendations=recommendations_data,
-            indicator_series=series_data,
-        )
-    except Exception as exc:
-        logger.warning("[Dashboard] DashboardData construction failed")
-        data = DashboardData(
-            snapshot=raw_data.get("snapshot", {}),
-            charts=filtered_charts,
-            news={"market": [], "impact": []},
-            meta=meta_map,
-        )
-        state.debug["data_construction_error"] = "unavailable"
+    assets = [
+        raw_data.get("snapshot", {}),
+        filtered_charts,
+        raw_data.get("news", {}),
+        meta_map,
+        valuation_data,
+        v2_valuation_fallback,
+        valuation_invalid,
+        financials_data,
+        v2_financials_fallback,
+        financials_invalid,
+        technicals_data,
+        v2_technicals_fallback,
+        technicals_invalid,
+        peers_data,
+        v2_peers_fallback,
+        peers_invalid,
+        macro_data,
+        macro_fallback_reason,
+        macro_invalid,
+        earnings_data,
+        analyst_targets := targets_data,
+        recommendations_data,
+        series_data,
+    ]
+    if not any(isinstance(asset, (dict, list)) for asset in assets):
+        logger.warning("[Dashboard] DashboardData construction inputs unavailable")
+        assets = []
+
+    data = DashboardData(
+        snapshot=raw_data.get("snapshot", {}),
+        charts=filtered_charts,
+        news=raw_data.get("news", {}),
+        meta=meta_map,
+        valuation=valuation_data,
+        valuation_fallback_reason=(
+            v2_valuation_fallback if v2_valuation_fallback is not None else valuation_invalid
+        ),
+        financials=financials_data,
+        financials_fallback_reason=(
+            v2_financials_fallback if v2_financials_fallback is not None else financials_invalid
+        ),
+        technicals=technicals_data,
+        technicals_fallback_reason=(
+            v2_technicals_fallback if v2_technicals_fallback is not None else technicals_invalid
+        ),
+        peers=peers_data,
+        peers_fallback_reason=(v2_peers_fallback if v2_peers_fallback is not None else peers_invalid),
+        macro_snapshot=macro_data,
+        macro_snapshot_fallback_reason=(
+            macro_fallback_reason if macro_fallback_reason is not None else macro_invalid
+        ),
+        # Phase G2 new data
+        earnings_history=earnings_data,
+        analyst_targets=analyst_targets,
+        recommendations=recommendations_data,
+        indicator_series=series_data,
+    )
 
     return DashboardResponse(success=True, state=state, data=data)
 

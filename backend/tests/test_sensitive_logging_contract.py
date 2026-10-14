@@ -1088,7 +1088,7 @@ SECURITY_HARDENING_ROUNDS_1201_1300 = [
     ("R1248", "backend/api/chat_router.py", "[chat/supervisor] failed", "type(exc).__name__"),
     ("R1249", "backend/api/chat_router.py", "[chat/add-chart-data] failed", "type(exc).__name__"),
     ("R1250", "backend/api/dashboard_router.py", "[Dashboard] request failed", "type(exc).__name__"),
-    ("R1251", "backend/api/dashboard_router.py", "[Dashboard] DashboardData construction failed", "type(exc).__name__"),
+    ("R1251", "backend/api/dashboard_router.py", "[Dashboard] DashboardData construction inputs unavailable", "type(exc).__name__"),
     ("R1252", "backend/api/main.py", "[Init] Error importing tools", "type(e2).__name__"),
     ("R1253", "backend/api/main.py", "[Init] Error importing chart detector", "type(e).__name__"),
     ("R1254", "backend/api/main.py", "[Init] Error initializing MemoryService", "type(e).__name__"),
