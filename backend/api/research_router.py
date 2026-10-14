@@ -269,13 +269,23 @@ async def smart_qa(request: SmartQARequest):
             try:
                 from backend.tools import get_stock_price
                 quote = get_stock_price(ticker)
-                if quote and not quote.get("error"):
-                    price = quote.get("price") or quote.get("current_price", "N/A")
-                    # change_percent=0.0（平盘）是真实值，`or` 会把它当缺失
-                    # 顶替成 change_pct/"N/A"——平盘日显示"涨跌幅 N/A%"。
-                    _chg = quote.get("change_percent")
-                    change = _chg if _chg is not None else quote.get("change_pct", "N/A")
-                    context_parts.append(f"【最新行情】{ticker} 现价 {price}，涨跌幅 {change}%")
+                # tools/price.get_stock_price 返回 str（成功是源函数的格式化
+                # 文本，失败只有 price.py:160 一处 "Error: ..."）——旧代码对
+                # str 调 .get("error") 抛 AttributeError 被 except 吞掉，
+                # 【最新行情】永远注不进 /qa 的 prompt。按真实返回类型判错
+                # （同 :93-100 company_info、:123-130 news）。
+                if isinstance(quote, dict):
+                    if not quote.get("error"):
+                        price = quote.get("price") or quote.get("current_price", "N/A")
+                        # change_percent=0.0（平盘）是真实值，`or` 会把它当缺失
+                        # 顶替成 change_pct/"N/A"——平盘日显示"涨跌幅 N/A%"。
+                        _chg = quote.get("change_percent")
+                        change = _chg if _chg is not None else quote.get("change_pct", "N/A")
+                        context_parts.append(f"【最新行情】{ticker} 现价 {price}，涨跌幅 {change}%")
+                elif isinstance(quote, str):
+                    text = quote.strip()
+                    if text and not text.startswith("Error:"):
+                        context_parts.append(f"【最新行情】{text}")
             except Exception as exc:
                 logger.warning("stock price unavailable")
 

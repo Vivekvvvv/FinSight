@@ -184,3 +184,57 @@ def test_smart_qa_flat_day_change_not_rendered_as_na(monkeypatch):
     assert resp.status_code == 200, resp.text
     ctx = resp.json()["context_used"]
     assert any("涨跌幅 0.0%" in part for part in ctx), ctx
+
+
+def _qa_context(monkeypatch, quote_payload):
+    """跑一次 /qa，返回 context_used。get_stock_price 按 quote_payload 打桩。"""
+    from types import SimpleNamespace
+
+    import backend.llm_config as llm_config
+    import backend.tools as tools_pkg
+
+    monkeypatch.setattr(tools_pkg, "get_stock_price", lambda ticker: quote_payload)
+    monkeypatch.setattr(tools_pkg, "get_company_news", lambda ticker, limit=5: [])
+
+    class _FakeLLM:
+        async def ainvoke(self, _prompt):
+            return SimpleNamespace(content="ok")
+
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kw: _FakeLLM())
+
+    resp = _client().post(
+        "/api/research/qa", json={"question": "走势如何", "ticker": "AAPL"}
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["context_used"]
+
+
+def test_smart_qa_injects_price_context_for_real_str_quote(monkeypatch):
+    """tools/price.get_stock_price 的真实返回类型是 str（签名 `-> str`：成功是
+    源函数的格式化文本，失败只有 price.py:160 一处 "Error: ..."）。
+
+    旧代码 `if quote and not quote.get("error")` 对 str 调 .get 必抛
+    AttributeError，被紧邻的 `except Exception` 吞成一条 warning——
+    【最新行情】永远注不进 /qa 的 prompt，且是 100% 必触发（成功路径也是 str）。
+
+    同文件对完全相同的 bug 已修过两次并留了注释（:93-100 company_info、
+    :123-130 news），唯独 price 漏了。既有 /qa 用例喂的全是 dict，
+    是生产环境不存在的形状，所以测试面测不到这条路。"""
+    quote = "AAPL Current Price: $255.46 | Change: +1.20 (+0.47%)"
+
+    ctx = _qa_context(monkeypatch, quote)
+
+    assert any("最新行情" in part for part in ctx), ctx
+    assert any("255.46" in part for part in ctx), ctx
+
+
+def test_smart_qa_omits_price_context_for_error_string(monkeypatch):
+    """失败字符串与成功字符串同类型，必须按 "Error:" 前缀判错后丢弃，
+    不得把 "Error: All data sources failed..." 当行情注进模型上下文。"""
+    quote = "Error: All data sources failed to retrieve the price for AAPL. Please try again later."
+
+    ctx = _qa_context(monkeypatch, quote)
+
+    assert not any("最新行情" in part for part in ctx), ctx
+    assert not any("Error:" in part for part in ctx), ctx
+
