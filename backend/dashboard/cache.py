@@ -11,6 +11,7 @@ TTL 策略：
 import time
 import logging
 import math
+import threading
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,13 @@ class DashboardCache:
     def __init__(self) -> None:
         """初始化缓存存储"""
         self._store: dict[str, tuple[float, Any]] = {}
+        # _store 的每个读-改-写（get 的 check-then-del）与每次遍历
+        # （invalidate / invalidate_type / stats / cleanup 的推导式条件是
+        # Python 字节码，GIL 可在迭代间释放）都必须串行化：本单例被
+        # dashboard_router、insights_engine（fetcher 跑在 asyncio.to_thread）
+        # 与 DashboardDataService 共享，是真线程并发。锁取实例级而非模块级
+        # ——被保护的是 self._store，本就每实例一份（对照 orchestration/cache.py）。
+        self._lock = threading.RLock()
 
     @staticmethod
     def _normalize_ttl(value: Any, fallback: int) -> float:
@@ -85,18 +93,19 @@ class DashboardCache:
             Any | None: 缓存数据，若不存在或已过期则返回 None
         """
         key = self._key(symbol, data_type)
-        entry = self._store.get(key)
+        with self._lock:
+            entry = self._store.get(key)
 
-        if entry is None:
-            return None
+            if entry is None:
+                return None
 
-        expires_at, value = entry
+            expires_at, value = entry
 
-        # 检查是否过期
-        if time.time() > expires_at:
-            del self._store[key]
-            logger.debug("Cache expired")
-            return None
+            # 检查是否过期
+            if time.time() > expires_at:
+                del self._store[key]
+                logger.debug("Cache expired")
+                return None
 
         logger.debug("Cache hit")
         return value
@@ -121,28 +130,29 @@ class DashboardCache:
             (data, is_stale): data 为缓存数据或 None; is_stale 表示是否已过期
         """
         key = self._key(symbol, data_type)
-        entry = self._store.get(key)
+        with self._lock:
+            entry = self._store.get(key)
 
-        if entry is None:
-            return None, False
+            if entry is None:
+                return None, False
 
-        expires_at, value = entry
-        now = time.time()
+            expires_at, value = entry
+            now = time.time()
 
-        if now <= expires_at:
-            # Fresh
-            logger.debug("Cache hit (fresh)")
-            return value, False
+            if now <= expires_at:
+                # Fresh
+                logger.debug("Cache hit (fresh)")
+                return value, False
 
-        # Expired but within stale window?
-        stale_ttl = self._normalize_ttl(stale_ttl, self.TTL_INSIGHTS_STALE)
-        stale_deadline = expires_at + stale_ttl
-        if now <= stale_deadline:
-            logger.debug("Cache hit (stale)")
-            return value, True
+            # Expired but within stale window?
+            stale_ttl = self._normalize_ttl(stale_ttl, self.TTL_INSIGHTS_STALE)
+            stale_deadline = expires_at + stale_ttl
+            if now <= stale_deadline:
+                logger.debug("Cache hit (stale)")
+                return value, True
 
-        # Beyond stale window — treat as miss
-        del self._store[key]
+            # Beyond stale window — treat as miss
+            del self._store[key]
         logger.debug("Cache expired beyond stale window")
         return None, False
 
@@ -188,7 +198,8 @@ class DashboardCache:
         key = self._key(symbol, data_type)
         ttl = self._normalize_ttl(ttl, 0)
         expires_at = time.time() + ttl
-        self._store[key] = (expires_at, value)
+        with self._lock:
+            self._store[key] = (expires_at, value)
         logger.debug("Cache set")
 
     def invalidate(self, symbol: str) -> None:
@@ -199,10 +210,11 @@ class DashboardCache:
             symbol: 资产代码
         """
         prefix = f"dashboard:{symbol.upper()}:"
-        keys_to_delete = [k for k in self._store if k.startswith(prefix)]
+        with self._lock:
+            keys_to_delete = [k for k in self._store if k.startswith(prefix)]
 
-        for key in keys_to_delete:
-            del self._store[key]
+            for key in keys_to_delete:
+                del self._store[key]
 
         if keys_to_delete:
             logger.debug("Invalidated symbol cache entries")
@@ -215,18 +227,20 @@ class DashboardCache:
             data_type: 数据类型
         """
         suffix = f":{data_type}"
-        keys_to_delete = [k for k in self._store if k.endswith(suffix)]
+        with self._lock:
+            keys_to_delete = [k for k in self._store if k.endswith(suffix)]
 
-        for key in keys_to_delete:
-            del self._store[key]
+            for key in keys_to_delete:
+                del self._store[key]
 
         if keys_to_delete:
             logger.debug("Invalidated cache entries by data type")
 
     def clear(self) -> None:
         """清空所有缓存"""
-        count = len(self._store)
-        self._store.clear()
+        with self._lock:
+            count = len(self._store)
+            self._store.clear()
         logger.debug("Cache cleared")
 
     def stats(self) -> dict[str, Any]:
@@ -237,17 +251,18 @@ class DashboardCache:
             dict: 包含缓存条目数量和各类型统计
         """
         now = time.time()
-        total = len(self._store)
-        expired = sum(1 for _, (exp, _) in self._store.items() if now > exp)
-        active = total - expired
+        with self._lock:
+            total = len(self._store)
+            expired = sum(1 for _, (exp, _) in self._store.items() if now > exp)
+            active = total - expired
 
-        # 按数据类型统计
-        type_counts: dict[str, int] = {}
-        for key in self._store:
-            parts = key.split(":")
-            if len(parts) >= 3:
-                data_type = parts[-1]
-                type_counts[data_type] = type_counts.get(data_type, 0) + 1
+            # 按数据类型统计
+            type_counts: dict[str, int] = {}
+            for key in self._store:
+                parts = key.split(":")
+                if len(parts) >= 3:
+                    data_type = parts[-1]
+                    type_counts[data_type] = type_counts.get(data_type, 0) + 1
 
         return {
             "total_entries": total,
@@ -264,13 +279,14 @@ class DashboardCache:
             int: 清理的条目数量
         """
         now = time.time()
-        expired_keys = [
-            key for key, (expires_at, _) in self._store.items()
-            if now > expires_at
-        ]
+        with self._lock:
+            expired_keys = [
+                key for key, (expires_at, _) in self._store.items()
+                if now > expires_at
+            ]
 
-        for key in expired_keys:
-            del self._store[key]
+            for key in expired_keys:
+                del self._store[key]
 
         if expired_keys:
             logger.debug("Cleaned up expired cache entries")

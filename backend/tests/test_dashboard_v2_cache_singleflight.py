@@ -157,6 +157,63 @@ def test_dashboard_cache_invalid_stale_ttl_uses_bounded_default(monkeypatch, inv
     assert cache.get_with_stale("AAPL", "insights", stale_ttl=invalid_ttl) == (None, False)
 
 
+def test_dashboard_cache_concurrent_get_on_expired_key_does_not_raise(monkeypatch):
+    """DashboardCache.get 是 check-then-act 且全类零锁：
+    `entry = self._store.get(key)` → `if time.time() > expires_at` →
+    `del self._store[key]`。两个线程读到同一条过期 entry 后都会走到 del，
+    第二个抛未捕获的 KeyError 出 get()。
+
+    这不只是协程交错：该单例被 dashboard_router、insights_engine（其 fetcher
+    跑在 asyncio.to_thread 里）和 DashboardDataService 三方共享，是真线程并发。
+    兄弟模块 backend/orchestration/cache.py 对同一类操作持 threading.RLock，
+    本类 Lock 出现 0 次。
+
+    用时间函数做闸：get() 先读 entry、后调 time.time()，所以在 time.time()
+    处挂住第一个线程，可确定性地让两个线程都已持有同一条 entry。
+    """
+    import threading
+
+    cache = DashboardCache()
+    cache.set("AAPL", "snapshot", {"price": 1}, ttl=60)
+
+    # expires_at 由上面的真实 epoch 决定，闸函数必须返回相对真实时钟的未来时刻
+    expired_at = cache_module.time.time() + 10_000.0
+    first_in = threading.Event()
+    proceed = threading.Event()
+
+    def gated_time():
+        if threading.current_thread().name.startswith("cacherace"):
+            if not first_in.is_set():
+                first_in.set()
+                proceed.wait(timeout=5.0)
+        # 远超 expires_at，两个线程都判过期
+        return expired_at
+
+    monkeypatch.setattr(cache_module.time, "time", gated_time)
+
+    errors: list[BaseException] = []
+    results: list[object] = []
+
+    def worker():
+        try:
+            results.append(cache.get("AAPL", "snapshot"))
+        except BaseException as exc:  # noqa: BLE001 - 本用例就是要捕获崩溃
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, name=f"cacherace-{i}") for i in range(2)]
+    for thread in threads:
+        thread.start()
+    first_in.wait(timeout=5.0)
+    proceed.set()
+    for thread in threads:
+        thread.join(timeout=10.0)
+        assert not thread.is_alive()
+
+    assert errors == [], errors
+    assert results == [None, None], results
+
+
+
 @pytest.mark.asyncio
 async def test_dashboard_bad_section_payload_does_not_blank_healthy_sections(monkeypatch):
     """DashboardData 构造层缺陷：v2/g2 各段的 fetch 已按段隔离（failure
