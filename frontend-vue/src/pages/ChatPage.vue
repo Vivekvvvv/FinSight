@@ -106,7 +106,15 @@ function loadLocalHistory() {
     if (!Array.isArray(parsed)) return;
     applyHistory(parsed as ChatStreamMessage[]);
   } catch {
-    window.localStorage.removeItem(chatStorageKey());
+    // 隐私模式 / 存储被禁时 getItem 抛错，removeItem 同样会抛——catch 体
+    // 不再设防会让异常冒出本函数，onMounted 就此中断：loadRemoteHistory()
+    // 不执行、hydrating 永久为 true（persistLocalHistory 从此空转，聊天
+    // 再也不落盘）、prefill 不发送。逐层 try 同 stores/identity.ts 的写法。
+    try {
+      window.localStorage.removeItem(chatStorageKey());
+    } catch {
+      // best-effort：清理失败不应影响后续加载流程
+    }
   }
 }
 
