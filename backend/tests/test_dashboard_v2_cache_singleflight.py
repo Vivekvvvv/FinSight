@@ -309,3 +309,70 @@ async def test_dashboard_no_construction_fallback_when_healthy(monkeypatch):
     assert resp.data.news == {"market": [{"title": "t"}], "impact": []}
     assert resp.data.macro_snapshot is not None
     assert resp.data.macro_snapshot.fear_greed_index == 50.0
+
+
+@pytest.mark.asyncio
+async def test_chart_fetch_exception_is_not_cached_as_valid_empty(monkeypatch):
+    """图表 fetch 的异常降级必须与"真的为空"可区分。
+
+    data_fetchers.fetch_market_chart 的 docstring 定了本模块的规则——
+    "Returning ``None`` (not ``[]``) on failure ensures the caller does NOT
+    cache an empty result as valid data"。但 fetch_sector_weights /
+    fetch_top_constituents / fetch_holdings / fetch_revenue_trend /
+    fetch_segment_mix 的 except 分支返回 `[]`，与其"类型不适用"和"上游确实
+    没有数据"两种合法空完全同形。
+
+    而 dashboard_router.py:396 唯一的失败判据是 `value is None`，于是 FMP
+    瞬时故障（502）会走成：fallback_reasons 不记、meta 的 fallback_used=False
+    且 confidence=0.85、charts 按完整 TTL_CHARTS 缓存——"这只 ETF 没有持仓"
+    被当成高置信度事实缓存一整个 TTL 窗口。
+    """
+    import backend.tools.fmp as fmp
+
+    cache = DashboardCache()
+    recorded_ttls: dict[str, int] = {}
+    real_set = cache.set
+
+    def recording_set(symbol, key, value, ttl=None):
+        recorded_ttls[key] = ttl
+        return real_set(symbol, key, value, ttl=ttl)
+
+    monkeypatch.setattr(cache, "set", recording_set)
+    monkeypatch.setattr(dashboard_router_module, "dashboard_cache", cache)
+
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_snapshot", lambda *a, **k: {"price": 1}
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_market_chart", lambda *a, **k: [{"t": 1}]
+    )
+    # sector_weights 打桩成合法空，避免真实网络调用；holdings 用真实实现。
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_sector_weights", lambda *a, **k: []
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_news", lambda *a, **k: {"market": [], "impact": []}
+    )
+    monkeypatch.setattr(
+        dashboard_router_module, "fetch_macro_snapshot",
+        lambda *a, **k: {"fear_greed_index": 50.0},
+    )
+
+    def _boom(_symbol, limit=50):
+        raise RuntimeError("fmp 502")
+
+    monkeypatch.setattr(fmp, "get_etf_holdings", _boom)
+
+    resp = await dashboard_router_module.get_dashboard(symbol="SPY")
+
+    # 瞬时故障必须显式记为该段降级
+    assert "holdings_unavailable" in resp.state.debug.get("fallback_reasons", []), (
+        resp.state.debug
+    )
+    # meta 不得把失败报成高置信度
+    holdings_meta = resp.data.meta.get("holdings", {})
+    assert holdings_meta.get("fallback_used") is True, holdings_meta
+    assert holdings_meta.get("confidence") == 0.35, holdings_meta
+    # 不得按完整 TTL 缓存失败结果
+    assert recorded_ttls.get("charts") == 30, recorded_ttls
+

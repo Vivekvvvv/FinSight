@@ -208,7 +208,14 @@ def fetch_snapshot(symbol: str, asset_type: str) -> dict[str, Any] | None:
         return None  # failure — do not cache
 
 
-def fetch_revenue_trend(symbol: str) -> list[dict[str, Any]]:
+def fetch_revenue_trend(symbol: str) -> list[dict[str, Any]] | None:
+    """Return revenue-trend rows, or ``None`` on fetch failure.
+
+    ``[]`` means "upstream has no revenue data for this asset" and is valid,
+    cacheable data; ``None`` means the fetch itself failed. The caller
+    (dashboard_router) only treats ``None`` as failure, so collapsing the two
+    makes a transient outage cache as "this company has no revenue".
+    """
     try:
         import yfinance as yf
 
@@ -242,10 +249,11 @@ def fetch_revenue_trend(symbol: str) -> list[dict[str, Any]]:
         return output[-8:]
     except Exception as exc:
         logger.warning("[DataService] fetch_revenue_trend failed")
-        return []
+        return None  # exception — do not cache as valid
 
 
-def fetch_segment_mix(symbol: str) -> list[dict[str, Any]]:
+def fetch_segment_mix(symbol: str) -> list[dict[str, Any]] | None:
+    """Return segment-mix rows, or ``None`` on fetch failure (see fetch_revenue_trend)."""
     try:
         from backend.tools.fmp import get_revenue_product_segmentation
 
@@ -262,7 +270,7 @@ def fetch_segment_mix(symbol: str) -> list[dict[str, Any]]:
         ]
     except Exception as exc:
         logger.warning("[DataService] fetch_segment_mix failed")
-        return []
+        return None  # exception — do not cache as valid
 
 
 def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
@@ -328,9 +336,10 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
         return _empty_news_payload()
 
 
-def fetch_sector_weights(symbol: str, asset_type: str) -> list[dict[str, Any]]:
+def fetch_sector_weights(symbol: str, asset_type: str) -> list[dict[str, Any]] | None:
+    """Return sector weights, or ``None`` on fetch failure (see fetch_revenue_trend)."""
     if asset_type not in {"etf", "index"}:
-        return []
+        return []  # not applicable for this asset type — valid empty
     try:
         from backend.tools.fmp import get_etf_sector_weights
 
@@ -343,12 +352,13 @@ def fetch_sector_weights(symbol: str, asset_type: str) -> list[dict[str, Any]]:
         ]
     except Exception as exc:
         logger.warning("[DataService] fetch_sector_weights failed")
-        return []
+        return None  # exception — do not cache as valid
 
 
-def fetch_top_constituents(symbol: str, asset_type: str, limit: int = 10) -> list[dict[str, Any]]:
+def fetch_top_constituents(symbol: str, asset_type: str, limit: int = 10) -> list[dict[str, Any]] | None:
+    """Return index constituents, or ``None`` on fetch failure (see fetch_revenue_trend)."""
     if asset_type != "index":
-        return []
+        return []  # not applicable for this asset type — valid empty
     try:
         from backend.tools.fmp import get_index_constituents
 
@@ -365,12 +375,13 @@ def fetch_top_constituents(symbol: str, asset_type: str, limit: int = 10) -> lis
         ]
     except Exception as exc:
         logger.warning("[DataService] fetch_top_constituents failed")
-        return []
+        return None  # exception — do not cache as valid
 
 
-def fetch_holdings(symbol: str, asset_type: str, limit: int = 50) -> list[dict[str, Any]]:
+def fetch_holdings(symbol: str, asset_type: str, limit: int = 50) -> list[dict[str, Any]] | None:
+    """Return ETF/portfolio holdings, or ``None`` on fetch failure (see fetch_revenue_trend)."""
     if asset_type not in {"etf", "portfolio"}:
-        return []
+        return []  # not applicable for this asset type — valid empty
     try:
         from backend.tools.fmp import get_etf_holdings
 
@@ -389,7 +400,7 @@ def fetch_holdings(symbol: str, asset_type: str, limit: int = 50) -> list[dict[s
         ]
     except Exception as exc:
         logger.warning("[DataService] fetch_holdings failed")
-        return []
+        return None  # exception — do not cache as valid
 
 from backend.dashboard.data_fetchers_equity import (
     _build_ohlcv_frame_from_rows,

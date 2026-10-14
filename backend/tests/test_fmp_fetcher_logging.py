@@ -19,7 +19,7 @@ def test_fetch_sector_weights_logs_on_failure(monkeypatch, caplog):
     monkeypatch.setattr(fmp, "get_etf_sector_weights", _boom)
     with caplog.at_level(logging.WARNING):
         result = ds.fetch_sector_weights("SPY", "etf")
-    assert result == []
+    assert result is None
     assert any("fetch_sector_weights failed" in r.message for r in caplog.records)
 
 
@@ -30,7 +30,7 @@ def test_fetch_holdings_logs_on_failure(monkeypatch, caplog):
     monkeypatch.setattr(fmp, "get_etf_holdings", _boom)
     with caplog.at_level(logging.WARNING):
         result = ds.fetch_holdings("SPY", "etf")
-    assert result == []
+    assert result is None
     assert any("fetch_holdings failed" in r.message for r in caplog.records)
 
 
@@ -41,5 +41,5 @@ def test_fetch_top_constituents_logs_on_failure(monkeypatch, caplog):
     monkeypatch.setattr(fmp, "get_index_constituents", _boom)
     with caplog.at_level(logging.WARNING):
         result = ds.fetch_top_constituents("^GSPC", "index")
-    assert result == []
+    assert result is None
     assert any("fetch_top_constituents failed" in r.message for r in caplog.records)

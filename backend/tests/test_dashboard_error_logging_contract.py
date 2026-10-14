@@ -85,7 +85,7 @@ def test_revenue_trend_error_log_is_redacted(monkeypatch, caplog):
 
     monkeypatch.setattr(yfinance, "Ticker", fail_ticker)
 
-    assert data_service.fetch_revenue_trend("AAPL") == []
+    assert data_service.fetch_revenue_trend("AAPL") is None
     assert secret not in caplog.text
     assert "[DataService]" in caplog.text
 
@@ -100,7 +100,7 @@ def test_segment_mix_error_log_is_redacted(monkeypatch, caplog):
 
     monkeypatch.setattr(fmp, "get_revenue_product_segmentation", fail_segments)
 
-    assert data_service.fetch_segment_mix("AAPL") == []
+    assert data_service.fetch_segment_mix("AAPL") is None
     assert secret not in caplog.text
     assert "[DataService]" in caplog.text
 
@@ -171,7 +171,7 @@ def test_sector_weights_error_log_is_redacted(monkeypatch, caplog):
 
     monkeypatch.setattr(fmp, "get_etf_sector_weights", fail_weights)
 
-    assert data_service.fetch_sector_weights("SPY", "etf") == []
+    assert data_service.fetch_sector_weights("SPY", "etf") is None
     assert secret not in caplog.text
     assert "[DataService]" in caplog.text
 
@@ -186,7 +186,7 @@ def test_top_constituents_error_log_is_redacted(monkeypatch, caplog):
 
     monkeypatch.setattr(fmp, "get_index_constituents", fail_constituents)
 
-    assert data_service.fetch_top_constituents("SPX", "index") == []
+    assert data_service.fetch_top_constituents("SPX", "index") is None
     assert secret not in caplog.text
     assert "[DataService]" in caplog.text
 
@@ -201,7 +201,7 @@ def test_holdings_error_log_is_redacted(monkeypatch, caplog):
 
     monkeypatch.setattr(fmp, "get_etf_holdings", fail_holdings)
 
-    assert data_service.fetch_holdings("SPY", "etf") == []
+    assert data_service.fetch_holdings("SPY", "etf") is None
     assert secret not in caplog.text
     assert "[DataService]" in caplog.text
 
