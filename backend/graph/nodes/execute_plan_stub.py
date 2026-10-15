@@ -119,6 +119,31 @@ async def execute_plan_stub(state: GraphState) -> dict:
         if isinstance(output, dict) and output.get("skipped"):
             return
 
+        # 失败串不得当可引用证据：langchain_tools.get_stock_price:295-301 与
+        # tools_bridge:131/142 都以 "Error: ..." 纯文本返回失败（tools/price.py:160
+        # 同格式）。这种字符串既不是 dict 也不是 list，会掉到本函数最后的兜底
+        # 分支，被塞成 type="tool"、confidence=0.6 的正常证据：下游
+        # report_payload._build_citations 会为它建引用、:659 起的 RAG 入库还会
+        # 按 evidence_type 给它算 TTL 存进向量库，报告里于是出现
+        # "All data sources failed to retrieve the price" 冒充事实。
+        # 不静默丢弃（对照本函数 :130-140 的处理）：显式记一条 type="tool_error"
+        # 的失败证据，保留出处但明显区别于正常结论。
+        if isinstance(output, str) and output.lstrip().startswith("Error:"):
+            logger.warning("[ExecutePlan] tool returned error text")
+            evidence_pool.append(
+                {
+                    "title": f"{tool_name} failed",
+                    "url": None,
+                    "snippet": f"error={output.strip()[:800]}",
+                    "source": tool_name,
+                    "published_date": None,
+                    "confidence": 0.0,
+                    "type": "tool_error",
+                    "id": f"{tool_name}:{step_id}",
+                }
+            )
+            return
+
         # Some tools return JSON text (e.g. get_company_news). Try to parse.
         if isinstance(output, str):
             try:

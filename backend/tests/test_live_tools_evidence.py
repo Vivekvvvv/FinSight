@@ -388,3 +388,100 @@ def test_execute_plan_stub_expands_media_and_transcript_tools(monkeypatch):
 
     assert any(item.get("type") == "news" and "Reuters" in str(item.get("source") or "") for item in pool)
     assert any(item.get("type") == "transcript" and "transcript" in str(item.get("title") or "").lower() for item in pool)
+
+
+def _price_failure_state(tool_output):
+    """最小 plan_ir：单步 tool，输出由调用方给定。"""
+    return {
+        "plan_ir": {
+            "goal": "x",
+            "subject": {"subject_type": "unknown", "tickers": [], "selection_ids": [], "selection_types": [], "selection_payload": []},
+            "output_mode": "brief",
+            "steps": [
+                {
+                    "id": "s1",
+                    "kind": "tool",
+                    "name": "get_stock_price",
+                    "inputs": {"ticker": "AAPL"},
+                    "why": "unit",
+                    "optional": False,
+                }
+            ],
+            "budget": {"max_rounds": 1, "max_tools": 1},
+            "synthesis": {"style": "concise", "sections": []},
+        },
+        "policy": {"allowed_tools": ["get_stock_price"], "budget": {"max_rounds": 1, "max_tools": 1}},
+        "subject": {"subject_type": "unknown", "selection_payload": []},
+        "trace": {},
+    }
+
+
+def test_tool_error_string_is_not_ingested_as_citable_evidence(monkeypatch):
+    """取价失败的错误串不得进 evidence_pool 当可引用证据。
+
+    langchain_tools.get_stock_price:295-301 与 tools_bridge:131/142 都以
+    `"Error: ..."` 纯文本返回失败（tools/price.py:160 是同一格式）。这种
+    输出在 _append_tool_evidence 里落到最后的兜底分支：不是 dict、不是
+    list、没有专属 tool 分支，于是被塞成一条 type="tool"、confidence=0.6
+    的证据。下游 synthesize 把它当普通工具结论引用，报告里就会出现
+    "All data sources failed to retrieve the price" 之类的句子冒充事实。
+    """
+    monkeypatch.setenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", "true")
+
+    error_text = (
+        "Error: All data sources failed to retrieve the price for AAPL. "
+        "Please try again later."
+    )
+
+    class _FailingTool:
+        def __init__(self, name: str):
+            self.name = name
+
+        def invoke(self, inputs):
+            return error_text
+
+    import backend.langchain_tools as tools_mod
+
+    monkeypatch.setattr(tools_mod, "get_tool_by_name", lambda name: _FailingTool(name))
+
+    from backend.graph.nodes.execute_plan_stub import execute_plan_stub
+
+    out = _run(execute_plan_stub(_price_failure_state(error_text)))
+    pool = (out.get("artifacts") or {}).get("evidence_pool") or []
+
+    leaked = [
+        e
+        for e in pool
+        if str(e.get("type")) == "tool"
+        and "All data sources failed" in str(e.get("snippet") or "")
+    ]
+    assert leaked == [], f"失败串被当成可引用证据: {leaked}"
+
+    # 但也不能静默丢弃：必须留一条显式降级记录，且不得带可引用置信度。
+    degraded = [e for e in pool if str(e.get("type")) == "tool_error"]
+    assert len(degraded) == 1, pool
+    assert degraded[0]["confidence"] == 0.0
+    assert degraded[0]["title"] == "get_stock_price failed"
+
+
+def test_tool_success_string_is_still_ingested(monkeypatch):
+    """对照组：正常文本输出必须照旧进池，避免上面那条守卫把正常路径也吞了。"""
+    monkeypatch.setenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", "true")
+
+    class _OkTool:
+        def __init__(self, name: str):
+            self.name = name
+
+        def invoke(self, inputs):
+            return "AAPL 现价 255.46，涨跌幅 +1.20%"
+
+    import backend.langchain_tools as tools_mod
+
+    monkeypatch.setattr(tools_mod, "get_tool_by_name", lambda name: _OkTool(name))
+
+    from backend.graph.nodes.execute_plan_stub import execute_plan_stub
+
+    out = _run(execute_plan_stub(_price_failure_state("AAPL 现价 255.46")))
+    pool = (out.get("artifacts") or {}).get("evidence_pool") or []
+
+    assert any("255.46" in str(e.get("snippet") or "") for e in pool), pool
