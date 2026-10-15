@@ -4,6 +4,8 @@ import builtins
 import logging
 from datetime import datetime, timezone
 
+import pytest
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -674,6 +676,68 @@ def test_synthesize_narrative_persists_verifier_result(monkeypatch):
     verifier = artifacts.get("verifier_result") or {}
     assert verifier.get("checked") is True
     assert len(verifier.get("unsupported_claims") or []) == 1
+
+
+def _narrative_state(persona_id: str) -> dict:
+    """narrative 模式的真实 state 形状。
+
+    关键在 persona_id/persona_config 两项：build_initial_state:63-65 无条件
+    写入它们（`get_persona(None).id == "neutral"` 也是真值），所以任何走完
+    整管线的请求在 synthesize 里都带着真值 persona_id。既有的
+    test_synthesize_narrative_persists_verifier_result 手搓 state 时漏了
+    这两项，才让 persona 观测分支从未被执行过。
+    """
+    from backend.personas.registry import get_persona
+
+    persona = get_persona(persona_id)
+    return {
+        "query": "investment report",
+        "output_mode": "investment_report",
+        "ui_context": {"analysis_depth": "deep_research"},
+        "operation": {"name": "investment_report", "confidence": 0.8, "params": {}},
+        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+        "artifacts": {"step_results": {}, "evidence_pool": []},
+        "trace": {},
+        "persona_id": persona.id,
+        "persona_config": persona.model_dump(),
+    }
+
+
+@pytest.mark.parametrize(
+    ("persona_id", "expect_lens_applied"),
+    [("neutral", False), ("value_investor", True)],
+)
+def test_synthesize_narrative_records_persona_lens_without_crashing(
+    monkeypatch, persona_id, expect_lens_applied
+):
+    """narrative 模式 + 真值 persona_id 必须活着跑完并如实记录 lens 是否生效。
+
+    synthesize.py:159 原本写的是 `bool(persona_lens_block)`，而该名字只在
+    synthesize_narrative.py:191 里作为局部变量存在——本模块既没定义也没导入
+    （:41 导入的是 `_format_persona_lens` 函数本身，且除此行外无处使用）。
+    于是 `if _persona_id:` 为真时必抛 NameError，而该条件在真实管线里恒为真，
+    narrative 模式 100% 崩在这一行。
+
+    两种 persona 都钉住，避免"把表达式硬编码成 False"式的假修复：neutral 的
+    synthesis_lens 为空串 → 未注入；value_investor 非空 → 已注入。
+    """
+    monkeypatch.setenv("LANGGRAPH_SYNTHESIZE_MODE", "narrative")
+
+    import importlib
+    synth_mod = importlib.import_module("backend.graph.nodes.synthesize")
+
+    async def _fake_generate(_state, _render_vars, _trace):
+        return ("## report\n\ncontent", {"enabled": True, "checked": True})
+
+    monkeypatch.setattr(synth_mod, "_generate_narrative_draft", _fake_generate)
+
+    state = _narrative_state(persona_id)
+    out = _run(synth_mod.synthesize(state))
+
+    runtime = (out.get("trace") or {}).get("synthesize_runtime") or {}
+    assert runtime.get("persona_id") == persona_id
+    assert runtime.get("persona_lens_applied") is expect_lens_applied
+    assert (out.get("artifacts") or {}).get("draft_markdown")
 
 
 def test_compute_unresolved_unsupported_claims_returns_residual_claims():

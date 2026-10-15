@@ -156,7 +156,7 @@ async def synthesize(state: GraphState) -> dict:
         _persona_id = state.get("persona_id")
         if _persona_id:
             synth_runtime["persona_id"] = str(_persona_id)
-            synth_runtime["persona_lens_applied"] = bool(persona_lens_block)
+            synth_runtime["persona_lens_applied"] = bool(_format_persona_lens(state))
         if isinstance(verifier_result, dict):
             synth_runtime["verifier_enabled"] = bool(verifier_result.get("enabled"))
             synth_runtime["verifier_checked"] = bool(verifier_result.get("checked"))
