@@ -382,6 +382,12 @@ test('AI 助手 K 线跟随周期和标的更新', async ({ page }) => {
 
   await page.goto('/chat');
   const panel = page.getByLabel('标的 K 线');
+  // 027c210 刻意把 /chat 的 K 线收进 <details class="kline-fold">（对话区从
+  // 94px 释放到 ~390px），默认收起是预期行为——一并钉住，避免静默退回。
+  // 对照 /dossier 是直接挂载，所以那边无需展开。
+  await expect(panel).toBeHidden();
+  await page.locator('.kline-fold summary').click();
+
   await expect(panel).toBeVisible();
   await expect(panel.getByText('AAPL · 日 K')).toBeVisible();
   await expect(panel.getByText('mock-kline')).toBeVisible();
