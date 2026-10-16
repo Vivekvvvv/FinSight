@@ -65,7 +65,9 @@ const latestReport = computed(() => reports.value[0] || null);
 const latestNote = computed(() => notes.value[0] || null);
 const criticalChanges = computed(() => whatChanged.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
 const criticalTimeline = computed(() => timelineEvents.value.filter((item) => ['high', 'critical'].includes(item.severity)).length);
-const healthScore = computed(() => qualitySummary.value?.health_score ?? 100);
+// 接口失败时 qualitySummary 为 null，此时必须显示"不可用"而不是兜底成满分 100——
+// 那会把后端故障渲染成"研究库很健康"，属于静默降级。
+const healthScore = computed(() => qualitySummary.value?.health_score ?? null);
 const quoteView = computed<QuoteView>(() => {
   const payload = quote.value as { ticker?: string; data?: Record<string, unknown> } | null;
   const raw = payload?.data || {};
@@ -344,8 +346,8 @@ watch(() => route.params.symbol, () => {
       </article>
       <article class="metric-card">
         <span>研究健康度</span>
-        <strong>{{ healthScore }}</strong>
-        <em>{{ qualityIssues.length }} 个复查点</em>
+        <strong>{{ healthScore == null ? '—' : healthScore }}</strong>
+        <em>{{ healthScore == null ? '暂不可用' : `${qualityIssues.length} 个复查点` }}</em>
       </article>
       <article class="metric-card">
         <span>结论冲突</span>

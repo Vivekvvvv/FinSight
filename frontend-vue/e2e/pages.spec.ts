@@ -329,6 +329,29 @@ test('/dashboard/AAPL redirect 到 /dossier/AAPL，行情与研究资产可见',
   await expect(page.getByText('AAPL 服务业务复查笔记')).toBeVisible();
 });
 
+test('档案页研究质量接口正常时，健康度展示后端分数', async ({ page }) => {
+  await page.goto('/dossier/AAPL');
+
+  const card = page.locator('.metric-card').filter({ hasText: '研究健康度' });
+  await expect(card.locator('strong')).toHaveText('96');
+  await expect(card.locator('em')).toHaveText('0 个复查点');
+});
+
+// SymbolDossierPage 在 /api/research-quality 失败时把 qualitySummary 置 null，
+// 旧写法 `health_score ?? 100` 随即兜底成满分——故障被渲染成"研究健康度 100 ·
+// 0 个复查点"，后端整体宕机时同样如此。失败必须显式呈现为不可用，不能冒充满分。
+test('档案页研究质量接口失败时，健康度不得显示满分', async ({ page }) => {
+  await page.unroute('**/api/research-quality**');
+  await page.route('**/api/research-quality**', (route) => json(route, { detail: 'boom' }, 500));
+
+  await page.goto('/dossier/AAPL');
+  await expect(page.getByText('1 个数据模块暂时不可用')).toBeVisible();
+
+  const card = page.locator('.metric-card').filter({ hasText: '研究健康度' });
+  await expect(card.locator('strong')).toHaveText('—');
+  await expect(card.locator('em')).toHaveText('暂不可用');
+});
+
 test('美股档案兼容标准报价字段并展示真实分时降级', async ({ page }) => {
   await page.unroute('**/api/quote/**');
   await page.unroute('**/api/kline/**');
