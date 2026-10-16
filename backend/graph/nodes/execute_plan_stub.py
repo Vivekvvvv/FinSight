@@ -677,6 +677,12 @@ async def execute_plan_stub(state: GraphState) -> dict:
             )
 
             for idx, evidence in enumerate(deduped[:80]):
+                # tool_error 降级条目（见 _append_tool_evidence）只给 prompt 看，
+                # 不入向量库：否则按 ephemeral TTL 留存，行情恢复后同 collection
+                # 的后续请求仍会检索到陈旧的失败文本。continue 不打乱 enumerate，
+                # 其余条目的 idx（_build_rag_doc_id 依赖它）保持不变。
+                if evidence.get("type") == "tool_error":
+                    continue
                 title = str(evidence.get("title") or "").strip()
                 raw_content = _build_source_doc_content(evidence)
                 if not raw_content:

@@ -485,3 +485,105 @@ def test_tool_success_string_is_still_ingested(monkeypatch):
     pool = (out.get("artifacts") or {}).get("evidence_pool") or []
 
     assert any("255.46" in str(e.get("snippet") or "") for e in pool), pool
+
+
+def test_tool_error_entry_is_not_ingested_into_rag(monkeypatch):
+    """tool_error 降级条目只给 prompt 看，不得写进向量库。
+
+    c6aa360 把 "Error: ..." 改成 type="tool_error"、confidence=0.0 的显式
+    条目，但 RAG 入库循环（execute_plan_stub 的 `for idx, evidence in
+    enumerate(deduped[:80])`）只看 _build_source_doc_content 是否非空，
+    不看 type。该条目有 title + snippet，于是仍被切块写进 collection，
+    按 ephemeral TTL（默认 12h）留存：行情恢复后，同 collection 的后续
+    请求仍可能检索到 "get_stock_price failed ... All data sources failed"
+    这一块陈旧失败文本。健康证据（本例的 news selection）必须照常入库。
+    """
+    monkeypatch.setenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", "true")
+    monkeypatch.setenv("RAG_V2_BACKEND", "memory")
+    monkeypatch.setenv("RAG_V2_TOP_K", "3")
+
+    import backend.rag.hybrid_service as hybrid_service
+
+    hybrid_service.reset_rag_service_cache()
+    service = hybrid_service.get_rag_service()
+    ingested: list = []
+    real_ingest = service.ingest_documents
+
+    def _recording_ingest(docs):
+        ingested.extend(docs)
+        return real_ingest(docs)
+
+    monkeypatch.setattr(service, "ingest_documents", _recording_ingest)
+
+    class _FailingTool:
+        def __init__(self, name: str):
+            self.name = name
+
+        def invoke(self, inputs):
+            return "Error: All data sources failed to retrieve the price for AAPL. Please try again later."
+
+    import backend.langchain_tools as tools_mod
+
+    monkeypatch.setattr(tools_mod, "get_tool_by_name", lambda name: _FailingTool(name))
+
+    from backend.graph.nodes.execute_plan_stub import execute_plan_stub
+
+    news = {
+        "id": "n1",
+        "type": "news",
+        "title": "Apple reports strong iPhone demand",
+        "snippet": "Revenue guidance improved with stronger iPhone upgrades.",
+        "source": "news",
+        "url": "https://example.com/apple-1",
+    }
+    state = {
+        "thread_id": "thread-rag-tool-error",
+        "query": "苹果最近业绩和iPhone需求怎么样",
+        "plan_ir": {
+            "goal": "x",
+            "subject": {
+                "subject_type": "company",
+                "tickers": ["AAPL"],
+                "selection_ids": ["n1"],
+                "selection_types": ["news"],
+                "selection_payload": [news],
+            },
+            "output_mode": "investment_report",
+            "steps": [
+                {
+                    "id": "s1",
+                    "kind": "tool",
+                    "name": "get_stock_price",
+                    "inputs": {"ticker": "AAPL"},
+                    "why": "unit",
+                    "optional": False,
+                }
+            ],
+            "budget": {"max_rounds": 1, "max_tools": 1},
+            "synthesis": {"style": "concise", "sections": []},
+        },
+        "policy": {
+            "allowed_tools": ["get_stock_price"],
+            "allowed_agents": [],
+            "budget": {"max_rounds": 1, "max_tools": 1},
+        },
+        "subject": {"subject_type": "company", "tickers": ["AAPL"], "selection_payload": [news]},
+        "trace": {},
+    }
+
+    try:
+        out = _run(execute_plan_stub(state))
+    finally:
+        hybrid_service.reset_rag_service_cache()
+
+    pool = (out.get("artifacts") or {}).get("evidence_pool") or []
+    # 前提：降级条目确实在池里（给 prompt 看），否则本用例是空转
+    assert any(e.get("type") == "tool_error" for e in pool), pool
+
+    assert ingested, "健康证据应照常入库，否则本用例未走到 RAG 分支"
+    leaked = [
+        d for d in ingested
+        if "All data sources failed" in str(d.content) or (d.metadata or {}).get("type") == "tool_error"
+    ]
+    assert leaked == [], f"tool_error 条目被写进向量库: {[d.content[:80] for d in leaked]}"
+    assert any("iPhone" in str(d.content) for d in ingested)
