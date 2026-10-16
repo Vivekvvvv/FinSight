@@ -352,6 +352,20 @@ test('档案页研究质量接口失败时，健康度不得显示满分', async
   await expect(card.locator('em')).toHaveText('暂不可用');
 });
 
+// ReportsLibraryPage 旧写法用 Promise.all 把报告列表和研究质量绑成一根绳：
+// 报告接口成功、质量接口 500 时，整个 try 跳进 catch，用户自己的报告资产全被藏起来。
+// 质量接口只是附加面板，挂掉不该连累报告列表。
+test('报告库研究质量接口失败时，报告列表仍然可见', async ({ page }) => {
+  await page.unroute('**/api/research-quality**');
+  await page.route('**/api/research-quality**', (route) => json(route, { detail: 'boom' }, 500));
+
+  await page.goto('/reports');
+
+  await expect(page.getByText('Apple Q3 深度报告', { exact: true })).toBeVisible();
+  await expect(page.getByText('报告库暂时加载失败，请刷新重试。')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '📊 研究库健康度暂不可用' })).toBeDisabled();
+});
+
 test('美股档案兼容标准报价字段并展示真实分时降级', async ({ page }) => {
   await page.unroute('**/api/quote/**');
   await page.unroute('**/api/kline/**');

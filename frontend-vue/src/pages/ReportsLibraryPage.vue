@@ -21,17 +21,8 @@ const loading = ref(false);
 const errorMsg = ref<string | null>(null);
 
 // ── Research Quality (Phase 4.5) ─────────────────────────────
-const qualitySummary = ref<ResearchQualitySummary>({
-  total_reports: 0,
-  stale_reports: 0,
-  low_quality_reports: 0,
-  blocked_reports: 0,
-  warn_reports: 0,
-  watch_reports: 0,
-  reviewed_rate: 0,
-  challenged_conclusions: 0,
-  health_score: 100,
-});
+// 初值 null：质量接口没回来之前不预设"满分健康"。成功才写入真实 summary。
+const qualitySummary = ref<ResearchQualitySummary | null>(null);
 const qualityIssues = ref<ResearchQualityIssue[]>([]);
 const showQuality = ref(false);
 
@@ -114,30 +105,41 @@ let refreshSeq = 0;
 async function refresh(): Promise<void> {
   const seq = ++refreshSeq;
   loading.value = true; errorMsg.value = null;
-  try {
-    const [reportsResp, qualityResp] = await Promise.all([
-      apiClient.listReports({
-        sessionId: identity.sessionId,
-        ticker: tickerFilter.value.trim() || undefined,
-        favoriteOnly: favoriteOnly.value || undefined,
-        reviewStatus: reviewStatusFilter.value || undefined,
-        qualityStateFilter: qualityFilter.value || undefined,
-        sortBy: sortBy.value,
-      }),
-      apiClient.getResearchQuality({
-        sessionId: identity.sessionId,
-        userId: identity.userId,
-      }),
-    ]);
-    if (seq !== refreshSeq) return;
-    items.value = reportsResp.items || [];
-    qualitySummary.value = qualityResp.summary;
-    qualityIssues.value = qualityResp.top_issues;
-  } catch (e) {
-    if (seq !== refreshSeq) return;
-    errorMsg.value = reportFriendlyError(e, '报告库暂时加载失败，请刷新重试。');
+  // 报告列表与研究质量分开结算：质量接口挂掉只是少一块附加面板，
+  // 不能让用户自己的报告资产跟着一起消失（Promise.all 会把两者绑死）。
+  const [reportsResp, qualityResp] = await Promise.allSettled([
+    apiClient.listReports({
+      sessionId: identity.sessionId,
+      ticker: tickerFilter.value.trim() || undefined,
+      favoriteOnly: favoriteOnly.value || undefined,
+      reviewStatus: reviewStatusFilter.value || undefined,
+      qualityStateFilter: qualityFilter.value || undefined,
+      sortBy: sortBy.value,
+    }),
+    apiClient.getResearchQuality({
+      sessionId: identity.sessionId,
+      userId: identity.userId,
+    }),
+  ]);
+  if (seq !== refreshSeq) return;
+
+  if (reportsResp.status === 'fulfilled') {
+    items.value = reportsResp.value.items || [];
+  } else {
+    items.value = [];
+    errorMsg.value = reportFriendlyError(reportsResp.reason, '报告库暂时加载失败，请刷新重试。');
   }
-  finally { if (seq === refreshSeq) loading.value = false; }
+
+  if (qualityResp.status === 'fulfilled') {
+    qualitySummary.value = qualityResp.value.summary;
+    qualityIssues.value = qualityResp.value.top_issues;
+  } else {
+    // 置 null 而不留旧值/满分兜底：健康度必须显式显示"不可用"。
+    qualitySummary.value = null;
+    qualityIssues.value = [];
+  }
+
+  loading.value = false;
 }
 
 // ── 收藏切换 ──────────────────────────────────────────────────
@@ -627,7 +629,7 @@ watch(displayed, () => {
 
     <!-- ── Research Quality (Phase 4.5) ── -->
     <div
-      v-if="showQuality && items.length > 0"
+      v-if="showQuality && items.length > 0 && qualitySummary"
       class="quality-section"
     >
       <div class="quality-header">
@@ -652,9 +654,10 @@ watch(displayed, () => {
     >
       <button
         class="btn-expand"
+        :disabled="!qualitySummary"
         @click="showQuality = true"
       >
-        📊 查看研究库健康度 ({{ qualitySummary.health_score }} 分)
+        {{ qualitySummary ? `📊 查看研究库健康度 (${qualitySummary.health_score} 分)` : '📊 研究库健康度暂不可用' }}
       </button>
     </div>
 
