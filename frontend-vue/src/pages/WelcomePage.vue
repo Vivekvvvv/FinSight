@@ -171,7 +171,10 @@ watch(() => identity.sessionId, () => { void refresh(); });
           :evidence="workspaceEvidence"
           compact
         />
-        <span class="live-dot">LIVE</span>
+        <span
+          v-if="workspaceEvidence.freshnessStatus === 'live'"
+          class="live-dot"
+        >LIVE</span>
         <button
           class="btn-refresh"
           :disabled="loading"

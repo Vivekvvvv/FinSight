@@ -174,7 +174,10 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
             return {
                 "success": True,
                 "as_of": datetime.now(timezone.utc).isoformat(),
-                "freshness_status": "live",
+                # 该接口只读本地持仓/自选/报告存储，不调用任何实时行情
+                # （total_value/total_pnl 为 None、watchlist_movers 恒为空），
+                # 不能对外声称 live；cached 表示"本地持久化数据，非实时报价"。
+                "freshness_status": "cached",
                 "summary": summary,
                 "portfolio_snapshot": {
                     "total_value": portfolio_summary.get("total_value"),

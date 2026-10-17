@@ -315,6 +315,16 @@ test('/workbench redirect 到 /welcome，今日任务与持仓风险仍可见', 
   await expect(page.getByText('持仓风险提示', { exact: false })).toBeVisible();
 });
 
+test('今日工作台按后端新鲜度展示缓存，不再无条件显示 LIVE', async ({ page }) => {
+  await page.route('**/api/today**', (route) =>
+    json(route, { ...TODAY, freshness_status: 'cached' }));
+
+  await page.goto('/welcome');
+
+  await expect(page.locator('.data-source-badge').first()).toContainText('Cached');
+  await expect(page.locator('.live-dot')).toHaveCount(0);
+});
+
 test('/dashboard/AAPL redirect 到 /dossier/AAPL，行情与研究资产可见', async ({ page }) => {
   await page.goto('/dashboard/AAPL');
   await page.waitForURL('**/dossier/AAPL');
