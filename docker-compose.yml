@@ -88,6 +88,10 @@ services:
       RAG_EMBEDDING:                ${RAG_EMBEDDING:-bge-m3}
       RAG_V2_POSTGRES_DSN:          postgresql+psycopg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       LANGGRAPH_CHECKPOINT_POSTGRES_DSN: postgresql://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      # 这两项的代码默认值在 /app/backend/data，而该目录是 tmpfs，重启即清空。
+      # 显式指向持久卷 /app/data，避免报告库索引与可恢复会话在重启后丢失。
+      LANGGRAPH_CHECKPOINT_SQLITE_PATH: ${LANGGRAPH_CHECKPOINT_SQLITE_PATH:-/app/data/langgraph/checkpoints.sqlite}
+      REPORT_INDEX_SQLITE_PATH:         ${REPORT_INDEX_SQLITE_PATH:-/app/data/report_index.sqlite}
       # Supabase runtime auth for /diagnostics/rag/*
       # Keep these values aligned with frontend VITE_SUPABASE_* so backend can validate Bearer access tokens.
       SUPABASE_URL:                 ${SUPABASE_URL:-}
