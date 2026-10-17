@@ -100,7 +100,9 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
             stored_positions = deps.get_portfolio_positions(normalized_session) or []
         except Exception as exc:
             logger.warning("[Tasks] get_portfolio_positions failed")
-            stored_positions = []
+            # 静默退化成 [] 会按“用户没有持仓”生成任务；持仓读取失败是后端故障，
+            # 必须显式失败，不能让用户/监控以为持仓为空（项目规则 2）。
+            raise HTTPException(status_code=503, detail="Portfolio data unavailable") from exc
 
         positions_by_ticker: dict[str, dict[str, Any]] = {}
         for position in stored_positions:

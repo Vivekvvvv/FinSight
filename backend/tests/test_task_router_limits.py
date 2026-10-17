@@ -89,6 +89,32 @@ def test_daily_tasks_ignores_oversized_persisted_tickers_before_price_fetch():
     assert price_calls == []
 
 
+def test_daily_tasks_surfaces_position_store_failure_instead_of_empty_portfolio():
+    def _boom(_session_id):
+        raise RuntimeError("db is locked")
+
+    principal = Principal(user_id="task-user", role="user", auth_type="api_key")
+    deps = TaskRouterDeps(
+        resolve_thread_id=lambda session_id: session_id,
+        get_report_index_store=lambda: _ReportStore(),
+        get_portfolio_positions=_boom,
+        get_stock_price=lambda _ticker: None,
+    )
+    app = FastAPI()
+    app.include_router(create_task_router(deps))
+    app.dependency_overrides[get_current_user] = lambda: principal
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(
+            "/api/tasks/daily",
+            params={"session_id": principal.session_id},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Portfolio data unavailable"
+    assert "db is locked" not in response.text
+
+
 def test_daily_tasks_naive_generated_at_uses_real_age_not_999():
     """report_generator.py、report/ir.py、report/validator.py 用
     datetime.now().isoformat() 写 naive generated_at。裸 fromisoformat 得
