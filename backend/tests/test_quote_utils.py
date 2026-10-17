@@ -70,6 +70,23 @@ class TestResolveLiveQuote:
 
         assert quote["as_of"] == as_of
 
+    def test_yfinance_fallback_keeps_stale_freshness_and_bar_as_of(self, monkeypatch):
+        bar_as_of = "2026-10-16T00:00:00+00:00"
+        monkeypatch.setattr(
+            "backend.utils.quote.fallback_quote_yfinance",
+            lambda _ticker: {
+                "price": 100.0,
+                "source": "yfinance_fallback",
+                "freshness_status": "stale",
+                "as_of": bar_as_of,
+            },
+        )
+
+        quote, _ = resolve_live_quote("AAPL", lambda _ticker: None)
+
+        assert quote["freshness_status"] == "stale"
+        assert quote["as_of"] == bar_as_of
+
 
 class TestSafeFloat:
     @pytest.mark.parametrize(
@@ -199,6 +216,24 @@ class TestFallbackQuoteYfinance:
         assert result["change"] == pytest.approx(2.0)
         assert result["change_percent"] == pytest.approx((2.0 / 101.0) * 100.0)
         assert result["source"] == "yfinance_fallback"
+
+    def test_daily_close_fallback_is_stale_and_uses_bar_date_as_of(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ):
+        bar_index = pd.date_range("2026-10-14", periods=3, freq="D", tz="UTC")
+
+        class FakeTicker:
+            def history(self, period: str, interval: str):
+                return pd.DataFrame({"Close": [100.0, 101.0, 103.0]}, index=bar_index)
+
+        fake_module = SimpleNamespace(Ticker=lambda _ticker: FakeTicker())
+        monkeypatch.setitem(sys.modules, "yfinance", fake_module)
+
+        result = fallback_quote_yfinance("AAPL")
+
+        # 日线收盘不是 15 分钟延迟报价，as_of 必须是最后一根 K 线时间
+        assert result["freshness_status"] == "stale"
+        assert result["as_of"].startswith("2026-10-16")
 
     def test_returns_none_when_history_empty(self, monkeypatch: pytest.MonkeyPatch):
         class FakeTicker:

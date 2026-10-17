@@ -20,7 +20,9 @@ def _freshness_status(source: str) -> str:
     if source == "tools_bridge":
         return "live"
     if source == "yfinance_fallback":
-        return "delayed_15min"
+        # 兜底走的是 5 日线日线收盘，不是 15 分钟延迟报价；
+        # 标成 delayed_15min 会让用户以为这是盘中价。
+        return "stale"
     if source == "cache":
         return "cached"
     return "unknown"
@@ -121,12 +123,18 @@ def fallback_quote_yfinance(ticker: str) -> dict[str, Any] | None:
         prev_close = safe_float(hist["Close"].iloc[-2]) if len(hist) > 1 else None
         change = (close - prev_close) if prev_close not in (None, 0.0) else None
         change_pct = ((change / prev_close) * 100.0) if change is not None and prev_close else None
-        return {
+        result = {
             "price": close,
             "change": change,
             "change_percent": change_pct,
             "source": "yfinance_fallback",
+            # 日线收盘的时间戳才是这批数据的真实 as_of；不能用取数时刻冒充。
+            "freshness_status": "stale",
         }
+        last_bar = hist.index[-1]
+        if hasattr(last_bar, "isoformat"):
+            result["as_of"] = last_bar.isoformat()
+        return result
     except Exception:
         return None
 
