@@ -94,7 +94,8 @@ def fetch_nasdaq_intraday(ticker: str) -> dict[str, Any] | None:
         "period": "1d",
         "interval": "1m",
         "source": "nasdaq_intraday",
-        "as_of": datetime.now(timezone.utc).isoformat(),
+        # as_of 必须是最后一条分时数据的时间；取数时刻在盘后会让旧图看起来是刚更新的。
+        "as_of": points[-1]["time"],
         "freshness_status": "live",
         "fallback_level": 0,
     }

@@ -53,6 +53,21 @@ def test_nasdaq_intraday_keeps_real_line_points(monkeypatch):
     assert "open" not in result["line_data"][0]
 
 
+def test_nasdaq_intraday_as_of_is_last_point_not_fetch_time(monkeypatch):
+    """盘后取数时 as_of=now 会把昨天的分时图伪装成刚更新；应为最后一条点的时间。"""
+    monkeypatch.setattr(us_market, "_http_get", lambda *_args, **_kwargs: _Response({
+        "symbol": "WDC",
+        "chart": [
+            {"x": 1_725_000_000_000, "y": 72.5},
+            {"x": 1_725_000_060_000, "y": 72.8},
+        ],
+    }))
+
+    result = us_market.fetch_nasdaq_intraday("WDC")
+
+    assert result["as_of"] == result["line_data"][-1]["time"]
+
+
 def test_nasdaq_intraday_skips_malformed_timestamp(monkeypatch):
     """单个畸形 x 值（超出 fromtimestamp 范围）应跳过而非抛出——
     修前一行坏数据让整段分时 raise，违反 tools 返回 None 不抛的约定。"""
