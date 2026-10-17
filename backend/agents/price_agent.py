@@ -225,7 +225,9 @@ class PriceAgent(BaseFinancialAgent):
         else:
             summary_text = summary or "价格数据获取失败"
             source = "unknown"
-            as_of = datetime.now().isoformat()
+            # 一个数据点都没拿到时，取数时刻不是“数据时间”。写 datetime.now()
+            # 会让下游把这条空证据当成刚刚更新的行情（项目规则 2）。
+            as_of = None
             fallback_used = True
             evidence_text = str(raw_data) if raw_data else "暂无数据"
 
@@ -241,7 +243,9 @@ class PriceAgent(BaseFinancialAgent):
         option_metrics = self._last_option_metrics if isinstance(self._last_option_metrics, dict) else {}
         if option_metrics and not option_metrics.get("error"):
             option_source = str(option_metrics.get("source") or "yfinance_options")
-            option_as_of = str(option_metrics.get("as_of") or as_of)
+            # as_of 可能为 None（价格数据完全缺失），不能 str(None) 成 "None"。
+            option_as_of_raw = option_metrics.get("as_of") or as_of
+            option_as_of = str(option_as_of_raw) if option_as_of_raw else None
             pcr = safe_float(option_metrics.get("put_call_ratio_oi") or option_metrics.get("put_call_ratio_volume"))
             iv_atm = safe_float(option_metrics.get("iv_atm"))
             skew = safe_float(option_metrics.get("iv_skew_25d"))
