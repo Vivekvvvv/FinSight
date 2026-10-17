@@ -56,6 +56,8 @@ export interface PortfolioPosition {
   cost_basis?: number | null;
   unrealized_pnl?: number | null;
   price_source?: string;
+  price_freshness?: EvidenceInfo['freshnessStatus'] | null;
+  price_fallback_level?: number | null;
 }
 
 export interface PortfolioSummary {

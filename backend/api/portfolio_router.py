@@ -187,6 +187,26 @@ async def get_portfolio_summary(session_id: str, current_user: Principal = Depen
         unrealized_pnl = (market_value - cost_basis) if avg_cost is not None else None
         day_change = (shares * live_change) if live_change is not None else None
 
+        # 上游报价可能自带 freshness（例如 tools_bridge 返回缓存/延迟数据）；
+        # price_source 恒为 tools_bridge，前端只看 source 会把它标成 live。
+        price_freshness = None
+        price_fallback_level = None
+        if live_price is not None and quote:
+            declared_freshness = str(quote.get("freshness_status") or "").strip().lower()
+            if declared_freshness in {
+                "live", "delayed_15min", "cached", "stale", "demo", "fallback",
+            }:
+                price_freshness = declared_freshness
+            elif declared_freshness:
+                price_freshness = "unknown"
+            declared_level = quote.get("fallback_level")
+            if (
+                isinstance(declared_level, int)
+                and not isinstance(declared_level, bool)
+                and 0 <= declared_level <= 2
+            ):
+                price_fallback_level = declared_level
+
         enriched.append(
             {
                 **pos,
@@ -194,6 +214,8 @@ async def get_portfolio_summary(session_id: str, current_user: Principal = Depen
                 "live_change": round(live_change, 6) if live_change is not None else None,
                 "live_change_percent": round(live_change_pct, 6) if live_change_pct is not None else None,
                 "price_source": price_source,
+                "price_freshness": price_freshness,
+                "price_fallback_level": price_fallback_level,
                 "market_value": round(market_value, 2),
                 "cost_basis": round(cost_basis, 2),
                 "unrealized_pnl": round(unrealized_pnl, 2) if unrealized_pnl is not None else None,

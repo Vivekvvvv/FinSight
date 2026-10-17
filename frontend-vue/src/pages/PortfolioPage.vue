@@ -181,7 +181,17 @@ function fmt(v: number | null | undefined): string {
   return v.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 }
 
-function priceFreshness(source?: string | null): EvidenceInfo['freshnessStatus'] {
+const DECLARED_FRESHNESS = ['live', 'delayed_15min', 'cached', 'stale', 'demo', 'fallback', 'unknown'] as const;
+
+function priceFreshness(
+  source?: string | null,
+  declared?: EvidenceInfo['freshnessStatus'] | null,
+): EvidenceInfo['freshnessStatus'] {
+  // 后端已带上上游报价的 freshness 时以它为准：source 恒为 tools_bridge，
+  // 只按 source 推断会把缓存/延迟报价标成 live。
+  if (declared && (DECLARED_FRESHNESS as readonly string[]).includes(declared)) {
+    return declared;
+  }
   const value = String(source || '').toLowerCase();
   if (!value) return null;
   if (value === 'demo' || value === 'static_market_demo') return 'demo';
@@ -191,9 +201,15 @@ function priceFreshness(source?: string | null): EvidenceInfo['freshnessStatus']
   return 'live';
 }
 
-function priceFallbackLevel(source?: string | null): number | null {
+function priceFallbackLevel(
+  source?: string | null,
+  declared?: number | null,
+): number | null {
+  if (typeof declared === 'number' && Number.isInteger(declared) && declared >= 0 && declared <= 2) {
+    return declared;
+  }
   const freshness = priceFreshness(source);
-  if (freshness === 'demo' || freshness === 'cached') return 2;
+  if (freshness === 'demo' || freshness === 'cached' || freshness === 'stale') return 2;
   if (freshness === 'fallback') return 1;
   if (freshness === 'live') return 0;
   return null;
@@ -583,8 +599,8 @@ watch(() => identity.sessionId, () => { void refresh(); });
                 label="价格源"
                 :source="p.price_source"
                 :as-of="p.updated_at"
-                :freshness-status="priceFreshness(p.price_source)"
-                :fallback-level="priceFallbackLevel(p.price_source)"
+                :freshness-status="priceFreshness(p.price_source, p.price_freshness)"
+                :fallback-level="priceFallbackLevel(p.price_source, p.price_fallback_level)"
                 compact
               />
             </div>

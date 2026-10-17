@@ -612,6 +612,37 @@ test('组合管理空持仓状态可直接添加或导入', async ({ page }) => 
   await expect(page.getByRole('button', { name: '导入 CSV' }).nth(1)).toBeVisible();
 });
 
+// 后端把上游报价的 freshness 放进 price_freshness；旧前端只按 price_source
+// （恒为 tools_bridge）推断，缓存报价会显示 Live。
+test('组合页按后端报价新鲜度展示缓存，不再只看价格源', async ({ page }) => {
+  await page.route('**/api/portfolio/summary**', (route) => json(route, {
+    success: true,
+    session_id: SESSION_ID,
+    count: 1,
+    positions: [{
+      ticker: 'AAPL',
+      shares: 10,
+      avg_cost: 180,
+      live_price: 195,
+      market_value: 1950,
+      name: 'Apple',
+      price_source: 'tools_bridge',
+      price_freshness: 'cached',
+      price_fallback_level: 2,
+      updated_at: '2026-06-17T10:00:00Z',
+    }],
+    total_value: 1950,
+    total_cost: 1800,
+    total_pnl: 150,
+  }));
+
+  await page.goto('/portfolio');
+
+  const card = page.locator('.pos-card').first();
+  await expect(card).toContainText('Cached');
+  await expect(card).not.toContainText('Live');
+});
+
 test('AI 助手发送时按钮进入 loading disabled 状态', async ({ page }) => {
   await page.route('**/chat/supervisor/stream', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 600));
