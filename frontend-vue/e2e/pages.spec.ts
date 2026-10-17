@@ -613,6 +613,27 @@ test('AI 助手发送时按钮进入 loading disabled 状态', async ({ page }) 
   await expect(page.locator('.bubble-body').filter({ hasText: '测试回复' })).toBeVisible();
 });
 
+test('AI 助手按后端新鲜度显示降级而不是伪造实时', async ({ page }) => {
+  await page.route('**/chat/supervisor/stream', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream; charset=utf-8',
+      body: [
+        'data: {"type":"token","content":"降级证据回复"}',
+        'data: {"type":"done","source":"mock","freshness_status":"fallback","fallback_level":1,"as_of":"2026-06-17T10:00:00Z","quality":{"confidence_score":0.8},"metrics":{"request_started_at":"2026-06-17T10:00:00Z"}}',
+        '',
+      ].join('\n'),
+    }));
+
+  await page.goto('/chat');
+  await page.getByPlaceholder('问点什么', { exact: false }).fill('AAPL 今天有什么变化');
+  await page.getByRole('button', { name: '发送研究任务' }).click();
+
+  await expect(page.locator('.bubble-body').filter({ hasText: '降级证据回复' })).toBeVisible();
+  await expect(page.locator('.ev-badge').filter({ hasText: '降级' })).toBeVisible();
+  await expect(page.locator('.ev-badge').filter({ hasText: '实时' })).toHaveCount(0);
+});
+
 test('移动端底部导航不遮挡主要操作', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/chat');

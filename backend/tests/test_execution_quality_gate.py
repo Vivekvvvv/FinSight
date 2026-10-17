@@ -17,6 +17,8 @@ async def _collect_events(generator):
 
 
 def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch, caplog):
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    monkeypatch.delenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", raising=False)
     execution_service = importlib.import_module("backend.services.execution_service")
     runner_module = importlib.import_module("backend.graph.runner")
     report_builder_module = importlib.import_module("backend.graph.report_builder")
@@ -133,6 +135,11 @@ def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch, c
     assert isinstance(done.get("report"), dict), "soft-blocked should preserve report"
     assert isinstance(done.get("blocked_report"), dict)
     assert done.get("allow_continue_when_blocked") is True
+    # 默认 LANGGRAPH_EXECUTE_LIVE_TOOLS=false 走 dry-run，done 必须如实标记降级。
+    assert done.get("freshness_status") == "fallback"
+    assert done.get("fallback_level") == 1
+    assert done.get("freshness_reason") == "tool_dry_run"
+    assert done.get("as_of")
     assert secret not in caplog.text
     assert memory_secret not in caplog.text
     assert "[execution_service] record chat turn failed" in caplog.text
@@ -140,6 +147,8 @@ def test_run_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch, c
 
 
 def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch, caplog):
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    monkeypatch.delenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", raising=False)
     execution_service = importlib.import_module("backend.services.execution_service")
     report_builder_module = importlib.import_module("backend.graph.report_builder")
     graph_store_module = importlib.import_module("backend.graph.store")
@@ -248,6 +257,11 @@ def test_resume_graph_pipeline_emits_quality_blocked_and_skips_index(monkeypatch
     assert isinstance(done.get("report"), dict), "soft-blocked should preserve report"
     assert isinstance(done.get("blocked_report"), dict)
     assert done.get("allow_continue_when_blocked") is True
+    # resume 的 done 曾完全不带 freshness，前端只能默认成 live；现在必须与普通路径一致。
+    assert done.get("freshness_status") == "fallback"
+    assert done.get("fallback_level") == 1
+    assert done.get("freshness_reason") == "tool_dry_run"
+    assert done.get("as_of")
     assert secret not in caplog.text
     assert memory_secret not in caplog.text
     assert "[resume_pipeline] record chat turn failed" in caplog.text

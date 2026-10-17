@@ -11,7 +11,7 @@ import logging
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Awaitable, Callable, Optional
-from backend.services.execution_helpers import _annotate_report_source, _apply_quality_gate, _execution_timeout_seconds, _normalize_report_source_type, _normalize_run_id, _resolve_ticker_override, _utc_iso_now
+from backend.services.execution_helpers import _annotate_report_source, _apply_quality_gate, _execution_timeout_seconds, _normalize_report_source_type, _normalize_run_id, _resolve_freshness_meta, _resolve_ticker_override, _utc_iso_now
 
 
 logger = logging.getLogger("execution_service")
@@ -380,7 +380,7 @@ async def run_graph_pipeline(
                     "session_id": thread_id,
                     "source": source,
                     "as_of": _utc_iso_now(),
-                    "freshness_status": "live",
+                    **_resolve_freshness_meta(),
                     "response": response_markdown,
                     "report": persisted_report,
                     "blocked_report": blocked_report_preview,
@@ -694,6 +694,8 @@ async def resume_graph_pipeline(
                     "intent": "resume",
                     "session_id": thread_id,
                     "source": source,
+                    "as_of": _utc_iso_now(),
+                    **_resolve_freshness_meta(),
                     "response": response_markdown,
                     "report": persisted_report,
                     "blocked_report": blocked_report_preview,

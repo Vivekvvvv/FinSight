@@ -194,12 +194,21 @@ function _extractEvidence(payload: Record<string, unknown>): EvidenceInfo {
 
   const requestStarted = metrics?.request_started_at as string | undefined;
   const degraded = Boolean(payload.quality_blocked) || Boolean(payload.soft_blocked);
+  const rawFreshness = typeof payload.freshness_status === 'string' ? payload.freshness_status : '';
+  const freshnessStatus: EvidenceInfo['freshnessStatus'] =
+    ['live', 'delayed_15min', 'cached', 'stale', 'demo', 'fallback'].includes(rawFreshness)
+      ? rawFreshness as EvidenceInfo['freshnessStatus']
+      : 'unknown';
+  const fallbackLevel = typeof payload.fallback_level === 'number' ? payload.fallback_level : null;
+  const asOf = typeof payload.as_of === 'string' && payload.as_of
+    ? payload.as_of
+    : requestStarted || new Date().toISOString();
 
   return {
     source: (payload.source as string) || 'langgraph',
-    asOf: requestStarted || new Date().toISOString(),
-    freshnessStatus: 'live' as const,
-    fallbackLevel: 0,
+    asOf,
+    freshnessStatus,
+    fallbackLevel,
     confidence: confidenceScore,
     modelGenerated: true,
     degraded,

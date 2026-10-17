@@ -28,6 +28,7 @@ const freshnessMap: Record<string, { label: string; tone: string; pulse?: boolea
   cached: { label: '缓存', tone: 'warn' },
   stale: { label: '过期', tone: 'danger' },
   demo: { label: '演示', tone: 'demo' },
+  fallback: { label: '降级', tone: 'warn' },
   unknown: { label: '未知', tone: 'muted' },
 };
 

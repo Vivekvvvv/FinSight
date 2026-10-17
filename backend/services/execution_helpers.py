@@ -14,6 +14,22 @@ from backend.report.quality_engine import apply_quality_to_report, record_qualit
 def _utc_iso_now() -> str:
     return datetime.now(UTC).isoformat()
 
+def _env_flag(name: str, default: str = "false") -> bool:
+    raw = str(os.getenv(name, default) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+def _resolve_freshness_meta() -> dict[str, Any]:
+    """done 事件的数据新鲜度：demo > 实时工具 > dry-run 降级。
+
+    ``LANGGRAPH_EXECUTE_LIVE_TOOLS`` 默认 false，此时 executor 走 dry_run，
+    结果不是实时证据；不能继续对外标成 live。
+    """
+    if _env_flag("FINSIGHT_DEMO_MODE"):
+        return {"freshness_status": "demo", "fallback_level": 2, "freshness_reason": "demo_mode"}
+    if _env_flag("LANGGRAPH_EXECUTE_LIVE_TOOLS"):
+        return {"freshness_status": "live", "fallback_level": 0, "freshness_reason": "live_tools"}
+    return {"freshness_status": "fallback", "fallback_level": 1, "freshness_reason": "tool_dry_run"}
+
 def _normalize_run_id(run_id: str | None) -> str:
     value = str(run_id or "").strip()
     return value or str(uuid4())
