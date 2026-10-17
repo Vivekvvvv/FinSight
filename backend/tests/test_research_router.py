@@ -41,6 +41,27 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
+def test_news_sentiment_surfaces_fetch_failure_instead_of_neutral(monkeypatch):
+    """新闻拉取异常旧代码只打 warning，然后返回 overall=neutral/score=0 的
+    200 结果——与“确实没有新闻”不可区分，用户会当成真实分析。"""
+    import backend.tools as tools_pkg
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("news provider down")
+
+    monkeypatch.setattr(tools_pkg, "get_company_news", boom)
+
+    with _client() as client:
+        response = client.post(
+            "/api/research/news/sentiment",
+            json={"ticker": "AAPL"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "News data unavailable"
+    assert "news provider down" not in response.text
+
+
 def test_comprehensive_report_injects_company_info_and_news(monkeypatch):
     """工具按真实返回类型给值（str / list）时，两个上下文键都必须落进
     data_context。修复前因 AttributeError 被吞恒为空。"""

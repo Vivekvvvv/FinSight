@@ -213,6 +213,7 @@ async def news_sentiment(request: NewsSentimentRequest):
         from backend.tools import get_company_news
 
         news_list = request.news
+        news_fetch_failed = False
         if not news_list:
             try:
                 raw = get_company_news(request.ticker)
@@ -223,6 +224,12 @@ async def news_sentiment(request: NewsSentimentRequest):
                     news_list = raw
             except Exception as exc:
                 logger.warning("获取新闻失败")
+                # 拉取失败不能伪装成“没有新闻”：下面会返回中性 0 分，
+                # 用户会把它当成一次真实分析。显式失败让调用方重试/告警。
+                news_fetch_failed = True
+
+        if news_fetch_failed:
+            raise HTTPException(status_code=503, detail="News data unavailable")
 
         if not news_list:
             return {"ticker": request.ticker, "news": [], "aggregate": {
