@@ -13,14 +13,20 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_KNOWN_FRESHNESS = {"live", "delayed_15min", "cached", "stale", "demo", "fallback", "unknown"}
+_CACHED_WORST = {"cached", "stale", "demo", "fallback"}
+
+
 def normalize_market_freshness(source: str, raw: Any = None, *, cached: bool = False) -> str:
     freshness = str(raw or "").strip()
-    if freshness in {"live", "delayed_15min", "cached", "stale", "demo", "fallback", "unknown"}:
-        return freshness
     if source in DEMO_SOURCES:
         return "demo"
     if cached or source in CACHED_SOURCES:
-        return "cached"
+        # 缓存命中时载荷里的 "live" 只是写入缓存那一刻的状态，不代表本次
+        # 返回仍然实时；只有更差的标签（stale/demo/fallback）可以保留。
+        return freshness if freshness in _CACHED_WORST else "cached"
+    if freshness in _KNOWN_FRESHNESS:
+        return freshness
     if source in FALLBACK_SOURCES:
         return "fallback"
     if source and source != "unknown":
@@ -29,13 +35,14 @@ def normalize_market_freshness(source: str, raw: Any = None, *, cached: bool = F
 
 
 def normalize_market_fallback_level(source: str, raw: Any = None, *, cached: bool = False) -> int:
+    # 缓存/演示数据一律算最高降级级别，不能被载荷里写入时的 0 覆盖。
+    if source in DEMO_SOURCES or cached or source in CACHED_SOURCES:
+        return 2
     try:
         if raw is not None and not isinstance(raw, bool):
             return max(0, int(raw))
     except (TypeError, ValueError, OverflowError):
         pass
-    if source in DEMO_SOURCES or cached or source in CACHED_SOURCES:
-        return 2
     if source in FALLBACK_SOURCES:
         return 1
     return 0
@@ -65,8 +72,14 @@ def attach_market_evidence(payload: Any, fallback_source: str = "unknown", *, ca
     evidence = build_market_evidence(result, fallback_source=fallback_source, cached=cached)
     result.setdefault("source", evidence["source"])
     result.setdefault("as_of", evidence["as_of"])
-    result.setdefault("freshness_status", evidence["freshness_status"])
-    result.setdefault("fallback_level", evidence["fallback_level"])
+    # 缓存/演示命中时，载荷自带的 freshness/fallback_level 是写入时的旧标签
+    # （例如 "live"/0），setdefault 会把它留下来，对外伪造成实时数据。
+    if cached or evidence["source"] in DEMO_SOURCES or evidence["source"] in CACHED_SOURCES:
+        result["freshness_status"] = evidence["freshness_status"]
+        result["fallback_level"] = evidence["fallback_level"]
+    else:
+        result.setdefault("freshness_status", evidence["freshness_status"])
+        result.setdefault("fallback_level", evidence["fallback_level"])
     result["evidence"] = evidence
     return result
 
