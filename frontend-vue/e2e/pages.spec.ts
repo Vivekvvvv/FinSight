@@ -362,6 +362,18 @@ test('档案页研究质量接口失败时，健康度不得显示满分', async
   await expect(card.locator('em')).toHaveText('暂不可用');
 });
 
+// 档案页没有报告、只有历史时间线事件时，旧逻辑把 timelineEvents.length 当成
+// live 证据，数据源徽标显示 Live。历史事件只说明过去发生过事，不是当前实时数据。
+test('档案页无报告时不凭历史时间线事件标成实时', async ({ page }) => {
+  await page.unroute('**/api/reports/index**');
+  await page.route('**/api/reports/index**', (route) => json(route, { success: true, count: 0, items: [] }));
+
+  await page.goto('/dossier/AAPL');
+
+  await expect(page.locator('.dossier-source strong')).toHaveText('Unknown');
+  await expect(page.locator('.dossier-source')).not.toContainText('Live');
+});
+
 // ReportsLibraryPage 旧写法用 Promise.all 把报告列表和研究质量绑成一根绳：
 // 报告接口成功、质量接口 500 时，整个 try 跳进 catch，用户自己的报告资产全被藏起来。
 // 质量接口只是附加面板，挂掉不该连累报告列表。

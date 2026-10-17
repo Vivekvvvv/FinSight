@@ -88,7 +88,9 @@ const quoteView = computed<QuoteView>(() => {
 });
 const dossierEvidence = computed<EvidenceInfo>(() => {
   const source = latestReport.value?.source_type || 'dossier-aggregate';
-  const rawFreshness = latestReport.value?.freshness_status || (timelineEvents.value.length ? 'live' : 'unknown');
+  // 历史时间线事件只说明过去发生过事，不代表当前行情/研究数据实时；
+  // 没有报告自带 freshness 时只能标 unknown。
+  const rawFreshness = latestReport.value?.freshness_status || 'unknown';
   const freshnessStatus = (['live', 'delayed_15min', 'cached', 'stale', 'demo', 'fallback', 'unknown'].includes(rawFreshness)
     ? rawFreshness
     : 'unknown') as EvidenceInfo['freshnessStatus'];
