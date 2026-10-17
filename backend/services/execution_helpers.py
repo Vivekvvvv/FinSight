@@ -36,17 +36,19 @@ def _resolve_freshness_meta() -> dict[str, Any]:
 # 后写入者覆盖先写入者的状态，导致会话历史/待确认计划互相踩踏。
 # 与 checkpointer/runner 一致：asyncio.Lock 绑定 event loop，换 loop 必须重建。
 _thread_run_locks: dict[str, asyncio.Lock] = {}
-_thread_run_locks_loop_id: int | None = None
+# 持有 loop 对象本身而不是 id()：旧 loop 被回收后 id 可能被新 loop 复用，
+# 那样切换 loop 时不会清空锁，拿到绑定已关闭 loop 的旧锁。
+_thread_run_locks_loop: asyncio.AbstractEventLoop | None = None
 _thread_run_locks_guard = threading.Lock()
 
 
 def _get_thread_run_lock(thread_id: str) -> asyncio.Lock:
-    global _thread_run_locks_loop_id
-    loop_id = id(asyncio.get_running_loop())
+    global _thread_run_locks_loop
+    loop = asyncio.get_running_loop()
     with _thread_run_locks_guard:
-        if _thread_run_locks_loop_id != loop_id:
+        if _thread_run_locks_loop is not loop:
             _thread_run_locks.clear()
-            _thread_run_locks_loop_id = loop_id
+            _thread_run_locks_loop = loop
         lock = _thread_run_locks.get(thread_id)
         if lock is None:
             lock = asyncio.Lock()
