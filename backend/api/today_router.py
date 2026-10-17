@@ -116,6 +116,7 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
 
             # 获取 alerts
             alert_events = []
+            alert_feed_unavailable = False
             if deps.subscription_service:
                 try:
                     # 尝试从 memory_service 获取 email（假设存储在 user_profile 中）
@@ -123,6 +124,9 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                     alert_events = await asyncio.to_thread(deps.subscription_service.list_alert_events, email, limit=10)
                 except Exception as exc:
                     logger.warning("today alert events unavailable")
+                    # 空列表会被前端渲染成“没有告警”；读取失败必须显式标记，
+                    # 否则用户和监控都看不到告警服务故障（项目规则 2）。
+                    alert_feed_unavailable = True
 
             # 计算待复查报告
             watchlist_tickers = [w.get("ticker", "") for w in watchlist_items if w.get("ticker")]
@@ -188,6 +192,8 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                 },
                 "watchlist_movers": [],  # P2：实时涨跌幅需额外行情调用
                 "alert_feed": alert_events[:5],
+                "alert_feed_unavailable": alert_feed_unavailable,
+                "degraded": alert_feed_unavailable,
                 "reports_to_review": reports_to_review,
                 "next_actions": next_actions,
             }
