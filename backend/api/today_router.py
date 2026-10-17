@@ -94,11 +94,14 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                 return_exceptions=True,
             )
 
-            # 处理异常
+            # 存储故障必须显式失败：替换成 [] 会让前端把“读取失败”渲染成
+            # “没有持仓/自选”，用户以为数据没了，监控也看不到信号（项目规则 2）。
             if isinstance(positions_raw, Exception):
-                positions_raw = []
+                logger.error("today portfolio store failed")
+                raise HTTPException(status_code=503, detail="Portfolio data unavailable") from positions_raw
             if isinstance(watchlist_items, Exception):
-                watchlist_items = []
+                logger.error("today watchlist store failed")
+                raise HTTPException(status_code=503, detail="Watchlist data unavailable") from watchlist_items
 
             # 构造 portfolio_summary（简化版，不调用实时行情）
             portfolio_summary = {

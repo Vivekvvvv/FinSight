@@ -39,6 +39,40 @@ def test_today_internal_error_is_redacted(client, monkeypatch, caplog):
     assert "今日工作台生成失败" in caplog.text
 
 
+def test_today_portfolio_store_failure_is_not_an_empty_portfolio(client, monkeypatch):
+    """持仓读取失败不得伪装成“没有持仓”的 200 空骨架（项目规则 2）。"""
+    from backend.services import portfolio_store
+
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+
+    def _boom(_session_id):
+        raise RuntimeError("private portfolio db detail")
+
+    monkeypatch.setattr(portfolio_store, "get_positions", _boom)
+    response = client.get("/api/today", params={"session_id": "pytest_router_session"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Portfolio data unavailable"
+    assert "private portfolio db detail" not in response.text
+
+
+def test_today_watchlist_store_failure_is_not_an_empty_watchlist(client, monkeypatch):
+    """自选股读取失败不得伪装成“没有自选”的 200 空骨架（项目规则 2）。"""
+    from backend.services.memory import MemoryService
+
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("private watchlist db detail")
+
+    monkeypatch.setattr(MemoryService, "list_watchlist_items", _boom)
+    response = client.get("/api/today", params={"session_id": "pytest_router_session"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Watchlist data unavailable"
+    assert "private watchlist db detail" not in response.text
+
+
 def test_notes_list_internal_error_returns_500(client, monkeypatch):
     from backend.services import research_notes as notes_service
 
