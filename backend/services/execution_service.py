@@ -11,7 +11,7 @@ import logging
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Awaitable, Callable, Optional
-from backend.services.execution_helpers import _annotate_report_source, _apply_quality_gate, _execution_timeout_seconds, _normalize_report_source_type, _normalize_run_id, _resolve_freshness_meta, _resolve_ticker_override, _utc_iso_now
+from backend.services.execution_helpers import _annotate_report_source, _apply_quality_gate, _execution_timeout_seconds, _get_thread_run_lock, _normalize_report_source_type, _normalize_run_id, _resolve_freshness_meta, _resolve_ticker_override, _utc_iso_now
 
 
 logger = logging.getLogger("execution_service")
@@ -198,18 +198,19 @@ async def run_graph_pipeline(
             from backend.graph.runner import run_graph_traced
             timeout_seconds = _execution_timeout_seconds(output_mode)
             try:
-                state = await asyncio.wait_for(
-                    run_graph_traced(
-                        runner,
-                        thread_id=thread_id,
-                        query=query,
-                        ui_context=ui_context or {},
-                        output_mode=output_mode,
-                        strict_selection=strict_selection,
-                        confirmation_mode=confirmation_mode,
-                    ),
-                    timeout=timeout_seconds,
-                )
+                async with _get_thread_run_lock(thread_id):
+                    state = await asyncio.wait_for(
+                        run_graph_traced(
+                            runner,
+                            thread_id=thread_id,
+                            query=query,
+                            ui_context=ui_context or {},
+                            output_mode=output_mode,
+                            strict_selection=strict_selection,
+                            confirmation_mode=confirmation_mode,
+                        ),
+                        timeout=timeout_seconds,
+                    )
             except asyncio.TimeoutError:
                 logger.error("[execution_service] graph timeout")
                 await _queue_event(
@@ -570,7 +571,8 @@ async def resume_graph_pipeline(
             # 沿 async-for 传入 astream_events 终止图执行——同 run 路径语义。
             timeout_seconds = _execution_timeout_seconds()
             try:
-                await asyncio.wait_for(_drain_resume(), timeout=timeout_seconds)
+                async with _get_thread_run_lock(thread_id):
+                    await asyncio.wait_for(_drain_resume(), timeout=timeout_seconds)
             except asyncio.TimeoutError:
                 logger.error("[resume_pipeline] resume timeout")
                 await _queue_event(

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 import os
+import threading
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -29,6 +31,27 @@ def _resolve_freshness_meta() -> dict[str, Any]:
     if _env_flag("LANGGRAPH_EXECUTE_LIVE_TOOLS"):
         return {"freshness_status": "live", "fallback_level": 0, "freshness_reason": "live_tools"}
     return {"freshness_status": "fallback", "fallback_level": 1, "freshness_reason": "tool_dry_run"}
+
+# 同一 thread_id 的图执行必须串行：两个并发 run 会从同一个 checkpoint 分叉，
+# 后写入者覆盖先写入者的状态，导致会话历史/待确认计划互相踩踏。
+# 与 checkpointer/runner 一致：asyncio.Lock 绑定 event loop，换 loop 必须重建。
+_thread_run_locks: dict[str, asyncio.Lock] = {}
+_thread_run_locks_loop_id: int | None = None
+_thread_run_locks_guard = threading.Lock()
+
+
+def _get_thread_run_lock(thread_id: str) -> asyncio.Lock:
+    global _thread_run_locks_loop_id
+    loop_id = id(asyncio.get_running_loop())
+    with _thread_run_locks_guard:
+        if _thread_run_locks_loop_id != loop_id:
+            _thread_run_locks.clear()
+            _thread_run_locks_loop_id = loop_id
+        lock = _thread_run_locks.get(thread_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _thread_run_locks[thread_id] = lock
+        return lock
 
 def _normalize_run_id(run_id: str | None) -> str:
     value = str(run_id or "").strip()
