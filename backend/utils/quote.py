@@ -131,6 +131,51 @@ def fallback_quote_yfinance(ticker: str) -> dict[str, Any] | None:
         return None
 
 
+_KNOWN_FRESHNESS = {"live", "delayed_15min", "cached", "stale", "demo", "fallback", "unknown"}
+_FRESHNESS_FALLBACK_LEVEL = {
+    "live": 0,
+    "delayed_15min": 1,
+    "fallback": 1,
+    "cached": 2,
+    "stale": 2,
+    "demo": 2,
+}
+
+
+def _payload_meta(payload: Any) -> dict[str, Any]:
+    """取上游报价自带的元数据，兼容 ``{data: {...}}`` 包裹（内层优先）。"""
+    if not isinstance(payload, dict):
+        return {}
+    nested = payload.get("data")
+    if isinstance(nested, dict):
+        return {**payload, **nested}
+    return payload
+
+
+def _meta_freshness(meta: dict[str, Any]) -> str | None:
+    """未提供返回 None（沿用旧默认）；提供了但非法则明确标 unknown。"""
+    if "freshness_status" not in meta:
+        return None
+    value = str(meta.get("freshness_status") or "").strip().lower()
+    return value if value in _KNOWN_FRESHNESS else "unknown"
+
+
+def _meta_as_of(meta: dict[str, Any]) -> str | None:
+    value = meta.get("as_of")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _meta_fallback_level(meta: dict[str, Any]) -> int | None:
+    value = meta.get("fallback_level")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value in (0, 1, 2):
+        return value
+    return None
+
+
 def resolve_live_quote(
     ticker: str,
     get_stock_price: Any = None,
@@ -138,6 +183,10 @@ def resolve_live_quote(
     """Resolve quote via tools bridge first, then yfinance fallback.
 
     Returns ``(parsed_quote, raw_payload)``.
+
+    上游工具可能返回缓存/延迟数据。``parse_quote_payload`` 只保留价格字段，
+    所以这里必须把上游的 ``freshness_status``/``as_of``/``fallback_level``
+    带回结果；否则缓存报价会被统一盖成 live + 当前时间，对外伪造实时。
     """
     raw_payload: Any = None
 
@@ -149,10 +198,16 @@ def resolve_live_quote(
 
         parsed = parse_quote_payload(raw_payload)
         if parsed:
+            meta = _payload_meta(raw_payload)
+            freshness = _meta_freshness(meta) or "live"
+            upstream_level = _meta_fallback_level(meta)
             parsed["source"] = "tools_bridge"
-            parsed["as_of"] = _now_iso()
-            parsed["freshness_status"] = "live"
-            parsed["fallback_level"] = 0
+            parsed["as_of"] = _meta_as_of(meta) or _now_iso()
+            parsed["freshness_status"] = freshness
+            parsed["fallback_level"] = (
+                upstream_level if upstream_level is not None
+                else _FRESHNESS_FALLBACK_LEVEL.get(freshness, 0)
+            )
             return parsed, raw_payload
 
     fallback = fallback_quote_yfinance(ticker)

@@ -14,8 +14,61 @@ import pytest
 from backend.utils.quote import (
     fallback_quote_yfinance,
     parse_quote_payload,
+    resolve_live_quote,
     safe_float,
 )
+
+
+class TestResolveLiveQuote:
+    def test_bare_payload_keeps_legacy_live_default(self):
+        quote, raw = resolve_live_quote("AAPL", lambda _ticker: {"price": 100})
+
+        assert raw == {"price": 100}
+        assert quote["source"] == "tools_bridge"
+        assert quote["freshness_status"] == "live"
+        assert quote["fallback_level"] == 0
+        assert quote["as_of"]
+
+    def test_cached_upstream_is_not_relabelled_live(self):
+        as_of = "2026-01-02T03:04:05+00:00"
+        raw_payload = {
+            "data": {
+                "price": 100,
+                "freshness_status": "cached",
+                "as_of": as_of,
+                "fallback_level": 2,
+            }
+        }
+
+        quote, _ = resolve_live_quote("AAPL", lambda _ticker: raw_payload)
+
+        assert quote["freshness_status"] == "cached"
+        assert quote["fallback_level"] == 2
+        assert quote["as_of"] == as_of
+
+    def test_delayed_upstream_freshness_is_preserved(self):
+        quote, _ = resolve_live_quote(
+            "AAPL",
+            lambda _ticker: {"price": 100, "freshness_status": "delayed_15min"},
+        )
+
+        assert quote["freshness_status"] == "delayed_15min"
+        assert quote["fallback_level"] == 1
+
+    def test_invalid_upstream_freshness_is_unknown_not_live(self):
+        quote, _ = resolve_live_quote(
+            "AAPL",
+            lambda _ticker: {"price": 100, "freshness_status": "not-a-status"},
+        )
+
+        assert quote["freshness_status"] == "unknown"
+
+    def test_upstream_as_of_is_not_overwritten(self):
+        as_of = "2025-12-31T00:00:00Z"
+
+        quote, _ = resolve_live_quote("AAPL", lambda _ticker: {"price": 100, "as_of": as_of})
+
+        assert quote["as_of"] == as_of
 
 
 class TestSafeFloat:
