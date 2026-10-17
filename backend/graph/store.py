@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,6 +19,9 @@ _SUMMARY_MAX_LEN = 600
 _MEMORY_INIT_FAILED = object()
 
 _memory_service: MemoryService | object | None = None
+# 读 profile → 合并 recent_focuses → 写回 必须整体互斥：并发 run 各自读到
+# 同一份 profile 会互相覆盖，最近关注列表静默丢条目（项目规则 1）。
+_persist_snapshot_lock = threading.RLock()
 
 
 def resolve_user_id(thread_id: str | None) -> str:
@@ -166,51 +170,52 @@ def persist_memory_snapshot(
         return False
 
     user_id = resolve_user_id(thread_id)
-    try:
-        profile = service.get_user_profile(user_id)
-    except Exception as exc:
-        logger.warning("[graph.store] load profile before persist failed")
-        return False
+    with _persist_snapshot_lock:
+        try:
+            profile = service.get_user_profile(user_id)
+        except Exception as exc:
+            logger.warning("[graph.store] load profile before persist failed")
+            return False
 
-    summary = _extract_summary(state, report)
-    query = str(state.get("query") or "").strip()
-    ticker = _extract_ticker(state, report)
+        summary = _extract_summary(state, report)
+        query = str(state.get("query") or "").strip()
+        ticker = _extract_ticker(state, report)
 
-    if not summary and not query and not ticker:
-        return False
+        if not summary and not query and not ticker:
+            return False
 
-    preferences = profile.preferences if isinstance(profile.preferences, dict) else {}
-    existing_recent = preferences.get("recent_focuses")
-    existing_list = existing_recent if isinstance(existing_recent, list) else []
+        preferences = profile.preferences if isinstance(profile.preferences, dict) else {}
+        existing_recent = preferences.get("recent_focuses")
+        existing_list = existing_recent if isinstance(existing_recent, list) else []
 
-    focus_entry: dict[str, Any] = {
-        "ticker": ticker,
-        "query": query,
-        "summary": summary,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if isinstance(report, dict):
-        sentiment = report.get("sentiment")
-        if isinstance(sentiment, str) and sentiment.strip():
-            focus_entry["sentiment"] = sentiment.strip()
+        focus_entry: dict[str, Any] = {
+            "ticker": ticker,
+            "query": query,
+            "summary": summary,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if isinstance(report, dict):
+            sentiment = report.get("sentiment")
+            if isinstance(sentiment, str) and sentiment.strip():
+                focus_entry["sentiment"] = sentiment.strip()
 
-    dedup_recent: list[dict[str, Any]] = [focus_entry]
-    for item in iter_dict_items(existing_list):
-        if ticker and str(item.get("ticker") or "").strip().upper() == ticker:
-            continue
-        dedup_recent.append(item)
-        if len(dedup_recent) >= _RECENT_FOCUS_LIMIT:
-            break
+        dedup_recent: list[dict[str, Any]] = [focus_entry]
+        for item in iter_dict_items(existing_list):
+            if ticker and str(item.get("ticker") or "").strip().upper() == ticker:
+                continue
+            dedup_recent.append(item)
+            if len(dedup_recent) >= _RECENT_FOCUS_LIMIT:
+                break
 
-    preferences["last_focus"] = focus_entry
-    preferences["recent_focuses"] = dedup_recent
-    profile.preferences = preferences
+        preferences["last_focus"] = focus_entry
+        preferences["recent_focuses"] = dedup_recent
+        profile.preferences = preferences
 
-    try:
-        return bool(service.update_user_profile(profile))
-    except Exception as exc:
-        logger.warning("[graph.store] persist profile failed")
-        return False
+        try:
+            return bool(service.update_user_profile(profile))
+        except Exception as exc:
+            logger.warning("[graph.store] persist profile failed")
+            return False
 
 
 __all__ = [

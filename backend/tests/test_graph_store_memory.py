@@ -1,3 +1,7 @@
+import threading
+import time
+from types import SimpleNamespace
+
 import backend.graph.store as graph_store
 from backend.graph.store import (
     load_memory_context,
@@ -44,6 +48,71 @@ def test_persist_and_load_memory_snapshot(tmp_path):
     assert context["last_focus"]["sentiment"] == "bullish"
     assert isinstance(context["recent_focuses"], list)
     assert len(context["recent_focuses"]) >= 1
+
+
+def test_persist_memory_snapshot_serializes_read_modify_write():
+    """并发 run 的 “读 profile → 合并 → 写回” 必须整体互斥，否则两个线程
+    都读到同一份旧 profile，后写者覆盖先写者的 recent_focuses 条目。"""
+
+    class _OverlapDetectingService:
+        def __init__(self):
+            self._active = 0
+            self._guard = threading.Lock()
+            self.overlapped = False
+            self.profile = SimpleNamespace(preferences={})
+
+        def _enter(self):
+            with self._guard:
+                self._active += 1
+                if self._active > 1:
+                    self.overlapped = True
+
+        def _exit(self):
+            with self._guard:
+                self._active -= 1
+
+        def get_user_profile(self, _user_id):
+            self._enter()
+            try:
+                # 给并发线程留出同时读窗口；有锁时第二个线程只能在锁外等待。
+                time.sleep(0.05)
+                return SimpleNamespace(preferences=dict(self.profile.preferences))
+            finally:
+                self._exit()
+
+        def update_user_profile(self, profile):
+            self._enter()
+            try:
+                time.sleep(0.01)
+                self.profile = profile
+                return True
+            finally:
+                self._exit()
+
+    service = _OverlapDetectingService()
+    start = threading.Barrier(2)
+    results: list[bool] = []
+
+    def _worker(ticker: str) -> None:
+        start.wait(timeout=5)
+        results.append(
+            persist_memory_snapshot(
+                thread_id="public:alice:thread",
+                state={"query": ticker, "subject": {"tickers": [ticker]}},
+                memory_service=service,
+            )
+        )
+
+    threads = [threading.Thread(target=_worker, args=(ticker,)) for ticker in ("AAPL", "NVDA")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert results == [True, True]
+    assert service.overlapped is False
+    tickers = {item["ticker"] for item in service.profile.preferences["recent_focuses"]}
+    assert tickers == {"AAPL", "NVDA"}
 
 
 def test_memory_service_init_failure_only_warn_once(monkeypatch, caplog):
