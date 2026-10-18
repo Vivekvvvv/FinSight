@@ -278,7 +278,8 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
         async def _fetch_ticker_data(ticker: str) -> dict[str, Any]:
             """获取单个 ticker 的快照 + 新闻"""
             snapshot: dict[str, Any] = {}
-            news_headline = "暂无重大事件"
+            news_headline: str | None = "暂无重大事件"
+            news_unavailable = False
 
             # 获取价格快照
             try:
@@ -295,9 +296,19 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
             # 获取新闻标题
             try:
                 raw_news = await asyncio.to_thread(deps.get_company_news, ticker, 5)
-                news_headline = _extract_headline(raw_news, ticker)
+                if isinstance(raw_news, dict) and (
+                    raw_news.get("error") or raw_news.get("success") is False
+                ):
+                    # 上游失败载荷不是"没有新闻"：留 None + 显式标记，
+                    # 不能让取数故障渲染成"暂无重大事件"这一事实性结论。
+                    news_headline = None
+                    news_unavailable = True
+                else:
+                    news_headline = _extract_headline(raw_news, ticker)
             except Exception as exc:
                 logger.debug("[MorningBrief] news fetch failed")
+                news_headline = None
+                news_unavailable = True
 
             price = safe_float(snapshot.get("price"))
             change = safe_float(snapshot.get("change"))
@@ -310,6 +321,8 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
                 "price_change_pct": round(change_pct, 2) if change_pct is not None else None,
                 "trend": _classify_change(change_pct),
                 "key_event": news_headline,
+                # 新闻取数失败与"确实没有新闻"必须可区分（项目规则 2）。
+                "news_unavailable": news_unavailable,
                 # 上游没声明时按旧行为视作 live；声明了缓存/延迟就如实透出，
                 # 前端/highlights 不再把延迟价当实时。没拿到价格则为 None。
                 "freshness_status": (snapshot.get("freshness_status") or "live") if snapshot else None,
@@ -373,6 +386,12 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
             )
         summary_parts.append(f"整体情绪：{_mood_label_cn(market_mood)}。")
 
+        news_unavailable_tickers = sorted(
+            str(h.get("ticker"))
+            for h in highlights_list
+            if h.get("news_unavailable")
+        )
+
         brief = {
             "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             "summary": "".join(summary_parts),
@@ -391,10 +410,14 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
         }
         if position_fetch_failed:
             brief["positions_unavailable"] = True
+        if news_unavailable_tickers:
+            brief["news_unavailable"] = news_unavailable_tickers
+            brief["degraded"] = True
 
         # 降级态 brief 不进缓存：一次存储抖动若按 30min TTL 缓存，会把
         # "持仓缺失"假象钉死到过期，期间同 key 请求持续命中降级结果。
-        if not position_fetch_failed:
+        # 新闻取数故障同理——恢复后不能继续吃"暂无重大事件"的缓存。
+        if not position_fetch_failed and not news_unavailable_tickers:
             dashboard_cache.set("__morning_brief__", cache_k, brief, ttl=_BRIEF_CACHE_TTL)
 
         return {"success": True, "brief": brief}
