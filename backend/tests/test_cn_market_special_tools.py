@@ -201,3 +201,56 @@ def test_fetch_margin_trading_skips_poison_rows_in_legacy_report(monkeypatch):
     assert result["margin_balance"] == 19566752185
     assert result["margin_buy_ratio"] == 0.0
     assert result["source"] == "eastmoney"
+
+
+def test_cn_intraday_as_of_is_last_point_not_fetch_time(monkeypatch):
+    """R69：A股分时的 as_of 用取数时刻，盘后看昨天的旧图会以为刚更新。"""
+
+    def fake_http_get(url, params=None, **kwargs):
+        return _FakeResponse(
+            {
+                "code": 0,
+                "data": {
+                    "sh600519": {
+                        "data": {
+                            "date": "20261017",
+                            "data": [
+                                "0930 1271.18 415 52753970.34",
+                                "1001 1268.20 1156 146919161.70",
+                            ],
+                        }
+                    }
+                },
+            }
+        )
+
+    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+
+    result = tencent_provider.fetch_cn_intraday("600519.SS")
+
+    assert result is not None
+    assert result["as_of"] == "2026-10-17T10:01"
+    assert result["as_of"] != datetime.now().strftime("%Y-%m-%dT%H:%M")
+
+
+def test_cn_intraday_without_date_uses_last_point_time(monkeypatch):
+    def fake_http_get(url, params=None, **kwargs):
+        return _FakeResponse(
+            {
+                "code": 0,
+                "data": {
+                    "sh600519": {
+                        "data": {
+                            "data": ["0930 1271.18 415 52753970.34"],
+                        }
+                    }
+                },
+            }
+        )
+
+    monkeypatch.setattr(tencent_provider, "_http_get", fake_http_get)
+
+    result = tencent_provider.fetch_cn_intraday("600519.SS")
+
+    assert result is not None
+    assert result["as_of"] == "09:30"

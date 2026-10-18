@@ -359,6 +359,17 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
         if not intraday_data:
             return None
 
+        # as_of 必须是最后一条分时点的时间；取数时刻在盘后会让昨天的旧图
+        # 看起来是刚更新的（同 us_market 分时的口径）。腾讯日期常为 20261017。
+        last_time = times[-1] if times else ""
+        day = str(date_str or "").strip()
+        if len(day) == 8 and day.isdigit():
+            day = f"{day[:4]}-{day[4:6]}-{day[6:]}"
+        if day and last_time:
+            as_of = f"{day}T{last_time}"
+        else:
+            as_of = last_time or datetime.now(timezone.utc).isoformat()
+
         return {
             "intraday_data": intraday_data,
             "times": times,
@@ -366,7 +377,7 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
             "volumes": volumes,
             "date": date_str,
             "source": "tencent",
-            "as_of": datetime.now(timezone.utc).isoformat(),
+            "as_of": as_of,
             "freshness_status": "live",
             "fallback_level": 1,
         }
