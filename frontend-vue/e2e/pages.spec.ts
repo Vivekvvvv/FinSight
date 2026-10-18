@@ -355,6 +355,38 @@ test('行情取数失败时任务面板必须提示可能缺失', async ({ page 
   await expect(page.getByText('部分标的行情暂不可用，价格异动任务可能缺失。')).toBeVisible();
 });
 
+// 今日任务接口失败时，旧逻辑把 allSettled 的 rejected 丢掉，dailyTasks 保持空数组，
+// 面板于是显示"暂无任务"——把取数失败说成"确实没有任务"。
+test('任务接口失败时不得说成“暂无任务”', async ({ page }) => {
+  await page.unroute('**/api/tasks/daily**');
+  await page.route('**/api/tasks/daily**', (route) => json(route, { detail: 'boom' }, 500));
+
+  await page.goto('/welcome');
+
+  await expect(page.getByText('任务数据暂时不可用，请稍后刷新。')).toBeVisible();
+  await expect(page.getByText('暂无任务。添加持仓或候选标的后，系统会生成研究复查动作。')).toHaveCount(0);
+});
+
+test('变化接口失败时不得静默隐藏变化面板', async ({ page }) => {
+  await page.unroute('**/api/what-changed**');
+  await page.route('**/api/what-changed**', (route) => json(route, { detail: 'boom' }, 500));
+
+  await page.goto('/welcome');
+
+  await expect(page.getByTestId('what-changed-panel')).toBeVisible();
+  await expect(page.getByText('变化数据暂时不可用，请稍后刷新。')).toBeVisible();
+});
+
+test('研究质量接口失败时不得静默隐藏健康度面板', async ({ page }) => {
+  await page.unroute('**/api/research-quality**');
+  await page.route('**/api/research-quality**', (route) => json(route, { detail: 'boom' }, 500));
+
+  await page.goto('/welcome');
+
+  await expect(page.getByText('研究库质量数据暂时不可用，请稍后刷新。')).toBeVisible();
+  await expect(page.getByText('尚无研究报告')).toHaveCount(0);
+});
+
 test('有自选但无异动时不得说成没有自选', async ({ page }) => {
   await page.route('**/api/today**', (route) =>
     json(route, { ...TODAY, summary: '今日关注：2 只自选', watchlist_movers: [], watchlist_count: 2 }));

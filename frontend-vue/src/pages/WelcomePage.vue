@@ -17,7 +17,10 @@ const router = useRouter();
 const workspace = ref<TodayWorkspaceResponse | null>(null);
 const dailyTasks = ref<DailyTask[]>([]);
 const tasksDegraded = ref(false);
+const tasksUnavailable = ref(false);
 const whatChanged = ref<WhatChangedItem[]>([]);
+const changesUnavailable = ref(false);
+const qualityUnavailable = ref(false);
 const qualitySummary = ref<ResearchQualitySummary>({
   total_reports: 0,
   stale_reports: 0,
@@ -144,6 +147,11 @@ async function refreshSecondary(seq: number): Promise<void> {
     dailyTasks.value = taskResult.value.tasks || [];
     tasksDegraded.value = Boolean(taskResult.value.degraded);
   }
+  // allSettled 的 rejected 分支此前被直接丢掉：接口挂掉时面板显示的是
+  // 默认空数据（"暂无任务"/无变化/健康分 100），把取数失败伪装成"确实没有"。
+  changesUnavailable.value = changesResult.status === 'rejected';
+  qualityUnavailable.value = qualityResult.status === 'rejected';
+  tasksUnavailable.value = taskResult.status === 'rejected';
 }
 
 onMounted(refresh);
@@ -214,7 +222,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
               今日任务
             </h2>
           </div>
-          <span class="panel-count">{{ dailyTasks.length }}</span>
+          <span class="panel-count">{{ tasksUnavailable ? '—' : dailyTasks.length }}</span>
         </div>
         <div
           v-if="tasksDegraded"
@@ -223,7 +231,13 @@ watch(() => identity.sessionId, () => { void refresh(); });
           部分标的行情暂不可用，价格异动任务可能缺失。
         </div>
         <div
-          v-if="dailyTasks.length === 0"
+          v-if="tasksUnavailable"
+          class="panel-empty"
+        >
+          任务数据暂时不可用，请稍后刷新。
+        </div>
+        <div
+          v-else-if="dailyTasks.length === 0"
           class="panel-empty"
         >
           暂无任务。添加持仓或候选标的后，系统会生成研究复查动作。
@@ -249,7 +263,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
       </div>
 
       <div
-        v-if="whatChanged.length > 0"
+        v-if="changesUnavailable || whatChanged.length > 0"
         class="panel what-changed-panel"
         data-testid="what-changed-panel"
       >
@@ -262,9 +276,21 @@ watch(() => identity.sessionId, () => { void refresh(); });
               今日重要变化
             </h2>
           </div>
-          <span class="panel-subtitle">最需要关注的 {{ whatChanged.length }} 个变化</span>
+          <span
+            v-if="!changesUnavailable"
+            class="panel-subtitle"
+          >最需要关注的 {{ whatChanged.length }} 个变化</span>
         </div>
-        <div class="what-changed-grid">
+        <div
+          v-if="changesUnavailable"
+          class="panel-empty"
+        >
+          变化数据暂时不可用，请稍后刷新。
+        </div>
+        <div
+          v-else
+          class="what-changed-grid"
+        >
           <WhatChangedCard
             v-for="item in whatChanged"
             :key="item.id"
@@ -274,7 +300,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
       </div>
 
       <div
-        v-if="qualitySummary.total_reports > 0"
+        v-if="qualityUnavailable || qualitySummary.total_reports > 0"
         class="panel quality-panel"
       >
         <div class="panel-header">
@@ -293,7 +319,14 @@ watch(() => identity.sessionId, () => { void refresh(); });
             查看全部
           </button>
         </div>
+        <div
+          v-if="qualityUnavailable"
+          class="panel-empty"
+        >
+          研究库质量数据暂时不可用，请稍后刷新。
+        </div>
         <ResearchQualityOverview
+          v-else
           :summary="qualitySummary"
           :top-issues="qualityIssues.slice(0, 3)"
         />
