@@ -573,3 +573,119 @@ def test_resume_graph_pipeline_times_out_hung_resume(monkeypatch):
     ]
     assert error_events, "hung resume should emit a timeout error event"
     assert "timed out" in error_events[0].get("message", "")
+
+
+def test_run_graph_pipeline_report_build_failure_is_explicit(monkeypatch):
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    monkeypatch.delenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", raising=False)
+    execution_service = importlib.import_module("backend.services.execution_service")
+    runner_module = importlib.import_module("backend.graph.runner")
+    report_builder_module = importlib.import_module("backend.graph.report_builder")
+
+    async def _fake_run_graph_traced(_runner, **_kwargs):
+        return {
+            "output_mode": "investment_report",
+            "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+            "trace": {},
+            "artifacts": {"draft_markdown": "## 结论\n- 继续观察"},
+        }
+
+    monkeypatch.setattr(runner_module, "run_graph_traced", _fake_run_graph_traced)
+
+    def _boom(**_kwargs):
+        raise RuntimeError("builder exploded")
+
+    monkeypatch.setattr(report_builder_module, "build_report_payload", _boom)
+
+    indexed: list[dict] = []
+
+    async def _fake_get_graph_runner():
+        return object()
+
+    deps = execution_service.ExecutionDeps(
+        get_graph_runner=_fake_get_graph_runner,
+        schedule_report_index=lambda **kwargs: indexed.append(kwargs),
+        update_session_context=lambda **kwargs: None,
+        record_chat_turn=lambda **kwargs: None,
+        redact_sensitive_payload=lambda payload: payload,
+        is_raw_trace_event=lambda payload: False,
+        contract_info=lambda: {},
+        sse_event_schema_version="chat.sse.v1",
+    )
+
+    events = _run(
+        _collect_events(
+            execution_service.run_graph_pipeline(
+                deps=deps,
+                query="生成 AAPL 投资报告",
+                thread_id="tenant:user:thread",
+                output_mode="investment_report",
+                source="execute_test",
+            )
+        )
+    )
+
+    done = next(e for e in events if isinstance(e, dict) and e.get("type") == "done")
+    assert done["report"] is None
+    assert done["report_unavailable"] is True
+    assert done["publishable"] is False
+    assert done["quality"]["state"] != "pass"
+    assert indexed == []
+
+
+def test_resume_graph_pipeline_report_build_failure_is_explicit(monkeypatch):
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    monkeypatch.delenv("LANGGRAPH_EXECUTE_LIVE_TOOLS", raising=False)
+    execution_service = importlib.import_module("backend.services.execution_service")
+    report_builder_module = importlib.import_module("backend.graph.report_builder")
+
+    class _Runner:
+        async def resume(self, *, thread_id: str, resume_value):
+            yield {
+                "event": "on_chain_end",
+                "data": {
+                    "output": {
+                        "query": "resume query",
+                        "output_mode": "investment_report",
+                        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+                        "trace": {},
+                        "artifacts": {"draft_markdown": "resume markdown"},
+                    }
+                },
+            }
+
+    def _boom(**_kwargs):
+        raise RuntimeError("builder exploded")
+
+    monkeypatch.setattr(report_builder_module, "build_report_payload", _boom)
+
+    async def _fake_get_graph_runner():
+        return _Runner()
+
+    deps = execution_service.ExecutionDeps(
+        get_graph_runner=_fake_get_graph_runner,
+        schedule_report_index=lambda **kwargs: None,
+        update_session_context=lambda **kwargs: None,
+        record_chat_turn=lambda **kwargs: None,
+        redact_sensitive_payload=lambda payload: payload,
+        is_raw_trace_event=lambda payload: False,
+        contract_info=lambda: {},
+        sse_event_schema_version="chat.sse.v1",
+    )
+
+    events = _run(
+        _collect_events(
+            execution_service.resume_graph_pipeline(
+                deps=deps,
+                thread_id="tenant:user:thread",
+                resume_value="确认执行",
+                source="resume_test",
+            )
+        )
+    )
+
+    done = next(e for e in events if isinstance(e, dict) and e.get("type") == "done")
+    assert done["report"] is None
+    assert done["report_unavailable"] is True
+    assert done["publishable"] is False
+    assert done["quality"]["state"] != "pass"

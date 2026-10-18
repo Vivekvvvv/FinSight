@@ -250,6 +250,7 @@ async def run_graph_pipeline(
 
             # 3. Build report payload
             report: dict[str, Any] | None = None
+            report_build_failed = False
             try:
                 from backend.graph.report_builder import build_report_payload
 
@@ -263,10 +264,15 @@ async def run_graph_pipeline(
                 )
             except Exception as exc:
                 logger.warning('[execution_service] report build failed')
+                report_build_failed = True
             report_quality, quality_blocked = _apply_quality_gate(
                 report=report,
                 source="execute_run",
             )
+            if report_build_failed:
+                # 报告没构建出来时质量门控对 None 默认判 pass，done 事件仍说
+                # publishable=True——前端会把失败渲染成“质检通过”（项目规则 2）。
+                report_quality = {**report_quality, "state": "warn"}
             blocked_report_preview = report if quality_blocked and isinstance(report, dict) else None
             # 软阻断：质量门控 blocked 但报告已生成时，仍然交付内容并附带警告
             soft_blocked = quality_blocked and blocked_report_preview is not None
@@ -384,10 +390,11 @@ async def run_graph_pipeline(
                     **_resolve_freshness_meta(),
                     "response": response_markdown,
                     "report": persisted_report,
+                    "report_unavailable": report_build_failed,
                     "blocked_report": blocked_report_preview,
                     "quality": report_quality,
                     "quality_blocked": quality_blocked and not soft_blocked,
-                    "publishable": not quality_blocked or soft_blocked,
+                    "publishable": (not quality_blocked or soft_blocked) and not report_build_failed,
                     "blocked_report_available": bool(blocked_report_preview),
                     "allow_continue_when_blocked": True,
                     "soft_blocked": soft_blocked,
@@ -587,6 +594,7 @@ async def resume_graph_pipeline(
             # Build report from final state
             markdown = ((final_state.get("artifacts") or {}).get("draft_markdown")) or ""
             report: dict[str, Any] | None = None
+            report_build_failed = False
             try:
                 from backend.graph.report_builder import build_report_payload
                 report = build_report_payload(
@@ -595,10 +603,14 @@ async def resume_graph_pipeline(
                 report = _annotate_report_source(report, source)
             except Exception as exc:
                 logger.warning('[resume_pipeline] report build failed')
+                report_build_failed = True
             report_quality, quality_blocked = _apply_quality_gate(
                 report=report,
                 source="execute_resume",
             )
+            if report_build_failed:
+                # 同 execute_run：构建失败不能输出 pass/publishable（项目规则 2）。
+                report_quality = {**report_quality, "state": "warn"}
             blocked_report_preview = report if quality_blocked and isinstance(report, dict) else None
             # 软阻断：质量门控 blocked 但报告已生成时，仍然交付内容并附带警告
             soft_blocked = quality_blocked and blocked_report_preview is not None
@@ -700,10 +712,11 @@ async def resume_graph_pipeline(
                     **_resolve_freshness_meta(),
                     "response": response_markdown,
                     "report": persisted_report,
+                    "report_unavailable": report_build_failed,
                     "blocked_report": blocked_report_preview,
                     "quality": report_quality,
                     "quality_blocked": quality_blocked and not soft_blocked,
-                    "publishable": not quality_blocked or soft_blocked,
+                    "publishable": (not quality_blocked or soft_blocked) and not report_build_failed,
                     "blocked_report_available": bool(blocked_report_preview),
                     "allow_continue_when_blocked": True,
                     "soft_blocked": soft_blocked,
