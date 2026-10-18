@@ -629,8 +629,9 @@ def test_news_sentiment_fallback_redacts_llm_error(monkeypatch, caplog):
             },
         )
 
-    assert response.status_code == 200
-    assert response.json()["news"][0]["sentiment"] == "neutral"
+    # LLM 整体失败不再伪装成中性结论：路由必须显式回 503（R batch 变更）。
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Sentiment analysis unavailable"
     assert "private sentiment provider detail" not in response.text
     assert "private sentiment provider detail" not in caplog.text
     assert "[NewsSentiment] 分析失败" in caplog.text
@@ -661,8 +662,9 @@ def test_news_sentiment_json_parse_fallback_redacts_error(monkeypatch, caplog):
             },
         )
 
-    assert response.status_code == 200
-    assert response.json()["news"][0]["sentiment"] == "neutral"
+    # 非 JSON 回复同样属于整体失败：不得回中性的伪结论。
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Sentiment analysis unavailable"
     assert "not-json-private-sentiment-fragment" not in response.text
     assert "not-json-private-sentiment-fragment" not in caplog.text
     assert "[NewsSentiment] LLM返回非JSON" in caplog.text
@@ -697,8 +699,9 @@ def test_news_sentiment_non_finite_json_falls_back(monkeypatch, caplog):
             },
         )
 
-    assert response.status_code == 200
-    assert response.json()["news"][0]["sentiment"] == "neutral"
+    # NaN 导致解析/校验失败 → 整体不可用，不再回中性兜底。
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Sentiment analysis unavailable"
     assert "NaN" not in response.text
     assert "[NewsSentiment] 分析失败" in caplog.text
 
@@ -774,8 +777,11 @@ def test_news_sentiment_non_string_summary_values_do_not_500(monkeypatch):
 def test_analyze_news_sentiment_skips_non_dict_items(monkeypatch):
     """get_company_news 等工具产出的 news_list 无边界校验——非 dict 毒条目的
     n.get AttributeError 逃逸出 try 之外的 slim_news 推导；即便进了异常兜底，
-    dict(n) 会对同一毒列表再崩一次（双重崩）。按条过滤后照常返回中性兜底。"""
+    dict(n) 会对同一毒列表再崩一次（双重崩）。按条过滤后应正常进入 LLM 路径：
+    这里 LLM 失败，抛出的必须是 SentimentAnalysisUnavailable（而非 AttributeError）。"""
     import asyncio
+
+    import pytest
 
     from backend.services import news_sentiment
     from backend import llm_config
@@ -785,14 +791,13 @@ def test_analyze_news_sentiment_skips_non_dict_items(monkeypatch):
             raise RuntimeError("llm down")
 
     monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: FailingLlm())
-    result = asyncio.run(
-        news_sentiment.analyze_news_sentiment(
-            [{"title": "good"}, "poison-item", None, 42], ticker="AAPL",
+    with pytest.raises(news_sentiment.SentimentAnalysisUnavailable) as excinfo:
+        asyncio.run(
+            news_sentiment.analyze_news_sentiment(
+                [{"title": "good"}, "poison-item", None, 42], ticker="AAPL",
+            )
         )
-    )
-    assert len(result) == 1
-    assert result[0]["title"] == "good"
-    assert result[0]["sentiment"] == "neutral"
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
 
 
 def test_aggregate_sentiment_tolerates_non_string_labels():
