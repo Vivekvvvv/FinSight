@@ -321,6 +321,9 @@ export interface DailyTaskResponse {
   session_id: string;
   tasks: DailyTask[];
   count: number;
+  /** 行情取数失败的标的：异动类任务对它们无法评估 */
+  quotes_unavailable?: string[];
+  degraded?: boolean;
 }
 
 export interface RagStatusResponse {

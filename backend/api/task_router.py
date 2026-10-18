@@ -129,12 +129,20 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
 
         portfolio = list(positions_by_ticker.values())
 
+        failed_quote_tickers: list[str] = []
+
         async def _fetch_snapshot(ticker: str) -> tuple[str, dict[str, Any]]:
             try:
                 raw_payload = await asyncio.to_thread(deps.get_stock_price, ticker)
                 parsed = parse_quote_payload(raw_payload) or {}
+                if not parsed:
+                    # 解析不出价格 = 这次没取到；不能从 snapshots 里静默消失，
+                    # 否则价格异动任务凭空少掉（项目规则 2）。
+                    failed_quote_tickers.append(ticker)
                 return ticker, parsed
             except Exception:
+                logger.warning("[Tasks] get_stock_price failed")
+                failed_quote_tickers.append(ticker)
                 return ticker, {}
 
         snapshot_tickers = list(positions_by_ticker.keys())
@@ -169,6 +177,10 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
             "watchlist": merged_watchlist,
             "tasks": serialized_tasks,
             "count": len(tasks),
+            # 行情取数失败的标的：任务的异动规则对它们无法评估，
+            # 必须显式暴露，不能把"少算了"伪装成完整任务列表。
+            "quotes_unavailable": sorted(set(failed_quote_tickers)),
+            "degraded": bool(failed_quote_tickers),
         }
 
     return router

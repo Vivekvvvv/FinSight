@@ -16,6 +16,7 @@ const router = useRouter();
 
 const workspace = ref<TodayWorkspaceResponse | null>(null);
 const dailyTasks = ref<DailyTask[]>([]);
+const tasksDegraded = ref(false);
 const whatChanged = ref<WhatChangedItem[]>([]);
 const qualitySummary = ref<ResearchQualitySummary>({
   total_reports: 0,
@@ -141,6 +142,7 @@ async function refreshSecondary(seq: number): Promise<void> {
   }
   if (taskResult.status === 'fulfilled') {
     dailyTasks.value = taskResult.value.tasks || [];
+    tasksDegraded.value = Boolean(taskResult.value.degraded);
   }
 }
 
@@ -213,6 +215,12 @@ watch(() => identity.sessionId, () => { void refresh(); });
             </h2>
           </div>
           <span class="panel-count">{{ dailyTasks.length }}</span>
+        </div>
+        <div
+          v-if="tasksDegraded"
+          class="panel-empty"
+        >
+          部分标的行情暂不可用，价格异动任务可能缺失。
         </div>
         <div
           v-if="dailyTasks.length === 0"

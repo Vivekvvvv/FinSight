@@ -345,6 +345,16 @@ test('提醒为空且服务正常时仍展示“暂无触发提醒”', async ({
   await expect(page.getByText('提醒服务暂时不可用，请稍后刷新')).toHaveCount(0);
 });
 
+test('行情取数失败时任务面板必须提示可能缺失', async ({ page }) => {
+  await page.unroute('**/api/tasks/daily**');
+  await page.route('**/api/tasks/daily**', (route) =>
+    json(route, { ...DAILY_TASKS, degraded: true, quotes_unavailable: ['AAPL'] }));
+
+  await page.goto('/welcome');
+
+  await expect(page.getByText('部分标的行情暂不可用，价格异动任务可能缺失。')).toBeVisible();
+});
+
 test('有自选但无异动时不得说成没有自选', async ({ page }) => {
   await page.route('**/api/today**', (route) =>
     json(route, { ...TODAY, summary: '今日关注：2 只自选', watchlist_movers: [], watchlist_count: 2 }));

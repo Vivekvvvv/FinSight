@@ -115,6 +115,63 @@ def test_daily_tasks_surfaces_position_store_failure_instead_of_empty_portfolio(
     assert "db is locked" not in response.text
 
 
+def test_daily_tasks_marks_quote_failures_instead_of_dropping_them():
+    """单票报价失败不能静默消失：任务列表会少掉价格异动项却不标记。"""
+
+    def _boom(_ticker):
+        raise RuntimeError("quote provider down")
+
+    principal = Principal(user_id="task-user", role="user", auth_type="api_key")
+    deps = TaskRouterDeps(
+        resolve_thread_id=lambda session_id: session_id,
+        get_report_index_store=lambda: _ReportStore(),
+        get_portfolio_positions=lambda _session_id: [
+            {"ticker": "AAPL", "shares": 10, "avg_cost": 150.0},
+        ],
+        get_stock_price=_boom,
+    )
+    app = FastAPI()
+    app.include_router(create_task_router(deps))
+    app.dependency_overrides[get_current_user] = lambda: principal
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/tasks/daily",
+            params={"session_id": principal.session_id},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["degraded"] is True
+    assert body["quotes_unavailable"] == ["AAPL"]
+
+
+def test_daily_tasks_healthy_quotes_are_not_degraded():
+    principal = Principal(user_id="task-user", role="user", auth_type="api_key")
+    deps = TaskRouterDeps(
+        resolve_thread_id=lambda session_id: session_id,
+        get_report_index_store=lambda: _ReportStore(),
+        get_portfolio_positions=lambda _session_id: [
+            {"ticker": "AAPL", "shares": 10, "avg_cost": 150.0},
+        ],
+        get_stock_price=lambda _ticker: {"price": 200.0, "prev_close": 198.0},
+    )
+    app = FastAPI()
+    app.include_router(create_task_router(deps))
+    app.dependency_overrides[get_current_user] = lambda: principal
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/tasks/daily",
+            params={"session_id": principal.session_id},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["degraded"] is False
+    assert body["quotes_unavailable"] == []
+
+
 def test_daily_tasks_naive_generated_at_uses_real_age_not_999():
     """report_generator.py、report/ir.py、report/validator.py 用
     datetime.now().isoformat() 写 naive generated_at。裸 fromisoformat 得
