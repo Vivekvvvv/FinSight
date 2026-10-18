@@ -2,6 +2,7 @@
 """Portfolio Risk Lens API Router"""
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -86,6 +87,33 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
 
             # 获取持仓数据
             positions = get_positions(normalized_session)
+            # 持仓存储只有 shares/avg_cost，没有当前市值。直接喂给风险透镜时
+            # market_value == cost_basis：亏损规则恒为 0、亏损持仓永远为空，
+            # total_value 实际是成本价却对外显示成"总市值"。这里复用组合页
+            # 的行情解析补上当前估值（单标的超时/异常由 helper 内部兜住）。
+            from backend.api.portfolio_router import _resolve_quote_for_portfolio
+            from backend.utils.quote import safe_float
+
+            priced_count = 0
+
+            async def _attach_live_valuation(position: dict[str, Any]) -> None:
+                nonlocal priced_count
+                ticker = str(position.get("ticker") or "").strip().upper()
+                if not ticker:
+                    return
+                quote, _ = await _resolve_quote_for_portfolio(ticker)
+                price = safe_float((quote or {}).get("price"))
+                shares = safe_float(position.get("shares"))
+                if price is None or price <= 0 or shares is None:
+                    return
+                avg_cost = safe_float(position.get("avg_cost"))
+                position["market_value"] = shares * price
+                position["cost_basis"] = shares * (avg_cost or 0.0)
+                if avg_cost is not None:
+                    position["unrealized_pnl"] = position["market_value"] - position["cost_basis"]
+                priced_count += 1
+
+            await asyncio.gather(*(_attach_live_valuation(p) for p in positions))
 
             # 获取相关报告（用于评估研究覆盖质量）
             store = get_report_index_store()
@@ -102,6 +130,11 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
 
             # 计算风险透镜
             risk_lens = calculate_portfolio_risk_lens(positions, reports)
+            if isinstance(risk_lens, dict):
+                risk_lens["priced_count"] = priced_count
+                # 没拿到实时报价的持仓会退回成本价估值；不标记的话
+                # total_value 仍会被当成当前市值（项目规则 2）。
+                risk_lens["degraded"] = priced_count < len(positions)
 
             return risk_lens
 
