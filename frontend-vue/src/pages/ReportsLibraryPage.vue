@@ -862,6 +862,10 @@ watch(displayed, () => {
               class="quality-block"
             >✗ 质检</span>
             <span
+              v-if="r.quality_state === 'warn'"
+              class="quality-warn"
+            >! 质检</span>
+            <span
               v-if="r.review_status"
               class="review-badge"
               :style="{ background: `color-mix(in srgb, ${REVIEW_LABELS[r.review_status]?.color || 'var(--fin-muted)'} 13%, transparent)`, color: REVIEW_LABELS[r.review_status]?.color || 'var(--fin-muted)' }"
@@ -881,6 +885,12 @@ watch(displayed, () => {
             class="report-summary"
           >
             {{ r.summary }}
+          </p>
+          <p
+            v-if="r.quality_state === 'warn'"
+            class="report-summary"
+          >
+            质检警告：{{ (r.quality_reasons || []).map((reason) => reason.message).filter(Boolean).slice(0, 2).join('；') || '质检未完全通过' }}
           </p>
 
           <!-- EvidencePanel -->
@@ -1427,6 +1437,7 @@ watch(displayed, () => {
 .depth-badge { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: var(--fin-card-soft); color: var(--fin-muted); text-transform: uppercase; }
 .quality-pass { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: var(--fin-success-soft); color: var(--fin-success); font-weight: 700; }
 .quality-block { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: var(--fin-danger-soft); color: var(--fin-danger); font-weight: 700; }
+.quality-warn { font-size: 10px; padding: 2px 6px; border-radius: 20px; background: var(--fin-warning-soft); color: var(--fin-warning); font-weight: 700; }
 .review-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px; }
 .report-title { font-size: 14px; font-weight: 600; color: var(--fin-text); margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .cite-badge { font-size: 11px; padding: 2px 7px; border-radius: 20px; background: var(--fin-card-soft); color: var(--fin-muted); white-space: nowrap; flex-shrink: 0; }

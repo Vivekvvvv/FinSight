@@ -438,6 +438,25 @@ test('报告库研究质量接口失败时，报告列表仍然可见', async ({
   await expect(page.getByRole('button', { name: '📊 研究库健康度暂不可用' })).toBeDisabled();
 });
 
+test('报告库不得隐藏质检警告与原因', async ({ page }) => {
+  await page.unroute('**/api/reports/index**');
+  await page.route('**/api/reports/index**', (route) => json(route, {
+    success: true,
+    count: 1,
+    items: [{
+      ...REPORTS.items[0],
+      quality_state: 'warn',
+      quality_reasons: [{ code: 'GROUNDING_RATE_WARN', message: '引用覆盖率不足 80%' }],
+    }],
+  }));
+
+  await page.goto('/reports');
+
+  // 只有 pass/block 徽标时，warn 报告看起来和"没质检"一样干净。
+  await expect(page.getByText('质检警告：引用覆盖率不足 80%')).toBeVisible();
+  await expect(page.locator('.quality-warn').first()).toBeVisible();
+});
+
 test('美股档案兼容标准报价字段并展示真实分时降级', async ({ page }) => {
   await page.unroute('**/api/quote/**');
   await page.unroute('**/api/kline/**');
