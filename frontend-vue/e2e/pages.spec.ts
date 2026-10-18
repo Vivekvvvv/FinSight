@@ -475,6 +475,27 @@ test('美股档案兼容标准报价字段并展示真实分时降级', async ({
   await expect(panel.locator('canvas')).toBeVisible();
 });
 
+test('K 线接口返回 error 时不得说成该周期没有数据', async ({ page }) => {
+  await page.unroute('**/api/kline/**');
+  await page.route('**/api/kline/WDC**', (route) => json(route, {
+    ticker: 'WDC',
+    cached: false,
+    data: {
+      symbol: 'WDC',
+      source: 'kline',
+      error: 'upstream unavailable',
+      freshness_status: 'unknown',
+      kline_data: [],
+    },
+  }));
+
+  await page.goto('/dossier/WDC');
+
+  const panel = page.getByLabel('标的 K 线');
+  await expect(panel.getByText('K 线数据源暂时不可用，请稍后重试')).toBeVisible();
+  await expect(panel.getByText('当前周期暂无 K 线数据')).toHaveCount(0);
+});
+
 test('/research/qa redirect 到 /chat，智能问答模式可用', async ({ page }) => {
   await page.goto('/research/qa');
   await page.waitForURL('**/chat?mode=qa');

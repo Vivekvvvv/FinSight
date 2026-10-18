@@ -255,7 +255,13 @@ async function loadKline(): Promise<void> {
     );
     if (sequence !== requestSequence) return;
     response.value = result;
-    if (points.value.length === 0 && linePoints.value.length === 0) error.value = '当前周期暂无 K 线数据';
+    if (points.value.length === 0 && linePoints.value.length === 0) {
+      // 后端取数失败仍回 200 + data.error：这不是"该周期没有数据"，
+      // 不能把数据源故障说成事实（项目规则 2）。
+      error.value = result?.data?.error
+        ? 'K 线数据源暂时不可用，请稍后重试'
+        : '当前周期暂无 K 线数据';
+    }
   } catch (loadError) {
     if (sequence !== requestSequence || (loadError instanceof DOMException && loadError.name === 'AbortError')) return;
     response.value = null;
