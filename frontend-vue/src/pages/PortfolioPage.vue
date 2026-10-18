@@ -16,7 +16,7 @@ const route = useRoute();
 const router = useRouter();
 
 const positions = ref<PortfolioPosition[]>([]);
-const totals = ref<{ value: number | null; cost: number | null; pnl: number | null }>({ value: null, cost: null, pnl: null });
+const totals = ref<{ value: number | null; cost: number | null; pnl: number | null; priced: number | null; count: number }>({ value: null, cost: null, pnl: null, priced: null, count: 0 });
 const loading = ref(false);
 const errorMsg = ref<string | null>(null);
 const addExpanded = ref(false);
@@ -222,7 +222,13 @@ async function refresh(): Promise<void> {
     const resp = await apiClient.getPortfolioSummary(identity.sessionId);
     if (seq !== refreshSeq) return;
     positions.value = resp.positions || [];
-    totals.value = { value: resp.total_value, cost: resp.total_cost, pnl: resp.total_pnl };
+    totals.value = {
+      value: resp.total_value,
+      cost: resp.total_cost,
+      pnl: resp.total_pnl,
+      priced: resp.priced_count ?? resp.positions?.length ?? null,
+      count: resp.count,
+    };
   } catch (e) {
     if (seq !== refreshSeq) return;
     errorMsg.value = positions.value.length
@@ -334,7 +340,11 @@ watch(() => identity.sessionId, () => { void refresh(); });
           当前市值
         </div>
         <div class="summary-value">
-          {{ totals.value == null ? '行情不可用' : '¥' + fmt(totals.value) }}
+          {{ totals.value == null || (totals.count > 0 && totals.priced === 0) ? '行情不可用' : '¥' + fmt(totals.value) }}
+          <span
+            v-if="totals.count > 0 && totals.priced != null && totals.priced > 0 && totals.priced < totals.count"
+            class="pnl-pct"
+          >实时报价 {{ totals.priced }}/{{ totals.count }}</span>
         </div>
       </div>
       <div
@@ -345,7 +355,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
           总盈亏
         </div>
         <div class="summary-value">
-          {{ totals.pnl == null ? '—' : (totals.pnl >= 0 ? '+' : '') + '¥' + fmt(totals.pnl) }}
+          {{ totals.pnl == null || (totals.count > 0 && totals.priced === 0) ? '—' : (totals.pnl >= 0 ? '+' : '') + '¥' + fmt(totals.pnl) }}
           <span
             v-if="pnlPercent"
             class="pnl-pct"

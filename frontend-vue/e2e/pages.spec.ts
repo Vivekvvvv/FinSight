@@ -693,6 +693,36 @@ test('组合页按后端报价新鲜度展示缓存，不再只看价格源', as
   await expect(card).not.toContainText('Live');
 });
 
+test('全部报价失败时组合汇总不得显示为平盘', async ({ page }) => {
+  await page.route('**/api/portfolio/summary**', (route) => json(route, {
+    ...PORTFOLIO_SUMMARY,
+    count: 2,
+    priced_count: 0,
+    total_value: PORTFOLIO_SUMMARY.total_cost,
+    total_pnl: 0,
+    positions: PORTFOLIO_SUMMARY.positions.map((item) => ({ ...item, price_source: 'avg_cost_fallback' })),
+  }));
+
+  await page.goto('/portfolio');
+
+  // 后端用成本价兜底：不能把"行情不可用"渲染成 市值=成本、盈亏 ±0。
+  await expect(page.getByText('行情不可用')).toBeVisible();
+  await expect(page.getByText('总盈亏').locator('..').getByText('—')).toBeVisible();
+  await expect(page.getByText('+¥0.00')).toHaveCount(0);
+});
+
+test('部分持仓无实时报价时显示已报价数量', async ({ page }) => {
+  await page.route('**/api/portfolio/summary**', (route) => json(route, {
+    ...PORTFOLIO_SUMMARY,
+    count: 2,
+    priced_count: 1,
+  }));
+
+  await page.goto('/portfolio');
+
+  await expect(page.getByText('实时报价 1/2')).toBeVisible();
+});
+
 test('AI 助手发送时按钮进入 loading disabled 状态', async ({ page }) => {
   await page.route('**/chat/supervisor/stream', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 600));

@@ -70,6 +70,9 @@ export interface PortfolioSummary {
   total_value: number | null;
   total_cost: number | null;
   total_pnl: number | null;
+  /** 成功拿到实时报价的持仓数；缺省时按 positions.length 兜底 */
+  priced_count?: number;
+  total_day_change?: number | null;
 }
 
 export interface ReportIndexItem {
