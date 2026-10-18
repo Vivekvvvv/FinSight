@@ -50,6 +50,28 @@ class MorningBriefRouterDeps:
     get_graph_runner: Optional[Callable[[], Any]] = None
 
 
+_QUOTE_FRESHNESS = {
+    "live", "delayed_15min", "cached", "stale", "demo", "fallback", "unknown",
+}
+
+
+def _declared_quote_freshness(raw_payload: Any) -> str | None:
+    """从原始报价载荷里取回上游声明的 freshness。
+
+    ``parse_quote_payload`` 只保留价格字段，缓存/延迟报价的标签会被丢掉，
+    晨报就把它们一律说成“实时报价”。嵌套的 ``{"data": {...}}`` 也要看。
+    """
+    if not isinstance(raw_payload, dict):
+        return None
+    for candidate in (raw_payload, raw_payload.get("data")):
+        if not isinstance(candidate, dict):
+            continue
+        declared = str(candidate.get("freshness_status") or "").strip().lower()
+        if declared in _QUOTE_FRESHNESS:
+            return declared
+    return None
+
+
 def _classify_change(pct: float | None) -> str:
     """根据涨跌幅分类情绪标签"""
     if pct is None:
@@ -286,6 +308,9 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
                 parsed = parse_quote_payload(raw_payload)
                 if parsed:
                     snapshot = parsed
+                    declared_freshness = _declared_quote_freshness(raw_payload)
+                    if declared_freshness:
+                        snapshot["freshness_status"] = declared_freshness
             except Exception as exc:
                 logger.debug("[MorningBrief] price fetch failed")
 
@@ -307,6 +332,9 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
                 "price_change_pct": round(change_pct, 2) if change_pct is not None else None,
                 "trend": _classify_change(change_pct),
                 "key_event": news_headline,
+                # 上游没声明时按旧行为视作 live；声明了缓存/延迟就如实透出，
+                # 前端/highlights 不再把延迟价当实时。没拿到价格则为 None。
+                "freshness_status": (snapshot.get("freshness_status") or "live") if snapshot else None,
             }
 
         # 限制并发数，避免 API 过载
@@ -332,6 +360,10 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
 
         # 生成汇总文本
         priced_count = sum(1 for h in highlights_list if h.get("price") is not None)
+        live_count = sum(
+            1 for h in highlights_list
+            if h.get("price") is not None and h.get("freshness_status") == "live"
+        )
         up_count = sum(
             1 for h in highlights_list
             if (safe_float(h.get("price_change_pct")) or 0) > 0
@@ -343,10 +375,19 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
         flat_count = priced_count - up_count - down_count
 
         summary_parts: list[str] = []
-        summary_parts.append(
-            f"今日跟踪 {len(all_tickers)} 只标的，"
-            f"其中 {priced_count} 只获取到实时报价。"
-        )
+        if live_count == priced_count:
+            summary_parts.append(
+                f"今日跟踪 {len(all_tickers)} 只标的，"
+                f"其中 {priced_count} 只获取到实时报价。"
+            )
+        else:
+            # 上游声明了缓存/延迟报价时不能统称“实时”，否则晨报在盘前/
+            # 盘后把旧价当成当前价（项目规则 2）。
+            summary_parts.append(
+                f"今日跟踪 {len(all_tickers)} 只标的，"
+                f"其中 {priced_count} 只获取到报价"
+                f"（{live_count} 只实时，{priced_count - live_count} 只缓存/延迟）。"
+            )
         if priced_count > 0:
             summary_parts.append(
                 f"上涨 {up_count} 只，下跌 {down_count} 只，"
@@ -364,6 +405,11 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "ticker_count": len(all_tickers),
             "priced_count": priced_count,
+            "live_price_count": live_count,
+            "freshness_status": (
+                "live" if priced_count and live_count == priced_count
+                else ("cached" if priced_count else "unknown")
+            ),
         }
         if position_fetch_failed:
             brief["positions_unavailable"] = True
