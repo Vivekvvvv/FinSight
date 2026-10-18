@@ -198,6 +198,9 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                     "position_count": portfolio_count,
                 },
                 "watchlist_movers": [],  # P2：实时涨跌幅需额外行情调用
+                # movers 恒为空只代表异动未取数，不代表用户没有自选；前端据此
+                # 区分"没有自选"与"有自选但异动暂不可用"（项目规则 2）。
+                "watchlist_count": watchlist_count,
                 "alert_feed": alert_events[:5],
                 "alert_feed_unavailable": alert_feed_unavailable,
                 "degraded": alert_feed_unavailable,

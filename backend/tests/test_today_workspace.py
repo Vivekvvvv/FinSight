@@ -29,13 +29,18 @@ class _RecordingSubscriptions:
         return []
 
 
-def _today_client(principal, subscription_service):
+class _WatchlistMemory:
+    def list_watchlist_items(self, _user_id):
+        return [{"ticker": "AAPL"}, {"ticker": "NVDA"}]
+
+
+def _today_client(principal, subscription_service, memory_service=None):
     test_app = FastAPI()
     test_app.include_router(
         create_today_router(
             TodayRouterDeps(
                 resolve_thread_id=lambda session_id: session_id,
-                memory_service=_Memory(),
+                memory_service=memory_service or _Memory(),
                 subscription_service=subscription_service,
             )
         )
@@ -111,6 +116,26 @@ def test_today_workspace_without_email_does_not_query_fake_address(monkeypatch):
     assert service.emails == []
     assert payload["alert_feed"] == []
     assert payload["alert_feed_unavailable"] is False
+
+
+def test_today_workspace_reports_watchlist_count_even_without_movers(monkeypatch):
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    principal = Principal(
+        user_id="watchlist-user",
+        email="watchlist-user@example.com",
+        role="user",
+        auth_type="api_key",
+    )
+
+    with _today_client(principal, _RecordingSubscriptions(), memory_service=_WatchlistMemory()) as client:
+        response = client.get("/api/today", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    payload = response.json()
+    # movers 恒为空（P2 未接入实时异动），但自选数量必须如实返回，
+    # 否则前端会把“有自选”渲染成“还没有自选标的”。
+    assert payload["watchlist_movers"] == []
+    assert payload["watchlist_count"] == 2
 
 
 def test_today_workspace_marks_cached_without_live_quotes(monkeypatch):

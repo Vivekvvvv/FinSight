@@ -345,6 +345,26 @@ test('提醒为空且服务正常时仍展示“暂无触发提醒”', async ({
   await expect(page.getByText('提醒服务暂时不可用，请稍后刷新')).toHaveCount(0);
 });
 
+test('有自选但无异动时不得说成没有自选', async ({ page }) => {
+  await page.route('**/api/today**', (route) =>
+    json(route, { ...TODAY, summary: '今日关注：2 只自选', watchlist_movers: [], watchlist_count: 2 }));
+
+  await page.goto('/welcome');
+
+  await expect(page.getByText('还没有自选标的')).toHaveCount(0);
+  await expect(page.getByText('2 只自选 · 实时异动暂不可用')).toBeVisible();
+});
+
+test('没有自选时仍展示“还没有自选标的”', async ({ page }) => {
+  await page.route('**/api/today**', (route) =>
+    json(route, { ...TODAY, watchlist_movers: [], watchlist_count: 0 }));
+
+  await page.goto('/welcome');
+
+  await expect(page.getByText('还没有自选标的')).toBeVisible();
+  await expect(page.getByText('实时异动暂不可用')).toHaveCount(0);
+});
+
 test('/dashboard/AAPL redirect 到 /dossier/AAPL，行情与研究资产可见', async ({ page }) => {
   await page.goto('/dashboard/AAPL');
   await page.waitForURL('**/dossier/AAPL');

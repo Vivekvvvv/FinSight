@@ -390,7 +390,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
             </button>
           </div>
           <div
-            v-if="workspace.watchlist_movers.length === 0"
+            v-if="workspace.watchlist_movers.length === 0 && !workspace.watchlist_count"
             class="panel-empty"
           >
             还没有自选标的
@@ -400,6 +400,12 @@ watch(() => identity.sessionId, () => { void refresh(); });
             >
               去添加
             </button>
+          </div>
+          <div
+            v-else-if="workspace.watchlist_movers.length === 0"
+            class="panel-empty"
+          >
+            {{ workspace.watchlist_count }} 只自选 · 实时异动暂不可用
           </div>
           <div
             v-else

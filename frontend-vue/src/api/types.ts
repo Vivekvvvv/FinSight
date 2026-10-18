@@ -372,6 +372,8 @@ export interface TodayWorkspaceResponse {
     position_count: number;
   };
   watchlist_movers: Array<{ ticker: string; name?: string; change?: number }>;
+  /** 自选数量：movers 为空时用于区分“没有自选”和“异动暂不可用” */
+  watchlist_count?: number;
   alert_feed: AlertEvent[];
   /** 提醒服务取数失败：此时 alert_feed 为空只代表没取到，不代表没触发 */
   alert_feed_unavailable?: boolean;
