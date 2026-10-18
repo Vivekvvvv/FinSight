@@ -100,6 +100,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             markdown = ((state.get("artifacts") or {}).get("draft_markdown")) or ""
 
             report = None
+            report_build_failed = False
             try:
                 from backend.graph.report_builder import build_report_payload
 
@@ -107,8 +108,13 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             except Exception as _report_exc:
                 _logger.warning("[chat/supervisor] report build failed")
                 report = None
+                report_build_failed = True
 
             report_quality, quality_blocked = apply_quality_to_report(report)
+            if report_build_failed:
+                # apply_quality_to_report(None) 默认 state=pass：报告根本没构建
+                # 出来时不能让前端显示“质检通过”（项目规则 2）。
+                report_quality = {**report_quality, "state": "warn"}
             record_quality_metrics(report_quality, source="chat_sync")
 
             if isinstance(report, dict) and not quality_blocked:
@@ -135,9 +141,10 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
                 "contracts": deps.contract_info(),
                 "response": markdown,
                 "report": report,
+                "report_unavailable": report_build_failed,
                 "quality": report_quality,
                 "quality_blocked": quality_blocked,
-                "publishable": not quality_blocked,
+                "publishable": not quality_blocked and not report_build_failed,
                 "intent": "chat",
                 "classification": {"method": "langgraph", "confidence": 1.0},
                 "session_id": thread_id,
