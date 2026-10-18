@@ -73,3 +73,31 @@ def test_financials_payload_enriches_nested_data():
 
     assert payload["evidence"]["source"] == "demo"
     assert payload["data"]["evidence"]["freshness_status"] == "demo"
+
+
+def test_failed_financials_payload_is_not_labeled_live():
+    # 财报取数失败时 source 仍是 "financials"，normalize 会把它当未知来源
+    # 回落成 live；error 载荷必须显式降级。
+    payload = attach_market_evidence(
+        {"ticker": "AAPL", "error": "获取财报数据失败", "financials": None},
+        "financials",
+    )
+
+    assert payload["freshness_status"] == "unknown"
+    assert payload["fallback_level"] >= 1
+    assert payload["evidence"]["degraded"] is True
+
+
+def test_success_false_payload_is_not_labeled_live():
+    payload = attach_market_evidence({"success": False, "error": "price unavailable"}, "unknown")
+
+    assert payload["freshness_status"] != "live"
+    assert payload["evidence"]["degraded"] is True
+
+
+def test_healthy_quote_payload_stays_live():
+    payload = attach_market_evidence({"price": 42, "source": "tencent"}, "tencent")
+
+    assert payload["freshness_status"] == "live"
+    assert payload["fallback_level"] == 0
+    assert payload["evidence"]["degraded"] is False

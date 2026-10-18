@@ -54,6 +54,13 @@ def build_market_evidence(payload: dict[str, Any] | None, fallback_source: str =
     freshness = normalize_market_freshness(source, data.get("freshness_status") or data.get("freshnessStatus"), cached=cached)
     fallback_level = normalize_market_fallback_level(source, data.get("fallback_level") or data.get("fallbackLevel"), cached=cached)
     as_of = data.get("as_of") or data.get("asOf") or utc_now_iso()
+    # 载荷自带 error / success=False 表示这次取数失败。此时 source 只是工具名
+    # （如 "financials"），normalize 会把它当未知来源回落成 live，对外把一次
+    # 失败标成实时数据（项目规则 2）。
+    if data.get("error") or data.get("success") is False:
+        if freshness == "live":
+            freshness = "unknown"
+        fallback_level = max(fallback_level, 1)
     return {
         "source": source,
         "as_of": as_of,
