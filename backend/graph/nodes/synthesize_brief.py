@@ -35,7 +35,7 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
     """
     from datetime import datetime, timezone
 
-    from backend.utils.quote import parse_quote_payload, safe_float
+    from backend.utils.quote import declared_quote_freshness, parse_quote_payload, safe_float
 
     artifacts = state.get("artifacts") or {}
     step_results = artifacts.get("step_results") if isinstance(artifacts, dict) else {}
@@ -63,6 +63,11 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
         if tool_name == "get_stock_price" and ticker:
             parsed = parse_quote_payload(output) if output else None
             if parsed:
+                # parse_quote_payload 只保留价格字段；上游缓存/延迟标签必须
+                # 从原始输出取回，否则晨报会把旧价写成“实时报价”。
+                declared = declared_quote_freshness(output)
+                if declared:
+                    parsed["freshness_status"] = declared
                 ticker_prices[ticker] = parsed
         elif tool_name == "get_company_news" and ticker:
             ticker_news[ticker] = _extract_brief_headline(output)
@@ -96,6 +101,10 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
             "price_change_pct": round(change_pct, 2) if change_pct is not None else None,
             "trend": trend,
             "key_event": headline,
+            # 没拿到价格就没有数据时间可言；拿到了但上游没声明则沿用旧默认 live。
+            "freshness_status": (
+                (price_data.get("freshness_status") or "live") if price is not None else None
+            ),
         })
 
     highlights.sort(key=lambda h: abs(safe_float(h.get("price_change_pct")) or 0), reverse=True)
@@ -106,6 +115,7 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
         "cautiously_pessimistic": "谨慎悲观", "bearish": "看跌",
     }
     priced = [h for h in highlights if h.get("price") is not None]
+    live_priced = [h for h in priced if h.get("freshness_status") == "live"]
     # 只用真正拿到涨跌幅的标的算情绪与计数：缺 change 的（partial quote：有价
     # 无涨跌）此前被 `or 0` 当成平盘，虚增"横盘"数并把 mood 拉向中性（R67）。
     changes = [safe_float(h.get("price_change_pct")) for h in priced]
@@ -129,7 +139,15 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
     up_cnt = sum(1 for c in valid_changes if c > 0)
     down_cnt = sum(1 for c in valid_changes if c < 0)
     flat_cnt = sum(1 for c in valid_changes if c == 0)
-    summary = f"今日跟踪 {len(all_tickers)} 只标的，其中 {len(priced)} 只获取到实时报价。"
+    summary = f"今日跟踪 {len(all_tickers)} 只标的。"
+    if len(live_priced) == len(priced):
+        summary = f"今日跟踪 {len(all_tickers)} 只标的，其中 {len(priced)} 只获取到实时报价。"
+    else:
+        # 上游声明了缓存/延迟价时不能统称“实时”（项目规则 2）。
+        summary = (
+            f"今日跟踪 {len(all_tickers)} 只标的，其中 {len(priced)} 只获取到报价"
+            f"（{len(live_priced)} 只实时，{len(priced) - len(live_priced)} 只缓存/延迟）。"
+        )
     if priced:
         summary += f"上涨 {up_cnt} 只，下跌 {down_cnt} 只，横盘 {flat_cnt} 只。"
     summary += f"整体情绪：{_MOOD_CN.get(mood, '中性')}。"
@@ -158,6 +176,11 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "ticker_count": len(all_tickers),
         "priced_count": len(priced),
+        "live_price_count": len(live_priced),
+        "freshness_status": (
+            "live" if priced and len(live_priced) == len(priced)
+            else ("cached" if priced else "unknown")
+        ),
     }
 
     # Draft markdown

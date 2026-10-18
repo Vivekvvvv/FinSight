@@ -168,6 +168,15 @@ def _meta_freshness(meta: dict[str, Any]) -> str | None:
     return value if value in _KNOWN_FRESHNESS else "unknown"
 
 
+def declared_quote_freshness(payload: Any) -> str | None:
+    """上游载荷声明的 freshness_status（兼容 ``{data: {...}}`` 包裹）。
+
+    ``parse_quote_payload`` 只保留价格字段；需要区分实时/缓存/延迟的调用方
+    必须另行取这个标签，否则会把缓存价统一当成实时。未声明返回 None。
+    """
+    return _meta_freshness(_payload_meta(payload))
+
+
 def _meta_as_of(meta: dict[str, Any]) -> str | None:
     value = meta.get("as_of")
     if isinstance(value, str) and value.strip():

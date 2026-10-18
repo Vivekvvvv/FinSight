@@ -114,3 +114,69 @@ def test_missing_price_has_no_freshness_label(monkeypatch):
     assert brief["highlights"][0]["freshness_status"] is None
     assert brief["freshness_status"] == "unknown"
     assert brief["live_price_count"] == 0
+
+
+# ── Graph Pipeline 路径（synthesize_brief）同样不得把缓存价说成实时 ──
+
+
+def _graph_brief(price_outputs: dict[str, object]) -> dict:
+    from backend.graph.nodes.synthesize import _synthesize_morning_brief_data
+
+    tickers = list(price_outputs)
+    steps = [
+        {"id": f"s{i}", "name": "get_stock_price", "inputs": {"ticker": t}}
+        for i, t in enumerate(tickers)
+    ]
+    step_results = {
+        f"s{i}": {"output": price_outputs[t]} for i, t in enumerate(tickers)
+    }
+    state = {
+        "subject": {"tickers": tickers},
+        "plan_ir": {"steps": steps},
+        "artifacts": {"step_results": step_results},
+    }
+    return _synthesize_morning_brief_data(state)["brief_data"]
+
+
+def test_graph_brief_cached_quote_is_not_reported_as_realtime():
+    brief = _graph_brief(
+        {
+            "AAPL": {
+                "price": 100.0,
+                "change": 1.0,
+                "change_percent": 1.0,
+                "freshness_status": "cached",
+            },
+        }
+    )
+
+    assert brief["highlights"][0]["freshness_status"] == "cached"
+    assert brief["freshness_status"] == "cached"
+    assert brief["live_price_count"] == 0
+    assert "实时报价" not in brief["summary"]
+    assert "缓存/延迟" in brief["summary"]
+
+
+def test_graph_brief_nested_data_freshness_is_honored():
+    brief = _graph_brief(
+        {"AAPL": {"data": {"price": 100.0, "freshness_status": "delayed_15min"}}}
+    )
+
+    assert brief["highlights"][0]["freshness_status"] == "delayed_15min"
+
+
+def test_graph_brief_live_quote_still_says_realtime():
+    brief = _graph_brief(
+        {"AAPL": {"price": 100.0, "change_percent": 1.0, "freshness_status": "live"}}
+    )
+
+    assert brief["freshness_status"] == "live"
+    assert brief["live_price_count"] == 1
+    assert "获取到实时报价" in brief["summary"]
+
+
+def test_graph_brief_missing_price_has_no_freshness_label():
+    brief = _graph_brief({"AAPL": None})
+
+    assert brief["highlights"][0]["freshness_status"] is None
+    assert brief["freshness_status"] == "unknown"

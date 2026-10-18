@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 
 from backend.dashboard.cache import dashboard_cache
-from backend.utils.quote import parse_quote_payload, safe_float
+from backend.utils.quote import declared_quote_freshness, parse_quote_payload, safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -48,28 +48,6 @@ class MorningBriefRouterDeps:
     get_company_news: Callable[[str, int], Any]
     # P1: Graph Pipeline support (optional, fallback to direct fetch when None)
     get_graph_runner: Optional[Callable[[], Any]] = None
-
-
-_QUOTE_FRESHNESS = {
-    "live", "delayed_15min", "cached", "stale", "demo", "fallback", "unknown",
-}
-
-
-def _declared_quote_freshness(raw_payload: Any) -> str | None:
-    """从原始报价载荷里取回上游声明的 freshness。
-
-    ``parse_quote_payload`` 只保留价格字段，缓存/延迟报价的标签会被丢掉，
-    晨报就把它们一律说成“实时报价”。嵌套的 ``{"data": {...}}`` 也要看。
-    """
-    if not isinstance(raw_payload, dict):
-        return None
-    for candidate in (raw_payload, raw_payload.get("data")):
-        if not isinstance(candidate, dict):
-            continue
-        declared = str(candidate.get("freshness_status") or "").strip().lower()
-        if declared in _QUOTE_FRESHNESS:
-            return declared
-    return None
 
 
 def _classify_change(pct: float | None) -> str:
@@ -308,7 +286,7 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
                 parsed = parse_quote_payload(raw_payload)
                 if parsed:
                     snapshot = parsed
-                    declared_freshness = _declared_quote_freshness(raw_payload)
+                    declared_freshness = declared_quote_freshness(raw_payload)
                     if declared_freshness:
                         snapshot["freshness_status"] = declared_freshness
             except Exception as exc:
