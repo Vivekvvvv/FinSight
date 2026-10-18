@@ -325,6 +325,26 @@ test('今日工作台按后端新鲜度展示缓存，不再无条件显示 LIVE
   await expect(page.locator('.live-dot')).toHaveCount(0);
 });
 
+test('提醒服务不可用时空态不得说成“暂无触发提醒”', async ({ page }) => {
+  await page.route('**/api/today**', (route) =>
+    json(route, { ...TODAY, alert_feed: [], alert_feed_unavailable: true, degraded: true }));
+
+  await page.goto('/welcome');
+
+  await expect(page.getByText('提醒服务暂时不可用，请稍后刷新')).toBeVisible();
+  await expect(page.getByText('暂无触发提醒')).toHaveCount(0);
+});
+
+test('提醒为空且服务正常时仍展示“暂无触发提醒”', async ({ page }) => {
+  await page.route('**/api/today**', (route) =>
+    json(route, { ...TODAY, alert_feed: [], alert_feed_unavailable: false }));
+
+  await page.goto('/welcome');
+
+  await expect(page.getByText('暂无触发提醒')).toBeVisible();
+  await expect(page.getByText('提醒服务暂时不可用，请稍后刷新')).toHaveCount(0);
+});
+
 test('/dashboard/AAPL redirect 到 /dossier/AAPL，行情与研究资产可见', async ({ page }) => {
   await page.goto('/dashboard/AAPL');
   await page.waitForURL('**/dossier/AAPL');

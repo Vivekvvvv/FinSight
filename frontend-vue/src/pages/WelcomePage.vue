@@ -437,7 +437,7 @@ watch(() => identity.sessionId, () => { void refresh(); });
             v-if="workspace.alert_feed.length === 0"
             class="panel-empty"
           >
-            暂无触发提醒
+            {{ workspace.alert_feed_unavailable ? '提醒服务暂时不可用，请稍后刷新' : '暂无触发提醒' }}
           </div>
           <div
             v-for="event in workspace.alert_feed.slice(0, 4)"

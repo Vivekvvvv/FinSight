@@ -371,6 +371,10 @@ export interface TodayWorkspaceResponse {
   };
   watchlist_movers: Array<{ ticker: string; name?: string; change?: number }>;
   alert_feed: AlertEvent[];
+  /** 提醒服务取数失败：此时 alert_feed 为空只代表没取到，不代表没触发 */
+  alert_feed_unavailable?: boolean;
+  /** 聚合结果存在降级板块 */
+  degraded?: boolean;
   reports_to_review: ReportIndexItem[];
   next_actions: NextAction[];
 }
