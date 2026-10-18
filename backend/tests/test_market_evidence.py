@@ -86,6 +86,9 @@ def test_failed_financials_payload_is_not_labeled_live():
     assert payload["freshness_status"] == "unknown"
     assert payload["fallback_level"] >= 1
     assert payload["evidence"]["degraded"] is True
+    # 取数失败没有观测时间，不能补成"现在"。
+    assert payload["as_of"] is None
+    assert payload["evidence"]["as_of"] is None
 
 
 def test_success_false_payload_is_not_labeled_live():
@@ -93,6 +96,7 @@ def test_success_false_payload_is_not_labeled_live():
 
     assert payload["freshness_status"] != "live"
     assert payload["evidence"]["degraded"] is True
+    assert payload["as_of"] is None
 
 
 def test_healthy_quote_payload_stays_live():

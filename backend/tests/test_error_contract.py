@@ -845,6 +845,8 @@ def test_intraday_non_cn_business_message_preserved():
 
     assert response.status_code == 200
     assert response.json()["data"]["error"] == "intraday data not available"
+    # 取数失败没有观测发生，不能盖上请求时刻的 as_of 冒充新鲜数据。
+    assert response.json()["data"]["as_of"] is None
 
 
 def test_chart_detect_internal_error_reason_is_fixed(monkeypatch, caplog):

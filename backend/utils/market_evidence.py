@@ -53,14 +53,19 @@ def build_market_evidence(payload: dict[str, Any] | None, fallback_source: str =
     source = str(data.get("source") or fallback_source or "unknown").strip() or "unknown"
     freshness = normalize_market_freshness(source, data.get("freshness_status") or data.get("freshnessStatus"), cached=cached)
     fallback_level = normalize_market_fallback_level(source, data.get("fallback_level") or data.get("fallbackLevel"), cached=cached)
-    as_of = data.get("as_of") or data.get("asOf") or utc_now_iso()
+    as_of = data.get("as_of") or data.get("asOf")
     # 载荷自带 error / success=False 表示这次取数失败。此时 source 只是工具名
     # （如 "financials"），normalize 会把它当未知来源回落成 live，对外把一次
     # 失败标成实时数据（项目规则 2）。
-    if data.get("error") or data.get("success") is False:
+    is_failed = bool(data.get("error")) or data.get("success") is False
+    if is_failed:
         if freshness == "live":
             freshness = "unknown"
         fallback_level = max(fallback_level, 1)
+        # 失败载荷没有任何观测发生：盖请求时刻的 as_of 会让客户端把它当成
+        # "刚更新的数据"。只有成功取数才补当前时间。
+    elif as_of is None:
+        as_of = utc_now_iso()
     return {
         "source": source,
         "as_of": as_of,
