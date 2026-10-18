@@ -13,6 +13,10 @@ from backend.utils.strict_json import json_loads_strict
 logger = logging.getLogger(__name__)
 
 
+class SentimentAnalysisUnavailable(RuntimeError):
+    """LLM 情绪分析整体失败：调用方必须显式报错，不能伪装成中性结果。"""
+
+
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"invalid JSON constant: {value}")
 
@@ -112,10 +116,12 @@ async def analyze_news_sentiment(
 
     except json.JSONDecodeError as exc:
         logger.warning("[NewsSentiment] LLM返回非JSON")
-        return [dict(n, **_neutral_sentiment()) for n in news_list]
+        # 整批分析没跑成：把每条标成 neutral/0.5 会被当成真实结论
+        # （项目规则 2），必须让调用方显式失败。
+        raise SentimentAnalysisUnavailable("sentiment analysis returned non-JSON") from exc
     except Exception as exc:
         logger.error("[NewsSentiment] 分析失败")
-        return [dict(n, **_neutral_sentiment()) for n in news_list]
+        raise SentimentAnalysisUnavailable("sentiment analysis failed") from exc
 
 
 def _neutral_sentiment() -> Dict[str, Any]:

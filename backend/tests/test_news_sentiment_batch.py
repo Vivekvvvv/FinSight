@@ -11,8 +11,13 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 import backend.llm_config as llm_config
-from backend.services.news_sentiment import analyze_news_sentiment
+from backend.services.news_sentiment import (
+    SentimentAnalysisUnavailable,
+    analyze_news_sentiment,
+)
 
 
 class _FakeResponse:
@@ -91,3 +96,24 @@ def test_scalar_and_none_entries_degrade_per_item(monkeypatch):
     assert result[0]["sentiment"] == "neutral"
     assert result[1]["sentiment"] == "positive"
     assert result[2]["sentiment"] == "neutral"
+
+
+class _BrokenLLM:
+    async def ainvoke(self, _prompt):
+        raise RuntimeError("llm down")
+
+
+def test_llm_failure_raises_instead_of_fake_neutral(monkeypatch):
+    """LLM 调用失败时不许把每条新闻标成中性/0.5 当成真实分析。"""
+    monkeypatch.setattr(llm_config, "create_llm", lambda **_kwargs: _BrokenLLM())
+
+    with pytest.raises(SentimentAnalysisUnavailable):
+        asyncio.run(analyze_news_sentiment(_NEWS, "AAPL"))
+
+
+def test_non_json_response_raises_instead_of_fake_neutral(monkeypatch):
+    """LLM 返回非 JSON 同样表示整批分析失败，不能降级成中性结论。"""
+    _patch_llm(monkeypatch, "not-json")
+
+    with pytest.raises(SentimentAnalysisUnavailable):
+        asyncio.run(analyze_news_sentiment(_NEWS, "AAPL"))

@@ -209,7 +209,11 @@ async def news_sentiment(request: NewsSentimentRequest):
     并汇总综合情绪分数。
     """
     try:
-        from backend.services.news_sentiment import analyze_news_sentiment, aggregate_sentiment
+        from backend.services.news_sentiment import (
+            SentimentAnalysisUnavailable,
+            analyze_news_sentiment,
+            aggregate_sentiment,
+        )
         from backend.tools import get_company_news
 
         news_list = request.news
@@ -237,7 +241,11 @@ async def news_sentiment(request: NewsSentimentRequest):
                 "positive": 0, "negative": 0, "neutral": 0,
             }}
 
-        enriched = await analyze_news_sentiment(news_list, ticker=request.ticker)
+        try:
+            enriched = await analyze_news_sentiment(news_list, ticker=request.ticker)
+        except SentimentAnalysisUnavailable as exc:
+            # 分析服务不可用不能回 200+全中性：那是一次没发生的分析。
+            raise HTTPException(status_code=503, detail="Sentiment analysis unavailable") from exc
         agg = aggregate_sentiment(enriched)
 
         return {

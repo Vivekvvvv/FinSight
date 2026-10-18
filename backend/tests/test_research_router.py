@@ -62,6 +62,25 @@ def test_news_sentiment_surfaces_fetch_failure_instead_of_neutral(monkeypatch):
     assert "news provider down" not in response.text
 
 
+def test_news_sentiment_surfaces_analysis_failure_instead_of_neutral(monkeypatch):
+    """LLM 分析失败旧代码返回全中性/0 分的 200 结果，与真实分析不可区分。"""
+    import backend.services.news_sentiment as sentiment_module
+
+    async def boom(*_args, **_kwargs):
+        raise sentiment_module.SentimentAnalysisUnavailable("llm down")
+
+    monkeypatch.setattr(sentiment_module, "analyze_news_sentiment", boom)
+
+    with _client() as client:
+        response = client.post(
+            "/api/research/news/sentiment",
+            json={"ticker": "AAPL", "news": [{"title": "公司发布季报", "summary": "净利润增长"}]},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Sentiment analysis unavailable"
+
+
 def test_comprehensive_report_injects_company_info_and_news(monkeypatch):
     """工具按真实返回类型给值（str / list）时，两个上下文键都必须落进
     data_context。修复前因 AttributeError 被吞恒为空。"""
