@@ -194,7 +194,11 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
             )
         except Exception as exc:
             logger.error("Failed to save suggestion")
-            # Non-fatal: return the suggestion even if persistence fails
+            # 落盘失败却回 200 + suggestion_id，用户以为已保存：列表里查不到，
+            # 后续 PATCH 还会 404（项目规则 2）。让请求显式失败。
+            raise HTTPException(
+                status_code=500, detail="Failed to save rebalance suggestion"
+            ) from exc
 
         return suggestion
 
@@ -386,6 +390,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                 return
 
             # Persist
+            persisted = True
             try:
                 save_suggestion(
                     suggestion_id=suggestion.suggestion_id,
@@ -394,6 +399,9 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                 )
             except Exception as exc:
                 logger.warning("Failed to save streamed suggestion")
+                # SSE 头已发出无法改状态码；至少在结果里显式标记未落盘，
+                # 不能把它当成已保存（项目规则 2）。
+                persisted = False
 
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             yield _sse("progress", {
@@ -402,7 +410,7 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                 "duration_ms": elapsed_ms,
             })
 
-            yield _sse("result", suggestion.model_dump())
+            yield _sse("result", {**suggestion.model_dump(), "persisted": persisted})
 
         return StreamingResponse(
             _event_stream(),

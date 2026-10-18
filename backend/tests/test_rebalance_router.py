@@ -75,6 +75,67 @@ def test_generate_rebalance_returns_actions_when_inputs_complete():
     assert len(data["actions"]) >= 1
 
 
+def _complete_payload(session_id: str) -> dict:
+    return {
+        "session_id": session_id,
+        "portfolio": [
+            {"ticker": "AAPL", "shares": 10},
+            {"ticker": "MSFT", "shares": 5},
+        ],
+        "constraints": {
+            "max_single_position_pct": 55,
+            "max_turnover_pct": 30,
+            "sector_concentration_limit": 100,
+            "min_action_delta_pct": 1,
+        },
+    }
+
+
+def _complete_client() -> TestClient:
+    price_map = {"AAPL": 200.0, "MSFT": 100.0}
+    return _build_client(
+        get_stock_price=lambda ticker: {"price": price_map[ticker]},
+        get_company_info=lambda _ticker: "- Sector: Technology",
+    )
+
+
+def test_generate_rebalance_returns_500_when_persist_fails(monkeypatch):
+    """落盘失败不能回 200 + suggestion_id：用户会以为建议已保存。"""
+    import backend.api.rebalance_router as rebalance_router
+
+    def _boom(**_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(rebalance_router, "save_suggestion", _boom)
+
+    response = _complete_client().post(
+        "/api/rebalance/suggestions/generate",
+        json=_complete_payload("public:test_user:persist-fail"),
+    )
+
+    assert response.status_code == 500
+    assert "suggestion_id" not in response.json()
+
+
+def test_generate_rebalance_stream_marks_persisted_false_when_save_fails(monkeypatch):
+    """SSE 无法改状态码，但结果里必须显式标记未落盘。"""
+    import backend.api.rebalance_router as rebalance_router
+
+    def _boom(**_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(rebalance_router, "save_suggestion", _boom)
+
+    response = _complete_client().post(
+        "/api/rebalance/suggestions/generate-stream",
+        json=_complete_payload("public:test_user:stream-persist-fail"),
+    )
+
+    assert response.status_code == 200
+    assert "event: result" in response.text
+    assert '"persisted": false' in response.text
+
+
 def test_rebalance_endpoints_reject_oversized_portfolio_before_fetching():
     calls = []
 
