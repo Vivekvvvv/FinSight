@@ -64,6 +64,15 @@ if (props.citationQuality === 'low') {
 if (confidencePct != null && confidencePct < 40) {
   warnings.push({ text: `置信度偏低（${confidencePct}%），不宜单独使用。`, level: 'error' });
 }
+if (props.reportUnavailable) {
+  // 后端报告构建失败时显式返回 report_unavailable=true、publishable=false；
+  // 这里必须提示，否则失败会被渲染成一次正常回答（项目规则 2）。
+  warnings.push({ text: '报告生成失败，本次结论未经过质检。', level: 'error' });
+} else if (props.qualityState === 'warn') {
+  // 后端降级路径会把 quality.state 置为 warn（报告未构建/质检警告），
+  // 以前只处理 block，warn 在界面上完全不可见。
+  warnings.push({ text: '质检未完全通过，请结合原始数据复查。', level: 'warn' });
+}
 if (props.qualityState === 'block') {
   warnings.push({ text: '未通过质检，请优先复查。', level: 'error' });
 }

@@ -707,6 +707,45 @@ test('AI 助手按后端新鲜度显示降级而不是伪造实时', async ({ pa
   await expect(page.locator('.ev-badge').filter({ hasText: '实时' })).toHaveCount(0);
 });
 
+test('报告构建失败时聊天证据必须显示警告，不得伪装成正常回答', async ({ page }) => {
+  await page.route('**/chat/supervisor/stream', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream; charset=utf-8',
+      body: [
+        'data: {"type":"token","content":"未质检回复"}',
+        'data: {"type":"done","source":"mock","report_unavailable":true,"publishable":false,"quality":{"state":"warn"},"as_of":"2026-06-17T10:00:00Z","metrics":{"request_started_at":"2026-06-17T10:00:00Z"}}',
+        '',
+      ].join('\n'),
+    }));
+
+  await page.goto('/chat');
+  await page.getByPlaceholder('问点什么', { exact: false }).fill('AAPL 今天有什么变化');
+  await page.getByRole('button', { name: '发送研究任务' }).click();
+
+  await expect(page.locator('.ev-compact-warn')).toContainText('报告生成失败');
+  await expect(page.locator('.ev-item').filter({ hasText: '质检通过' })).toHaveCount(0);
+});
+
+test('质检状态为 warn 时聊天证据必须显示警告', async ({ page }) => {
+  await page.route('**/chat/supervisor/stream', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream; charset=utf-8',
+      body: [
+        'data: {"type":"token","content":"质检警告回复"}',
+        'data: {"type":"done","source":"mock","report_unavailable":false,"publishable":true,"quality":{"state":"warn"},"as_of":"2026-06-17T10:00:00Z","metrics":{"request_started_at":"2026-06-17T10:00:00Z"}}',
+        '',
+      ].join('\n'),
+    }));
+
+  await page.goto('/chat');
+  await page.getByPlaceholder('问点什么', { exact: false }).fill('AAPL 今天有什么变化');
+  await page.getByRole('button', { name: '发送研究任务' }).click();
+
+  await expect(page.locator('.ev-compact-warn')).toContainText('质检未完全通过');
+});
+
 test('移动端底部导航不遮挡主要操作', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/chat');

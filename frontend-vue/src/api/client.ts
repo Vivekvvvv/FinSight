@@ -216,6 +216,7 @@ function _extractEvidence(payload: Record<string, unknown>): EvidenceInfo {
     citationQuality: citationQuality,
     qualityState: qualityState as string | null,
     quality: quality ?? null,
+    reportUnavailable: Boolean(payload.report_unavailable),
   };
 }
 

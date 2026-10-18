@@ -14,8 +14,10 @@ export interface EvidenceInfo {
   staleData?: boolean | null;      // true = 数据超过 24h
   citationCount?: number | null;
   citationQuality?: 'high' | 'medium' | 'low' | null;
-  qualityState?: string | null;    // 'pass' | 'block' | null
+  qualityState?: string | null;    // 'pass' | 'warn' | 'block' | null
   quality?: Record<string, unknown> | null;
+  /** 后端 done.report_unavailable：报告没构建出来，结论未经质检 */
+  reportUnavailable?: boolean | null;
 }
 
 export interface MeResponse {
