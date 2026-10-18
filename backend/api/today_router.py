@@ -118,15 +118,22 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
             alert_events = []
             alert_feed_unavailable = False
             if deps.subscription_service:
-                try:
-                    # 尝试从 memory_service 获取 email（假设存储在 user_profile 中）
-                    email = resolved_user_id if "@" in resolved_user_id else f"{resolved_user_id}@example.com"
-                    alert_events = await asyncio.to_thread(deps.subscription_service.list_alert_events, email, limit=10)
-                except Exception as exc:
-                    logger.warning("today alert events unavailable")
-                    # 空列表会被前端渲染成“没有告警”；读取失败必须显式标记，
-                    # 否则用户和监控都看不到告警服务故障（项目规则 2）。
-                    alert_feed_unavailable = True
+                # 订阅按邮箱存储（/api/subscribe 用 principal.email 落库）。以前这里
+                # 用 user_id 拼 "<user_id>@example.com" 去查，而 JWT/api_key 用户的
+                # user_id 普遍不是邮箱，查询键永远对不上，提醒面板对这类用户恒为空。
+                email = (current_user.email or "").strip()
+                if not email and "@" in resolved_user_id:
+                    email = resolved_user_id
+                if email:
+                    try:
+                        alert_events = await asyncio.to_thread(
+                            deps.subscription_service.list_alert_events, email, limit=10
+                        )
+                    except Exception as exc:
+                        logger.warning("today alert events unavailable")
+                        # 空列表会被前端渲染成“没有告警”；读取失败必须显式标记，
+                        # 否则用户和监控都看不到告警服务故障（项目规则 2）。
+                        alert_feed_unavailable = True
 
             # 计算待复查报告
             watchlist_tickers = [w.get("ticker", "") for w in watchlist_items if w.get("ticker")]

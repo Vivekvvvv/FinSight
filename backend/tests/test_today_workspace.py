@@ -20,9 +20,38 @@ class _BrokenSubscriptions:
         raise RuntimeError("subscription store is down")
 
 
+class _RecordingSubscriptions:
+    def __init__(self):
+        self.emails = []
+
+    def list_alert_events(self, email, limit=10):
+        self.emails.append(email)
+        return []
+
+
+def _today_client(principal, subscription_service):
+    test_app = FastAPI()
+    test_app.include_router(
+        create_today_router(
+            TodayRouterDeps(
+                resolve_thread_id=lambda session_id: session_id,
+                memory_service=_Memory(),
+                subscription_service=subscription_service,
+            )
+        )
+    )
+    test_app.dependency_overrides[get_current_user] = lambda: principal
+    return TestClient(test_app)
+
+
 def test_today_workspace_surfaces_alert_feed_failure(monkeypatch):
     monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
-    principal = Principal(user_id="today-alert-user", role="user", auth_type="api_key")
+    principal = Principal(
+        user_id="today-alert-user",
+        email="today-alert-user@example.com",
+        role="user",
+        auth_type="api_key",
+    )
     test_app = FastAPI()
     test_app.include_router(
         create_today_router(
@@ -48,6 +77,40 @@ def test_today_workspace_surfaces_alert_feed_failure(monkeypatch):
     assert payload["alert_feed_unavailable"] is True
     assert payload["degraded"] is True
 
+
+def test_today_workspace_queries_alerts_by_principal_email(monkeypatch):
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    # JWT 用户的 user_id 是 UUID 而非邮箱：必须用认证主体的 email 查订阅，
+    # 拿 user_id 拼出来的假邮箱永远查不到订阅。
+    principal = Principal(
+        user_id="3f2a-uuid-not-email",
+        email="alice@example.com",
+        role="user",
+        auth_type="jwt",
+    )
+    service = _RecordingSubscriptions()
+
+    with _today_client(principal, service) as client:
+        response = client.get("/api/today", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    assert service.emails == ["alice@example.com"]
+
+
+def test_today_workspace_without_email_does_not_query_fake_address(monkeypatch):
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    principal = Principal(user_id="guest:anonymous", role="guest", auth_type="anonymous")
+    service = _RecordingSubscriptions()
+
+    with _today_client(principal, service) as client:
+        response = client.get("/api/today", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    payload = response.json()
+    # 没有邮箱就没有可查的订阅键，但不该当成“服务故障”，也不该拿假地址去查。
+    assert service.emails == []
+    assert payload["alert_feed"] == []
+    assert payload["alert_feed_unavailable"] is False
 
 
 def test_today_workspace_marks_cached_without_live_quotes(monkeypatch):
