@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.services.memory import reset_profiles
+
 # Keep test runtime deterministic and avoid async sqlite destructor noise in
 # short-lived TestClient lifecycles unless a test explicitly overrides backend.
 os.environ.setdefault("LANGGRAPH_CHECKPOINTER_BACKEND", "memory")
@@ -55,11 +57,20 @@ def _reset_api_memory_test_fixtures():
         "last_active": "2026-02-03T00:00:00Z",
     }
 
-    for uid in ("test_api_user", "test_api_user_wl", "test_api_user_agent_prefs"):
-        (memory_dir / f"{uid}.json").write_text(
-            json.dumps({**_default_profile, "user_id": uid}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+    # 走 MemoryService 的原子写 + 模块级锁：直写目标文件会和测试覆盖的
+    # 持锁写入方争抢同一句柄，Windows 上表现为 Errno 13 (PermissionError)，
+    # 整片用例在 setup/teardown 报 ERROR（项目规则 1）。
+    reset_profiles(
+        str(memory_dir),
+        {
+            uid: {**_default_profile, "user_id": uid}
+            for uid in (
+                "test_api_user",
+                "test_api_user_wl",
+                "test_api_user_agent_prefs",
+            )
+        },
+    )
 
     yield
 

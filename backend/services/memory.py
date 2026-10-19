@@ -37,6 +37,48 @@ class WatchlistLimitExceeded(Exception):
         self.current = current
 
 
+def atomic_write_json(path: str, payload: Any) -> None:
+    """原子写 JSON 到 path：唯一临时文件 + flush + fsync + os.replace。
+
+    与 update_user_profile 内部的写法同源；抽出来是因为这里（如测试夹具）
+    也需要按同一把锁、同一条 os.replace 路径落盘，否则直写目标文件会与持锁
+    的写入方撞成 Windows 上的 PermissionError（Errno 13）。
+    调用方负责持 _PROFILE_LOCK。
+    """
+    file_path = str(path)
+    directory = os.path.dirname(file_path) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=os.path.basename(file_path) + ".",
+        suffix=".tmp",
+        dir=directory,
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False, allow_nan=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, file_path)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                logger.warning('[MemoryService] Failed to remove profile temp file')
+
+
+def reset_profiles(directory: str, files: Dict[str, Any]) -> None:
+    """按 user_id → payload 重置若干 profile 文件，持模块级锁并走原子替换。
+
+    供测试夹具使用：绕开这一路径直写目标文件，会和并发持锁的写入方争抢同一
+    个句柄（Windows 上表现为 Errno 13），也会留下读到半个文件的窗口。
+    """
+    with _PROFILE_LOCK:
+        for user_id, payload in files.items():
+            atomic_write_json(os.path.join(directory, f"{user_id}.json"), payload)
+
+
 @dataclass
 class UserProfile:
     """用户画像"""

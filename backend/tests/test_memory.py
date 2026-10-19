@@ -8,6 +8,34 @@ def memory_service(tmp_path):
     # Use a temporary directory for tests
     return MemoryService(storage_path=str(tmp_path))
 
+
+def test_reset_profiles_writes_atomically_and_reads_back(tmp_path):
+    """测试夹具的重置必须走原子写 + 模块级锁（项目规则 1）。
+
+    直写目标文件会和持锁的写入方争抢句柄，Windows 上表现为 Errno 13，
+    且读侧可能看到写了一半的文件。reset_profiles 用 tempfile + os.replace，
+    落盘内容必须能被 MemoryService 正常解析。
+    """
+    from backend.services.memory import reset_profiles
+
+    payload = {
+        "user_id": "test_api_user",
+        "risk_tolerance": "medium",
+        "investment_style": "balanced",
+        "watchlist": [],
+        "preferences": {},
+        "last_active": "2026-02-03T00:00:00Z",
+    }
+    target = tmp_path / "test_api_user.json"
+
+    reset_profiles(str(tmp_path), {"test_api_user": payload})
+
+    assert json.loads(target.read_text(encoding="utf-8")) == payload
+    # 落盘后目录里不应留下临时文件
+    assert [p.name for p in tmp_path.iterdir()] == ["test_api_user.json"]
+    profile = MemoryService(storage_path=str(tmp_path)).get_user_profile("test_api_user")
+    assert profile.user_id == "test_api_user"
+
 def test_get_new_profile(memory_service):
     profile = memory_service.get_user_profile("test_user_1")
     assert profile.user_id == "test_user_1"
