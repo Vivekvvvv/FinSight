@@ -139,7 +139,9 @@ async def resolve_subject(state: GraphState) -> dict:
                 if found:
                     tickers = found
             except Exception:
-                pass
+                # 同 Tier-1：抽取失败不能静默回落成"用户没提标的"，
+                # 否则 active_symbol 会被当成查询里指定的标的绑上去。
+                logger.warning("[resolve_subject] selection ticker extraction failed")
         if not tickers and isinstance(active_symbol, str) and active_symbol.strip():
             from backend.config.ticker_mapping import normalize_ticker
             tickers = [normalize_ticker(active_symbol)]
@@ -199,7 +201,10 @@ async def resolve_subject(state: GraphState) -> dict:
         from backend.config.ticker_mapping import dedup_tickers
         tickers = dedup_tickers(tickers)
     except Exception:
-        pass
+        # dedup 挂了会把元信息里重复的标的原样透出（如 ["AAPL","AAPL"]），
+        # 下游按数组长度判断"比较几只票"就会多算；留痕而不是静默。
+        # 日志只写固定字面量（R701-1507 契约）。
+        logger.warning("[resolve_subject] ticker dedup failed")
 
     # ------------------------------------------------------------------
     # Extract comparison hint — reuse _ticker_meta from Path A / B.

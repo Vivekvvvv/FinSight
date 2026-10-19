@@ -123,3 +123,27 @@ class TestResolveSubjectTierGate:
         # 抽取挂了导致 tier1 结论缺失必须留下痕迹，且日志不得回显用户 query
         assert "[resolve_subject] Tier-1 ticker extraction failed" in caplog.text
         assert "AAPL" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_selection_ticker_extraction_failure_is_logged(self, monkeypatch, caplog):
+        """带 selection 时抽取失败同样会把 active_symbol 当成查询指定的标的
+        绑上去；这条路径的 except 也不能静默（同 Tier-1 修复类）。"""
+        import backend.config.ticker_mapping as ticker_mapping
+
+        monkeypatch.setattr(
+            ticker_mapping,
+            "extract_tickers",
+            lambda _query: (_ for _ in ()).throw(RuntimeError("alias table unavailable")),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await resolve_subject(
+                _make_state(
+                    query="分析 AAPL",
+                    active_symbol="GOOGL",
+                    selections=[{"id": "news-1", "type": "news"}],
+                )
+            )
+
+        assert result["subject"]["tickers"] == ["GOOGL"]
+        assert "[resolve_subject] selection ticker extraction failed" in caplog.text
