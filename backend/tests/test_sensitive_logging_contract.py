@@ -979,7 +979,7 @@ def test_dynamic_log_expressions_match_reviewed_safe_baseline():
     assert unclassified == []
     assert classifications == Counter(
         {
-            "exception_type": 145,
+            "exception_type": 146,
             "http_status": 11,
             "aggregate_count": 10,
             "provider_name": 4,
@@ -1082,7 +1082,9 @@ SECURITY_HARDENING_ROUNDS_1201_1300 = [
     ("R1242", "backend/agents/news_agent.py", "[NewsAgent] Finnhub stream fetch failed", "type(e).__name__"),
     ("R1243", "backend/agents/news_agent.py", "[NewsAgent] stream summary failed; falling back to retry invoke", "type(stream_exc).__name__"),
     ("R1244", "backend/agents/news_agent.py", "[NewsAgent] invoke summary fallback failed", "type(invoke_exc).__name__"),
-    ("R1245", "backend/agents/price_agent.py", "[PriceAgent] search fallback failed", "type(exc).__name__"),
+    # 该行日志已经是被审计过的安全形态（type(exc).__name__）；这里的钉子
+    # 表示"这条消息上不允许再出现未审计的动态表达式"，用空串占位。
+    ("R1245", "backend/agents/price_agent.py", "[PriceAgent] search fallback failed: %s", ""),
     ("R1246", "backend/api/chart_detector.py", "查询已接收", "len(query)"),
     ("R1247", "backend/api/chat_router.py", "[chat/supervisor] report build failed", "type(_report_exc).__name__"),
     ("R1248", "backend/api/chat_router.py", "[chat/supervisor] failed", "type(exc).__name__"),
