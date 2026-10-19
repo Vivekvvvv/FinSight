@@ -37,13 +37,28 @@ def test_north_flow_parses_kamt_rtmin_rows(monkeypatch):
     assert result["data_points"][0]["north"] == 1500.75 * 10000
 
 
-def test_north_flow_returns_zero_when_all_rows_premarket(monkeypatch):
+def test_north_flow_returns_none_when_all_rows_premarket(monkeypatch):
+    """全为未开盘占位行（一处有效分时点都没有）曾返回 north_flow=0.0 + source，
+    下游把 0 渲染成"今日净流入 0.00 亿元"这一事实结论。无有效数据必须报失败。"""
     class _EmptyResp:
         status_code = 200
         text = 'jQuery({"rc":0,"data":{"s2n":["09:15,-,-,-,-"]}})'
 
     monkeypatch.setattr(tencent_market_providers, "_http_get", lambda *a, **k: _EmptyResp())
     result = tencent_provider.fetch_north_flow(date="2026-07-06")
+    assert result is None
+
+
+def test_north_flow_genuine_zero_flow_is_kept(monkeypatch):
+    """真实 0 元净流入（平盘）是有效结论，不能被当成取数失败丢掉。"""
+    class _FlatResp:
+        status_code = 200
+        text = 'jQuery({"rc":0,"data":{"s2n":["09:15,-,-,-,-","10:00,0.0,520000.0,0.0,0.0"]}})'
+
+    monkeypatch.setattr(tencent_market_providers, "_http_get", lambda *a, **k: _FlatResp())
+    result = tencent_provider.fetch_north_flow(date="2026-07-06")
+
     assert result is not None
     assert result["north_flow"] == 0.0
-    assert result["data_points"] == []
+    assert result["sh_flow"] == 0.0
+    assert result["data_points"] == [{"time": "10:00", "north": 0.0}]

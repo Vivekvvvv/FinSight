@@ -125,9 +125,11 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
                         "reason": record.get("EXPLANATION") or record.get("EXPLAIN") or "龙虎榜",
                         "close_price": safe_float(record.get("CLOSE_PRICE")),
                         "change_percent": safe_float(record.get("CHANGE_RATE")),
-                        "buy_amount": safe_float(record.get("BILLBOARD_BUY_AMT") or record.get("SUM_BUY_AMT")) or 0.0,
-                        "sell_amount": safe_float(record.get("BILLBOARD_SELL_AMT") or record.get("SUM_SELL_AMT")) or 0.0,
-                        "net_buy": safe_float(record.get("BILLBOARD_NET_AMT") or record.get("NET_BS_AMT")) or 0.0,
+                        "buy_amount": safe_float(record.get("BILLBOARD_BUY_AMT") or record.get("SUM_BUY_AMT")),
+                        "sell_amount": safe_float(record.get("BILLBOARD_SELL_AMT") or record.get("SUM_SELL_AMT")),
+                        # 上游没回净买入额时不能折成 0：下游会渲染成"机构净买入
+                        # 0.00 亿元"（研究路由 prompt）。缺失必须是 None。
+                        "net_buy": safe_float(record.get("BILLBOARD_NET_AMT") or record.get("NET_BS_AMT")),
                         "turnover_rate": safe_float(record.get("TURNOVERRATE")),
                         "buy_seats": [],
                         "sell_seats": [],
@@ -183,9 +185,10 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
             return None
 
         # 解析龙虎榜基础数据
-        buy_amount = _wan_to_yuan(record.get("Bmoney", 0))  # 万元转元
-        sell_amount = _wan_to_yuan(record.get("Smoney", 0))
-        net_buy = _wan_to_yuan(record.get("JmMoney", 0))
+        buy_amount = _wan_to_yuan(record.get("Bmoney"))  # 万元转元
+        sell_amount = _wan_to_yuan(record.get("Smoney"))
+        # 旧代码给缺失字段补 0（而非 0 元成交），下游读成"净买入 0.00 亿元"。
+        net_buy = _wan_to_yuan(record.get("JmMoney"))
 
         result = {
             "symbol": symbol.upper(),
@@ -409,17 +412,27 @@ def fetch_north_flow(date: str | None = None) -> dict[str, Any] | None:
             if len(data_points) < 30:
                 data_points.append({"time": time_str, "north": north_v * 10000})
 
+        if last_north is None:
+            # 分时行全部是未开盘的 "-"（或没有行）：一处真实数据都没解析到，
+            # 此时 north_flow=0 会被下游当成"今日北向净流入 0 元"这一事实结论
+            # （研究路由把 0 渲染成"净流入 0.00 亿元"喂进 prompt），
+            # 必须与"确实收盘/平盘"区分开（项目规则 2）。
+            logger.info("[东方财富] 北向资金无有效分时点")
+            return None
+
         # 头部标量取最新有效分时点的累计值，万元转元
-        north_total = last_north * 10000 if last_north is not None else 0.0
-        sh_total = last_sh * 10000 if last_sh is not None else 0.0
-        sz_total = last_sz * 10000 if last_sz is not None else 0.0
+        north_total = last_north * 10000
+        sh_total = last_sh * 10000
+        sz_total = last_sz * 10000
 
         return {
             "date": date,
             "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
-            "north_flow": north_total or 0.0,
-            "sh_flow": sh_total or 0.0,
-            "sz_flow": sz_total or 0.0,
+            # 有有效分时点即为真实累计值：不再 `or 0.0`——0 元是合法净流入
+            # （持平），把"取数失败"和"持平"折成同一个 0 会让失败伪装成结论。
+            "north_flow": north_total,
+            "sh_flow": sh_total,
+            "sz_flow": sz_total,
             "data_points": data_points,
             "source": "eastmoney",
             "unit": "元"
@@ -499,14 +512,17 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
                     "symbol": symbol.upper(),
                     "stock_code": stock_code,
                     "date": latest.get("DATE", datetime.now(timezone.utc).date().isoformat()),
-                    "margin_balance": margin_balance or 0.0,
-                    "margin_buy": margin_buy or 0.0,
-                    "margin_repay": margin_repay or 0.0,
-                    "short_balance": short_balance or 0.0,
-                    "short_sell": short_sell or 0.0,
-                    "short_repay": short_repay or 0.0,
+                    # `or 0.0` 把"该行没回这个字段"折成"融资余额 0 元"这一事实：
+                    # 下游 `bal/1e8` 会把它渲染成"融资余额 0.00 亿元"写进 /qa 的
+                    # prompt。真实 0 是合法值（safe_float 保留），缺失必须是 None。
+                    "margin_balance": margin_balance,
+                    "margin_buy": margin_buy,
+                    "margin_repay": margin_repay,
+                    "short_balance": short_balance,
+                    "short_sell": short_sell,
+                    "short_repay": short_repay,
                     "margin_buy_ratio": margin_buy_ratio,
-                    "total_balance": total_balance or 0.0,
+                    "total_balance": total_balance,
                     "source": "eastmoney",
                     "unit": "融资单位=元，融券单位=股",
                 }
@@ -577,18 +593,19 @@ def fetch_margin_trading(symbol: str) -> dict[str, Any] | None:
         # 这里返回0，实际需要调用额外API获取成交额
         margin_buy_ratio = 0.0
 
+        # 同上：`or 0.0` 让"上游没回该字段"伪装成"余额 0 元"这一事实结论。
         return {
             "symbol": symbol.upper(),
             "stock_code": stock_code,
             "date": latest.get("TRADE_DATE", datetime.now(timezone.utc).date().isoformat()),
-            "margin_balance": margin_balance or 0.0,
-            "margin_buy": margin_buy or 0.0,
-            "margin_repay": margin_repay or 0.0,
-            "short_balance": short_balance or 0.0,
-            "short_sell": short_sell or 0.0,
-            "short_repay": short_repay or 0.0,
+            "margin_balance": margin_balance,
+            "margin_buy": margin_buy,
+            "margin_repay": margin_repay,
+            "short_balance": short_balance,
+            "short_sell": short_sell,
+            "short_repay": short_repay,
             "margin_buy_ratio": margin_buy_ratio,
-            "total_balance": total_balance or 0.0,
+            "total_balance": total_balance,
             "source": "eastmoney",
             "unit": "融资单位=元，融券单位=股"
         }

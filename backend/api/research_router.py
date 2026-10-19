@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any, List, Literal
 import logging
 
+from backend.utils.quote import safe_float
+
 logger = logging.getLogger(__name__)
 _MAX_NEWS_INPUT_BYTES = 256 * 1024
 
@@ -326,8 +328,10 @@ async def smart_qa(request: SmartQARequest):
                 try:
                     from backend.tools.tencent_provider import fetch_cn_top_list
                     top = fetch_cn_top_list(ticker, include_seats=False)
-                    if top and not top.get("error"):
-                        net_buy = top.get("net_buy", 0)
+                    # 只有真实净买入额才构成"净买入 N 亿元"这一事实；
+                    # 上游没回该字段时不能按 0 折成"净买入 0.00 亿元"写进 prompt。
+                    net_buy = safe_float(top.get("net_buy")) if isinstance(top, dict) else None
+                    if top and not top.get("error") and net_buy is not None:
                         direction = "净买入" if net_buy >= 0 else "净卖出"
                         context_parts.append(
                             f"【龙虎榜】今日上榜，机构{direction} {abs(net_buy)/1e8:.2f}亿元"
@@ -339,8 +343,8 @@ async def smart_qa(request: SmartQARequest):
                 try:
                     from backend.tools.tencent_provider import fetch_north_flow
                     nf = fetch_north_flow()
-                    if nf and not nf.get("error"):
-                        north = nf.get("north_flow", 0)
+                    north = safe_float(nf.get("north_flow")) if isinstance(nf, dict) else None
+                    if nf and not nf.get("error") and north is not None:
                         direction = "净流入" if north >= 0 else "净流出"
                         context_parts.append(
                             f"【北向资金】今日{direction} {abs(north)/1e8:.2f}亿元"
@@ -352,8 +356,8 @@ async def smart_qa(request: SmartQARequest):
                 try:
                     from backend.tools.tencent_provider import fetch_margin_trading
                     margin = fetch_margin_trading(ticker)
-                    if margin and not margin.get("error"):
-                        bal = margin.get("margin_balance", 0)
+                    bal = safe_float(margin.get("margin_balance")) if isinstance(margin, dict) else None
+                    if margin and not margin.get("error") and bal is not None:
                         context_parts.append(
                             f"【融资融券】融资余额 {bal/1e8:.2f}亿元"
                         )
