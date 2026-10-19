@@ -50,6 +50,7 @@ class NewsAgent(BaseFinancialAgent):
         self.tools = tools_module
         self._last_convergence = None
         self._last_event_calendar: Dict[str, Any] = {}
+        self._last_event_calendar_failed = False
         self._last_reliability_summary: Dict[str, Any] = {}
 
     def _get_tool_registry(self) -> dict:
@@ -197,12 +198,19 @@ class NewsAgent(BaseFinancialAgent):
         event_fn = getattr(self.tools, "get_event_calendar", None)
         if not event_fn:
             return {}
+        self._last_event_calendar_failed = False
         try:
             payload = event_fn(ticker=ticker, days_ahead=30)
             if isinstance(payload, dict):
                 return payload
         except Exception as exc:
-            logger.debug("[NewsAgent] event calendar load failed")
+            # 静默回退成 {} 会让"日历源整体挂了"和"未来 30 天确实没有事件"
+            # 同形：summary 里照写 earnings=0 之类，_format_output 还会把它
+            # 当证据把 confidence 顶到 0.8（项目规则 2、
+            # finsight-silent-success-forbidden）。这里必须留可定位的
+            # warning 并置位失败标记，由 _format_output 折算成 fallback_reason。
+            self._last_event_calendar_failed = True
+            logger.warning("[NewsAgent] event calendar load failed")
             return {}
         return {}
 
@@ -470,6 +478,11 @@ class NewsAgent(BaseFinancialAgent):
         if not evidence:
             fallback_used = True
             fallback_reason = "no_news_data"
+        elif self._last_event_calendar_failed:
+            # 新闻本身拿到了，但事件日历是"取数失败"而不是"本月无事件"；
+            # 不置标记的话这份故障会以满置信度（0.8）的干净报告交付。
+            fallback_used = True
+            fallback_reason = "event_calendar_unavailable"
 
         risks: List[str] = []
         reliability_summary = self._last_reliability_summary if isinstance(self._last_reliability_summary, dict) else {}

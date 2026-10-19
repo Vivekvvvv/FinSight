@@ -1,4 +1,5 @@
 import json
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -55,6 +56,50 @@ async def test_news_stream_redacts_tavily_error(caplog):
     assert secret not in str(events)
     assert secret not in caplog.text
     assert "[NewsAgent] Tavily stream fetch failed" in caplog.text
+
+
+def test_event_calendar_failure_is_not_a_measured_empty_calendar(caplog):
+    """日历源挂掉时 _load_event_calendar 回退成 {}，和"未来 30 天确实没有
+    事件"在结构上同形：summary 照旧写 earnings=0，_format_output 还会把新闻
+    证据的 confidence 顶到 0.8。一次取数故障必须留下 fallback_reason
+    （项目规则 2、finsight-silent-success-forbidden）。
+    """
+    secret = "PRIVATE_EVENT_CALENDAR_SENTINEL"
+    tools = MagicMock()
+    tools.get_event_calendar.side_effect = RuntimeError(secret)
+    agent = NewsAgent(None, MagicMock(), tools, CircuitBreaker())
+    agent._last_event_calendar = {}
+    agent._last_reliability_summary = {}
+
+    with caplog.at_level(logging.WARNING):
+        agent._last_event_calendar = agent._load_event_calendar("AAPL")
+        output = agent._format_output(
+            "Recent news includes: something happened.",
+            [{"headline": "something happened", "source": "finnhub"}],
+        )
+
+    assert agent._last_event_calendar == {}
+    assert output.fallback_reason == "event_calendar_unavailable"
+    assert output.fallback_used is True
+    assert "[NewsAgent] event calendar load failed" in caplog.text
+    assert secret not in caplog.text
+
+
+def test_successful_empty_event_calendar_stays_a_real_empty_calendar():
+    """真·空日历（源可用、确实没有事件）不能被降级标记污染。"""
+    tools = MagicMock()
+    tools.get_event_calendar.return_value = {"earnings_events": []}
+    agent = NewsAgent(None, MagicMock(), tools, CircuitBreaker())
+    agent._last_reliability_summary = {}
+
+    agent._last_event_calendar = agent._load_event_calendar("AAPL")
+    output = agent._format_output(
+        "Recent news includes: something happened.",
+        [{"headline": "something happened", "source": "finnhub"}],
+    )
+
+    assert agent._last_event_calendar_failed is False
+    assert output.fallback_reason is None
 
 
 def test_news_reliability_rejects_non_finite_tool_score():
