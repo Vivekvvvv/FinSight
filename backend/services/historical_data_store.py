@@ -348,6 +348,13 @@ def fetch_and_cache_kline(
         try:
             from backend.tools import get_stock_historical_data
             payload = get_stock_historical_data(ticker, period="5y", interval="1d")
+            # 全部数据源失败时 provider 返回的是 {"error": ...}，没有 kline_data 键；
+            # `or []` 把它压成"这只票没有历史数据"。两者后果不同：前者是上游/网络
+            # 故障（历史缓存不该被写成"已拉到、为空"），后者是标的真的没有数据
+            # （项目规则 2）。kdata=[] 的生产者仍按"无数据"处理。
+            if isinstance(payload, dict) and payload.get("error"):
+                logger.warning('historical fallback upstream error')
+                return []
             kdata = (payload or {}).get("kline_data") or []
             # 毒行按条跳过——非 dict 条目的 .get AttributeError、time
             # present-None 的 None[:10] TypeError 会落进下方 except 让

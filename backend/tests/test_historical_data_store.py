@@ -389,6 +389,34 @@ def test_r95_fallback_does_not_cache_under_non_qfq_adjust(store, monkeypatch):
 
 # ── baostock 全局会话并发 ─────────────────────────────────────────────────────
 
+def test_fallback_upstream_error_is_not_treated_as_empty_history(store, monkeypatch):
+    """R98：降级源返回 {"error": ...}（全部数据源失败）不等于"这只票没有历史数据"。
+
+    旧的 `(payload or {}).get("kline_data") or []` 把错误载荷压成空列表：
+    `_clean([])` 为空 → 不写缓存，但调用方/日志看到的与"标的真的没有数据"
+    完全一致，上游故障被抹平（项目规则 2）。必须显式分流。
+    """
+    monkeypatch.setattr(store, "_fetch_baostock", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "backend.tools.get_stock_historical_data",
+        lambda *a, **k: {"error": "Failed to fetch historical data for 600519.SS: All data sources failed."},
+    )
+
+    assert store.fetch_and_cache_kline("600519.SS", "2026-01-01", "2026-12-31", "qfq") == []
+    assert store._read_cache("600519.SS", "2026-01-01", "2026-12-31", "qfq") is None
+
+
+def test_fallback_raises_are_still_empty_history(store, monkeypatch):
+    """降级源直接抛异常仍按"没有数据"处理（原 except 分支语义不变）。"""
+    monkeypatch.setattr(store, "_fetch_baostock", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "backend.tools.get_stock_historical_data",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("upstream exploded")),
+    )
+
+    assert store.fetch_and_cache_kline("600519.SS", "2026-01-01", "2026-12-31", "qfq") == []
+
+
 def test_concurrent_fetches_do_not_kill_each_others_session(store, monkeypatch):
     """baostock 的 login/query/logout 操作的是进程级全局 session：
     /api/market/historical/{ticker} 是 def 端点、在 FastAPI 线程池并发执行，
