@@ -196,7 +196,10 @@ def _build_meta(
     latency_ms = int((time.perf_counter() - started_at) * 1000)
     fallback_used = bool(fallback_reason)
     confidence = 0.35 if fallback_used else 0.85
-    as_of = _extract_as_of(payload) or _utc_now_iso()
+    # payload 是空 {} / [] 时抽不出数据时间，此时用 `or _utc_now_iso()` 补请求
+    # 时刻，会让前端 DataSourceBadge 把"这一取数失败、什么都没拿到"显示成刚刚
+    # 更新的行情时间戳（项目规则 2）。带得出真实时间戳的段维持原行为。
+    as_of = _extract_as_of(payload) or _utc_now_iso() if payload else ""
     return {
         "provider": provider,
         "source_type": source_type,

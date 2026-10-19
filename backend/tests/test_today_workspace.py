@@ -152,3 +152,48 @@ def test_today_workspace_marks_cached_without_live_quotes(monkeypatch):
     assert payload["freshness_status"] != "live"
     assert payload["portfolio_snapshot"]["total_value"] is None
     assert payload["watchlist_movers"] == []
+
+
+class _StampedWatchlistMemory:
+    def list_watchlist_items(self, _user_id):
+        return [
+            {"ticker": "AAPL", "created_at": "2026-10-17T09:00:00+00:00"},
+            {"ticker": "NVDA", "created_at": "2026-10-18T11:00:00+00:00"},
+        ]
+
+
+def test_today_workspace_as_of_comes_from_stored_records(monkeypatch):
+    """as_of 必须是本地记录的写入时刻，不是请求时刻。"""
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    principal = Principal(
+        user_id="as-of-user",
+        email="as-of-user@example.com",
+        role="user",
+        auth_type="api_key",
+    )
+
+    with _today_client(principal, _RecordingSubscriptions(), memory_service=_StampedWatchlistMemory()) as client:
+        response = client.get("/api/today", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    payload = response.json()
+    # 前端 DataSourceBadge 把 as_of 渲染成“本地缓存”的新鲜度时间戳；填请求
+    # 时刻等于声称"这些自选是此刻的"（项目规则 2）。
+    assert payload["as_of"] == "2026-10-18T11:00:00+00:00"
+
+
+def test_today_workspace_as_of_is_blank_without_local_records(monkeypatch):
+    """一条本地记录都没有时，没有可报的"数据时间"。"""
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+    principal = Principal(
+        user_id="empty-as-of-user",
+        email="empty-as-of-user@example.com",
+        role="user",
+        auth_type="api_key",
+    )
+
+    with _today_client(principal, _RecordingSubscriptions(), memory_service=_Memory()) as client:
+        response = client.get("/api/today", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    assert response.json()["as_of"] == ""

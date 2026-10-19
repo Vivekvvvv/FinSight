@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,6 +23,33 @@ from backend.services.next_actions import generate_next_actions
 from backend.services.reports_to_review import get_reports_to_review
 
 logger = logging.getLogger(__name__)
+
+
+# 候选字段按"最后写入该行记录的时刻"排序；portfolio_store 用 updated_at，
+# memory 的自选股用 created_at。
+_AS_OF_FIELDS = ("as_of", "updated_at", "created_at")
+
+
+def _latest_as_of(*rows: Any) -> str:
+    """取本地持仓/自选记录里最新的写入时刻；一条都取不到时返回 ""。
+
+    此前这里恒填 `datetime.now()`——前端 DataSourceBadge 会把它渲染成
+    "10/19 15:04 本地缓存"，也就是"这些持仓/自选是此刻的"。实际上接口只读本地
+    存储，从没做过实时取数；一条记录都没有时更是把一个空的本地读操作标成刚更新
+    （项目规则 2、finsight-silent-success-forbidden）。
+    """
+    latest = ""
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in _AS_OF_FIELDS:
+            value = row.get(key)
+            if not isinstance(value, str):
+                continue
+            text = value.strip()
+            if text and text > latest:
+                latest = text
+    return latest
 
 
 @dataclass(frozen=True)
@@ -184,7 +210,7 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
 
             return {
                 "success": True,
-                "as_of": datetime.now(timezone.utc).isoformat(),
+                "as_of": _latest_as_of(*watchlist_items, *(portfolio_summary.get("positions") or [])),
                 # 该接口只读本地持仓/自选/报告存储，不调用任何实时行情
                 # （total_value/total_pnl 为 None、watchlist_movers 恒为空），
                 # 不能对外声称 live；cached 表示"本地持久化数据，非实时报价"。
