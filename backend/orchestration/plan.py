@@ -208,10 +208,13 @@ class PlanExecutor:
                     # We can't await here easily if this is a sync method called from async context without awaiting,
                     # but caller should usually pass a sync wrapper or we assume sync for simplicity.
                     # Or we just schedule it? No, keep it simple.
-                    pass 
-                on_event(record)
+                    logger.warning("[PlanExecutor] coroutine event listener skipped")
+                else:
+                    on_event(record)
             except Exception:
-                pass
+                # 静默 pass 会让外发通道断掉而调用方毫不知情：trace 内部有记录、
+                # 后端 errors 也正确，前端进度面板却停在中途（项目规则 2）。
+                logger.warning("[PlanExecutor] event emit failed")
 
     def _build_peer_context(self, agent_outputs: Dict[str, Any]) -> str:
         if not agent_outputs:
@@ -242,7 +245,8 @@ class PlanExecutor:
         try:
             parent_on_event(record)
         except Exception:
-            pass
+            # 同 _emit_event：回调抛错时事件被整条丢弃，前端看不到失败步骤。
+            logger.warning("[PlanExecutor] agent event emit failed")
 
     async def _run_agent_step(
         self,

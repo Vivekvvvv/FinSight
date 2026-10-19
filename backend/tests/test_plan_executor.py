@@ -77,6 +77,70 @@ def test_plan_executor_returns_structured_error_details_for_partial_failure():
     ]
 
 
+def test_plan_executor_logs_when_event_channel_breaks(caplog):
+    """回调抛错时事件被整条丢弃：trace 内部照记、最终 errors 也正确，但前端
+    进度面板会停在中途（项目规则 2）。断链必须留可定位的 warning。
+    """
+    agents = {"price": DummyAgent("price")}
+    plan = PlanBuilder.build_report_plan("query", "AAPL", list(agents.keys()))
+    executor = PlanExecutor(agents, DummyForum())
+
+    def _broken_listener(_record):
+        raise RuntimeError("PRIVATE_EVENT_LISTENER_DETAIL")
+
+    caplog.set_level(logging.WARNING, logger="backend.orchestration.plan")
+    result = asyncio.run(executor.execute(plan, "query", "AAPL", on_event=_broken_listener))
+
+    assert any(event["event"] == "step_done" for event in result["trace"])
+    assert "[PlanExecutor] event emit failed" in caplog.text
+    assert "PRIVATE_EVENT_LISTENER_DETAIL" not in caplog.text
+
+
+def test_plan_executor_logs_skipped_coroutine_event_listener(caplog):
+    """协程式回调会被 iscoroutinefunction 分支直接跳过：事件永远发不出去，
+    调用方必须能在日志里看到这件事，而不是以为进度已在推送。"""
+
+    async def _async_listener(_record):
+        return None
+
+    agents = {"price": DummyAgent("price")}
+    plan = PlanBuilder.build_report_plan("query", "AAPL", list(agents.keys()))
+    executor = PlanExecutor(agents, DummyForum())
+
+    caplog.set_level(logging.WARNING, logger="backend.orchestration.plan")
+    result = asyncio.run(executor.execute(plan, "query", "AAPL", on_event=_async_listener))
+
+    assert any(event["event"] == "step_done" for event in result["trace"])
+    assert "[PlanExecutor] coroutine event listener skipped" in caplog.text
+
+
+def test_plan_executor_logs_broken_agent_event_channel(caplog):
+    """agent 内部事件走 _emit_agent_event 转发，回调炸掉同样不能静默。"""
+    captured: list = []
+
+    class _ToolishAgent(DummyAgent):
+        async def research(self, query, ticker, on_event=None):
+            if on_event:
+                on_event({"event": "agent_internal", "details": {}})
+            return await super().research(query, ticker)
+
+    agents = {"price": _ToolishAgent("price")}
+    plan = PlanBuilder.build_report_plan("query", "AAPL", list(agents.keys()))
+    executor = PlanExecutor(agents, DummyForum())
+
+    def _broken_listener(_record):
+        captured.append(_record)
+        raise RuntimeError("PRIVATE_AGENT_EVENT_DETAIL")
+
+    caplog.set_level(logging.WARNING, logger="backend.orchestration.plan")
+    result = asyncio.run(executor.execute(plan, "query", "AAPL", on_event=_broken_listener))
+
+    assert captured  # agent 确实把内部事件转发了出去（至少 step_start）
+    assert "[PlanExecutor] agent event emit failed" in caplog.text
+    assert "PRIVATE_AGENT_EVENT_DETAIL" not in caplog.text
+    assert any(event["event"] == "step_done" for event in result["trace"])
+
+
 def test_plan_executor_redacts_agent_error_from_result_and_trace(caplog):
     sentinel = "PRIVATE_AGENT_CONNECTION_DETAIL"
 
