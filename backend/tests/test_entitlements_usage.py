@@ -189,3 +189,50 @@ def test_usage_fallback_logs_do_not_expose_exception_details(
     assert "build_usage_view: count_reports_since failed; fallback 0" in caplog.text
     assert "build_usage_view: count subscriptions failed; fallback 0" in caplog.text
     assert "build_usage_view: count portfolio positions failed; fallback 0" in caplog.text
+
+
+def test_usage_fallback_zero_is_marked_as_not_measured(tmp_path, monkeypatch):
+    """计数失败回退的 0 和"用户确实没消耗"在结构上同形：额度条两种情况下都
+    显示满血，用户以为配额没用、管理员以为盘子里没东西。降级必须显式标出
+    （项目规则 2、finsight-silent-success-forbidden）。"""
+    _configure_storage(tmp_path)
+    from backend.services import portfolio_store, report_index, subscription_service
+    from backend.services.entitlements import build_usage_view
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("private usage storage detail")
+
+    monkeypatch.setattr(report_index, "get_report_index_store", fail)
+    monkeypatch.setattr(subscription_service, "get_subscription_service", fail)
+    monkeypatch.setattr(portfolio_store, "get_positions", fail)
+
+    usage = build_usage_view("usage_degraded_user")
+
+    for key in ("max_reports_per_day", "max_alerts", "max_portfolio_positions"):
+        assert usage[key]["used"] == 0
+        assert usage[key]["fallback_reason"] == "usage_count_unavailable"
+
+
+def test_real_zero_usage_is_not_marked_degraded(tmp_path, monkeypatch):
+    """真·零使用（存储可用、计数就是 0）不能被降级标记污染。"""
+    _configure_storage(tmp_path)
+    from backend.services import portfolio_store, report_index, subscription_service
+    from backend.services.entitlements import build_usage_view
+
+    class _ReportStore:
+        def count_reports_since(self, **_kwargs):
+            return 0
+
+    class _SubService:
+        def get_subscriptions(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(report_index, "get_report_index_store", lambda: _ReportStore())
+    monkeypatch.setattr(subscription_service, "get_subscription_service", lambda: _SubService())
+    monkeypatch.setattr(portfolio_store, "get_positions", lambda _sid: [])
+
+    usage = build_usage_view("usage_clean_user")
+
+    for key in ("max_reports_per_day", "max_alerts", "max_portfolio_positions"):
+        assert usage[key]["used"] == 0
+        assert "fallback_reason" not in usage[key]

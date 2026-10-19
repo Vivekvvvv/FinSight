@@ -314,7 +314,9 @@ def reset_entitlements_service_for_tests() -> None:
 # (max_watchlist 与 max_deep_research_per_day 暂未接 — 留 TODO)
 #
 # 设计原则: 单点失败不应让整个 entitlements 接口挂掉; 任意子查询异常时
-# 该项 fallback 到 0, 调用方仍能看到 limit 而非 503。
+# 该项 fallback 到 0, 调用方仍能看到 limit 而非 503。但"回退 0"必须显式标出
+# (该 quota 条目带 fallback_reason="usage_count_unavailable"), 否则一次存储
+# 故障会被读成"用户确实没消耗配额"。
 
 
 def _today_utc_start_iso() -> str:
@@ -344,6 +346,11 @@ def build_usage_view(
 
     result: Dict[str, Dict[str, Any]] = {}
 
+    # 子查询失败的 quota_key 集合: 这些项的 used 是"计数失败回退的 0", 不是
+    # "用户确实一个都没用"; 透出给调用方, 否则额度条永远显示满血, 用户以为
+    # 配额没被消耗、管理员以为盘子里没东西 (项目规则 2)。
+    degraded_quota_keys: list[str] = []
+
     # 1) max_reports_per_day
     reports_used = 0
     try:
@@ -357,6 +364,7 @@ def build_usage_view(
     except Exception as exc:
         logger.error('build_usage_view: count_reports_since failed; fallback 0')
         reports_used = 0
+        degraded_quota_keys.append("max_reports_per_day")
     result["max_reports_per_day"] = _quota_entry(
                 plan=plan, used=reports_used, limit=safe_int(limits.get("max_reports_per_day"), 0) or 0
     )
@@ -374,6 +382,7 @@ def build_usage_view(
     except Exception as exc:
         logger.error('build_usage_view: count subscriptions failed; fallback 0')
         alerts_used = 0
+        degraded_quota_keys.append("max_alerts")
     result["max_alerts"] = _quota_entry(
                 plan=plan, used=alerts_used, limit=safe_int(limits.get("max_alerts"), 0) or 0
     )
@@ -388,6 +397,7 @@ def build_usage_view(
     except Exception as exc:
         logger.error('build_usage_view: count portfolio positions failed; fallback 0')
         pf_used = 0
+        degraded_quota_keys.append("max_portfolio_positions")
     result["max_portfolio_positions"] = _quota_entry(
                 plan=plan, used=pf_used, limit=safe_int(limits.get("max_portfolio_positions"), 0) or 0
     )
@@ -397,6 +407,12 @@ def build_usage_view(
         result[quota_key] = _quota_entry(
                 plan=plan, used=0, limit=safe_int(limits.get(quota_key), 0) or 0
         )
+
+    # 5) 降级标记: 只标"计数失败"的项, 真·零使用不标。
+    for quota_key in degraded_quota_keys:
+        entry = result.get(quota_key)
+        if isinstance(entry, dict):
+            entry["fallback_reason"] = "usage_count_unavailable"
 
     return result
 
