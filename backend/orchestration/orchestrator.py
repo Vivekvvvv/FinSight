@@ -302,6 +302,11 @@ class ToolOrchestrator:
                     source="negative_cache",
                     cached=True,
                     duration_ms=duration,
+                    # 负缓存里没有数据，只有一条失败记录；没有可报的数据时间
+                    # （as_of=None，风格同 agent_adapter 的降级分支）。下游
+                    # execute_plan_stub 会把 as_of 当 evidence.published_date 渲染，
+                    # 填请求时刻等于把一次失败标成"此刻的数据"（项目规则 2）。
+                    as_of=None,
                     tried_sources=['cache'],
                     trace={'tried_sources': ['cache'], 'duration_ms': duration, 'cached': True, 'negative': True},
                 )
@@ -543,7 +548,10 @@ class ToolOrchestrator:
             error=f"All data sources failed: {last_error}",
             source=f"tried: {', '.join(tried_sources)}",
             duration_ms=duration,
-            as_of=now_iso,
+            # 所有源都失败 = 一条数据都没取到，没有数据时间可报。旧的 now_iso 是
+            # 请求时刻，会让 execute_plan_stub 把它当 evidence.published_date
+            # 渲染进证据池（项目规则 2、finsight-silent-success-forbidden）。
+            as_of=None,
             currency=None,
             adjustment=None,
             data_context=None,
@@ -602,7 +610,10 @@ class ToolOrchestrator:
         """
         Direct tool fallback when no data sources are configured.
         """
-        fallback_as_of = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        # 不是"数据时间"：没有配置任何数据源时下面拿不到任何真实
+        # as_of，_build_data_context 会用它兜底。命名保留旧名是为减少本刀
+        # diff，语义已改为"无数据时的空值"。
+        fallback_as_of = None
         if not self.tools_module:
             duration = (time.monotonic() - start_time) * 1000
             observe_orch_latency(data_type, duration)

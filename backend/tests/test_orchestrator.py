@@ -518,6 +518,36 @@ def test_fetch_duration_metrics_survive_wall_clock_jump(monkeypatch):
     assert result.trace['duration_ms'] >= 0
 
 
+def test_r98_failed_fetch_has_no_request_time_as_of():
+    """取数失败/负缓存命中不得把请求时刻当成数据时间（R98）。
+
+    `_fallback_direct_call` 和"所有源都失败"分支原本都填 `datetime.now()` 生成的
+    请求时刻；execute_plan_stub 会把该 as_of 写成 evidence 的 published_date 渲染进
+    证据池，也就是一次彻底的取数失败被标成"此刻的数据"（项目规则 2、
+    finsight-silent-success-forbidden）。没有数据就没有数据时间。
+    """
+    orchestrator = ToolOrchestrator()
+    orchestrator.tools_module = None  # 触发 _fallback_direct_call 的 tools_module_not_loaded
+
+    direct = orchestrator._fallback_direct_call("price", "AAPL", time.monotonic())
+    assert direct.success is False
+    assert direct.as_of is None
+
+    def _empty(_ticker):
+        return None
+
+    orchestrator.sources["price"] = [DataSource("mock_empty", _empty, 1, 60)]
+    exhausted = orchestrator.fetch("price", "NOTICKER", force_refresh=True)
+    assert exhausted.success is False
+    assert exhausted.as_of is None
+
+    orchestrator.cache.set_negative("price:BADTKR", "not found: invalid symbol")
+    negative = orchestrator.fetch("price", "BADTKR")
+    assert negative.source == "negative_cache"
+    assert negative.as_of is None
+
+
+
 def run_all_tests():
     """运行所有测试"""
     print("=" * 60)
