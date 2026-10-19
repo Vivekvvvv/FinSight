@@ -139,6 +139,29 @@ def test_semantic_search_falls_back_to_keyword_when_no_embedder():
     assert result == keyword_results
 
 
+def test_search_availability_mirrors_the_same_predicate_as_search(monkeypatch):
+    """notes_semantic_search_available 必须和 semantic_search_notes 同口径：
+    它说可用就必须真的走向量检索，说不可用就必须真的落到关键词检索，
+    否则 API 层透出的 search_mode 会撒谎（finsight-silent-success-forbidden）。
+    """
+    import backend.services.notes_rag as rag_module
+
+    monkeypatch.setattr(rag_module, "_init", lambda: None)
+    monkeypatch.setattr(rag_module, "_vector_search", lambda *_a, **_k: [{"note_id": "vec"}])
+    monkeypatch.setattr(
+        "backend.services.research_notes.search_notes",
+        lambda **_kwargs: [{"note_id": "kw"}],
+    )
+
+    monkeypatch.setattr(rag_module, "_embed", lambda _text: [0.5, 0.5])
+    assert rag_module.notes_semantic_search_available("query") is True
+    assert rag_module.semantic_search_notes("sid", "uid", "query") == [{"note_id": "vec"}]
+
+    monkeypatch.setattr(rag_module, "_embed", lambda _text: None)
+    assert rag_module.notes_semantic_search_available("query") is False
+    assert rag_module.semantic_search_notes("sid", "uid", "query") == [{"note_id": "kw"}]
+
+
 def test_vector_search_sanitizes_corrupt_vector_and_tags(monkeypatch, caplog):
     import backend.services.notes_rag as rag_module
 

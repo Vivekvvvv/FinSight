@@ -217,6 +217,44 @@ def test_vectorize_default_user_uses_authenticated_principal(authenticated_clien
     assert captured["user_id"] == "pytest_authenticated_user"
 
 
+def test_semantic_search_discloses_semantic_mode(authenticated_client, monkeypatch):
+    """走向量检索时 search_mode=semantic，且不能带 fallback_reason。"""
+    from backend.services import notes_rag
+
+    monkeypatch.setattr(notes_rag, "notes_semantic_search_available", lambda _q: True)
+    monkeypatch.setattr(notes_rag, "semantic_search_notes", lambda **_kwargs: [{"note_id": "vec"}])
+
+    response = authenticated_client.get(
+        "/api/research-notes/semantic-search",
+        params={"session_id": "pytest_router_session", "q": "估值"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["search_mode"] == "semantic"
+    assert data["fallback_reason"] is None
+
+
+def test_semantic_search_discloses_keyword_fallback(authenticated_client, monkeypatch):
+    """向量服务不可用时会静默降级成关键词匹配：响应必须显式标出降级，
+    否则"语义搜索 0 条"会被读成"没有相关笔记"（finsight-silent-success-forbidden）。"""
+    from backend.services import notes_rag
+
+    monkeypatch.setattr(notes_rag, "notes_semantic_search_available", lambda _q: False)
+    monkeypatch.setattr(notes_rag, "semantic_search_notes", lambda **_kwargs: [])
+
+    response = authenticated_client.get(
+        "/api/research-notes/semantic-search",
+        params={"session_id": "pytest_router_session", "q": "估值"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["results"] == []
+    assert data["search_mode"] == "keyword"
+    assert data["fallback_reason"] == "semantic_search_unavailable"
+
+
 def _assert_internal_error_redacted(response, caplog, secret: str) -> None:
     assert response.status_code == 500
     assert response.json()["detail"] == "Internal server error"

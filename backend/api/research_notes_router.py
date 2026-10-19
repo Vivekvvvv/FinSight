@@ -188,14 +188,26 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             effective_user_id = provided_user_id or current_user.user_id
             normalized_session = deps.resolve_thread_id(session_id)
 
+            from backend.services.notes_rag import notes_semantic_search_available
             from backend.services.notes_rag import semantic_search_notes
+            search_mode = "semantic" if notes_semantic_search_available(q) else "keyword"
             results = semantic_search_notes(
                 session_id=normalized_session,
                 user_id=effective_user_id,
                 query=q,
                 limit=limit,
             )
-            return {"results": results, "query": q, "total": len(results)}
+            return {
+                "results": results,
+                "query": q,
+                "total": len(results),
+                # 语义检索不可用时 semantic_search_notes 静默降级成关键词匹配，
+                # 响应里两种模式曾经完全同形：用户以为拿到的是语义结果，其实
+                # 只是字面命中；"0 条"也分不清是没相关笔记还是向量服务没起来。
+                # 显式透出模式，降级时附 fallback_reason。
+                "search_mode": search_mode,
+                "fallback_reason": None if search_mode == "semantic" else "semantic_search_unavailable",
+            }
         except HTTPException:
             raise
         except Exception as exc:

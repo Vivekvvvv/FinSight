@@ -129,6 +129,15 @@ def vectorize_note(note_id: str, title: str, content: str) -> bool:
         return False
 
 
+def notes_semantic_search_available(query: str) -> bool:
+    """query 是否能走向量语义检索（否则 semantic_search_notes 会降级为关键词）。
+
+    与 semantic_search_notes 用同一个 _embed 判定，避免两处口径漂移；
+    不落盘、不查库，仅做一次嵌入。
+    """
+    return _embed(query) is not None
+
+
 def semantic_search_notes(
     session_id: str,
     user_id: str,
@@ -137,6 +146,10 @@ def semantic_search_notes(
 ) -> list[dict[str, Any]]:
     """
     语义搜索笔记。EmbeddingService 不可用时降级为关键词搜索。
+
+    降级是静默的（本函数只返回结果列表，没有带原因的返回通道）；
+    调用方若需要区分，先用 notes_semantic_search_available 判一次，
+    或直接看 API 层返回的 search_mode / fallback_reason。
     """
     _init()
 
