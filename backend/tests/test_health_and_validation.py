@@ -306,7 +306,11 @@ def test_research_workspace_core_api_smoke(client, monkeypatch):
     assert today_resp.status_code == 200
     today = today_resp.json()
     assert today.get("success") is True
-    assert today.get("as_of")
+    # as_of 是本地持仓/自选记录的写入时刻；冒烟用的匿名 session 没有任何本地
+    # 记录，因此没有可报的数据时间（不能拿请求时刻冒充，项目规则 2）。冒烟只断言
+    # 字段存在且是字符串，不去测"有记录时取最新一条"的语义。
+    assert isinstance(today.get("as_of"), str)
+    assert today.get("freshness_status") == "cached"
     assert isinstance(today.get("portfolio_snapshot"), dict)
     assert isinstance(today.get("next_actions"), list)
 
