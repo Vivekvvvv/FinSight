@@ -129,9 +129,10 @@ def fetch_cn_top_list_history(
                     "reason": record.get("EXPLANATION") or record.get("EXPLAIN") or "龙虎榜",
                     "close_price": safe_float(record.get("CLOSE_PRICE")),
                     "change_percent": safe_float(record.get("CHANGE_RATE")),
-                    "buy_amount": safe_float(record.get("BILLBOARD_BUY_AMT") or record.get("SUM_BUY_AMT")) or 0.0,
-                    "sell_amount": safe_float(record.get("BILLBOARD_SELL_AMT") or record.get("SUM_SELL_AMT")) or 0.0,
-                    "net_buy": safe_float(record.get("BILLBOARD_NET_AMT") or record.get("NET_BS_AMT")) or 0.0,
+                    "buy_amount": safe_float(record.get("BILLBOARD_BUY_AMT") or record.get("SUM_BUY_AMT")),
+                    "sell_amount": safe_float(record.get("BILLBOARD_SELL_AMT") or record.get("SUM_SELL_AMT")),
+                    # 上游没回该列时补 0 会让前端把"未知"显示成"净买入 0 元"。
+                    "net_buy": safe_float(record.get("BILLBOARD_NET_AMT") or record.get("NET_BS_AMT")),
                     "turnover_rate": safe_float(record.get("TURNOVERRATE")),
                     "source": "eastmoney_datacenter",
                 }
@@ -347,13 +348,15 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
                     "symbol": symbol.upper(),
                     "stock_code": stock_code,
                     "date": str(record.get("DATE") or ""),
-                    "margin_balance": safe_float(record.get("RZYE")) or 0.0,
-                    "margin_buy": safe_float(record.get("RZMRE")) or 0.0,
-                    "margin_repay": safe_float(record.get("RZCHE")) or 0.0,
-                    "short_balance": safe_float(record.get("RQYL")) or 0.0,
-                    "short_sell": safe_float(record.get("RQMCL")) or 0.0,
-                    "short_repay": safe_float(record.get("RQCHL")) or 0.0,
-                    "total_balance": safe_float(record.get("RZRQYE")) or 0.0,
+                    # 缺失字段不能补 0：历史接口把这些值原样交给前端表格，
+                    # "没回该列"会显示成"融资余额 0 元"（项目规则 2）。
+                    "margin_balance": safe_float(record.get("RZYE")),
+                    "margin_buy": safe_float(record.get("RZMRE")),
+                    "margin_repay": safe_float(record.get("RZCHE")),
+                    "short_balance": safe_float(record.get("RQYL")),
+                    "short_sell": safe_float(record.get("RQMCL")),
+                    "short_repay": safe_float(record.get("RQCHL")),
+                    "total_balance": safe_float(record.get("RZRQYE")),
                     "source": "eastmoney",
                 }
                 for record in iter_dict_items(rows)
@@ -401,13 +404,14 @@ def fetch_margin_trading_history(symbol: str, days: int = 90) -> list[dict[str, 
                 "symbol": symbol.upper(),
                 "stock_code": stock_code,
                 "date": str(record.get("TRADE_DATE") or ""),  # present-None → ""，防排序 TypeError
-                "margin_balance": safe_float(record.get("RZYE")) or 0.0,
-                "margin_buy": safe_float(record.get("RZMRE")) or 0.0,
-                "margin_repay": safe_float(record.get("RZCHE")) or 0.0,
-                "short_balance": safe_float(record.get("RQYL")) or 0.0,
-                "short_sell": safe_float(record.get("RQMCL")) or 0.0,
-                "short_repay": safe_float(record.get("RQCHL")) or 0.0,
-                "total_balance": safe_float(record.get("RZRQYE")) or 0.0,
+                # 缺列补 0 会把"未取到"显示成"余额 0 元"（项目规则 2）。
+                "margin_balance": safe_float(record.get("RZYE")),
+                "margin_buy": safe_float(record.get("RZMRE")),
+                "margin_repay": safe_float(record.get("RZCHE")),
+                "short_balance": safe_float(record.get("RQYL")),
+                "short_sell": safe_float(record.get("RQMCL")),
+                "short_repay": safe_float(record.get("RQCHL")),
+                "total_balance": safe_float(record.get("RZRQYE")),
                 "source": "eastmoney"
             })
 
