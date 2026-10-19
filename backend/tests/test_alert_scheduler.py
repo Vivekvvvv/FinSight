@@ -6,6 +6,7 @@ Alert scheduler tests:
 - price_target one-shot mode
 """
 
+import logging
 from types import SimpleNamespace
 from typing import List
 
@@ -15,6 +16,16 @@ from backend.services import subscription_service as subs
 from backend.services import alert_scheduler as alert_scheduler_module
 from backend.services.alert_scheduler import PriceChangeScheduler, PriceSnapshot
 from backend.services.subscription_service import SubscriptionService
+
+# alerts logger 自带 RotatingFileHandler 且 propagate=False（from backend.logging_config），
+# 日志不会冒泡到 root，caplog 抓不到。测日志的用例必须自己挂 handler。
+def _capture_warnings(monkeypatch):
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    monkeypatch.setattr(alert_scheduler_module.logger, "propagate", True, raising=False)
+    monkeypatch.setattr(alert_scheduler_module.logger, "handlers", [handler], raising=False)
+    return records
 
 
 @pytest.fixture
@@ -432,6 +443,106 @@ def test_price_target_scheduler_triggers_once(subscription_service_tmp):
     assert len(email.sent) == 1
     stored = service.get_subscriptions("user@example.com")[0]
     assert stored.get("price_target_fired") is True
+
+
+def test_unavailable_quotes_are_not_reported_as_a_quiet_cycle(subscription_service_tmp):
+    """报价拿不到时至今只 continue：run_once 返回空列表，和"没有订阅突破阈值"
+    完全同形——监控方看到"本轮无告警"无法判断其实是报价源全挂了
+    （项目规则 2、finsight-silent-success-forbidden）。"""
+    service = subscription_service_tmp
+    email = FakeEmailService()
+
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=2.0,
+    )
+
+    scheduler = PriceChangeScheduler(service, email, lambda _ticker: None)
+    sent = scheduler.run_once()
+
+    assert sent == []
+    assert scheduler.last_price_unavailable == 1
+    assert email.sent == []
+
+
+def test_available_quote_keeps_the_quiet_cycle_clean(subscription_service_tmp):
+    """报价正常但没突破阈值：这一轮就该是干净的空转，计数不能虚报。"""
+    service = subscription_service_tmp
+    email = FakeEmailService()
+
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=5.0,
+    )
+
+    def fake_price_fetcher(_ticker: str):
+        return PriceSnapshot(ticker=_ticker, price=100.0, change_percent=0.1)
+
+    scheduler = PriceChangeScheduler(service, email, fake_price_fetcher)
+    sent = scheduler.run_once()
+
+    assert sent == []
+    assert scheduler.last_price_unavailable == 0
+
+
+def test_price_cycle_warns_when_quotes_were_unavailable(subscription_service_tmp, monkeypatch):
+    """APScheduler 会丢弃 run_price_change_cycle 的返回值：被跳过的订阅数必须
+    在日志里留下痕迹，否则调度器日志只能看到一句"完成"。"""
+    records = _capture_warnings(monkeypatch)
+    service = subscription_service_tmp
+    email = FakeEmailService()
+
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=2.0,
+    )
+
+    monkeypatch.setattr(alert_scheduler_module, "fetch_price_snapshot", lambda _ticker: None)
+    monkeypatch.setattr(
+        "backend.services.subscription_service.get_subscription_service",
+        lambda: service,
+    )
+    monkeypatch.setattr("backend.services.email_service.get_email_service", lambda: email)
+
+    sent = alert_scheduler_module.run_price_change_cycle()
+
+    assert sent == []
+    assert any("unavailable quotes" in r.getMessage() for r in records)
+
+
+def test_price_cycle_stays_quiet_when_quotes_are_available(subscription_service_tmp, monkeypatch):
+    """报价正常时不应该刷出降级告警，否则日志会退化成噪音而失效。"""
+    records = _capture_warnings(monkeypatch)
+    service = subscription_service_tmp
+    email = FakeEmailService()
+
+    service.subscribe(
+        email="user@example.com",
+        ticker="AAPL",
+        alert_types=["price_change"],
+        price_threshold=5.0,
+    )
+
+    monkeypatch.setattr(
+        alert_scheduler_module,
+        "fetch_price_snapshot",
+        lambda ticker: PriceSnapshot(ticker=ticker, price=100.0, change_percent=0.1),
+    )
+    monkeypatch.setattr(
+        "backend.services.subscription_service.get_subscription_service",
+        lambda: service,
+    )
+    monkeypatch.setattr("backend.services.email_service.get_email_service", lambda: email)
+
+    alert_scheduler_module.run_price_change_cycle()
+
+    assert not any("unavailable quotes" in r.getMessage() for r in records)
 
 
 # ── C3 回归：新闻告警时间窗/去重统一 naive-UTC 基准 ──────────────────────────

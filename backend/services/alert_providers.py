@@ -61,6 +61,11 @@ def fetch_price_snapshot(ticker: str) -> Optional[PriceSnapshot]:
         if snapshot:
             _set_cache_snapshot(ticker, snapshot)
             return snapshot
+
+    # 四个源全试过仍为空：此前这里毫无痕迹地返回 None，调用方（告警循环）
+    # 于是把它当成"阈值没突破"跳过，一轮下来"无告警"与"报价源全挂"同形。
+    # debug 级也不留（各 fetcher 只打各自的 debug），故这里补一条 warning。
+    logger.warning('price snapshot unavailable for alert cycle')
     return None
 
 

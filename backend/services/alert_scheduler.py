@@ -94,6 +94,11 @@ class PriceChangeScheduler:
         self.subscription_service = subscription_service
         self.email_service = email_service
         self.price_fetcher = price_fetcher
+        # 本轮报价获取失败的订阅计数。run_once 的返回值只有"已发出的告警"，
+        # 拿不到这个信息："这一轮没有告警"因此同时意味着"没有订阅突破阈值"
+        # 和"所有报价源都挂了"——静默无痕，事后无法区分（项目规则 2、
+        # finsight-silent-success-forbidden）。计数留在实例上，调用方可读。
+        self.last_price_unavailable = 0
 
     @staticmethod
     def _parse_dt(value: Optional[str]) -> Optional[datetime]:
@@ -115,6 +120,9 @@ class PriceChangeScheduler:
         sent: List[Dict] = []
         subscriptions = self.subscription_service.get_subscriptions(allow_all=True)
         checked = 0
+        # 报价拿不到 ≠ 阈值没突破。后者无需告警，前者是数据源故障却同样以
+        # "本轮无告警"收场；计数让这一轮的返回值之外仍有痕迹可查。
+        price_unavailable = 0
 
         for sub in subscriptions:
             ticker = _subscription_ticker(sub)
@@ -134,19 +142,24 @@ class PriceChangeScheduler:
                 snapshot = self.price_fetcher(sub["ticker"])
             except Exception as exc:
                 logger.warning('Price fetch failed')
+                price_unavailable += 1
                 continue
             if snapshot is None:
+                price_unavailable += 1
                 continue
             # bool 是 int 子类：True 会被 float() 收成 1.0 通过有限性/正数检查，
             # 在 price_target 模式里等于把价格当成 $1 比较——provider 返回布尔
             # 属于脏数据，按本条订阅跳过处理（同 TypeError/非有限值路径）。
             if isinstance(snapshot.price, bool):
+                price_unavailable += 1
                 continue
             try:
                 snapshot_price = float(snapshot.price)
             except (TypeError, ValueError, OverflowError):
+                price_unavailable += 1
                 continue
             if not math.isfinite(snapshot_price) or snapshot_price <= 0:
+                price_unavailable += 1
                 continue
             snapshot.price = snapshot_price
 
@@ -295,6 +308,10 @@ class PriceChangeScheduler:
                 }
             )
 
+        self.last_price_unavailable = price_unavailable
+        if price_unavailable:
+            # 有订阅因为拿不到报价被跳过：这一轮"无告警"不是干净的"无告警"。
+            logger.warning('Price alert cycle skipped subscriptions with no quote')
         logger.info("price_change run completed")
         return sent
 
@@ -668,6 +685,11 @@ def run_price_change_cycle() -> List[Dict]:
         price_fetcher=fetch_price_snapshot,
     )
     res = scheduler.run_once()
+    # 返回值只有已发出的告警："[] 本轮无告警"既可能是没订阅突破阈值，也可能是
+    # 每条订阅都拿不到报价。调度线程（APScheduler）丢弃返回值，所以这里把被
+    # 跳过的订阅数补进完成日志，让"一轮空跑"与"报价源全挂"在日志里可区分。
+    if scheduler.last_price_unavailable:
+        logger.warning('Price alert cycle completed with unavailable quotes')
     return res
 
 
