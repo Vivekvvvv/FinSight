@@ -240,3 +240,47 @@ def test_health_trend_rejects_oversized_source_before_storage(monkeypatch):
     )
 
     assert response.status_code == 422
+
+
+def test_north_flow_endpoint_404_when_no_data_points(monkeypatch):
+    """provider 返回 north_flow=0.0 但一处有效分时点都没有时，端点必须报不可用：
+    前端会把 0 渲染成"今日净流入 0 亿元"这一事实结论（项目规则 2）。"""
+    import backend.tools.tencent_provider as provider
+
+    monkeypatch.setattr(
+        provider,
+        "fetch_north_flow",
+        lambda *a, **k: {
+            "date": "2026-09-20",
+            "north_flow": 0.0,
+            "sh_flow": 0.0,
+            "sz_flow": 0.0,
+            "data_points": [],
+            "source": "eastmoney",
+        },
+    )
+    response = _build_client().get("/api/market/north-flow")
+
+    assert response.status_code == 404
+
+
+def test_north_flow_endpoint_keeps_genuine_flat_session(monkeypatch):
+    """真实平盘（有分时点、净流入 0）是有效结论，不能被 404 吞掉。"""
+    import backend.tools.tencent_provider as provider
+
+    monkeypatch.setattr(
+        provider,
+        "fetch_north_flow",
+        lambda *a, **k: {
+            "date": "2026-09-20",
+            "north_flow": 0.0,
+            "sh_flow": 0.0,
+            "sz_flow": 0.0,
+            "data_points": [{"time": "10:00", "north": 0.0}],
+            "source": "eastmoney",
+        },
+    )
+    response = _build_client().get("/api/market/north-flow")
+
+    assert response.status_code == 200
+    assert response.json()["north_flow"] == 0.0

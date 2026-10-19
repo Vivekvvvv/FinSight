@@ -629,6 +629,15 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 detail="北向资金数据不可用"
             )
 
+        # 兜底：老版本 provider 在无有效分时点时返回过 north_flow=0.0 +
+        # source=eastmoney，前端会把它当成"今日净流入 0 元"这一事实结论。
+        # 没有任何数据点时没有可报的净流入（项目规则 2）。
+        if not data.get("data_points"):
+            raise HTTPException(
+                status_code=404,
+                detail="北向资金数据不可用"
+            )
+
         return data
 
     @router.get("/api/market/north-flow/history")
