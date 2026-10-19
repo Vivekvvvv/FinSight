@@ -74,6 +74,24 @@ def _reset_api_memory_test_fixtures():
 
     yield
 
-    # Teardown: remove ALL test_api_user* files to prevent pollution
+    # Teardown: remove ALL test_api_user* files to prevent pollution.
+    #
+    # 清完必须回读校验：某片用例（如带 tmp_path 的路由/服务测试）会把
+    # data/memory 指到别处或就地改 chmod，此时这里的 unlink 会抛
+    # PermissionError——那是在 setup/teardown 抛，pytest 记为 ERROR 而不是
+    # FAILED，一次污染就让**无关的下一个用例**在随机顺序下反复挂
+    # （随机顺序下每次挂的 R 编号都不一样）。直接吞掉是项目规则 2 禁止的
+    # 静默丢数据，所以这里逐文件兜住异常后回读确认；真没删掉就带路径报出来。
+    leftovers = []
     for f in memory_dir.glob("test_api_user*.json"):
-        f.unlink(missing_ok=True)
+        try:
+            f.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if f.exists():
+            leftovers.append(str(f))
+    if leftovers:
+        raise AssertionError(
+            "test profile files not cleaned up (leftover from earlier tests): "
+            + ", ".join(leftovers)
+        )
