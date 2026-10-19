@@ -419,12 +419,21 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
 
     returns_matrix: list[list[float]] = []
     failed: list[str] = []
+    # 取数整体失败和"历史太短"都进不了 returns_matrix，但成因不同：前者是
+    # provider 返回 {"error": ...}（全部数据源失败），后者是标的真的没有足够
+    # 历史。混在一起会渲染成"数据不足，已跳过"——把一次上游故障说成行情事实
+    # （项目规则 2、finsight-silent-success-forbidden）。
+    fetch_failed: list[str] = []
 
     for t in tickers:
         try:
             payload = get_stock_historical_data(t, period="2y", interval="1d")
             kline: list = []
             if isinstance(payload, dict):
+                if payload.get("error"):
+                    logger.warning("获取历史数据失败")
+                    fetch_failed.append(t)
+                    continue
                 kline = payload.get("kline_data") or []
             closes = []
             for point in kline:
@@ -457,9 +466,11 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
             returns_matrix.append(daily_returns)
         except Exception as e:
             logger.warning("获取历史数据失败")
-            failed.append(t)
+            fetch_failed.append(t)
 
-    valid_tickers = [t for t in tickers if t not in failed]
+    valid_tickers = [
+        t for t in tickers if t not in failed and t not in fetch_failed
+    ]
     if len(valid_tickers) < 2:
         raise HTTPException(status_code=422, detail=f"有效股票不足2只，失败: {failed}")
 
@@ -474,8 +485,10 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
             risk_free_rate=request.risk_free_rate,
             n_simulations=request.n_simulations,
         )
-        if failed:
-            result["warnings"] = [f"{t} 数据不足，已跳过" for t in failed]
+        warnings = [f"{t} 数据不足，已跳过" for t in failed]
+        warnings += [f"{t} 历史数据取数失败，已跳过" for t in fetch_failed]
+        if warnings:
+            result["warnings"] = warnings
         return result
     except Exception as e:
         logger.error("组合优化失败")

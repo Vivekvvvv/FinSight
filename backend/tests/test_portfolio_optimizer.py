@@ -83,6 +83,40 @@ def test_short_history_ticker_marked_failed_not_500(monkeypatch):
     assert any("IPO20" in w for w in result.get("warnings", []))
 
 
+def test_optimize_endpoint_does_not_report_upstream_failure_as_short_history(monkeypatch):
+    """取数整体失败（payload 是 {"error": ...}）不是"这只票历史太短"。
+
+    路由只取 `payload.get("kline_data") or []`，错误载荷掉出的空列表与真的
+    没有历史数据完全同形，于是被计入 failed 并渲染成"数据不足，已跳过"——
+    上游/网络故障被当成行情事实展示给用户（项目规则 2、
+    finsight-silent-success-forbidden）。两条路径必须分流成不同的警告。
+    """
+    import backend.tools as tools_mod
+    from backend.api.portfolio_router import (
+        PortfolioOptimizeRequest,
+        optimize_portfolio_endpoint,
+    )
+
+    rows = [{"close": 100.0 + i * 0.1} for i in range(60)]
+
+    def fake_hist(ticker: str, *args, **kwargs):
+        if ticker == "DOWN":
+            return {"error": "Failed to fetch historical data: All data sources failed."}
+        return {"kline_data": rows}
+
+    monkeypatch.setattr(tools_mod, "get_stock_historical_data", fake_hist)
+
+    result = optimize_portfolio_endpoint(
+        PortfolioOptimizeRequest(tickers=["DOWN", "FULL1", "FULL2"], n_simulations=100)
+    )
+
+    assert "DOWN" not in result["tickers"]
+    warnings = result.get("warnings", [])
+    down = [w for w in warnings if "DOWN" in w]
+    assert len(down) == 1
+    assert "数据不足" not in down[0], f"取数失败被当成历史太短: {down[0]}"
+
+
 def test_optimize_endpoint_filters_derived_non_finite_returns(monkeypatch):
     """close 只经 safe_float(有限)+>0 过滤——c0 为极小有限值（1e-320）时
     c1/c0 导出收益率比值溢出 inf：inf 进 returns_matrix → np.cov/mean 产
