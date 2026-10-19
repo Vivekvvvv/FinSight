@@ -178,9 +178,11 @@ def fetch_cn_top_list_history(
             if record.get("SCode") != stock_code:
                 continue
 
-            buy_amount = _wan_to_yuan(record.get("Bmoney", 0))
-            sell_amount = _wan_to_yuan(record.get("Smoney", 0))
-            net_buy = _wan_to_yuan(record.get("JmMoney", 0))
+            buy_amount = _wan_to_yuan(record.get("Bmoney"))  # 万元转元
+            sell_amount = _wan_to_yuan(record.get("Smoney"))
+            # 上游没回该列时补 0 会让前端把"未知"显示成"机构净买入 0 元"
+            # （项目规则 2）。真实 0 元由 _wan_to_yuan 保留。
+            net_buy = _wan_to_yuan(record.get("JmMoney"))
 
             results.append({
                 "symbol": symbol.upper(),
@@ -269,10 +271,13 @@ def fetch_north_flow_history(days: int = 30) -> list[dict[str, Any]]:
                 continue
             parts = kline.split(",")
             if len(parts) >= 4:
-                date_str = parts[0]  # YYYY-MM-DD
+                # 未回该列（"-"/null）时补 0 会把"未知"显示成"净流入 0 元"
+                # 这一事实结论（前端走势条与表格，项目规则 2）。
                 north = _wan_to_yuan(parts[1])  # 万元转元
                 sh = _wan_to_yuan(parts[2])
                 sz = _wan_to_yuan(parts[3])
+
+                date_str = parts[0]  # YYYY-MM-DD
 
                 results.append({
                     "date": date_str,
