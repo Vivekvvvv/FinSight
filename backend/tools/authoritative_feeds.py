@@ -16,6 +16,20 @@ from .http import _http_get
 
 logger = logging.getLogger(__name__)
 
+# 每个请求独立收集"feed 层是否降级"（模块级而非 ContextVar：同步工具链，
+# 且每次调用在开头重置；不用实例状态是因为这些都是模块级函数）。
+_feed_degraded = False
+
+
+def _reset_feed_degraded() -> None:
+    global _feed_degraded
+    _feed_degraded = False
+
+
+def _note_feed_degraded() -> None:
+    global _feed_degraded
+    _feed_degraded = True
+
 _AUTHORITATIVE_DOMAINS = frozenset({
     "reuters.com",
     "bloomberg.com",
@@ -62,8 +76,12 @@ def _normalize_domain(url: str) -> str:
         # "www.wsj.com" 会被剥成 "sj.com"（连 wsj 的首字母 w 一起吃掉），
         # 导致 wsj.com 权威匹配失败、WSJ 全量文章被丢（R20 同类，R48）。
         return (urlparse(str(url or "").strip()).hostname or "").lower().removeprefix("www.")
-    except Exception as exc:
-        logger.debug('authoritative domain normalization failed')
+    except Exception:
+        # 回退成 "" 后 _is_authoritative_domain 判 False，authoritative_only
+        # 会把该条静默丢弃——一次解析故障被渲染成"这条来源不可信"。
+        # 日志只写固定字面量，异常本身可能携带用户 query（R701-1507 契约）。
+        _note_feed_degraded()
+        logger.warning('authoritative domain normalization failed')
         return ""
 
 
@@ -116,8 +134,10 @@ def _parse_feed_items(feed_name: str, xml_text: str) -> list[dict[str, Any]]:
         return []
     try:
         root = ET.fromstring(xml_text)
-    except Exception as exc:
-        logger.debug('authoritative feed XML parse failed')
+    except Exception:
+        # 与"这个 feed 本次确实没有新文章"同形（都返回 []），必须留痕。
+        _note_feed_degraded()
+        logger.warning('authoritative feed XML parse failed')
         return []
 
     rows: list[dict[str, Any]] = []
@@ -150,8 +170,11 @@ def _fetch_feed(url: str) -> str:
         if getattr(resp, "status_code", 0) != 200:
             return ""
         return str(getattr(resp, "text", "") or "")
-    except Exception as exc:
-        logger.debug('authoritative feed request failed')
+    except Exception:
+        # 取数失败回退成 ""，在 search_authoritative_feeds 里等价于
+        # "这个 feed 没有内容"，四个 feed 全挂就是 articles=[] + error=None。
+        _note_feed_degraded()
+        logger.warning('authoritative feed request failed')
         return ""
 
 
@@ -188,6 +211,7 @@ def search_authoritative_feeds(
 
     This function is best-effort and never raises.
     """
+    _reset_feed_degraded()
     tokens = _query_tokens(query)
     tickers = _extract_tickers(query)
 
@@ -250,12 +274,17 @@ def get_authoritative_media_news(
             max_results=limit,
             authoritative_only=bool(authoritative_only),
         )
+        # 逐 feed 的取数/解析失败不会抛到外层（那才是 error 非 None 的唯一
+        # 来源），此前会被表示成 articles=[] + error=None，即"查询没有权威
+        # 报道"这一事实结论（项目规则 2、finsight-silent-success-forbidden）。
+        # 按 agent_diagnostics 的词汇表透出 '*' 级降级原因。
+        degraded_error = "authoritative_feed_unavailable" if _feed_degraded else None
         return {
             "query": query_text,
             "source": "authoritative_feeds",
             "articles": rows,
             "count": len(rows),
-            "error": None,
+            "error": degraded_error,
         }
     except Exception as exc:  # pragma: no cover - best effort
         return {
