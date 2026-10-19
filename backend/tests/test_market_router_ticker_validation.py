@@ -101,6 +101,36 @@ def test_chart_detect_returns_dynamic_ticker_candidates():
     assert "AAPL" in payload["ticker_candidates"]
     assert "TSLA" in payload["ticker_candidates"]
     assert payload.get("resolved_ticker") == payload["ticker_candidates"][0]
+    assert payload.get("ticker_fallback") is None
+
+
+def test_chart_detect_marks_ticker_extraction_failure(monkeypatch, caplog):
+    """别名抽取整体失败时不能静默：候选只剩显式传入的 ticker，若不给标记，
+    前端分不清"按 query 解析出的标的"和"抽取挂了只剩兜底值"——一次抽取
+    故障被渲染成用户的查询事实（项目规则 2、finsight-silent-success-forbidden）。
+    """
+    import backend.config.ticker_mapping as ticker_mapping
+
+    def _boom(_query: str):
+        raise RuntimeError("ticker alias table unavailable")
+
+    monkeypatch.setattr(ticker_mapping, "extract_tickers", _boom)
+
+    client = _build_client()
+    with caplog.at_level(logging.WARNING):
+        response = client.post(
+            "/api/chart/detect",
+            json={"query": "compare google and TSLA trend", "ticker": "aapl"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    # 仍可用显式 ticker 兜底，但降级必须显式可见
+    assert payload["ticker_candidates"] == ["AAPL"]
+    assert payload["resolved_ticker"] == "AAPL"
+    assert payload["ticker_fallback"] == {"fallback_reason": "ticker_extraction_failed"}
+    assert "ticker alias extraction failed" in caplog.text
+    assert "ticker alias table unavailable" not in caplog.text
 
 
 @pytest.mark.parametrize(

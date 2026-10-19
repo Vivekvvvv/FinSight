@@ -64,8 +64,13 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         query = payload.query.strip()
         ticker = payload.ticker
         ticker_value = str(ticker).strip() if ticker is not None else None
-        ticker_candidates = _extract_ticker_candidates(query, ticker_value)
+        ticker_candidates, ticker_fallback_reason = _extract_ticker_candidates(query, ticker_value)
         resolved_ticker = ticker_candidates[0] if ticker_candidates else None
+        # 抽取失败时候选可能只剩显式传入的那个 ticker（或为空）；把它透出，
+        # 否则前端分不清"按 query 解析出的标的"和"抽取挂了只剩兜底值"。
+        ticker_fallback = (
+            {"fallback_reason": ticker_fallback_reason} if ticker_fallback_reason else None
+        )
 
         if not query:
             return {
@@ -77,6 +82,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 "reason": "empty_query",
                 "ticker_candidates": ticker_candidates,
                 "resolved_ticker": resolved_ticker,
+                "ticker_fallback": ticker_fallback,
             }
 
         if deps.detect_chart_type is None:
@@ -89,6 +95,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 "reason": "chart_detector_unavailable",
                 "ticker_candidates": ticker_candidates,
                 "resolved_ticker": resolved_ticker,
+                "ticker_fallback": ticker_fallback,
             }
 
         try:
@@ -113,6 +120,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 "reason": reason,
                 "ticker_candidates": ticker_candidates,
                 "resolved_ticker": resolved_ticker,
+                "ticker_fallback": ticker_fallback,
             }
         except Exception as exc:
             _log_warning("[ChartDetect] failed", exc)
@@ -125,6 +133,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 "reason": "detector_error",
                 "ticker_candidates": ticker_candidates,
                 "resolved_ticker": resolved_ticker,
+                "ticker_fallback": ticker_fallback,
             }
 
     @router.get("/api/stock/price/{ticker}")

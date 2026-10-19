@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date as date_type
 from typing import Any
@@ -11,6 +12,7 @@ from fastapi import HTTPException
 from backend.utils.market_evidence import attach_financials_evidence, attach_market_evidence
 
 
+logger = logging.getLogger(__name__)
 _TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^=-]{0,19}$")
 
 
@@ -37,9 +39,18 @@ def _validate_iso_date(value: str | None) -> str | None:
     return value
 
 
-def _extract_ticker_candidates(query: str, provided_ticker: str | None = None) -> list[str]:
+def _extract_ticker_candidates(
+    query: str, provided_ticker: str | None = None
+) -> tuple[list[str], str | None]:
+    """返回 (候选列表, 降级原因)。
+
+    降级原因非 None 表示"别名抽取没能跑完"，此时候选列表只含显式传入的
+    ticker——调用方必须把它透出给前端，否则"抽取失败"和"query 里确实没有
+    标的"同形，前端会把 candidates[0] 当成用户查询解析出的标的。
+    """
     candidates: list[str] = []
     seen: set[str] = set()
+    fallback_reason: str | None = None
 
     def _add(raw: str) -> None:
         ticker = _normalize_ticker(raw)
@@ -60,9 +71,15 @@ def _extract_ticker_candidates(query: str, provided_ticker: str | None = None) -
         for ticker in metadata.get("tickers") or []:
             _add(str(ticker))
     except Exception:
-        pass
+        # 静默 pass 会把"别名表/映射整体不可用"伪装成"query 里没有标的"：
+        # 候选降级为只用显式传入的 ticker，一次能力故障被当成用户的查询
+        # 事实（项目规则 2、finsight-silent-success-forbidden）。这里必须
+        # 留下可定位的 warning，并把降级原因交回调用方透出。
+        # 日志只写固定字面量：异常本身可能携带用户 query（R701-1507 契约）。
+        fallback_reason = "ticker_extraction_failed"
+        logger.warning("[ChartDetect] ticker alias extraction failed")
 
-    return candidates
+    return candidates, fallback_reason
 
 
 def _has_usable_payload(payload: Any) -> bool:
