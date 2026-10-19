@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tests for resolve_subject three-tier active_symbol binding gate."""
 
+import logging
+
 import pytest
 
 from backend.graph.nodes.resolve_subject import resolve_subject
@@ -91,3 +93,33 @@ class TestResolveSubjectTierGate:
         assert subject["subject_type"] == "company"
         assert "600519.SS" in subject["tickers"]
         assert "SS" not in subject["tickers"]
+
+    @pytest.mark.asyncio
+    async def test_tier1_extraction_failure_is_not_a_measured_nonexplicit_query(
+        self, monkeypatch, caplog
+    ):
+        """`extract_tickers` 抛异常被 `except Exception: pass` 吞掉后，tickers 恒空，
+        subject 回落成 unknown —— 一次抽取故障被渲染成"这个 query 里没有明确标的"
+        这一查询事实（项目规则 2、finsight-silent-success-forbidden）。
+        降级可以保留，但必须留下可定位的 warning。
+        """
+        import backend.config.ticker_mapping as ticker_mapping
+
+        monkeypatch.setattr(
+            ticker_mapping,
+            "extract_tickers",
+            lambda _query: (_ for _ in ()).throw(RuntimeError("alias table unavailable")),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await resolve_subject(
+                _make_state(query="分析 AAPL", active_symbol="GOOGL")
+            )
+
+        subject = result["subject"]
+        # Tier-1 抽不到（AAPL）时不再有明确标的，只能靠 active_symbol 绑定
+        assert subject["binding_tier"] == "tier2_keyword"
+        assert subject["tickers"] == ["GOOGL"]
+        # 抽取挂了导致 tier1 结论缺失必须留下痕迹，且日志不得回显用户 query
+        assert "[resolve_subject] Tier-1 ticker extraction failed" in caplog.text
+        assert "AAPL" not in caplog.text

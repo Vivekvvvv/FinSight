@@ -161,7 +161,11 @@ async def resolve_subject(state: GraphState) -> dict:
                 tickers = found
                 binding_tier = "tier1_explicit_ticker"
         except Exception:
-            pass
+            # 静默 pass 会把"别名表整体不可用"渲染成"这个 query 里没有明确
+            # 标的"这一查询事实，subject 回落 unknown → 走澄清/误绑定
+            # （项目规则 2、finsight-silent-success-forbidden）。降级保留，
+            # 但必须留可定位的 warning；日志只写固定字面量，不回显用户 query。
+            logger.warning("[resolve_subject] Tier-1 ticker extraction failed")
 
     # ------------------------------------------------------------------
     # Fallback: active_symbol binding decision (three-tier gate)
