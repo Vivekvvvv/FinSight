@@ -57,7 +57,7 @@ DataSourceType = Literal["tencent", "yahoo", "demo", "unknown"]
 # DataSourceMetrics.status（4 档字符串）→ exporter 文档化的 3 档整型
 # （0=down, 1=degraded, 2=healthy）。warning(70-90%) 归 2：功能正常档；
 # 其 <80% 段由 LowDataSourceSuccessRate 走 success_rate gauge 单独捕获。
-_STATUS_CODE = {"critical": 0, "degraded": 1, "warning": 2, "healthy": 2}
+_STATUS_CODE = {"critical": 0, "degraded": 1, "warning": 2, "healthy": 2, "unknown": 2}
 
 
 @dataclass
@@ -83,12 +83,24 @@ class DataSourceMetrics:
 
     @property
     def is_healthy(self) -> bool:
-        """健康状态：成功率>80% 且连续失败<3次"""
+        """健康状态：成功率>80% 且连续失败<3次
+
+        零请求不是"健康"。此前 total_requests==0 时 success_rate 为 0.0，
+        `0.0 >= 80.0` 本来是 False，但 consecutive_failures<3 会把它翻回来
+        ——从未被调用过的源在 /api/system/health 里读作 is_healthy=true，
+        和"刚刚还成功过"同形。没有观测就没有结论。
+        """
+        if self.total_requests == 0:
+            return False
         return self.success_rate >= 80.0 and self.consecutive_failures < 3
 
     @property
     def status(self) -> str:
         """状态标签"""
+        if self.total_requests == 0:
+            # 从未记录过请求：unknown 而非 critical（没坏，只是没测过），
+            # 更不能是 healthy。
+            return "unknown"
         if self.consecutive_failures >= 3:
             return "degraded"
         elif self.success_rate >= 90:
@@ -210,7 +222,8 @@ class DataSourceMonitor:
                         "total_requests": m.total_requests,
                         "success_count": m.success_count,
                         "failure_count": m.failure_count,
-                        "success_rate": round(m.success_rate, 2),
+                        # 零请求时 success_rate 的 0.0 不是观测结果，别当数字报出去
+                        "success_rate": None if m.total_requests == 0 else round(m.success_rate, 2),
                         "consecutive_failures": m.consecutive_failures,
                         "last_success_at": m.last_success_at,
                         "last_failure_at": m.last_failure_at,

@@ -297,3 +297,60 @@ def test_overall_status_no_traffic_stays_degraded():
 
     mon = DataSourceMonitor()
     assert mon._calculate_overall_status() == "degraded"
+
+
+# ── #54: 零请求源在 /api/system/health 里读作"实测重灾" ────────────────────────
+
+def test_never_used_source_is_not_reported_as_a_measured_failure():
+    """从未记录过请求的源不能报 status=critical / is_healthy=True。
+
+    修复前：total_requests==0 时 success_rate 为 0.0，status 走 else 分支
+    → "critical"；而 is_healthy 的 `success_rate >= 80` 虽是 False，
+    `consecutive_failures < 3` 把它翻回 True → 同一个源既"重灾"又"健康"。
+    两者都是"刚测出来的结论"，而事实是根本没测过。"""
+    from backend.services.datasource_monitor import DataSourceMonitor
+
+    mon = DataSourceMonitor()
+    for _ in range(5):
+        mon.record_success("tencent", 1.0)
+    # yahoo / demo / unknown 从未被调用过
+
+    yahoo = mon._metrics["yahoo"]
+    assert yahoo.total_requests == 0
+    assert yahoo.status == "unknown"
+    assert yahoo.is_healthy is False
+
+
+def test_health_report_reports_no_success_rate_for_never_used_sources():
+    """零请求源的 success_rate 不落地为数字 0.0（那是"没测过"，不是"0% 成功"）。"""
+    from backend.services.datasource_monitor import DataSourceMonitor
+
+    mon = DataSourceMonitor()
+    for _ in range(5):
+        mon.record_success("tencent", 1.0)
+
+    sources = mon.get_health_report()["sources"]
+    assert sources["yahoo"]["success_rate"] is None
+    assert sources["yahoo"]["status"] == "unknown"
+    assert sources["yahoo"]["is_healthy"] is False
+    # 有流量的源照旧报数字
+    assert sources["tencent"]["success_rate"] == 100.0
+    assert sources["tencent"]["status"] == "healthy"
+    assert sources["tencent"]["is_healthy"] is True
+
+
+def test_used_source_status_and_health_are_unchanged():
+    """已观测源的分档语义不受零请求守卫影响。"""
+    from backend.services.datasource_monitor import DataSourceMonitor
+
+    mon = DataSourceMonitor()
+    for ok in (False, True, True, False, True, True, False, True, True, False):
+        if ok:
+            mon.record_success("tencent", 1.0)
+        else:
+            mon.record_failure("tencent", "timeout")
+    # 6/10 = 60%，连续失败 1 次（未触发降级）
+    tencent = mon._metrics["tencent"]
+    assert tencent.status == "critical"
+    assert tencent.is_healthy is False
+    assert mon.get_health_report()["sources"]["tencent"]["success_rate"] == 60.0
