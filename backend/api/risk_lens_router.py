@@ -206,6 +206,12 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
                 "success": True,
                 "days": len(history),
                 "snapshots": history,
+                # 历史里只要有快照是降级算出来的（读不出存档 / 成本价当市值），
+                # 趋势线里的 0 分就不等于"风险确实为 0"。缺这一行时调用方
+                # 无法区分"没算出来"和"算出来是 0"（项目规则 2）。
+                "degraded_snapshots": sum(
+                    1 for item in history if item.get("degraded_reason")
+                ),
             }
 
         except HTTPException:

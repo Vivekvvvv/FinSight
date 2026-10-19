@@ -128,16 +128,16 @@ def save_risk_snapshot(
             session_id,
             user_id,
             snapshot_date,
-            risk_lens_data.get("risk_score", 0),
-            risk_lens_data.get("total_value"),
-            risk_lens_data.get("total_cost"),
-            len(risk_lens_data.get("concentration_risk", [])),
-            len(risk_lens_data.get("loss_positions", [])),
-            len(risk_lens_data.get("stale_research", [])),
-            len(risk_lens_data.get("missing_coverage", [])),
-            json.dumps(risk_lens_data, ensure_ascii=False, allow_nan=False),
-            datetime.now(timezone.utc).isoformat(),
-        ))
+                (risk_lens_data.get("risk_score") or 0),
+                risk_lens_data.get("total_value"),
+                risk_lens_data.get("total_cost"),
+                len(risk_lens_data.get("concentration_risk", [])),
+                len(risk_lens_data.get("loss_positions", [])),
+                len(risk_lens_data.get("stale_research", [])),
+                len(risk_lens_data.get("missing_coverage", [])),
+                json.dumps(risk_lens_data, ensure_ascii=False, allow_nan=False),
+                datetime.now(timezone.utc).isoformat(),
+            ))
         conn.commit()
     finally:
         conn.close()
@@ -178,6 +178,7 @@ def get_risk_snapshots_history(
                 loss_positions_count,
                 stale_research_count,
                 missing_coverage_count,
+                full_data,
                 created_at
             FROM risk_snapshots
             WHERE session_id = ? AND user_id = ?
@@ -197,10 +198,37 @@ def get_risk_snapshots_history(
             except (TypeError, ValueError) as exc:
                 logger.warning('invalid stored risk snapshot summary')
                 continue
-            result.append(dict(row))
+            item = dict(row)
+            # full_data 是本行唯一的诚实存档，但它是风险透镜全量快照（含
+            # sector/currency/market 暴露明细），不适合塞进趋势接口的响应体。
+            # 趋势只回 counts，一旦计数与 risk_score 被拆散，调用方（前端趋势图）
+            # 会把缺数据的 0 当成"风险确实为 0"（项目规则 2）。这里只透出
+            # full_data 里记的降级原因，让"0 分"和"没算出来"可区分。
+            item["degraded_reason"] = _degraded_reason(row["full_data"])
+            result.append(item)
         return result
     finally:
         conn.close()
+
+
+def _degraded_reason(full_data: Any) -> Optional[str]:
+    """从快照存档里取出降级原因（正常快照返回 None）。
+
+    只读已落库的 full_data，不改写任何历史行；解析不了就返回一个
+    明确的哨兵字符串而不是 None——"读不出来"本身也不该伪装成正常数据。
+    """
+    if not isinstance(full_data, str) or not full_data:
+        return "unreadable"
+    try:
+        payload = json_loads_strict(full_data)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return "unreadable"
+    if not isinstance(payload, dict):
+        return "unreadable"
+    if payload.get("degraded"):
+        reason = payload.get("fallback_reason") or payload.get("degraded_reason")
+        return str(reason) if reason else "degraded"
+    return None
 
 
 @_synchronized

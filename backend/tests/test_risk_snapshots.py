@@ -383,3 +383,142 @@ def test_history_skips_legacy_non_finite_summary(tmp_path, caplog):
 
     assert [item["snapshot_date"] for item in history] == ["2026-06-02"]
     assert "invalid stored risk snapshot summary" in caplog.text
+
+
+# ── 降级快照不得在趋势里读作实测风险分 ─────────────────────────────────────────
+
+def test_history_flags_snapshot_computed_without_live_quotes(tmp_path):
+    """调度器落库的降级快照必须带出降级标记。
+
+    快照调度器没有实时报价，market_value 只是 shares*avg_cost；同一情形下
+    risk_lens_router 会给响应打 degraded，落库路径此前不打——趋势图上
+    那一天的 risk_score 和 counts 和实测快照完全同形。"""
+    db_path = tmp_path / "risk.db"
+    save_risk_snapshot(
+        session_id="session",
+        user_id="user",
+        risk_lens_data={
+            "success": True,
+            "risk_score": 0,
+            "total_value": 1000,
+            "total_cost": 1000,
+            "concentration_risk": [],
+            "loss_positions": [],
+            "stale_research": [],
+            "missing_coverage": [],
+            "degraded": True,
+            "degraded_reason": "snapshot_without_live_quotes",
+        },
+        snapshot_date="2026-06-01",
+        db_path=db_path,
+    )
+
+    history = get_risk_snapshots_history("session", "user", db_path=db_path)
+
+    assert len(history) == 1
+    assert history[0]["risk_score"] == 0
+    assert history[0]["degraded_reason"] == "snapshot_without_live_quotes"
+
+
+def test_history_leaves_normal_snapshot_without_degraded_reason(tmp_path):
+    """正常快照的 degraded_reason 必须是 None，否则所有趋势点都被标脏。"""
+    db_path = tmp_path / "risk.db"
+    save_risk_snapshot(
+        session_id="session",
+        user_id="user",
+        risk_lens_data={
+            "success": True,
+            "risk_score": 45,
+            "total_value": 10000,
+            "total_cost": 9500,
+            "concentration_risk": [],
+            "loss_positions": [],
+            "stale_research": [],
+            "missing_coverage": [],
+        },
+        snapshot_date="2026-06-01",
+        db_path=db_path,
+    )
+
+    history = get_risk_snapshots_history("session", "user", db_path=db_path)
+
+    assert history[0]["degraded_reason"] is None
+
+
+def test_history_flags_unreadable_archive_as_degraded(tmp_path):
+    """full_data 读不出来时不能静默当正常行——counts 仍在，可信度已失。"""
+    import sqlite3
+
+    db_path = tmp_path / "risk.db"
+    save_risk_snapshot(
+        session_id="session",
+        user_id="user",
+        risk_lens_data={
+            "success": True,
+            "risk_score": 7,
+            "total_value": 100,
+            "total_cost": 90,
+            "concentration_risk": [],
+            "loss_positions": [],
+            "stale_research": [],
+            "missing_coverage": [],
+        },
+        snapshot_date="2026-06-01",
+        db_path=db_path,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("UPDATE risk_snapshots SET full_data = ?", ("{bad-json",))
+
+    history = get_risk_snapshots_history("session", "user", db_path=db_path)
+
+    assert len(history) == 1
+    assert history[0]["risk_score"] == 7
+    assert history[0]["degraded_reason"] == "unreadable"
+
+
+def test_take_daily_risk_snapshot_marks_snapshot_degraded(monkeypatch, tmp_path):
+    """调度器落库的快照必须标 degraded + 原因（无实时报价 = 成本价当市值）。"""
+    from backend.services import risk_snapshot_scheduler as scheduler
+
+    db_path = tmp_path / "risk.db"
+    monkeypatch.setattr(
+        scheduler,
+        "get_all_active_sessions",
+        lambda: [("sess", "user")],
+    )
+
+    from backend.services import report_index as report_index_module
+
+    class _FakeStore:
+        def list_reports(self, **kwargs):
+            return []
+
+    monkeypatch.setattr(
+        report_index_module, "get_report_index_store", lambda: _FakeStore()
+    )
+    monkeypatch.setattr(
+        "backend.services.portfolio_store.get_positions",
+        lambda session_id: [{"ticker": "AAPL", "shares": 10, "avg_cost": 100.0}],
+    )
+    monkeypatch.setattr(scheduler, "save_risk_snapshot", _capture_and_save(db_path))
+
+    scheduler.take_daily_risk_snapshot()
+
+    history = get_risk_snapshots_history("sess", "user", db_path=db_path)
+    assert len(history) == 1
+    assert history[0]["degraded_reason"] == "snapshot_without_live_quotes"
+
+
+def _capture_and_save(db_path):
+    import backend.services.risk_snapshots as real
+
+    def _save(session_id, user_id, risk_lens_data, snapshot_date):
+        real.save_risk_snapshot(
+            session_id=session_id,
+            user_id=user_id,
+            risk_lens_data=risk_lens_data,
+            snapshot_date=snapshot_date,
+            db_path=db_path,
+        )
+
+    return _save

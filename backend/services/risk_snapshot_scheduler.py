@@ -59,6 +59,14 @@ def take_daily_risk_snapshot() -> None:
                 # 计算风险透镜
                 risk_lens = calculate_portfolio_risk_lens(positions, reports)
 
+                # 快照调度器没有实时报价，持仓的 market_value 只是 shares*avg_cost
+                # （见 portfolio_risk_lens 的兜底）。risk_lens_router 在同一情形下
+                # 会打 degraded 标记，这里此前不打：同一天经过调度器落库的快照
+                # 把成本价当市值存成 risk_score，趋势图上读作实测风险分。
+                if isinstance(risk_lens, dict):
+                    risk_lens["degraded"] = True
+                    risk_lens["degraded_reason"] = "snapshot_without_live_quotes"
+
                 # 保存快照
                 save_risk_snapshot(session_id, user_id, risk_lens, snapshot_date)
                 success_count += 1
