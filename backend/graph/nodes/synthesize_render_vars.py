@@ -492,10 +492,23 @@ def _stub_render_vars(state: GraphState) -> dict[str, str]:
                 direction = "中性（Neutral）"
                 direction_detail = "多空信号交织，建议观望或分批操作"
 
-            sections.append(f"**{ticker_label} 综合研判：{direction}**")
-            sections.append(f"")
-            sections.append(f"{direction_detail}。以下为多维度交叉验证结论：")
-            sections.append("")
+            # 没有产出任何要素：同样落到"中性"，但那是"一个 agent 都没跑出东西"，
+            # 不是"多空信号交织"。两者同形会让全失败的报告读起来像一份平衡结论
+            # （finsight-silent-success-forbidden）。
+            no_evidence = not (bullish_factors or bearish_factors or neutral_notes)
+            if no_evidence:
+                sections.append(f"**{ticker_label} 综合研判：无法形成方向（数据缺失）**")
+                sections.append("")
+                sections.append(
+                    "未取得任何 agent 的产出（行情/技术面/基本面/新闻/宏观均无可用证据），"
+                    "因此无法给出方向性判断；下列缺口需补齐后才能研判。"
+                )
+                sections.append("")
+            else:
+                sections.append(f"**{ticker_label} 综合研判：{direction}**")
+                sections.append(f"")
+                sections.append(f"{direction_detail}。以下为多维度交叉验证结论：")
+                sections.append("")
 
             # --- 3. Key factors ---
             if bullish_factors:
@@ -530,6 +543,11 @@ def _stub_render_vars(state: GraphState) -> dict[str, str]:
                         pass
             if coverage:
                 sections.append(f"**数据置信度：** {' | '.join(coverage)}")
+                sections.append("")
+            elif not no_evidence:
+                # 一个 confidence 都没上报时，此前整行被跳过：读者只看到结论，
+                # 看不出它建立在零条自评置信度的证据上。
+                sections.append("**数据置信度：** 无（各 agent 均未上报置信度）")
                 sections.append("")
 
             return "\n".join(sections)

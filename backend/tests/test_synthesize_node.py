@@ -766,3 +766,59 @@ def test_extract_brief_headline_strips_numbered_prefixes():
 
     assert _extract_brief_headline("- Bullet style headline here") == "Bullet style headline here"
     assert _extract_brief_headline("9. Nine prefixed headline text") == "Nine prefixed headline text"
+
+
+def _company_render_vars_state(step_results):
+    return {
+        "query": "AAPL 投资报告",
+        "output_mode": "investment_report",
+        "ui_context": {"analysis_depth": "deep_research"},
+        "operation": {"name": "investment_report"},
+        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+        "plan_ir": {"steps": step_results["steps"]},
+        "artifacts": {"step_results": step_results["results"], "evidence_pool": []},
+        "trace": {},
+    }
+
+
+def test_all_agents_failed_does_not_render_as_a_balanced_neutral_verdict():
+    """全部 agent 无产出时，此前仍打印"中性（Neutral）/多空信号交织"——读起来
+    像一份平衡结论，实际是一条证据都没有（finsight-silent-success-forbidden）。"""
+    from backend.graph.nodes.synthesize import _stub_render_vars
+
+    state = _company_render_vars_state(
+        {
+            "steps": [
+                {"id": "a1", "kind": "agent", "name": "price_agent"},
+                {"id": "a2", "kind": "agent", "name": "fundamental_agent"},
+            ],
+            "results": {
+                "a1": {"output": {"skipped": True, "reason": "upstream_failed"}},
+                "a2": {"output": {"error": "boom"}},
+            },
+        }
+    )
+
+    thesis = _stub_render_vars(state)["investment_thesis"]
+
+    assert "中性（Neutral）" not in thesis
+    assert "无法形成方向（数据缺失）" in thesis
+    assert "数据置信度" not in thesis
+
+
+def test_partial_evidence_still_renders_a_verdict_and_confidence_line():
+    """有证据时结论照旧，且缺 confidence 不再把"数据置信度"整行吞掉。"""
+    from backend.graph.nodes.synthesize import _stub_render_vars
+
+    state = _company_render_vars_state(
+        {
+            "steps": [{"id": "a1", "kind": "agent", "name": "price_agent"}],
+            "results": {"a1": {"output": {"summary": "近一月股价上涨 8%，成交温和放大"}}},
+        }
+    )
+
+    thesis = _stub_render_vars(state)["investment_thesis"]
+
+    assert "综合研判：中性偏多（Slightly Bullish）" in thesis
+    assert "无法形成方向" not in thesis
+    assert "数据置信度：** 无" in thesis
