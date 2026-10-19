@@ -137,8 +137,10 @@ def create_note(
     try:
         from backend.services.notes_rag import vectorize_note as _vn
         _vn(note_id, title, content or "")
-    except Exception as exc:
-            logger.warning('note vectorization failed')
+    except Exception:
+        # create_note 返回的只是 note_id，没有别的通道告诉调用方"这条笔记
+        # 永远不会出现在语义搜索结果里"（project 规则 2）。
+        logger.warning('note vectorization failed')
 
     return note_id
 
@@ -205,7 +207,9 @@ def update_note(
             if note:
                 from backend.services.notes_rag import vectorize_note as _vn
                 _vn(note_id, note.get("title", ""), note.get("content", ""))
-        except Exception as exc:
+        except Exception:
+            # 同 create_note：重向量化失败必须留痕，否则改完笔记后它的
+            # 语义检索命中的还是旧内容且无从排查（项目规则 2）。
             logger.warning('note re-vectorization failed')
 
     return updated
