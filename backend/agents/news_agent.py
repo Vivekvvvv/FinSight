@@ -619,6 +619,10 @@ class NewsAgent(BaseFinancialAgent):
                                 }, ensure_ascii=False)
                     except Exception as e:
                         self.circuit_breaker.record_failure("tavily")
+                        # 与 Finnhub 分支同口径：流式源失败必须留可定位的
+                        # warning，否则前端只看到 status=error 帧、报告里
+                        # 也没有任何"数据源不可用"痕迹（项目规则 2）。
+                        logger.warning("[NewsAgent] Tavily stream fetch failed")
                         yield json.dumps({
                             "type": "source_done",
                             "source": "tavily",

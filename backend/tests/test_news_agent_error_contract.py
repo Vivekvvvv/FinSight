@@ -30,6 +30,33 @@ async def test_news_stream_redacts_finnhub_error(caplog):
     assert "[NewsAgent] Finnhub stream fetch failed" in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_news_stream_redacts_tavily_error(caplog):
+    """Tavily 流式分支原本是唯一零日志的 except：源挂了只吐一个 error 帧，
+    报告正文里也没有"数据源不可用"痕迹，用户把 0 条新闻当成"确实没有新闻"
+    （项目规则 2、finsight-silent-success-forbidden）。
+    """
+    secret = "PRIVATE_TAVILY_STREAM_ERROR_SENTINEL"
+    cache = MagicMock()
+    cache.get.return_value = None
+    tools = MagicMock()
+    tools._fetch_with_finnhub_news.return_value = []
+    tools._search_company_news.side_effect = RuntimeError(secret)
+    agent = NewsAgent(None, cache, tools, CircuitBreaker())
+
+    events = []
+    async for raw_event in agent.analyze_stream("news", "AAPL"):
+        event = json.loads(raw_event)
+        events.append(event)
+        if event.get("source") == "tavily" and event.get("status") == "error":
+            break
+
+    assert events[-1]["status"] == "error"
+    assert secret not in str(events)
+    assert secret not in caplog.text
+    assert "[NewsAgent] Tavily stream fetch failed" in caplog.text
+
+
 def test_news_reliability_rejects_non_finite_tool_score():
     tools = MagicMock()
     tools.score_news_source_reliability.return_value = {
