@@ -420,3 +420,70 @@ def test_challenged_conclusion_reports_each_report_once(clean_state, monkeypatch
     ]
     assert len(challenged) == 1
     assert result["summary"]["challenged_conclusions"] == 1
+
+
+def test_timeline_failure_is_flagged_instead_of_reading_as_no_challenged_conclusion(
+    clean_state, monkeypatch
+):
+    """时间线查询失败必须留下降级标记。
+
+    原先 `except Exception: continue` 把查询失败整段吞掉：结果里
+    challenged_conclusions=0 与"报告确实没被新证据挑战"完全同形，读起来是
+    "健康"，而事实是这块根本没查（项目规则 2）。
+    """
+    session_id = "test_timeline_fallback_session"
+    store = get_report_index_store()
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "fallback_001",
+            "ticker": "FBACK",
+            "title": "报告",
+            "summary": "摘要",
+            "generated_at": (datetime.now(timezone.utc) - timedelta(days=5)).isoformat(),
+        },
+    )
+
+    def _boom(**kwargs):
+        raise RuntimeError("timeline down")
+
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", _boom)
+
+    result = research_quality.get_research_quality(
+        session_id=session_id,
+        user_id="test_user",
+    )
+
+    assert result["success"] is True
+    assert result["fallback_reason"] == "timeline_unavailable"
+    assert result["unqueried_symbols"] == ["FBACK"]
+
+
+def test_successful_timeline_query_leaves_no_fallback_marker(clean_state, monkeypatch):
+    """查询成功时不得打降级标记，否则健康度会被读成"永远部分不可信"。"""
+    session_id = "test_no_fallback_session"
+    store = get_report_index_store()
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": "nofallback_001",
+            "ticker": "FNONE",
+            "title": "报告",
+            "summary": "摘要",
+            "generated_at": (datetime.now(timezone.utc) - timedelta(days=5)).isoformat(),
+        },
+    )
+
+    monkeypatch.setattr(
+        research_quality.timeline_service,
+        "get_timeline",
+        lambda **kwargs: [],
+    )
+
+    result = research_quality.get_research_quality(
+        session_id=session_id,
+        user_id="test_user",
+    )
+
+    assert result["fallback_reason"] is None
+    assert result["unqueried_symbols"] == []

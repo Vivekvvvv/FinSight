@@ -881,6 +881,9 @@ _SAFE_AGGREGATE_LOG_EXPRESSIONS = {
     ("backend/tools/search.py", "len(sources_used)"),
     ("backend/tools/tencent_provider.py", "len(parts)"),
     ("backend/tools/web.py", "len(text)"),
+    # 查询失败的标的个数（只是计数，不含 symbol 值本身）：用于把"没查出来"
+    # 和"确实没有被挑战的结论"区分开，避免降级被读成健康。
+    ("backend/services/research_quality.py", "len(unqueried_symbols)"),
 }
 _SAFE_PROVIDER_LOG_EXPRESSIONS = {
     ("backend/tools/price.py", "source_func.__name__"),
@@ -957,10 +960,19 @@ def test_dynamic_log_expressions_do_not_reference_sensitive_input_names():
     }
     violations = []
 
+    # 已复核的安全聚合表达式按 (路径, 渲染后的表达式) 放行：它们打印的是
+    # 计数/来源名，不含敏感值本身，见 `_SAFE_AGGREGATE_LOG_EXPRESSIONS`。
+    allowed_expressions = set(_SAFE_AGGREGATE_LOG_EXPRESSIONS) | set(
+        _SAFE_PROVIDER_LOG_EXPRESSIONS
+    )
+
     for relative_path, lineno, expression in _dynamic_log_expressions():
-        names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", ast.unparse(expression).lower())
+        rendered = ast.unparse(expression)
+        if (relative_path, rendered) in allowed_expressions:
+            continue
+        names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", rendered.lower())
         if any(part in name for name in names for part in forbidden_name_parts):
-            violations.append(f"{relative_path}:{lineno}: {ast.unparse(expression)}")
+            violations.append(f"{relative_path}:{lineno}: {rendered}")
 
     assert violations == []
 
@@ -981,7 +993,7 @@ def test_dynamic_log_expressions_match_reviewed_safe_baseline():
         {
             "exception_type": 146,
             "http_status": 11,
-            "aggregate_count": 10,
+            "aggregate_count": 11,
             "provider_name": 4,
         }
     )

@@ -2,11 +2,14 @@
 """Research Quality Calibration Service - 研究库健康度校准"""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Literal
 
 from backend.services.report_index import get_report_index_store
 from backend.services import timeline_service
+
+logger = logging.getLogger(__name__)
 
 IssueType = Literal[
     "stale_report",
@@ -195,8 +198,14 @@ def _collect_challenged_conclusions(
     reports: list[dict[str, Any]],
     session_id: str,
     user_id: str,
+    unqueried_symbols: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """识别被新证据挑战的旧结论"""
+    """识别被新证据挑战的旧结论
+
+    `unqueried_symbols` 非 None 时，把时间线查询失败的 symbol 记进去：
+    失败原先被 `continue` 吞掉，结果里 challenged_conclusions=0 与"确实没有
+    被挑战的结论"完全同形（项目规则 2）。调用方据此在返回体上标注降级。
+    """
     issues = []
 
     # 按 symbol 分组
@@ -262,7 +271,15 @@ def _collect_challenged_conclusions(
                         break  # 每个事件只取第一个被挑战的报告
 
         except Exception:
-            # timeline 查询失败不影响其他逻辑
+            # timeline 查询失败不影响其他逻辑，但必须留痕：直接 continue 会让
+            # "查不出来"和"确实没有被挑战的结论"同形（项目规则 2）。
+            if unqueried_symbols is None:
+                unqueried_symbols = []
+            unqueried_symbols.append(symbol)
+            logger.warning(
+                "[ResearchQuality] timeline query failed, %d symbol(s) unqueried",
+                len(unqueried_symbols),
+            )
             continue
 
     return issues
@@ -368,13 +385,17 @@ def get_research_quality(
 
     # 收集问题
     all_issues: list[dict[str, Any]] = []
+    # 时间线查询失败的 symbol：用于在返回体上标注降级，避免"没查出来"读成"没有"。
+    unqueried_symbols: list[str] = []
 
     all_issues.extend(_collect_stale_reports(reports))
     all_issues.extend(_collect_low_citation_reports(reports))
     all_issues.extend(_collect_quality_issues(reports))
     all_issues.extend(_collect_unreviewed_reports(reports))
 
-    challenged_issues = _collect_challenged_conclusions(reports, session_id, user_id)
+    challenged_issues = _collect_challenged_conclusions(
+        reports, session_id, user_id, unqueried_symbols
+    )
     all_issues.extend(challenged_issues)
     summary["challenged_conclusions"] = len(challenged_issues)
 
@@ -396,4 +417,6 @@ def get_research_quality(
         "summary": summary,
         "top_issues": top_issues,
         "next_actions": [],  # 暂不实现
+        "fallback_reason": "timeline_unavailable" if unqueried_symbols else None,
+        "unqueried_symbols": unqueried_symbols,
     }
