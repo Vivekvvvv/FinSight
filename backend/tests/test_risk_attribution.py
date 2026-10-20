@@ -115,9 +115,11 @@ def test_calculate_risk_attribution_survives_extreme_return_magnitudes():
             [{"ticker": "AAPL", "market_value": 10000, "sector": "科技"}]
         )
 
-    assert np.isfinite(result["total_portfolio_vol"])
-    assert np.isfinite(result["market_risk_pct"])
-    assert np.isfinite(result["idiosyncratic_risk_pct"])
+    assert result["total_portfolio_vol"] == 0.0
+    # 占比不再是 NaN/Infinity（也不是编出来的 50%）：没有可估的风险贡献时为 None
+    assert result["market_risk_pct"] is None
+    assert result["idiosyncratic_risk_pct"] is None
+    assert result["fallback_reason"] == "risk_metrics_unavailable"
     for pos in result["positions"]:
         for key in ("weight", "beta", "market_risk_contrib", "idio_risk_contrib"):
             assert np.isfinite(pos[key]), f"{key} 非有限"
@@ -186,14 +188,81 @@ def test_risk_attribution_result_structure():
         assert key in result
 
 
-def test_risk_attribution_pct_sums_to_100():
-    """市场风险% + 特质风险% 应等于 100"""
+def test_risk_attribution_pct_sums_to_100_when_estimated():
+    """估出风险贡献时，市场风险% + 特质风险% 应等于 100"""
     from backend.services.risk_attribution import calculate_risk_attribution
     positions = [{"ticker": "AAPL", "market_value": 50000}]
-    with patch("backend.services.risk_attribution._fetch_returns", return_value=None):
+    series = [0.01, -0.02, 0.03, -0.01, 0.02] * 20
+    with patch("backend.services.risk_attribution._fetch_returns", return_value=series):
         result = calculate_risk_attribution(positions)
     total = round(result["market_risk_pct"] + result["idiosyncratic_risk_pct"], 1)
     assert abs(total - 100.0) < 0.2
+    assert result["fallback_reason"] is None
+    assert result["method"] == "ols"
+
+
+def test_risk_attribution_does_not_invent_fifty_fifty_without_data():
+    """基准与个股行情全不可得时，50/50 是从缺失数据里补出来的结论。
+
+    以前 total_vol<=0 直接回 market_risk_pct=50.0 / idiosyncratic_risk_pct=50.0，
+    读起来像一份实测的风险对半分解（项目规则 2）。"""
+    from backend.services.risk_attribution import calculate_risk_attribution
+    positions = [{"ticker": "AAPL", "market_value": 50000, "sector": "科技"}]
+    with patch("backend.services.risk_attribution._fetch_returns", return_value=None):
+        result = calculate_risk_attribution(positions)
+
+    assert result["total_portfolio_vol"] == 0.0
+    assert result["market_risk_pct"] is None
+    assert result["idiosyncratic_risk_pct"] is None
+    assert result["fallback_reason"] == "risk_metrics_unavailable"
+    assert "无法估算" in result["note"]
+
+
+def test_risk_attribution_zero_variance_series_is_not_a_measurement():
+    """收益率序列存在但零波动（beta 估出来了、风险贡献恒 0）：占比同样是
+    "没测出来"，不能因为 beta_estimated=True 就回 50/50。"""
+    from backend.services.risk_attribution import calculate_risk_attribution
+    positions = [{"ticker": "AAPL", "market_value": 50000}]
+    with patch(
+        "backend.services.risk_attribution._fetch_returns",
+        return_value=[0.0] * 40,
+    ):
+        result = calculate_risk_attribution(positions)
+
+    assert result["positions"][0]["beta_estimated"] is True
+    assert result["total_portfolio_vol"] == 0.0
+    assert result["market_risk_pct"] is None
+    assert result["idiosyncratic_risk_pct"] is None
+    assert result["fallback_reason"] == "risk_metrics_unavailable"
+
+
+def test_risk_attribution_endpoint_surfaces_null_pct(monkeypatch):
+    """路由层如实透出 null，不把缺失换算成 50%。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.api.portfolio_router import portfolio_router
+
+    monkeypatch.setattr(
+        "backend.services.portfolio_store.get_positions",
+        lambda *a, **k: [{"ticker": "AAPL", "shares": 10, "avg_cost": 100}],
+    )
+    monkeypatch.setattr(
+        "backend.services.risk_attribution._fetch_returns",
+        lambda *a, **k: None,
+    )
+    app = FastAPI()
+    app.include_router(portfolio_router)
+    response = TestClient(app).get(
+        "/api/portfolio/risk-attribution",
+        params={"session_id": "public:anonymous:risk-unavailable"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["market_risk_pct"] is None
+    assert payload["idiosyncratic_risk_pct"] is None
+    assert payload["fallback_reason"] == "risk_metrics_unavailable"
 
 
 def test_risk_attribution_sector_attribution():
@@ -291,7 +360,7 @@ def test_failed_stock_fetch_does_not_read_as_measured_beta_of_one():
     market = [0.01 * ((-1) ** i) for i in range(60)]
 
     def fake_fetch(ticker, period):
-        return market if ticker == "MARKET" else None
+        return market if ticker == "000300.SS" else None
 
     positions = [
         {"ticker": "AAPL", "market_value": 6000, "sector": "科技"},

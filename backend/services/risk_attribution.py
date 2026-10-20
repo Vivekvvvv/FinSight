@@ -170,8 +170,16 @@ def calculate_risk_attribution(
     total_idio = sum(p["idio_risk_contrib"] for p in pos_details)
     total_vol = total_market + total_idio
 
-    market_pct = round(total_market / total_vol * 100, 1) if total_vol > 0 else 50.0
-    idio_pct = round(100 - market_pct, 1)
+    # total_vol==0 说明基准与个股行情一个都没估出来：此前的 50.0/50.0 是从
+    # 缺失数据里补出来的"市场/特质风险对半"，读起来像一份实测结论（项目
+    # 规则 2）。宁可为 None，也不给一个不存在的观测值。
+    risk_metrics_available = total_vol > 0
+    if risk_metrics_available:
+        market_pct: float | None = round(total_market / total_vol * 100, 1)
+        idio_pct: float | None = round(100 - market_pct, 1)
+    else:
+        market_pct = None
+        idio_pct = None
 
     # 行业归因
     sector_attr = []
@@ -193,6 +201,12 @@ def calculate_risk_attribution(
         })
 
     method = "ols" if (market_rets and sigma_market > 0) else "simplified"
+    if not risk_metrics_available:
+        fallback_reason: str | None = "risk_metrics_unavailable"
+        note = "行情数据不足，无法估算市场/特质风险占比"
+    else:
+        fallback_reason = "beta_unavailable" if beta_unavailable else None
+        note = "风险贡献为年化估算，OLS回归基于近1年日收益率" if method == "ols" else "数据不足，使用简化模型"
     return {
         "total_portfolio_vol": round(float(total_vol), 4),
         "market_risk_pct": market_pct,
@@ -200,8 +214,8 @@ def calculate_risk_attribution(
         "positions": pos_details,
         "sector_attribution": sector_attr,
         "method": method,
-        "note": "风险贡献为年化估算，OLS回归基于近1年日收益率" if method == "ols" else "数据不足，使用简化模型",
-        "fallback_reason": "beta_unavailable" if beta_unavailable else None,
+        "note": note,
+        "fallback_reason": fallback_reason,
         "beta_unavailable_tickers": beta_unavailable,
     }
 
