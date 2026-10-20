@@ -115,7 +115,7 @@ async def test_rebalance_news_fetch_error_log_is_redacted(caplog):
 
     result = await enhancer._gather_agent_data(["AAPL"])
 
-    assert result == {"AAPL": {}}
+    assert result == {"AAPL": {"news_unavailable": True}}
     assert secret not in caplog.text
     assert "[rebalance-enhancer] news fetch failed" in caplog.text
 
@@ -138,6 +138,16 @@ async def test_rebalance_company_info_error_log_is_redacted(caplog):
 
 
 @pytest.mark.asyncio
+async def test_news_tool_returning_none_is_marked_unavailable():
+    """工具用 None 表示"没取到"，不能落成空列表（否则 prompt 写成"无近期新闻"）。"""
+    enhancer = AgentBackedEnhancer(get_company_news=lambda _ticker, _limit: None)
+
+    result = await enhancer._gather_agent_data(["AAPL"])
+
+    assert result == {"AAPL": {"news_unavailable": True}}
+
+
+@pytest.mark.asyncio
 async def test_llm_enhancer_switch_is_respected():
     calls = {"count": 0}
 
@@ -157,3 +167,78 @@ def test_rebalance_llm_parser_rejects_non_finite_priority(constant):
     content = '[{"ticker":"AAPL","adjusted_priority":' + constant + "}]"
 
     assert AgentBackedEnhancer._parse_llm_response(content) == []
+
+
+@pytest.mark.asyncio
+async def test_news_fetch_failure_is_not_prompted_as_no_news():
+    """抓取失败 ≠ 没有新闻：prompt 里必须写成"取不到"，不能喂给 LLM 一个事实。"""
+    captured = {}
+
+    class _CapturingLLM:
+        async def ainvoke(self, messages):
+            captured["prompt"] = messages[0].content
+            return SimpleNamespace(content="[]")
+
+    def _fail_news(_ticker, _limit):
+        raise RuntimeError("boom")
+
+    enhancer = AgentBackedEnhancer(
+        get_company_news=_fail_news,
+        create_llm_fn=lambda **_kwargs: _CapturingLLM(),
+    )
+    candidates = [
+        RebalanceAction(
+            ticker="AAPL",
+            action=ActionType.REDUCE,
+            current_weight=60,
+            target_weight=50,
+            delta_weight=-10,
+            reason="concentration",
+        )
+    ]
+    diag = SimpleNamespace(weights={"AAPL": 60.0}, risk_flags=[])
+
+    agent_context = await enhancer._gather_agent_data(["AAPL"])
+    await enhancer._llm_enhance(candidates, diag, _base_context(), agent_context)
+
+    aapl_line = next(
+        line for line in captured["prompt"].splitlines() if line.startswith("- AAPL:")
+    )
+    assert "新闻获取失败" in aapl_line
+    assert "无近期新闻" not in aapl_line
+
+
+@pytest.mark.asyncio
+async def test_news_fetched_empty_still_reads_as_no_news():
+    """真的抓到了、但确实没有新闻时，措辞保持原样（不能把守卫扩大成永远报错）。"""
+    captured = {}
+
+    class _CapturingLLM:
+        async def ainvoke(self, messages):
+            captured["prompt"] = messages[0].content
+            return SimpleNamespace(content="[]")
+
+    enhancer = AgentBackedEnhancer(
+        get_company_news=lambda _ticker, _limit: [],
+        create_llm_fn=lambda **_kwargs: _CapturingLLM(),
+    )
+    candidates = [
+        RebalanceAction(
+            ticker="AAPL",
+            action=ActionType.REDUCE,
+            current_weight=60,
+            target_weight=50,
+            delta_weight=-10,
+            reason="concentration",
+        )
+    ]
+    diag = SimpleNamespace(weights={"AAPL": 60.0}, risk_flags=[])
+
+    agent_context = await enhancer._gather_agent_data(["AAPL"])
+    await enhancer._llm_enhance(candidates, diag, _base_context(), agent_context)
+
+    aapl_line = next(
+        line for line in captured["prompt"].splitlines() if line.startswith("- AAPL:")
+    )
+    assert "无近期新闻" in aapl_line
+    assert "新闻获取失败" not in aapl_line

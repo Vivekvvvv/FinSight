@@ -85,8 +85,8 @@ class AgentBackedEnhancer:
             if self._get_company_news:
                 try:
                     raw = await asyncio.to_thread(self._get_company_news, ticker, 3)
-                    headlines = []
                     if isinstance(raw, list):
+                        headlines = []
                         for item in raw[:3]:
                             if isinstance(item, dict):
                                 title = item.get("headline") or item.get("title") or ""
@@ -94,8 +94,16 @@ class AgentBackedEnhancer:
                                     headlines.append(str(title).strip()[:100])
                             elif isinstance(item, str) and item.strip():
                                 headlines.append(item.strip()[:100])
-                    data["news"] = headlines
+                        data["news"] = headlines
+                    else:
+                        # 工具用 None / {"error": ...} 表示"没取到"同样常见；当成
+                        # 空列表就会在 prompt 里变成"无近期新闻"。
+                        data["news_unavailable"] = True
                 except Exception as exc:
+                    # 取数失败不能退化成 `news=[]`：下游会把空列表写成
+                    # "无近期新闻"喂给 LLM，等于把"没拿到"说成"确实没有"
+                    # （项目规则 2）。留显式标记，prompt 里如实说明不可用。
+                    data["news_unavailable"] = True
                     logger.debug('[rebalance-enhancer] news fetch failed')
 
             if self._get_company_info:
@@ -132,8 +140,15 @@ class AgentBackedEnhancer:
         # Build prompt
         candidate_summaries = []
         for c in candidates:
-            news = agent_context.get(c.ticker, {}).get("news", [])
-            news_str = " | ".join(news[:3]) if news else "无近期新闻"
+            ticker_ctx = agent_context.get(c.ticker, {})
+            news = ticker_ctx.get("news", [])
+            if ticker_ctx.get("news_unavailable"):
+                # 抓取失败不能说成"无近期新闻"：LLM 会把这句话当成事实写进
+                # enhanced_reason，用户看到的调仓理由就建立在一个不存在的
+                # 观察上（项目规则 2）。
+                news_str = "新闻获取失败（无数据，勿据此判断）"
+            else:
+                news_str = " | ".join(news[:3]) if news else "无近期新闻"
             candidate_summaries.append(
                 f"- {c.ticker}: action={c.action.value}, "
                 f"current={c.current_weight:.1f}%, target={c.target_weight:.1f}%, "
