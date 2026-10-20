@@ -1259,6 +1259,33 @@ def test_agent_preferences_update_internal_error_is_redacted(caplog, capsys):
     assert secret not in captured.err
 
 
+def test_agent_preferences_update_persist_failure_is_not_reported_as_success():
+    """写盘失败时 update_user_profile 返回 False——不能回 200 + success:false。
+
+    偏好没存下来却拿到 2xx，调用方/前端会把设置当成已保存，下次读回来还是
+    旧值（项目规则 2：不许静默丢用户数据；规则 3：失败不许压成 200）。
+    """
+
+    class _Profile:
+        preferences = {}
+
+    class _MemoryService:
+        def get_user_profile(self, _user_id):
+            return _Profile()
+
+        def update_user_profile(self, _profile):
+            return False
+
+    with _agent_client(_MemoryService()) as client:
+        response = client.put(
+            "/api/agents/preferences",
+            json={"preferences": {"maxRounds": 4}},
+        )
+
+    assert response.status_code == 500
+    assert response.json()["success"] is False
+
+
 @pytest.mark.parametrize("method", ["get", "put"])
 def test_agent_preferences_missing_memory_service_returns_503(method):
     with _agent_client(None) as client:

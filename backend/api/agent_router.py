@@ -137,7 +137,15 @@ def create_agent_router(deps: AgentRouterDeps) -> APIRouter:
             profile.preferences["agent_preferences"] = normalized
 
             success = deps.memory_service.update_user_profile(profile)
-            return {"success": bool(success), "user_id": resolved_user_id, "preferences": normalized}
+            if not success:
+                # update_user_profile 写盘失败时返回 False（内部已记 warning）。
+                # 回 200 + success:false 会让前端把"偏好没存下来"当成保存成功，
+                # 下次读回来还是旧值——失败必须如实给状态码（项目规则 2、3）。
+                return JSONResponse(
+                    status_code=500,
+                    content={"success": False, "error": "Internal server error"},
+                )
+            return {"success": True, "user_id": resolved_user_id, "preferences": normalized}
         except HTTPException:
             raise
         except Exception as exc:
