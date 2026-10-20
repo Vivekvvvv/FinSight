@@ -279,6 +279,11 @@ async def smart_qa(request: SmartQARequest):
     """
     try:
         context_parts: List[str] = []
+        # 取数失败与"确实没有"必须分开：失败时上下文里没有这条数据，而
+        # prompt 仍宣称"基于以下数据回答"——模型会用自己的旧知识把缺口补成
+        # 一段看起来有数据支撑的回答（项目规则 2）。记下失败项，显式告知模型
+        # 和调用方，而不是静默省略。
+        unavailable: List[str] = []
         ticker = (request.ticker or "").strip().upper()
 
         if ticker:
@@ -299,12 +304,19 @@ async def smart_qa(request: SmartQARequest):
                         _chg = quote.get("change_percent")
                         change = _chg if _chg is not None else quote.get("change_pct", "N/A")
                         context_parts.append(f"【最新行情】{ticker} 现价 {price}，涨跌幅 {change}%")
+                    else:
+                        unavailable.append("最新行情")
                 elif isinstance(quote, str):
                     text = quote.strip()
                     if text and not text.startswith("Error:"):
                         context_parts.append(f"【最新行情】{text}")
+                    else:
+                        unavailable.append("最新行情")
+                else:
+                    unavailable.append("最新行情")
             except Exception as exc:
                 logger.warning("stock price unavailable")
+                unavailable.append("最新行情")
 
             # 2. 最新新闻（最多3条）
             try:
@@ -320,6 +332,7 @@ async def smart_qa(request: SmartQARequest):
                     context_parts.append("【今日相关新闻】\n" + "\n".join(f"- {t}" for t in titles))
             except Exception as exc:
                 logger.warning("company news unavailable")
+                unavailable.append("今日新闻")
 
             # 3. A股特色数据
             from backend.tools.baostock_provider import is_cn_symbol
@@ -368,9 +381,15 @@ async def smart_qa(request: SmartQARequest):
         context_block = ""
         if context_parts:
             context_block = "\n\n## 实时市场数据\n" + "\n".join(context_parts) + "\n"
+        data_gap_block = ""
+        if unavailable:
+            data_gap_block = (
+                "\n## 数据获取失败\n本次未能获取：" + "、".join(unavailable)
+                + "。不要编造这些数据；若回答依赖它们，请明确说明未能获取。\n"
+            )
 
         prompt = f"""你是一位专业的A股研究员，请基于以下数据回答用户问题。
-{context_block}
+{context_block}{data_gap_block}
 ## 用户问题
 {request.question}
 
@@ -390,6 +409,7 @@ async def smart_qa(request: SmartQARequest):
             "ticker": ticker or None,
             "answer": answer,
             "context_used": context_parts,
+            "data_unavailable": unavailable,
         }
 
     except Exception as exc:
