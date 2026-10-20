@@ -228,7 +228,7 @@ def test_portfolio_summary_does_not_fetch_quote_for_invalid_stored_ticker(monkey
     monkeypatch.setattr(
         module,
         "get_positions",
-        lambda _session_id: [{"ticker": "A" * 21, "shares": 1, "avg_cost": 10}],
+        lambda _session_id, **_kwargs: [{"ticker": "A" * 21, "shares": 1, "avg_cost": 10}],
     )
 
     async def _quote(ticker):
@@ -260,7 +260,7 @@ def test_portfolio_summary_handles_invalid_stored_numbers(monkeypatch):
     monkeypatch.setattr(
         module,
         "get_positions",
-        lambda _session_id: [
+        lambda _session_id, **_kwargs: [
             {"ticker": "AAPL", "shares": "bad", "avg_cost": -10},
             {"ticker": "MSFT", "shares": "inf", "avg_cost": "nan"},
         ],
@@ -296,7 +296,7 @@ def test_portfolio_summary_rejects_non_positive_live_price(monkeypatch):
     monkeypatch.setattr(
         module,
         "get_positions",
-        lambda _session_id: [{"ticker": "AAPL", "shares": 2, "avg_cost": 10}],
+        lambda _session_id, **_kwargs: [{"ticker": "AAPL", "shares": 2, "avg_cost": 10}],
     )
 
     async def _bad_quote(_position):

@@ -133,7 +133,18 @@ def _connect() -> Iterator[sqlite3.Connection]:
 # ── Portfolio positions CRUD ────────────────────────────────
 
 
-def get_positions(session_id: str) -> list[dict[str, Any]]:
+def get_positions(
+    session_id: str,
+    diagnostics: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """读取持仓。
+
+    Args:
+        diagnostics: 可选出参。库里存在解析不出的持仓行时，逐行跳过会让组合
+            看起来"本来就只有这些仓位"（汇总的 total_value/total_cost 也随之
+            少算）；把这些 ticker 写进 ``invalid_positions`` 供调用方如实上报
+            （项目规则 2）。
+    """
     with _db_lock, _connect() as conn:
         rows = conn.execute(
             "SELECT ticker, shares, avg_cost, updated_at, name, tags_json, note, "
@@ -148,6 +159,8 @@ def get_positions(session_id: str) -> list[dict[str, Any]]:
             avg_cost = _finite_number(r[2], field="avg_cost", allow_none=True)
         except ValueError as exc:
             logger.warning('Skipping invalid stored portfolio position')
+            if diagnostics is not None:
+                diagnostics.setdefault("invalid_positions", []).append(str(r[0]))
             continue
         tags = _parse_stored_tags(r[5])
         result.append(

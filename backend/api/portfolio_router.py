@@ -141,7 +141,8 @@ async def get_portfolio_summary(session_id: str, current_user: Principal = Depen
     require_matching_identity(principal=current_user, provided=session_id, expected=current_user.session_id, field_name="session_id")
     resolved_session_id = session_id if current_user.auth_type == "dev" else current_user.session_id
 
-    positions = get_positions(resolved_session_id)
+    positions_diagnostics: dict[str, Any] = {}
+    positions = get_positions(resolved_session_id, diagnostics=positions_diagnostics)
     if is_demo_mode() and not positions:
         return demo_portfolio_summary(resolved_session_id)
 
@@ -227,7 +228,7 @@ async def get_portfolio_summary(session_id: str, current_user: Principal = Depen
         total_cost += cost_basis
         total_day_change += day_change or 0.0
 
-    return {
+    response: dict[str, Any] = {
         "success": True,
         "session_id": resolved_session_id,
         "positions": enriched,
@@ -238,6 +239,14 @@ async def get_portfolio_summary(session_id: str, current_user: Principal = Depen
         "total_pnl": round(total_value - total_cost, 2),
         "total_day_change": round(total_day_change, 2),
     }
+    invalid_positions = positions_diagnostics.get("invalid_positions") or []
+    if invalid_positions:
+        # 解析不出的持仓行被跳过：汇总少算了这些仓位，不能让它看起来是
+        # "完整组合"（项目规则 2）。
+        response["invalid_positions"] = invalid_positions
+        response["degraded"] = True
+        response["fallback_reason"] = "invalid_stored_positions"
+    return response
 
 
 @portfolio_router.post("/api/portfolio/bulk")
