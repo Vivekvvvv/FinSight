@@ -806,13 +806,18 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         valid_adjust = adjust.lower() if adjust.lower() in ("qfq", "hfq", "none") else "qfq"
         try:
             from backend.services.historical_data_store import fetch_and_cache_kline
+            # 空 bars 既可能是"标的没有历史数据"，也可能是全部数据源取数失败；
+            # 由 store 通过 diagnostics 区分，路由如实透出，别让前端把故障读成
+            # "这只票没有历史"（项目规则 2）。
+            diagnostics: dict[str, Any] = {}
             bars = fetch_and_cache_kline(
                 ticker=clean_ticker,
                 start_date=start,
                 end_date=end,
                 adjust=valid_adjust,
+                diagnostics=diagnostics,
             )
-            return {
+            payload = {
                 "ticker": clean_ticker,
                 "adjust": valid_adjust,
                 "start": start,
@@ -820,6 +825,9 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 "bars": len(bars),
                 "data": bars,
             }
+            if diagnostics.get("fallback_reason"):
+                payload["fallback_reason"] = diagnostics["fallback_reason"]
+            return payload
         except Exception as e:
             _log_export_error("historical kline error", e)
             raise HTTPException(status_code=500, detail="Internal server error") from e

@@ -317,11 +317,17 @@ def fetch_and_cache_kline(
     start_date: str = "2020-01-01",
     end_date: str | None = None,
     adjust: str = "qfq",
+    diagnostics: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     获取历史K线（带缓存 & 清洗）。
 
     优先级：SQLite缓存 → baostock → 现有工具降级
+
+    Args:
+        diagnostics: 可选出参。空列表本身既可能意味着"标的没有历史数据"，
+            也可能意味着"上游/降级源全都取数失败"——两者同形（项目规则 2）。
+            取数失败时把 ``fallback_reason`` 写进该 dict，供调用方如实上报。
 
     Returns:
         list of {date, open, high, low, close, volume, is_suspicious}
@@ -354,6 +360,8 @@ def fetch_and_cache_kline(
             # （项目规则 2）。kdata=[] 的生产者仍按"无数据"处理。
             if isinstance(payload, dict) and payload.get("error"):
                 logger.warning('historical fallback upstream error')
+                if diagnostics is not None:
+                    diagnostics["fallback_reason"] = "upstream_error"
                 return []
             kdata = (payload or {}).get("kline_data") or []
             # 毒行按条跳过——非 dict 条目的 .get AttributeError、time
@@ -369,6 +377,8 @@ def fetch_and_cache_kline(
             ]
         except Exception as exc:
             logger.warning('historical fallback failed')
+            if diagnostics is not None:
+                diagnostics["fallback_reason"] = "fallback_failed"
             return []
 
     cleaned = _clean(rows)
