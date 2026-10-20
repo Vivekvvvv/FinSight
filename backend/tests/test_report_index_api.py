@@ -169,11 +169,15 @@ def test_report_index_logs_corrupt_stored_json_without_exposing_payload(
         )
         conn.commit()
 
+    replay_diagnostics: dict = {}
     assert store.get_report_replay(
         session_id=session_id,
         report_id=report_id,
         include_blocked=True,
+        diagnostics=replay_diagnostics,
     ) is None
+    # 报告行还在、只是内容解析不了：必须与"这条报告不存在"区分开
+    assert replay_diagnostics["fallback_reason"] == "corrupt_stored_report"
     assert "stored report payload parse failed" in caplog.text
     assert corrupt_payload not in caplog.text
 
@@ -639,3 +643,64 @@ def test_report_compare_supports_include_blocked(tmp_path, monkeypatch):
     payload = include_resp.json()
     assert payload.get("success") is True
     assert payload.get("diff", {}).get("confidence_score", {}).get("delta") == 0.11
+
+
+def _corrupt_report_row(store, session_id: str, report_id: str) -> None:
+    store.upsert_report(
+        session_id=session_id,
+        report={
+            "report_id": report_id,
+            "title": "report",
+            "tags": [],
+            "citations": [],
+        },
+        trace_digest={},
+    )
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE report_index SET report_json = ? WHERE report_id = ?",
+            ("{ PRIVATE_CORRUPT_JSON", report_id),
+        )
+        conn.commit()
+
+
+def test_report_replay_does_not_read_corrupt_row_as_missing(tmp_path, monkeypatch):
+    """报告行还在、report_json 解析不了：不能回 404「report not found」。"""
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "report_index.sqlite"))
+    main = _load_main_module()
+    store = main.get_report_index_store()
+    session_id = "tenant1:user1:thread-corrupt"
+    _corrupt_report_row(store, session_id, "rpt-corrupt")
+
+    response = TestClient(main.app).get(
+        "/api/reports/replay/rpt-corrupt",
+        params={"session_id": session_id},
+    )
+
+    assert response.status_code == 500
+    assert "unreadable" in response.json()["detail"]
+
+
+def test_report_compare_does_not_read_corrupt_row_as_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "report_index.sqlite"))
+    main = _load_main_module()
+    store = main.get_report_index_store()
+    session_id = "tenant1:user1:thread-compare-corrupt"
+    _corrupt_report_row(store, session_id, "rpt-compare-corrupt")
+    store.upsert_report(
+        session_id=session_id,
+        report={"report_id": "rpt-ok", "title": "ok", "tags": [], "citations": []},
+        trace_digest={},
+    )
+
+    response = TestClient(main.app).get(
+        "/api/reports/compare",
+        params={
+            "session_id": session_id,
+            "id1": "rpt-compare-corrupt",
+            "id2": "rpt-ok",
+        },
+    )
+
+    assert response.status_code == 500
+    assert "unreadable" in response.json()["detail"]

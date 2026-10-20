@@ -128,12 +128,17 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
             raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         store = deps.get_report_index_store()
+        diagnostics: dict[str, Any] = {}
         replay = store.get_report_replay(
             session_id=normalized_session,
             report_id=report_id,
             include_blocked=bool(include_blocked),
+            diagnostics=diagnostics,
         )
         if not replay:
+            if diagnostics.get("fallback_reason") == "corrupt_stored_report":
+                # 报告行存在但 report_json 解析不了：不是"报告不存在"（项目规则 2）
+                raise HTTPException(status_code=500, detail="Stored report data is unreadable")
             raise HTTPException(status_code=404, detail="report not found")
         return {"success": True, "session_id": normalized_session, **replay}
 
@@ -287,16 +292,24 @@ def create_report_router(deps: ReportRouterDeps) -> APIRouter:
             raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         store = deps.get_report_index_store()
+        diag_a: dict[str, Any] = {}
+        diag_b: dict[str, Any] = {}
         report_a = store.get_report_replay(
             session_id=normalized_session,
             report_id=id1,
             include_blocked=bool(include_blocked),
+            diagnostics=diag_a,
         )
         report_b = store.get_report_replay(
             session_id=normalized_session,
             report_id=id2,
             include_blocked=bool(include_blocked),
+            diagnostics=diag_b,
         )
+        if not report_a and diag_a.get("fallback_reason") == "corrupt_stored_report":
+            raise HTTPException(status_code=500, detail=f"stored report {id1} is unreadable")
+        if not report_b and diag_b.get("fallback_reason") == "corrupt_stored_report":
+            raise HTTPException(status_code=500, detail=f"stored report {id2} is unreadable")
         if not report_a:
             raise HTTPException(status_code=404, detail=f"report {id1} not found")
         if not report_b:

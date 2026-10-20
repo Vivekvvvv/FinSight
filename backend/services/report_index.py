@@ -523,6 +523,7 @@ class ReportIndexStore:
         session_id: str,
         report_id: str,
         include_blocked: bool = False,
+        diagnostics: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         with self._connect() as conn:
             where_clause = "WHERE session_id = ? AND report_id = ?"
@@ -557,6 +558,10 @@ class ReportIndexStore:
                 raise ValueError("stored report must be an object")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             logger.warning('stored report payload parse failed')
+            # None 同时表示"没有这条报告"和"报告存坏了"。路由层把后者当 404
+            # 会让用户保存过的报告看起来从未存在（项目规则 2），如实标注。
+            if diagnostics is not None:
+                diagnostics["fallback_reason"] = "corrupt_stored_report"
             return None
         report_payload["user_note"] = row["user_note"]
         citation_items = []
