@@ -227,7 +227,11 @@ class DataSourceMonitor:
                         "consecutive_failures": m.consecutive_failures,
                         "last_success_at": m.last_success_at,
                         "last_failure_at": m.last_failure_at,
-                        "avg_response_time_ms": round(m.avg_response_time_ms, 2),
+                        # 同上：没发过请求时 avg_response_time_ms 的 0.0 会被读成
+                        # "0 毫秒响应"（最快），那是没测过而不是测得多快。
+                        "avg_response_time_ms": (
+                            None if m.total_requests == 0 else round(m.avg_response_time_ms, 2)
+                        ),
                         "is_healthy": m.is_healthy,
                     }
                     for name, m in self._metrics.items()
