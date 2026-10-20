@@ -229,10 +229,50 @@ def test_real_zero_usage_is_not_marked_degraded(tmp_path, monkeypatch):
 
     monkeypatch.setattr(report_index, "get_report_index_store", lambda: _ReportStore())
     monkeypatch.setattr(subscription_service, "get_subscription_service", lambda: _SubService())
-    monkeypatch.setattr(portfolio_store, "get_positions", lambda _sid: [])
+    monkeypatch.setattr(portfolio_store, "get_positions", lambda _sid, _diag=None: [])
 
     usage = build_usage_view("usage_clean_user")
 
     for key in ("max_reports_per_day", "max_alerts", "max_portfolio_positions"):
         assert usage[key]["used"] == 0
         assert "fallback_reason" not in usage[key]
+
+
+def test_usage_counts_unreadable_positions_instead_of_undercounting(tmp_path, monkeypatch):
+    """坏持仓行被 get_positions 跳过时，不能少报 used：额度条会显示"还没满"，
+    用户/管理员据此以为配额没被消耗（项目规则 2、finsight-silent-success-forbidden）。"""
+    _configure_storage(tmp_path)
+    from backend.services import portfolio_store
+    from backend.services.entitlements import build_usage_view
+
+    def _get_positions(_session_id, diagnostics=None):
+        if diagnostics is not None:
+            diagnostics["invalid_positions"] = ["BADROW"]
+        return [{"ticker": "AAPL", "shares": 10, "avg_cost": 150.0}]
+
+    monkeypatch.setattr(portfolio_store, "get_positions", _get_positions)
+
+    usage = build_usage_view("usage_partial_user")
+
+    entry = usage["max_portfolio_positions"]
+    # 1 行可解析 + 1 行坏行：两行都占额度。
+    assert entry["used"] == 2
+    assert entry["fallback_reason"] == "usage_count_partial"
+
+
+def test_usage_without_invalid_positions_is_not_marked_partial(tmp_path, monkeypatch):
+    """只有能解析的持仓时不该带 usage_count_partial。"""
+    _configure_storage(tmp_path)
+    from backend.services import portfolio_store
+    from backend.services.entitlements import build_usage_view
+
+    def _get_positions(_session_id, diagnostics=None):
+        return [{"ticker": "AAPL", "shares": 10, "avg_cost": 150.0}]
+
+    monkeypatch.setattr(portfolio_store, "get_positions", _get_positions)
+
+    usage = build_usage_view("usage_clean_positions_user")
+
+    entry = usage["max_portfolio_positions"]
+    assert entry["used"] == 1
+    assert "fallback_reason" not in entry

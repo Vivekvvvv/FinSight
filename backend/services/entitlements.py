@@ -389,11 +389,18 @@ def build_usage_view(
 
     # 3) max_portfolio_positions
     pf_used = 0
+    invalid_positions: list[str] = []
     try:
         from backend.services.portfolio_store import get_positions
 
-        positions = get_positions(_build_session_id_for_user(user_id))
-        pf_used = len(positions) if positions else 0
+        positions_diagnostics: Dict[str, Any] = {}
+        positions = get_positions(
+            _build_session_id_for_user(user_id), positions_diagnostics
+        )
+        invalid_positions = positions_diagnostics.get("invalid_positions") or []
+        # 解析不出的行仍在库里占着仓位额度。只数能解析的行会少报 used，
+        # 额度条看起来"还没满"，用户/管理员据此以为配额没被消耗（项目规则 2）。
+        pf_used = (len(positions) if positions else 0) + len(invalid_positions)
     except Exception as exc:
         logger.error('build_usage_view: count portfolio positions failed; fallback 0')
         pf_used = 0
@@ -401,6 +408,10 @@ def build_usage_view(
     result["max_portfolio_positions"] = _quota_entry(
                 plan=plan, used=pf_used, limit=safe_int(limits.get("max_portfolio_positions"), 0) or 0
     )
+    if invalid_positions:
+        # 计数包含了坏行，但"坏的"这个事实本身也要露出来：这条 used 不是
+        # 一份干净的持仓清单数出来的（项目规则 2）。
+        result["max_portfolio_positions"]["fallback_reason"] = "usage_count_partial"
 
     # 4) 静态项: 其余配额返回 used=0 + limit (前端展示用)
     for quota_key in ("max_watchlist", "max_deep_research_per_day"):
