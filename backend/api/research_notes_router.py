@@ -265,9 +265,16 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
                 ticker=req.ticker,
                 tags=req.tags,
             )
+            if not success:
+                # 回 200 + success:false 时前端只看状态码，会把没落盘的修改当成
+                # 已保存（项目规则 3）。False 只有两种来源：没有可更新字段，
+                # 或笔记已被并发删除。
+                if not research_notes.get_note(note_id):
+                    raise HTTPException(status_code=404, detail="Note not found")
+                raise HTTPException(status_code=422, detail="No fields to update")
 
             return {
-                "success": success,
+                "success": True,
             }
 
         except HTTPException:
@@ -293,13 +300,15 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
             # 删除笔记
             success = research_notes.delete_note(note_id)
+            if not success:
+                # 200 + success:false 会让前端把"没删掉"显示成"已删除"（规则 3）。
+                raise HTTPException(status_code=404, detail="Note not found")
 
             # 删除关联的图片
-            if success:
-                note_images.delete_all_images(note["user_id"], note_id)
+            note_images.delete_all_images(note["user_id"], note_id)
 
             return {
-                "success": success,
+                "success": True,
             }
 
         except HTTPException:
@@ -426,9 +435,12 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
 
             # 删除图片
             success = note_images.delete_image(note["user_id"], note_id, filename)
+            if not success:
+                # 文件本来就不存在：200 + success:false 会让调用方以为图片已删（规则 3）。
+                raise HTTPException(status_code=404, detail="Image not found")
 
             return {
-                "success": success,
+                "success": True,
             }
 
         except HTTPException:

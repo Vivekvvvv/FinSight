@@ -482,3 +482,61 @@ def test_vectorize_all_internal_error_is_redacted(authenticated_client, monkeypa
         params={"session_id": "pytest_router_session", "user_id": "default_user"},
     )
     _assert_internal_error_redacted(response, caplog, secret)
+
+
+def _owned_note():
+    return {"note_id": "note-1", "user_id": "pytest_authenticated_user"}
+
+
+def test_update_note_failure_is_not_reported_as_200(authenticated_client, monkeypatch):
+    """update_note 返回 False 时不能回 200 + success:false：前端只看状态码，
+    会把没落盘的修改当成已保存（项目规则 3）。"""
+    monkeypatch.setattr(research_notes, "get_note", lambda _note_id: _owned_note())
+    monkeypatch.setattr(research_notes, "update_note", lambda **_kwargs: False)
+
+    response = authenticated_client.put(
+        "/api/research-notes/note-1",
+        json={"title": "updated"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "No fields to update"
+
+
+def test_update_note_vanished_concurrently_returns_404(authenticated_client, monkeypatch):
+    """更新期间笔记被并发删除：应回 404，而不是 200 + success:false。"""
+    notes = iter([_owned_note(), None])
+    monkeypatch.setattr(research_notes, "get_note", lambda _note_id: next(notes))
+    monkeypatch.setattr(research_notes, "update_note", lambda **_kwargs: False)
+
+    response = authenticated_client.put(
+        "/api/research-notes/note-1",
+        json={"title": "updated"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Note not found"
+
+
+def test_delete_note_failure_is_not_reported_as_200(authenticated_client, monkeypatch):
+    """删除没生效（并发已删/存储未命中）不能回 200 + success:false。"""
+    monkeypatch.setattr(research_notes, "get_note", lambda _note_id: _owned_note())
+    monkeypatch.setattr(research_notes, "delete_note", lambda _note_id: False)
+
+    response = authenticated_client.delete("/api/research-notes/note-1")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Note not found"
+
+
+def test_delete_missing_image_returns_404(authenticated_client, monkeypatch):
+    """图片本来就不存在时不能回 200 + success:false，否则前端显示"已删除"。"""
+    from backend.services import note_images
+
+    monkeypatch.setattr(research_notes, "get_note", lambda _note_id: _owned_note())
+    monkeypatch.setattr(note_images, "delete_image", lambda *_args: False)
+
+    response = authenticated_client.delete("/api/research-notes/note-1/images/chart.png")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Image not found"
