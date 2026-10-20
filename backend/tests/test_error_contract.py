@@ -1462,6 +1462,45 @@ def test_user_router_missing_memory_service_returns_503(method, path, request_kw
 
 
 @pytest.mark.parametrize(
+    ("path", "request_kwargs"),
+    [
+        ("/api/user/profile", {"json": {"profile": {"risk_tolerance": "medium"}}}),
+        ("/api/user/watchlist/add", {"json": {"ticker": "AAPL"}}),
+        ("/api/user/watchlist/remove", {"json": {"ticker": "AAPL"}}),
+    ],
+    ids=["profile_save", "watchlist_add", "watchlist_remove"],
+)
+def test_user_router_persist_failure_is_not_reported_as_success(path, request_kwargs):
+    """落盘失败时 MemoryService 返回 False——不能回 200 + success:false。
+
+    用户改了自选/画像却什么都没存下来，前端看到 2xx 会当成已保存，刷新后
+    又变回旧值（项目规则 2、3）。ticker 已校验非空、未超额度，False 只可能
+    是写盘失败。
+    """
+
+    class _MemoryService:
+        def update_user_profile(self, _profile):
+            return False
+
+        def add_to_watchlist(self, *_args, **_kwargs):
+            return False
+
+        def remove_from_watchlist(self, *_args, **_kwargs):
+            return False
+
+    class _UserProfile:
+        @classmethod
+        def from_dict(cls, data):
+            return cls()
+
+    with _user_client(_MemoryService(), _UserProfile) as client:
+        response = client.post(path, **request_kwargs)
+
+    assert response.status_code == 500
+    assert response.json() == {"success": False, "error": "Internal server error"}
+
+
+@pytest.mark.parametrize(
     ("path", "payload", "expected_error"),
     [
         ("/api/user/watchlist/add", {}, "Ticker is required"),

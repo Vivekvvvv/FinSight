@@ -33,6 +33,18 @@ class UserRouterDeps:
     user_profile_cls: Any
 
 
+def _persist_failed_response() -> JSONResponse:
+    """profile 落盘失败的统一响应。
+
+    MemoryService 写盘失败只记 warning 并返回 False；此前这些端点照样回 200 +
+    `success:false`，前端把"没存下来"当成保存成功（项目规则 2、3）。
+    """
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "error": "Internal server error"},
+    )
+
+
 def create_user_router(deps: UserRouterDeps) -> APIRouter:
     router = APIRouter(tags=["User"])
 
@@ -170,8 +182,11 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
             profile_data["user_id"] = resolved_user_id
 
             profile = deps.user_profile_cls.from_dict(profile_data)
-            success = deps.memory_service.update_user_profile(profile)
-            return {"success": success}
+            if not deps.memory_service.update_user_profile(profile):
+                # 写盘失败时 MemoryService 只记 warning 并返回 False；回 200 +
+                # success:false 会让前端把"没存下来"当成保存成功（规则 2、3）。
+                return _persist_failed_response()
+            return {"success": True}
         except HTTPException:
             raise
         except Exception as exc:
@@ -233,7 +248,10 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
                     current=exc.current,
                     plan=plan,
                 )
-            return {"success": success}
+            if not success:
+                # ticker 已校验非空且未超额度，False 只可能是写盘失败。
+                return _persist_failed_response()
+            return {"success": True}
         except HTTPException:
             raise
         except Exception as exc:
@@ -338,8 +356,10 @@ def create_user_router(deps: UserRouterDeps) -> APIRouter:
                     content={"success": False, "error": "Ticker is required"},
                 )
 
-            success = deps.memory_service.remove_from_watchlist(resolved_user_id, ticker)
-            return {"success": success}
+            if not deps.memory_service.remove_from_watchlist(resolved_user_id, ticker):
+                # ticker 不在列表时 remove 返回 True（幂等）；False 只意味着写盘失败。
+                return _persist_failed_response()
+            return {"success": True}
         except HTTPException:
             raise
         except Exception as exc:
