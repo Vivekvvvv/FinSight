@@ -261,7 +261,8 @@ def test_record_alert_event_bounds_persisted_content(monkeypatch, tmp_path):
     event = service.list_alert_events("alice@example.invalid")[0]
     assert len(event["title"]) == 512
     assert len(event["message"]) == 4096
-    assert event["metadata"] == {}
+    # 超限 metadata 被丢弃，但必须留下降级标记而不是伪装成"没有 metadata"。
+    assert event["metadata"] == {"_metadata_unavailable": "oversized"}
 
 
 def test_legacy_alert_events_are_bounded_when_loaded(monkeypatch, tmp_path):
@@ -297,7 +298,8 @@ def test_legacy_alert_events_are_bounded_when_loaded(monkeypatch, tmp_path):
     assert len(loaded["severity"]) == 32
     assert len(loaded["title"]) == 512
     assert len(loaded["message"]) == 4096
-    assert loaded["metadata"] == {}
+    # 16 KiB blob 序列化后（含 {"blob": ...} 的外壳）必然越过上限，被丢弃并留标记。
+    assert loaded["metadata"] == {"_metadata_unavailable": "oversized"}
     assert "unexpected" not in loaded
 
 
@@ -454,3 +456,67 @@ def test_subscription_limit_is_atomic_and_allows_existing_ticker_updates(monkeyp
     assert exc_info.value.limit == 1
     assert exc_info.value.current == 1
     assert [item["ticker"] for item in service.get_subscriptions("alice@example.invalid")] == ["AAPL"]
+
+
+def test_dropped_alert_event_metadata_is_marked_not_silently_empty(monkeypatch, tmp_path):
+    """metadata 被丢弃时必须留下标记，不能和"本来就没有 metadata"同形。
+
+    alert_scheduler 会把 change_percent / current_price 塞进 metadata，行情
+    缺失时这些值可能是 NaN——json allow_nan=False 直接抛 ValueError，此前
+    被压成 `{}`：事件流里该条告警看着和"没有元数据"完全一样（项目规则 2）。
+    """
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+    assert service.subscribe("alice@example.invalid", "AAPL") is True
+
+    assert service.record_alert_event(
+        "alice@example.invalid",
+        "AAPL",
+        "price_change",
+        metadata={"change_percent": float("nan"), "current_price": 1.0},
+    ) is True
+
+    event = service.list_alert_events("alice@example.invalid")[0]
+    assert event["metadata"] == {"_metadata_unavailable": "unserializable"}
+
+
+def test_oversized_alert_event_metadata_is_marked_not_silently_empty(monkeypatch, tmp_path):
+    """超限 metadata 同样要留标记（体积原因与不可序列化原因可区分）。"""
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+    assert service.subscribe("alice@example.invalid", "AAPL") is True
+
+    assert service.record_alert_event(
+        "alice@example.invalid",
+        "AAPL",
+        "news",
+        metadata={"blob": "x" * (17 * 1024)},
+    ) is True
+
+    event = service.list_alert_events("alice@example.invalid")[0]
+    assert event["metadata"] == {"_metadata_unavailable": "oversized"}
+
+
+def test_absent_alert_event_metadata_stays_empty(monkeypatch, tmp_path):
+    """真的没有 metadata 的事件仍是 `{}`——不能给正常事件乱打降级标记。"""
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+    assert service.subscribe("alice@example.invalid", "AAPL") is True
+
+    assert service.record_alert_event(
+        "alice@example.invalid",
+        "AAPL",
+        "news",
+    ) is True
+
+    event = service.list_alert_events("alice@example.invalid")[0]
+    assert event["metadata"] == {}

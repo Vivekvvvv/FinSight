@@ -239,7 +239,17 @@ class SubscriptionService:
 
     @staticmethod
     def _normalize_event_metadata(value: object) -> Dict:
+        """收敛事件的 metadata 体积/可序列化性，并在丢弃时留下可辨识的标记。
+
+        直接返回 `{}` 会让"元数据没记下来"和"这个事件本来就没有元数据"
+        在告警流里完全同形——非有限浮点（NaN/Infinity，行情缺失的常见产物）
+        或超大 payload 被丢掉后，前端读到的是一份看着正常的空元数据
+        （项目规则 2：不许静默丢用户数据）。
+        """
         metadata = value if isinstance(value, dict) else {}
+        if not metadata:
+            # 没有元数据就是没有，不属于降级。
+            return {}
         try:
             size = len(
                 json.dumps(
@@ -250,8 +260,10 @@ class SubscriptionService:
                 ).encode("utf-8")
             )
         except (TypeError, ValueError):
-            return {}
-        return metadata if size <= _MAX_ALERT_EVENT_METADATA_BYTES else {}
+            return {"_metadata_unavailable": "unserializable"}
+        if size > _MAX_ALERT_EVENT_METADATA_BYTES:
+            return {"_metadata_unavailable": "oversized"}
+        return metadata
 
     def _prune_recent_events(self, events: List[Dict]) -> List[Dict]:
         if not isinstance(events, list):
