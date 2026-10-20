@@ -86,7 +86,8 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
             from backend.services.report_index import get_report_index_store
 
             # 获取持仓数据
-            positions = get_positions(normalized_session)
+            positions_diagnostics: dict[str, Any] = {}
+            positions = get_positions(normalized_session, positions_diagnostics)
             # 持仓存储只有 shares/avg_cost，没有当前市值。直接喂给风险透镜时
             # market_value == cost_basis：亏损规则恒为 0、亏损持仓永远为空，
             # total_value 实际是成本价却对外显示成"总市值"。这里复用组合页
@@ -130,11 +131,17 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
 
             # 计算风险透镜
             risk_lens = calculate_portfolio_risk_lens(positions, reports)
+            invalid_positions = positions_diagnostics.get("invalid_positions") or []
             if isinstance(risk_lens, dict):
                 risk_lens["priced_count"] = priced_count
                 # 没拿到实时报价的持仓会退回成本价估值；不标记的话
                 # total_value 仍会被当成当前市值（项目规则 2）。
-                risk_lens["degraded"] = priced_count < len(positions)
+                risk_lens["degraded"] = priced_count < len(positions) or bool(invalid_positions)
+                if invalid_positions:
+                    # 解析不出的存量行被跳过，集中度/行业暴露在剩余仓位上重新
+                    # 归一——不标注就成了一份"完整组合"的风险结论（项目规则 2）。
+                    risk_lens["invalid_positions"] = invalid_positions
+                    risk_lens["fallback_reason"] = "invalid_stored_positions"
 
             return risk_lens
 

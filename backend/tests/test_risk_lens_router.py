@@ -34,16 +34,20 @@ def _pin_quote(monkeypatch, price: float | None) -> None:
     monkeypatch.setattr(portfolio_router, "_resolve_quote_for_portfolio", _fake_quote)
 
 
-def _pin_positions(monkeypatch) -> None:
+def _pin_positions(monkeypatch, invalid=None) -> None:
     import backend.services.portfolio_store as portfolio_store
 
-    monkeypatch.setattr(
-        portfolio_store,
-        "get_positions",
-        lambda session_id: [
+    def _get_positions(_session_id, diagnostics=None):
+        positions = [
             {"ticker": "AAPL", "shares": 10, "avg_cost": 150.0, "currency": "USD"},
-        ],
-    )
+        ]
+        if invalid:
+            # 真实 get_positions 会逐条跳过坏行并通过出参上报
+            if diagnostics is not None:
+                diagnostics["invalid_positions"] = list(invalid)
+        return positions
+
+    monkeypatch.setattr(portfolio_store, "get_positions", _get_positions)
 
 
 def test_risk_lens_returns_real_lens_for_user_with_positions(monkeypatch):
@@ -129,3 +133,25 @@ def test_risk_lens_marks_cost_basis_fallback_as_degraded(monkeypatch):
     assert body["degraded"] is True
     # 成本价兜底：total_value 等于成本，但已由 degraded 标记。
     assert body["total_value"] == 1500.0
+
+
+def test_risk_lens_flags_dropped_invalid_positions(monkeypatch):
+    """坏持仓行被跳过时，集中度/行业暴露在剩余仓位上重新归一——必须标注。"""
+    import backend.services.report_index as report_index
+
+    _pin_positions(monkeypatch, invalid=["BADROW"])
+    _pin_quote(monkeypatch, 150.0)
+    monkeypatch.setattr(
+        report_index,
+        "get_report_index_store",
+        lambda: type("_S", (), {"list_reports": lambda self, **kw: []})(),
+    )
+
+    with _client(monkeypatch) as client:
+        resp = client.get("/api/portfolio/risk-lens", params={"session_id": _SESSION})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["invalid_positions"] == ["BADROW"]
+    assert body["degraded"] is True
+    assert body["fallback_reason"] == "invalid_stored_positions"
