@@ -518,6 +518,10 @@ class RiskAlertScheduler:
         self.subscription_service = subscription_service
         self.email_service = email_service
         self.price_fetcher = price_fetcher
+        # 与价格异动调度器同口径：报价拿不到 ≠ 阈值没触发。本轮因取数失败
+        # 被跳过的订阅数留在实例上，否则"本轮没有风险告警"同时意味着
+        # "风险都低于阈值"和"报价全挂了"（项目规则 2）。
+        self.last_price_unavailable = 0
 
     @staticmethod
     def _parse_dt(value: Optional[str]) -> Optional[datetime]:
@@ -551,6 +555,9 @@ class RiskAlertScheduler:
         sent: List[Dict] = []
         subscriptions = self.subscription_service.get_subscriptions(allow_all=True)
         checked = 0
+        # 报价拿不到 ≠ 风险低于阈值：后者无需告警，前者是数据源故障却同样以
+        # "本轮无告警"收场。计数让这一轮的返回值之外仍有痕迹可查。
+        price_unavailable = 0
 
         for sub in subscriptions:
             ticker = _subscription_ticker(sub)
@@ -573,8 +580,10 @@ class RiskAlertScheduler:
                 snapshot = self.price_fetcher(sub["ticker"])
             except Exception as exc:
                 logger.warning('Risk price fetch failed')
+                price_unavailable += 1
                 continue
             if snapshot is None:
+                price_unavailable += 1
                 continue
 
             assessment = RiskAgent.evaluate_ticker_risk_lightweight(
@@ -665,6 +674,10 @@ class RiskAlertScheduler:
                 }
             )
 
+        self.last_price_unavailable = price_unavailable
+        if price_unavailable:
+            # 有订阅因拿不到报价被跳过：这一轮"无风险告警"不是干净的"无风险"。
+            logger.warning('Risk alert cycle skipped subscriptions with no quote')
         logger.info("risk run completed")
         return sent
 

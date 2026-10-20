@@ -991,3 +991,58 @@ def test_news_scheduler_disables_invalid_email_like_siblings(subscription_servic
     sub = service.subscriptions["not-an-email"][0]
     assert sub.get("disabled") is True
     assert sub.get("last_alert_error") == "invalid_email"
+
+
+# ── 风险告警：报价取数失败不能被读成"本轮无风险" ─────────────────────────────
+
+
+def test_risk_unavailable_quotes_are_not_reported_as_a_quiet_cycle(subscription_service_tmp):
+    """风险调度器同样把取价失败 continue 掉：run_once 返回空列表，与"所有
+    订阅风险都低于阈值"同形。被跳过的订阅数必须留在实例上（项目规则 2）。"""
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(email="user@example.com", ticker="AAPL", alert_types=["risk"])
+
+    scheduler = alert_scheduler_module.RiskAlertScheduler(service, email, lambda _ticker: None)
+    sent = scheduler.run_once()
+
+    assert sent == []
+    assert scheduler.last_price_unavailable == 1
+    assert email.sent == []
+
+
+def test_risk_available_quote_keeps_the_quiet_cycle_clean(subscription_service_tmp):
+    """报价正常且风险低于阈值：这一轮就该是干净的空转，计数不能虚报。"""
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(email="user@example.com", ticker="AAPL", alert_types=["risk"])
+
+    def fake_price_fetcher(_ticker: str):
+        return PriceSnapshot(ticker=_ticker, price=100.0, change_percent=0.1)
+
+    scheduler = alert_scheduler_module.RiskAlertScheduler(service, email, fake_price_fetcher)
+    sent = scheduler.run_once()
+
+    assert sent == []
+    assert scheduler.last_price_unavailable == 0
+
+
+def test_risk_cycle_warns_when_quotes_were_unavailable(subscription_service_tmp, monkeypatch):
+    """run_risk_alert_cycle 每轮新建 scheduler、返回值被 APScheduler 丢弃：
+    被跳过的订阅数必须在日志里留痕，否则只剩一句"完成"。"""
+    records = _capture_warnings(monkeypatch)
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    service.subscribe(email="user@example.com", ticker="AAPL", alert_types=["risk"])
+
+    monkeypatch.setattr(alert_scheduler_module, "fetch_price_snapshot", lambda _ticker: None)
+    monkeypatch.setattr(
+        "backend.services.subscription_service.get_subscription_service",
+        lambda: service,
+    )
+    monkeypatch.setattr("backend.services.email_service.get_email_service", lambda: email)
+
+    sent = alert_scheduler_module.run_risk_alert_cycle()
+
+    assert sent == []
+    assert any("no quote" in r.getMessage() for r in records)
