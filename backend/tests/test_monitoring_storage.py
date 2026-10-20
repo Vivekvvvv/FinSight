@@ -107,3 +107,43 @@ def test_hourly_aggregation_handles_offset_suffix(tmp_path):
     assert hourly[0]["sample_count"] == 2
     assert abs(hourly[0]["avg_success_rate"] - 93.0) < 1e-6
     assert isinstance(sqlite3.sqlite_version, str)  # sanity: 真连接路径生效
+
+
+def test_db_size_bytes_includes_uncheckpointed_wal(tmp_path):
+    """数据库大小不能只算主库：WAL 里已提交未 checkpoint 的数据同样占盘。
+
+    WAL 模式下主库在 checkpoint 前不增长，只 stat 主库会把"库在涨"读成
+    "库没动"——实测主库 20 KiB、WAL 68 KiB，少报约 77%（项目规则 2：报出来的
+    数字必须是实测事实）。
+    """
+    db = tmp_path / "mon.db"
+    store = MonitoringStorage(db)
+
+    # 保持写连接打开 = 不触发"最后一个连接关闭时 checkpoint"，数据留在 WAL。
+    writer = sqlite3.connect(str(db))
+    writer.execute("PRAGMA journal_mode=WAL")
+    writer.executemany(
+        """
+        INSERT INTO health_records (
+            timestamp, source_name, status, success_rate,
+            avg_response_time_ms, total_requests, success_count,
+            failure_count, consecutive_failures, is_healthy
+        ) VALUES ('2026-01-01T00:00:00+00:00', 'src', 'healthy', 99.0, 30.0, 10, 10, 0, 0, 1)
+        """,
+        [() for _ in range(300)],
+    )
+    writer.commit()
+
+    wal = db.with_name(db.name + "-wal")
+    main_size = db.stat().st_size
+    wal_size = wal.stat().st_size
+    assert wal_size > 0, "测试前提：数据应仍在 WAL 里"
+
+    try:
+        reported = store.get_stats()["db_size_bytes"]
+    finally:
+        writer.close()
+
+    assert reported == main_size + wal_size
+    # buggy: 只算主库时 reported == main_size，WAL 部分被静默漏掉。
+    assert reported > main_size

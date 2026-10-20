@@ -49,6 +49,27 @@ def _connect(db_path: Path | str) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _db_size_bytes(db_path: Path | str) -> int:
+    """数据库实际占盘字节数：主库 + 尚未 checkpoint 的 WAL。
+
+    WAL 模式下已提交数据先落在 `<db>-wal`，checkpoint 前主库文件不增长；
+    只 stat 主库会让 /api/system/health/stats 的"数据库大小"少报一大截
+    （实测主库 20 KiB、WAL 68 KiB），把"库在涨"读成"库没动"（项目规则 2）。
+    `-shm` 是共享内存索引、不含数据，不计入。
+
+    文件不存在（新库或空 WAL）按 0 计；真正的权限/IO 故障照样向上抛，
+    不在这里吞掉。
+    """
+    total = 0
+    for suffix in ("", "-wal"):
+        candidate = Path(f"{db_path}{suffix}")
+        try:
+            total += candidate.stat().st_size
+        except FileNotFoundError:
+            continue
+    return total
+
+
 class MonitoringStorage:
     """监控数据存储层"""
 
@@ -298,7 +319,7 @@ class MonitoringStorage:
                 "oldest_record": row[2],
                 "newest_record": row[3],
                 "db_path": str(self.db_path),
-                "db_size_bytes": self.db_path.stat().st_size if self.db_path.exists() else 0
+                "db_size_bytes": _db_size_bytes(self.db_path)
             }
 
 
