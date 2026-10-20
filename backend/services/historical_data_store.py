@@ -382,6 +382,13 @@ def fetch_and_cache_kline(
             return []
 
     cleaned = _clean(rows)
+    if rows and not cleaned:
+        # 上游确实回了 bar，但 close 全都不可解析/非正被 _clean 丢弃：返回 []
+        # 会让调用方读成"这只票没有历史数据"，其实是取到的数据不可用（项目
+        # 规则 2）。与上游故障同口径用 diagnostics 如实上报。
+        logger.warning('historical rows unusable after cleaning')
+        if diagnostics is not None:
+            diagnostics["fallback_reason"] = "unusable_rows"
     if cleaned:
         if from_baostock:
             # baostock 按请求区间返回，声明 [start_date, end_date] 已拉取；

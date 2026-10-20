@@ -70,6 +70,43 @@ def test_genuinely_empty_history_leaves_no_fallback_reason(isolated_store, monke
     assert diagnostics == {}
 
 
+def test_cleaned_away_rows_are_reported_in_diagnostics(isolated_store, monkeypatch):
+    """上游回了 bar，但 close 全部无效被 _clean 丢弃：不是"没有历史数据"。"""
+    monkeypatch.setattr(
+        isolated_store,
+        "_fetch_baostock",
+        lambda *a, **k: [
+            {"date": "2026-01-05", "open": None, "high": None, "low": None,
+             "close": None, "volume": None},
+        ],
+    )
+    diagnostics: dict = {}
+
+    rows = isolated_store.fetch_and_cache_kline(
+        "600519.SS", "2026-01-01", "2026-12-31", "qfq", diagnostics
+    )
+
+    assert rows == []
+    assert diagnostics["fallback_reason"] == "unusable_rows"
+
+
+def test_fallback_rows_cleaned_away_are_reported_in_diagnostics(isolated_store, monkeypatch):
+    monkeypatch.setattr(
+        "backend.tools.get_stock_historical_data",
+        lambda *a, **k: {
+            "kline_data": [{"time": "2026-01-05", "close": "not-a-number"}],
+        },
+    )
+    diagnostics: dict = {}
+
+    rows = isolated_store.fetch_and_cache_kline(
+        "600519.SS", "2026-01-01", "2026-12-31", "qfq", diagnostics
+    )
+
+    assert rows == []
+    assert diagnostics["fallback_reason"] == "unusable_rows"
+
+
 def _build_client() -> TestClient:
     app = FastAPI()
     app.include_router(
