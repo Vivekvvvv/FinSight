@@ -277,3 +277,46 @@ def test_sector_attribution_duplicate_detail_rows_use_own_sector():
     # buggy: 科技=两条 DUP（第二条被 index() 撞回第一条），金融只剩 OTHER。
     assert contrib["科技"] == pytest.approx(dup)
     assert contrib["金融"] == pytest.approx(dup + other)
+
+
+def test_failed_stock_fetch_does_not_read_as_measured_beta_of_one():
+    """个股行情拉取失败时 beta 退回默认 1.0——不能让它读成"实测 beta=1.0"。
+
+    行情源挂掉或样本不足时，返回体里 beta 照样是 1.0、method 照样可能叫
+    "ols"，整份归因读起来像完整实测结果，而事实是个股那块根本没估
+    （项目规则 2：不许静默降级）。
+    """
+    from backend.services.risk_attribution import calculate_risk_attribution
+
+    market = [0.01 * ((-1) ** i) for i in range(60)]
+
+    def fake_fetch(ticker, period):
+        return market if ticker == "MARKET" else None
+
+    positions = [
+        {"ticker": "AAPL", "market_value": 6000, "sector": "科技"},
+        {"ticker": "NVDA", "market_value": 4000, "sector": "科技"},
+    ]
+    with patch("backend.services.risk_attribution._fetch_returns", side_effect=fake_fetch):
+        result = calculate_risk_attribution(positions)
+
+    assert result["fallback_reason"] == "beta_unavailable"
+    assert result["beta_unavailable_tickers"] == ["AAPL", "NVDA"]
+    assert all(p["beta_estimated"] is False for p in result["positions"])
+
+
+def test_successful_beta_estimation_leaves_no_fallback_marker():
+    """能正常回归时不得打降级标记，否则归因永远读起来"部分不可信"。"""
+    from backend.services.risk_attribution import calculate_risk_attribution
+
+    market = [0.01 * ((-1) ** i) for i in range(60)]
+
+    def fake_fetch(ticker, period):
+        return market
+
+    with patch("backend.services.risk_attribution._fetch_returns", side_effect=fake_fetch):
+        result = calculate_risk_attribution([{"ticker": "AAPL", "market_value": 1000}])
+
+    assert result["fallback_reason"] is None
+    assert result["beta_unavailable_tickers"] == []
+    assert result["positions"][0]["beta_estimated"] is True

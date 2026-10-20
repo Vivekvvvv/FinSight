@@ -126,6 +126,10 @@ def calculate_risk_attribution(
 
     pos_details: list[dict] = []
     sector_map: dict[str, float] = {}
+    # 个股行情拉取失败或样本不足时 beta 会退回默认 1.0——这和"实测 beta 恰好
+    # 等于 1.0"在返回体里完全同形，读起来像是一份完整的 OLS 归因。记下没估
+    # 出来的标的，在返回体上显式标注降级（项目规则 2）。
+    beta_unavailable: list[str] = []
 
     for p in positions:
         ticker = str(p.get("ticker") or "").upper()
@@ -138,12 +142,16 @@ def calculate_risk_attribution(
         # 计算 beta
         beta = 1.0
         idio_vol = 0.0
+        beta_estimated = False
         if market_rets and ticker:
             stock_rets = _fetch_returns(ticker, period)
             if stock_rets and len(stock_rets) >= 30:
                 rm_arr = np.array(market_rets, dtype=float)
                 rs_arr = np.array(stock_rets, dtype=float)
                 beta, idio_vol = _ols_beta(rs_arr, rm_arr)
+                beta_estimated = True
+        if not beta_estimated:
+            beta_unavailable.append(ticker or "?")
 
         market_risk_contrib = weight * abs(beta) * sigma_market * np.sqrt(252)
         idio_risk_contrib = weight * idio_vol * np.sqrt(252)
@@ -152,6 +160,7 @@ def calculate_risk_attribution(
             "ticker": ticker,
             "weight": round(weight, 4),
             "beta": round(beta, 3),
+            "beta_estimated": beta_estimated,
             "market_risk_contrib": round(float(market_risk_contrib), 4),
             "idio_risk_contrib": round(float(idio_risk_contrib), 4),
         })
@@ -192,6 +201,8 @@ def calculate_risk_attribution(
         "sector_attribution": sector_attr,
         "method": method,
         "note": "风险贡献为年化估算，OLS回归基于近1年日收益率" if method == "ols" else "数据不足，使用简化模型",
+        "fallback_reason": "beta_unavailable" if beta_unavailable else None,
+        "beta_unavailable_tickers": beta_unavailable,
     }
 
 
