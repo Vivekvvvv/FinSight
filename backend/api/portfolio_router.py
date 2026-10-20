@@ -372,10 +372,24 @@ async def get_risk_attribution(session_id: str, current_user: Principal = Depend
     if current_user.auth_type != "dev" and session_id != current_user.session_id:
         raise HTTPException(status_code=403, detail="无权访问其他用户的持仓数据")
 
-    positions = get_positions(session_id=resolved)
+    positions_diagnostics: dict[str, Any] = {}
+    positions = get_positions(session_id=resolved, diagnostics=positions_diagnostics)
+    invalid_positions = positions_diagnostics.get("invalid_positions") or []
     if not positions:
+        if invalid_positions:
+            # 库里只有解析不出的行：这不是"没有持仓"，是存量数据坏了
+            # （项目规则 2），不能回 404「暂无持仓数据」。
+            raise HTTPException(status_code=500, detail="Stored portfolio data is unreadable")
         raise HTTPException(status_code=404, detail="暂无持仓数据")
-    return calculate_risk_attribution(positions)
+    result = calculate_risk_attribution(positions)
+    if invalid_positions:
+        # 被跳过的行会让权重在剩余仓位上重新归一，风险归因读起来像完整组合
+        # （项目规则 2）。显式标注，且不覆盖已有的 beta_unavailable 等降级原因。
+        result["invalid_positions"] = invalid_positions
+        result["degraded"] = True
+        if not result.get("fallback_reason"):
+            result["fallback_reason"] = "invalid_stored_positions"
+    return result
 
 
 # ── 组合优化 ─────────────────────────────────────────────────────────────────
