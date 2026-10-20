@@ -48,11 +48,27 @@ def test_genuine_flat_still_counted():
     assert "上涨 0 只，下跌 0 只，横盘 1 只" in brief["summary"]
 
 
-def test_all_partial_quotes_mood_neutral():
-    # 全部缺涨跌 → 无有效数据 → 中性，三个桶都是 0
+def test_all_partial_quotes_mood_unknown():
+    # 全部缺涨跌 → 没测到方向，不能报成"中性"（那是观测结论）
     brief = _brief({
         "AAA": {"price": 100.0},
         "BBB": {"price": 50.0},
     })
-    assert brief["market_mood"] == "neutral"
+    assert brief["market_mood"] == "unknown"
     assert "上涨 0 只，下跌 0 只，横盘 0 只" in brief["summary"]
+    assert "整体情绪：中性" not in brief["summary"]
+    assert "暂不判断整体情绪" in brief["summary"]
+    assert brief["action_items"] == ["行情涨跌数据不足，暂不给出仓位建议"]
+
+
+def test_all_quote_fetches_failed_mood_unknown():
+    """报价全线取数失败同样不能报"中性 / 波动平稳"。"""
+    brief = _brief({
+        "AAA": {"error": "quote source down"},
+        "BBB": {"error": "quote source down"},
+    })
+    assert brief["market_mood"] == "unknown"
+    assert brief["market_mood_cn"] == "数据不足"
+    assert brief["priced_count"] == 0
+    assert "整体情绪：中性" not in brief["summary"]
+    assert brief["action_items"] == ["行情涨跌数据不足，暂不给出仓位建议"]

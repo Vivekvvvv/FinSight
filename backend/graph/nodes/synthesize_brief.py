@@ -112,7 +112,7 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
     # Market mood
     _MOOD_CN: dict[str, str] = {
         "bullish": "看涨", "cautiously_optimistic": "谨慎乐观", "neutral": "中性",
-        "cautiously_pessimistic": "谨慎悲观", "bearish": "看跌",
+        "cautiously_pessimistic": "谨慎悲观", "bearish": "看跌", "unknown": "数据不足",
     }
     priced = [h for h in highlights if h.get("price") is not None]
     live_priced = [h for h in priced if h.get("freshness_status") == "live"]
@@ -133,7 +133,9 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
         else:
             mood = "bearish"
     else:
-        mood = "neutral"
+        # 一个有效涨跌幅都没有时，"中性"是没测到而不是测得平：报价全线取数
+        # 失败 / 全部 partial quote 不能渲染成"整体情绪：中性"（项目规则 2）。
+        mood = "unknown"
 
     # Summary text — 缺涨跌幅的标的不计入涨/跌/横盘任一桶
     up_cnt = sum(1 for c in valid_changes if c > 0)
@@ -150,7 +152,10 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
         )
     if priced:
         summary += f"上涨 {up_cnt} 只，下跌 {down_cnt} 只，横盘 {flat_cnt} 只。"
-    summary += f"整体情绪：{_MOOD_CN.get(mood, '中性')}。"
+    if mood == "unknown":
+        summary += "行情涨跌数据不足，暂不判断整体情绪。"
+    else:
+        summary += f"整体情绪：{_MOOD_CN.get(mood, '中性')}。"
 
     # Action items
     action_items: list[str] = []
@@ -164,7 +169,11 @@ def _synthesize_morning_brief_data(state: GraphState) -> dict[str, Any]:
     if news_hits:
         action_items.append(f"阅读 {', '.join(h['ticker'] for h in news_hits[:3])} 的最新新闻，评估事件影响")
     if not action_items:
-        action_items.append("今日持仓波动平稳，建议维持当前仓位")
+        # 没有任何有效涨跌幅时，"波动平稳"是从缺失数据里编出来的结论。
+        if not valid_changes:
+            action_items.append("行情涨跌数据不足，暂不给出仓位建议")
+        else:
+            action_items.append("今日持仓波动平稳，建议维持当前仓位")
 
     brief_data: dict[str, Any] = {
         "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
