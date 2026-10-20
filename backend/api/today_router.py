@@ -114,8 +114,9 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
             from backend.services.report_index import get_report_index_store
 
             # 并发获取基础数据
+            positions_diagnostics: dict[str, Any] = {}
             positions_raw, watchlist_items = await asyncio.gather(
-                asyncio.to_thread(get_positions, normalized_session),
+                asyncio.to_thread(get_positions, normalized_session, positions_diagnostics),
                 asyncio.to_thread(deps.memory_service.list_watchlist_items, resolved_user_id) if deps.memory_service else asyncio.sleep(0, result=[]),
                 return_exceptions=True,
             )
@@ -206,9 +207,14 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                 summary_parts.append(f"{portfolio_count} 只持仓")
             if risk_count > 0:
                 summary_parts.append(f"{risk_count} 只风险提示")
+            invalid_positions = positions_diagnostics.get("invalid_positions") or []
+            if invalid_positions:
+                # 解析不出的持仓行被逐条跳过：它们不会出现在 portfolio_count /
+                # next_actions 里，不标注会让工作台读成"组合本来就这么大"（项目规则 2）。
+                summary_parts.append(f"{len(invalid_positions)} 行持仓无法解析")
             summary = "今日关注：" + "、".join(summary_parts) if summary_parts else "暂无数据，建议添加自选或持仓"
 
-            return {
+            response = {
                 "success": True,
                 "as_of": _latest_as_of(*watchlist_items, *(portfolio_summary.get("positions") or [])),
                 # 该接口只读本地持仓/自选/报告存储，不调用任何实时行情
@@ -229,10 +235,14 @@ def create_today_router(deps: TodayRouterDeps) -> APIRouter:
                 "watchlist_count": watchlist_count,
                 "alert_feed": alert_events[:5],
                 "alert_feed_unavailable": alert_feed_unavailable,
-                "degraded": alert_feed_unavailable,
+                "degraded": alert_feed_unavailable or bool(invalid_positions),
                 "reports_to_review": reports_to_review,
                 "next_actions": next_actions,
             }
+            if invalid_positions:
+                response["invalid_positions"] = invalid_positions
+                response["fallback_reason"] = "invalid_stored_positions"
+            return response
 
         except HTTPException:
             raise

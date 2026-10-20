@@ -197,3 +197,34 @@ def test_today_workspace_as_of_is_blank_without_local_records(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["as_of"] == ""
+
+
+def test_today_workspace_flags_unreadable_positions(monkeypatch):
+    """解析不出的持仓行被跳过时，工作台不能读成"组合本来就这么大"。"""
+    monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
+
+    def _get_positions(_session_id, diagnostics=None):
+        if diagnostics is not None:
+            diagnostics["invalid_positions"] = ["BADROW"]
+        return []
+
+    monkeypatch.setattr(
+        "backend.services.portfolio_store.get_positions", _get_positions
+    )
+    principal = Principal(
+        user_id="invalid-positions-user",
+        email="invalid-positions-user@example.com",
+        role="user",
+        auth_type="api_key",
+    )
+
+    with _today_client(principal, _RecordingSubscriptions()) as client:
+        response = client.get("/api/today", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["invalid_positions"] == ["BADROW"]
+    assert payload["degraded"] is True
+    assert payload["fallback_reason"] == "invalid_stored_positions"
+    # 摘要不能说"暂无数据，建议添加…"——用户是有持仓的，只是存坏了
+    assert "1 行持仓无法解析" in payload["summary"]
