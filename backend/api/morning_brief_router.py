@@ -68,7 +68,7 @@ def _classify_change(pct: float | None) -> str:
 def _derive_market_mood(highlights: list[dict[str, Any]]) -> str:
     """根据持仓整体涨跌情况推导市场情绪"""
     if not highlights:
-        return "neutral"
+        return "unknown"
 
     up_count = 0
     down_count = 0
@@ -86,8 +86,10 @@ def _derive_market_mood(highlights: list[dict[str, Any]]) -> str:
         elif pct < 0:
             down_count += 1
 
+    # 一个有效涨跌幅都没拿到时，"中性"是没测到，不是测得平——报价全线取数
+    # 失败不能渲染成"整体情绪：中性"（项目规则 2）。
     if valid == 0:
-        return "neutral"
+        return "unknown"
 
     avg = total_change / valid
     if avg >= 1.5:
@@ -109,6 +111,7 @@ def _mood_label_cn(mood: str) -> str:
         "neutral": "中性",
         "cautiously_pessimistic": "谨慎悲观",
         "bearish": "看跌",
+        "unknown": "数据不足",
     }
     return mapping.get(mood, "中性")
 
@@ -143,7 +146,11 @@ def _generate_action_items(highlights: list[dict[str, Any]]) -> list[str]:
         items.append(f"阅读 {tickers_str} 的最新新闻，评估事件影响")
 
     if not items:
-        items.append("今日持仓波动平稳，建议维持当前仓位")
+        # 没有任何有效涨跌幅时，"波动平稳"是从缺失数据里编出来的结论。
+        if not any(safe_float(h.get("price_change_pct")) is not None for h in highlights):
+            items.append("行情涨跌数据不足，暂不给出仓位建议")
+        else:
+            items.append("今日持仓波动平稳，建议维持当前仓位")
 
     return items
 
@@ -384,7 +391,11 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
                 f"上涨 {up_count} 只，下跌 {down_count} 只，"
                 f"横盘 {flat_count} 只。"
             )
-        summary_parts.append(f"整体情绪：{_mood_label_cn(market_mood)}。")
+        if market_mood == "unknown":
+            # 没拿到任何有效涨跌幅时不能写"整体情绪：中性"——那是一个观测结论。
+            summary_parts.append("行情涨跌数据不足，暂不判断整体情绪。")
+        else:
+            summary_parts.append(f"整体情绪：{_mood_label_cn(market_mood)}。")
 
         news_unavailable_tickers = sorted(
             str(h.get("ticker"))
@@ -413,11 +424,24 @@ def create_morning_brief_router(deps: MorningBriefRouterDeps) -> APIRouter:
         if news_unavailable_tickers:
             brief["news_unavailable"] = news_unavailable_tickers
             brief["degraded"] = True
+        price_unavailable_tickers = sorted(
+            str(h.get("ticker"))
+            for h in highlights_list
+            if h.get("price") is None
+        )
+        if price_unavailable_tickers:
+            # 报价取数失败与"这只票没报价字段"必须可区分：前者是故障。
+            brief["price_unavailable"] = price_unavailable_tickers
+            brief["degraded"] = True
 
         # 降级态 brief 不进缓存：一次存储抖动若按 30min TTL 缓存，会把
         # "持仓缺失"假象钉死到过期，期间同 key 请求持续命中降级结果。
-        # 新闻取数故障同理——恢复后不能继续吃"暂无重大事件"的缓存。
-        if not position_fetch_failed and not news_unavailable_tickers:
+        # 新闻/报价取数故障同理——恢复后不能继续吃降级结果。
+        if (
+            not position_fetch_failed
+            and not news_unavailable_tickers
+            and not price_unavailable_tickers
+        ):
             dashboard_cache.set("__morning_brief__", cache_k, brief, ttl=_BRIEF_CACHE_TTL)
 
         return {"success": True, "brief": brief}
