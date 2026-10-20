@@ -238,3 +238,70 @@ def test_rebalance_patch_rejects_oversized_suggestion_id_before_store(monkeypatc
 
     assert response.status_code == 422
     assert calls == []
+
+
+def _fake_store_positions(monkeypatch, positions, invalid):
+    from backend.api import rebalance_router as module
+
+    def _get_positions(_session_id, diagnostics=None):
+        if diagnostics is not None and invalid:
+            diagnostics["invalid_positions"] = list(invalid)
+        return positions
+
+    monkeypatch.setattr(module, "get_positions", _get_positions)
+
+
+def test_rebalance_does_not_read_unreadable_rows_as_no_positions(monkeypatch):
+    """库里只有解析不出的行：不能回 400「请先添加持仓」。"""
+    _fake_store_positions(monkeypatch, [], ["BADROW"])
+    client = _build_client(
+        get_stock_price=lambda _ticker: {},
+        get_company_info=lambda _ticker: {},
+    )
+
+    response = client.post(
+        "/api/rebalance/suggestions/generate",
+        json={"session_id": "public:test_user:invalid-only"},
+    )
+
+    assert response.status_code == 500
+    assert "unreadable" in response.json()["detail"]
+
+
+def test_rebalance_stream_explains_unreadable_rows(monkeypatch):
+    _fake_store_positions(monkeypatch, [], ["BADROW"])
+    client = _build_client(
+        get_stock_price=lambda _ticker: {},
+        get_company_info=lambda _ticker: {},
+    )
+
+    response = client.post(
+        "/api/rebalance/suggestions/generate-stream",
+        json={"session_id": "public:test_user:invalid-only-stream"},
+    )
+
+    assert response.status_code == 200
+    assert "持仓数据无法读取" in response.text
+    assert "请先添加持仓" not in response.text
+
+
+def test_rebalance_marks_partially_dropped_positions(monkeypatch):
+    """坏行被跳过后权重重新归一：建议必须标注它只覆盖了部分组合。"""
+    _fake_store_positions(monkeypatch, [{"ticker": "AAPL", "shares": 10}], ["BADROW"])
+    client = _build_client(
+        get_stock_price=lambda _ticker: {"price": 200.0},
+        get_company_info=lambda _ticker: "- Sector: Technology",
+    )
+
+    response = client.post(
+        "/api/rebalance/suggestions/generate",
+        json={
+            "session_id": "public:test_user:invalid-partial",
+            "constraints": {"sector_concentration_limit": 100},
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["degraded_mode"] is True
+    assert "invalid_stored_positions:BADROW" in (data.get("fallback_reason") or "")

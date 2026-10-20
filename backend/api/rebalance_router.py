@@ -95,10 +95,20 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
 
         # Build portfolio from request or fetch from store
         portfolio = request.portfolio
+        invalid_positions: list[str] = []
         if not portfolio:
-            portfolio = get_positions(request.session_id)
+            positions_diagnostics: dict[str, Any] = {}
+            portfolio = get_positions(request.session_id, positions_diagnostics)
+            invalid_positions = positions_diagnostics.get("invalid_positions") or []
 
         if not portfolio:
+            if invalid_positions:
+                # 库里只有解析不出的行：不是"没有持仓"，是存量数据坏了
+                # （项目规则 2），不能提示用户"先去添加持仓"。
+                raise HTTPException(
+                    status_code=500,
+                    detail="Stored portfolio data is unreadable",
+                )
             raise HTTPException(
                 status_code=400,
                 detail="No portfolio positions found. Add positions first.",
@@ -163,6 +173,12 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
             fallback_reasons.append(f"missing_live_prices:{','.join(missing_price_tickers)}")
         if missing_sector_tickers:
             fallback_reasons.append(f"missing_sector_map:{','.join(missing_sector_tickers)}")
+        if invalid_positions:
+            # 坏行被跳过，权重在剩余仓位上重新归一：建议读起来像针对完整组合
+            # 给出的（项目规则 2），显式标注。
+            fallback_reasons.append(
+                f"invalid_stored_positions:{','.join(invalid_positions)}"
+            )
         diagnostics_only = len(fallback_reasons) > 0
 
         ctx = RebalanceContext(
@@ -293,11 +309,17 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
 
             # Build portfolio
             portfolio = request.portfolio
+            invalid_positions: list[str] = []
             if not portfolio:
-                portfolio = get_positions(request.session_id)
+                positions_diagnostics: dict[str, Any] = {}
+                portfolio = get_positions(request.session_id, positions_diagnostics)
+                invalid_positions = positions_diagnostics.get("invalid_positions") or []
 
             if not portfolio:
-                yield _sse("error", {"message": "未找到持仓数据，请先添加持仓。"})
+                if invalid_positions:
+                    yield _sse("error", {"message": "持仓数据无法读取，请检查后再试。"})
+                else:
+                    yield _sse("error", {"message": "未找到持仓数据，请先添加持仓。"})
                 return
 
             tickers = sorted(
@@ -367,6 +389,10 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                 fallback_reasons.append(f"missing_live_prices:{','.join(missing_prices)}")
             if missing_sectors:
                 fallback_reasons.append(f"missing_sector_map:{','.join(missing_sectors)}")
+            if invalid_positions:
+                fallback_reasons.append(
+                    f"invalid_stored_positions:{','.join(invalid_positions)}"
+                )
 
             ctx = RebalanceContext(
                 session_id=request.session_id,
