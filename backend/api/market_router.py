@@ -518,12 +518,27 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
 
         from backend.tools.tencent_provider import fetch_cn_top_list
 
-        data = fetch_cn_top_list(ticker, include_seats=include_seats)
+        diagnostics: dict = {}
+        data = fetch_cn_top_list(
+            ticker, include_seats=include_seats, diagnostics=diagnostics
+        )
 
         if data is None:
+            reason = diagnostics.get("fallback_reason")
+            if reason == "upstream_error":
+                # 数据源失败/回包不可解析，不是"这只票没上榜"（项目规则 2）
+                raise HTTPException(
+                    status_code=502,
+                    detail="龙虎榜数据源暂时不可用，请稍后再试"
+                )
+            if reason == "stale_record":
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"{ticker} 最近一次龙虎榜记录已超过90天"
+                )
             raise HTTPException(
                 status_code=404,
-                detail=f"{ticker} 未上榜或数据不可用"
+                detail=f"{ticker} 未上榜（近90天内无龙虎榜记录）"
             )
 
         return data

@@ -40,9 +40,23 @@ def _is_recent_eastmoney_date(value: Any, *, max_age_days: int, now: datetime | 
     return parsed.date() >= today - timedelta(days=age_days)
 
 
-def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int = 90) -> dict[str, Any] | None:
+def _mark_top_list_failure(diagnostics: dict[str, Any] | None, reason: str) -> None:
+    if diagnostics is not None:
+        diagnostics["fallback_reason"] = reason
+
+
+def fetch_cn_top_list(
+    symbol: str,
+    include_seats: bool = True,
+    max_age_days: int = 90,
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """
     从东方财富获取A股龙虎榜数据（大额交易、机构席位）。
+
+    返回 None 有两种含义，调用方无法从返回值区分：该股近期没有上榜记录，
+    或者上游取数失败/解析失败。传入 ``diagnostics`` 时，后者会写入
+    ``fallback_reason``，避免"数据源挂了"被渲染成"这只票没上榜"（项目规则 2）。
 
     API:
     - 基础数据: http://data.eastmoney.com/DataCenter_V3/stock2016/TradeDetail/...
@@ -116,6 +130,9 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
                     trade_date = record.get("TRADE_DATE")
                     if not _is_recent_eastmoney_date(trade_date, max_age_days=max_age_days):
                         logger.info("[Eastmoney] top list record is stale")
+                        # 上过榜但记录超龄：不是"上游挂了"，也不等于"从没上榜"，
+                        # 单独标注让路由层能说清是哪一种。
+                        _mark_top_list_failure(diagnostics, "stale_record")
                         return None
                     result = {
                         "symbol": symbol.upper(),
@@ -154,6 +171,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
         resp = _http_get(url, timeout=(5, 10))
         if resp.status_code != 200:
             logger.info("[东方财富] 龙虎榜 HTTP %d", resp.status_code)
+            _mark_top_list_failure(diagnostics, "upstream_error")
             return None
 
         text = resp.text.strip()
@@ -163,12 +181,19 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
         match = re.search(r'var\s+data_tab_1\s*=\s*(\[.*?\]);?', text, re.DOTALL)
         if not match:
             logger.info("[东方财富] 龙虎榜数据解析失败")
+            _mark_top_list_failure(diagnostics, "upstream_error")
             return None
 
         import json
         data_list = json_loads_strict(match.group(1))
 
-        if not isinstance(data_list, list) or not data_list:
+        if not isinstance(data_list, list):
+            # 解析出来不是列表（null/对象）：上游回包异常，不是"没有记录"。
+            logger.info("[东方财富] 龙虎榜数据解析失败")
+            _mark_top_list_failure(diagnostics, "upstream_error")
+            return None
+
+        if not data_list:
             logger.info("[东方财富] 龙虎榜无数据")
             return None
 
@@ -218,6 +243,7 @@ def fetch_cn_top_list(symbol: str, include_seats: bool = True, max_age_days: int
 
     except Exception as exc:
         logger.info("[东方财富] 龙虎榜获取失败: %s", type(exc).__name__)
+        _mark_top_list_failure(diagnostics, "upstream_error")
         return None
 
 
