@@ -5,6 +5,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, PROJECT_ROOT)
 
 from backend.tools import price as price_module
+from backend.tools import price_history_providers as price_history_providers_module
 
 def test_get_kline_data(monkeypatch):
     ticker = "^GSPC"
@@ -24,7 +25,14 @@ def test_get_kline_data(monkeypatch):
         "source": "stooq",
     }
 
-    monkeypatch.setattr(price_module, "_fetch_with_stooq_history", lambda *_args, **_kwargs: fixture)
+    # get_stock_historical_data 定义在 price_history_providers 模块内并直接调用
+    # 本模块的 _fetch_with_stooq_history；patch price.py 里的 re-import 绑定
+    # 打不到真实调用点，会让测试退化成真实网络请求（yfinance 回落）。
+    monkeypatch.setattr(
+        price_history_providers_module,
+        "_fetch_with_stooq_history",
+        lambda *_args, **_kwargs: fixture,
+    )
 
     print(f"Fetching K-line data for {ticker}...")
     result = price_module.get_stock_historical_data(ticker)
