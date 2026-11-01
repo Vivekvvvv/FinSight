@@ -38,7 +38,10 @@ jobs:
           pip install -r requirements.txt
       - name: Run supply-chain audit
         run: |
-          pip-audit -r requirements.txt
+          # PYSEC-2026-4174 / GHSA-x9r9-c232-4q39（transformers trust 前下载自定义
+          # 生成代码）：截至 2026-11 上游未发布修复版本，升级到 5.22.1 后仍会命中，
+          # 显式豁免；transformers 发布含修复的版本后删除这两个 --ignore-vuln。
+          pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-4174 --ignore-vuln GHSA-x9r9-c232-4q39
           cyclonedx-py requirements requirements.txt --output-file sbom.json
       - name: Run backend pytest suite
         run: >-
