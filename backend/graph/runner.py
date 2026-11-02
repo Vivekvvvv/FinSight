@@ -178,8 +178,8 @@ class GraphRunner:
             "query": query,
             "ui_context": ui_context or {},
         }
-        if ui_context and ui_context.get("user_email"):
-            state["user_email"] = ui_context.get("user_email")
+        # Always replace the alert identity so checkpoints cannot retain an old email.
+        state["user_email"] = str((ui_context or {}).get("user_email") or "").strip()
         if output_mode:
             state["output_mode"] = output_mode
         if strict_selection is not None:

@@ -41,6 +41,18 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
     _MAX_CHART_TICKER_CHARS = 64
     _MAX_CHART_SUMMARY_CHARS = 16_384
 
+    def _build_chat_ui_context(request: ChatRequest, principal: Principal) -> dict[str, Any]:
+        ui_context = deps.build_ui_context(request)
+        if principal.auth_type != "dev":
+            require_matching_identity(
+                principal=principal,
+                provided=ui_context.get("user_email"),
+                expected=principal.email or "",
+                field_name="user_email",
+            )
+            ui_context["user_email"] = principal.email or ""
+        return ui_context
+
     @router.post("/chat/supervisor")
     async def chat_supervisor_endpoint(
         request: ChatRequest,
@@ -56,6 +68,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
         resolved_session_id = (
             request.session_id if current_user.auth_type == "dev" else current_user.session_id
         )
+        ui_context = _build_chat_ui_context(request, current_user)
         _t0 = _time.perf_counter()
         try:
             runner = await deps.get_graph_runner()
@@ -63,8 +76,6 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
                 thread_id = deps.resolve_thread_id(resolved_session_id)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail="Invalid session_id") from exc
-
-            ui_context = deps.build_ui_context(request)
 
             output_mode = None
             strict_selection = None
@@ -186,7 +197,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         trace_raw_enabled = deps.resolve_trace_raw_enabled(request)
-        ui_context = deps.build_ui_context(request)
+        ui_context = _build_chat_ui_context(request, current_user)
 
         output_mode = None
         strict_selection = None
