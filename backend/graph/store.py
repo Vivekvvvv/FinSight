@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.services.memory import MemoryService
+from backend.services.memory import MemoryService, _PROFILE_LOCK
 from backend.tools._item import iter_dict_items
 
 logger = logging.getLogger(__name__)
@@ -19,9 +18,8 @@ _SUMMARY_MAX_LEN = 600
 _MEMORY_INIT_FAILED = object()
 
 _memory_service: MemoryService | object | None = None
-# 读 profile → 合并 recent_focuses → 写回 必须整体互斥：并发 run 各自读到
-# 同一份 profile 会互相覆盖，最近关注列表静默丢条目（项目规则 1）。
-_persist_snapshot_lock = threading.RLock()
+# 与关注列表及偏好更新共用画像存储锁，保护跨入口的完整读改写。
+_persist_snapshot_lock = _PROFILE_LOCK
 
 
 def resolve_user_id(thread_id: str | None) -> str:
