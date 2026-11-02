@@ -130,15 +130,12 @@ def create_agent_router(deps: AgentRouterDeps) -> APIRouter:
                 field_name="user_id",
             )
             resolved_user_id = user_id if current_user.auth_type == "dev" and user_id else current_user.user_id
-            profile = deps.memory_service.get_user_profile(resolved_user_id)
-            profile.preferences = profile.preferences if isinstance(profile.preferences, dict) else {}
-
             normalized = _normalize_preferences(request.get("preferences"))
-            profile.preferences["agent_preferences"] = normalized
-
-            success = deps.memory_service.update_user_profile(profile)
+            success = deps.memory_service.set_preference(
+                resolved_user_id, "agent_preferences", normalized,
+            )
             if not success:
-                # update_user_profile 写盘失败时返回 False（内部已记 warning）。
+                # set_preference 写盘失败时返回 False（内部已记 warning）。
                 # 回 200 + success:false 会让前端把"偏好没存下来"当成保存成功，
                 # 下次读回来还是旧值——失败必须如实给状态码（项目规则 2、3）。
                 return JSONResponse(

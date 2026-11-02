@@ -1232,14 +1232,8 @@ def test_agent_preferences_get_internal_error_is_redacted(caplog, capsys):
 def test_agent_preferences_update_internal_error_is_redacted(caplog, capsys):
     secret = "private agent preferences C:/secret/agent-preferences.json"
 
-    class _Profile:
-        preferences = {}
-
     class _MemoryService:
-        def get_user_profile(self, _user_id):
-            return _Profile()
-
-        def update_user_profile(self, _profile):
+        def set_preference(self, _user_id, _key, _value):
             raise RuntimeError(secret)
 
     caplog.set_level(logging.ERROR, logger="backend.api.agent_router")
@@ -1260,20 +1254,17 @@ def test_agent_preferences_update_internal_error_is_redacted(caplog, capsys):
 
 
 def test_agent_preferences_update_persist_failure_is_not_reported_as_success():
-    """写盘失败时 update_user_profile 返回 False——不能回 200 + success:false。
+    """写盘失败时 set_preference 返回 False——不能回 200 + success:false。
 
     偏好没存下来却拿到 2xx，调用方/前端会把设置当成已保存，下次读回来还是
     旧值（项目规则 2：不许静默丢用户数据；规则 3：失败不许压成 200）。
     """
 
-    class _Profile:
-        preferences = {}
+    calls = []
 
     class _MemoryService:
-        def get_user_profile(self, _user_id):
-            return _Profile()
-
-        def update_user_profile(self, _profile):
+        def set_preference(self, user_id, key, value):
+            calls.append((user_id, key, value))
             return False
 
     with _agent_client(_MemoryService()) as client:
@@ -1284,6 +1275,103 @@ def test_agent_preferences_update_persist_failure_is_not_reported_as_success():
 
     assert response.status_code == 500
     assert response.json()["success"] is False
+    assert len(calls) == 1
+    assert calls[0][:2] == ("test-user", "agent_preferences")
+    assert calls[0][2]["maxRounds"] == 4
+
+
+@pytest.mark.parametrize("mutation", ["add", "remove", "research", "preference"])
+def test_agent_preferences_save_preserves_concurrent_profile_updates(
+    tmp_path, monkeypatch, mutation,
+):
+    """偏好 API 的整画像回写不能回滚另一实例已保存的用户数据。"""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import backend.graph.store as graph_store
+    import backend.services.memory as memory_module
+
+    service = memory_module.MemoryService(storage_path=str(tmp_path))
+    other = memory_module.MemoryService(storage_path=str(tmp_path))
+    user_id = "test-user"
+    assert other.add_to_watchlist(user_id, "AAPL", note="原备注")
+    assert other.set_preference(user_id, "theme", "dark")
+
+    profile_read = threading.Event()
+    mutation_reached = threading.Event()
+    mutation_thread = threading.local()
+    profile_lock = memory_module._PROFILE_LOCK
+
+    class _ObservedProfileLock:
+        def __enter__(self):
+            if getattr(mutation_thread, "active", False):
+                if not profile_lock.acquire(blocking=False):
+                    # 共享事务锁会让另一写入方等待；通知 API 继续，避免死锁。
+                    mutation_reached.set()
+                    profile_lock.acquire()
+            else:
+                profile_lock.acquire()
+            return self
+
+        def __exit__(self, *_args):
+            profile_lock.release()
+
+    observed_lock = _ObservedProfileLock()
+    monkeypatch.setattr(memory_module, "_PROFILE_LOCK", observed_lock)
+    monkeypatch.setattr(graph_store, "_persist_snapshot_lock", observed_lock)
+    original_read = service.get_user_profile
+
+    def read_for_preferences(requested_user_id):
+        profile = original_read(requested_user_id)
+        profile_read.set()
+        # 旧接口下等待并发写入完成；加锁后在确认写入方等待锁时继续。
+        assert mutation_reached.wait(timeout=5), "并发更新未进入测试窗口"
+        return profile
+
+    monkeypatch.setattr(service, "get_user_profile", read_for_preferences)
+
+    def mutate_profile():
+        assert profile_read.wait(timeout=5), "偏好 API 未读取画像"
+        mutation_thread.active = True
+        try:
+            if mutation == "add":
+                return other.add_to_watchlist(user_id, "NVDA", note="新关注")
+            if mutation == "remove":
+                return other.remove_from_watchlist(user_id, "AAPL")
+            if mutation == "research":
+                return graph_store.persist_memory_snapshot(
+                    thread_id="private:test-user:research",
+                    state={"query": "分析 NVDA", "subject": {"tickers": ["NVDA"]}},
+                    memory_service=other,
+                )
+            return other.set_preference(user_id, "theme", "light")
+        finally:
+            mutation_reached.set()
+
+    with _agent_client(service) as client, ThreadPoolExecutor(max_workers=2) as pool:
+        save = pool.submit(client.put, "/api/agents/preferences", json={
+            "preferences": {"maxRounds": 4, "agents": {"news_agent": "deep"}},
+        })
+        update = pool.submit(mutate_profile)
+        response = save.result(timeout=10)
+        assert response.status_code == 200
+        assert update.result(timeout=10) is True
+
+    profile = other.get_user_profile(user_id)
+    assert profile.preferences["agent_preferences"]["maxRounds"] == 4
+    assert profile.preferences["agent_preferences"]["agents"]["news_agent"] == "deep"
+    assert profile.preferences["theme"] == ("light" if mutation == "preference" else "dark")
+    if mutation == "remove":
+        assert profile.watchlist == []
+        assert "AAPL" not in profile.watchlist_meta
+    else:
+        assert profile.watchlist == (["AAPL", "NVDA"] if mutation == "add" else ["AAPL"])
+        assert profile.watchlist_meta["AAPL"]["note"] == "原备注"
+        if mutation == "add":
+            assert profile.watchlist_meta["NVDA"]["note"] == "新关注"
+    if mutation == "research":
+        assert profile.preferences["last_focus"]["ticker"] == "NVDA"
+        assert [item["ticker"] for item in profile.preferences["recent_focuses"]] == ["NVDA"]
 
 
 @pytest.mark.parametrize("method", ["get", "put"])
