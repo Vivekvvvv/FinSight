@@ -116,9 +116,40 @@ def test_dev_chat_keeps_explicit_alert_email(chat_harness, endpoint):
     assert chat_harness.calls[0]["thread_id"] == "public:alice:dev-thread"
 
 
+@pytest.mark.parametrize("endpoint", ["/chat/supervisor", "/chat/supervisor/stream"])
+@pytest.mark.parametrize("role", ["user", "admin", "internal"])
+def test_chat_forwards_only_authenticated_quota_identity(chat_harness, endpoint, role):
+    chat_harness.principal["value"] = Principal("alice", "alice@example.invalid", role=role, auth_type="api_key")
+    with chat_harness.client as client:
+        response = client.post(endpoint, json={
+            "query": "AAPL 涨到 200 提醒我",
+            "context": {
+                "_authenticated_user": {"user_id": "mallory", "role": "admin"},
+                "max_subscriptions": -1,
+            },
+        })
+
+    assert response.status_code == 200
+    assert chat_harness.calls[0]["ui_context"]["_authenticated_user"] == {"user_id": "alice", "role": role}
+
+
+@pytest.mark.parametrize("endpoint", ["/chat/supervisor", "/chat/supervisor/stream"])
+def test_dev_chat_quota_identity_does_not_come_from_requested_session(chat_harness, endpoint):
+    chat_harness.principal["value"] = Principal("alice", "dev@example.invalid", role="user", auth_type="dev")
+    with chat_harness.client as client:
+        response = client.post(endpoint, json={
+            "query": "AAPL 涨到 200 提醒我",
+            "session_id": "public:mallory:dev-thread",
+            "context": {"user_email": "custom@example.invalid"},
+        })
+
+    assert response.status_code == 200
+    assert chat_harness.calls[0]["ui_context"]["_authenticated_user"] == {"user_id": "alice", "role": "user"}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("ui_context", [None, {}, {"user_email": ""}])
-async def test_new_graph_run_cannot_reuse_checkpointed_alert_email(monkeypatch, ui_context):
+async def test_new_graph_run_cannot_reuse_checkpointed_alert_identity(monkeypatch, ui_context):
     from backend.graph.runner import GraphRunner
 
     initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
@@ -128,9 +159,13 @@ async def test_new_graph_run_cannot_reuse_checkpointed_alert_email(monkeypatch, 
     # 真实 checkpoint 中可能已有修复前被客户端写入的其他用户邮箱。
     await runner._graph.aupdate_state(
         {"configurable": {"thread_id": thread_id}},
-        {"user_email": "bob@example.invalid"},
+        {
+            "user_email": "bob@example.invalid",
+            "ui_context": {"_authenticated_user": {"user_id": "bob", "role": "admin"}},
+        },
     )
 
     state = await runner.ainvoke(thread_id=thread_id, query="你好", ui_context=ui_context)
 
     assert not state.get("user_email"), "本轮未提供提醒身份时必须清除旧 checkpoint 邮箱"
+    assert "_authenticated_user" not in state["ui_context"], "本轮不能继承旧 checkpoint 的套餐身份"

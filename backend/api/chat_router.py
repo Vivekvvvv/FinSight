@@ -52,6 +52,7 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
                 field_name="user_email",
             )
             ui_context["user_email"] = principal.email or ""
+        ui_context["_authenticated_user"] = {"user_id": principal.user_id, "role": principal.role}
         return ui_context
 
     @router.post("/chat/supervisor")

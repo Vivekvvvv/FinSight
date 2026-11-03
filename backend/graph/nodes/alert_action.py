@@ -6,8 +6,9 @@ from typing import Any
 
 from backend.graph.state import GraphState
 from backend.services.alert_scheduler import fetch_price_snapshot
-from backend.services.subscription_service import get_subscription_service
-from backend.utils.quote import safe_float
+from backend.services.entitlements import DEFAULT_PLAN, PLAN_LIMITS, get_entitlements_service
+from backend.services.subscription_service import SubscriptionLimitExceeded, get_subscription_service
+from backend.utils.quote import safe_float, safe_int
 
 
 def _resolve_user_email(state: GraphState) -> str | None:
@@ -17,6 +18,21 @@ def _resolve_user_email(state: GraphState) -> str | None:
     ui_context = state.get("ui_context") or {}
     fallback = str((ui_context.get("user_email") if isinstance(ui_context, dict) else "") or "").strip()
     return fallback or None
+
+
+def _resolve_max_alerts(state: GraphState) -> int:
+    """只按入口提供的认证身份查询配额，缺少身份时按免费套餐处理。"""
+    ui_context = state.get("ui_context") or {}
+    identity = ui_context.get("_authenticated_user") if isinstance(ui_context, dict) else None
+    if not isinstance(identity, dict):
+        identity = {}
+    user_id = str(identity.get("user_id") or "").strip()
+    if not user_id:
+        return PLAN_LIMITS[DEFAULT_PLAN]["max_alerts"]
+    entitlements = get_entitlements_service().get_entitlements(
+        user_id, role=str(identity.get("role") or "user"),
+    )
+    return safe_int((entitlements.get("limits") or {}).get("max_alerts"), 0) or 0
 
 
 def _resolve_ticker(state: GraphState, alert_params: dict[str, Any]) -> str | None:
@@ -110,17 +126,31 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
     merged_alert_types = _merge_alert_types((existing or {}).get("alert_types") if isinstance(existing, dict) else None)
     risk_threshold = (existing or {}).get("risk_threshold", "high") if isinstance(existing, dict) else "high"
 
-    ok = await asyncio.to_thread(
-        svc.subscribe,
-        email=user_email,
-        ticker=ticker,
-        alert_types=merged_alert_types,
-        price_threshold=price_threshold,
-        alert_mode=mode,
-        price_target=price_target,
-        direction=direction,
-        risk_threshold=risk_threshold,
-    )
+    max_alerts = await asyncio.to_thread(_resolve_max_alerts, state)
+    try:
+        ok = await asyncio.to_thread(
+            svc.subscribe,
+            email=user_email,
+            ticker=ticker,
+            alert_types=merged_alert_types,
+            price_threshold=price_threshold,
+            alert_mode=mode,
+            price_target=price_target,
+            direction=direction,
+            risk_threshold=risk_threshold,
+            max_subscriptions=max_alerts,
+        )
+    except SubscriptionLimitExceeded as exc:
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "artifacts": {
+                "draft_markdown": (
+                    f"提醒数量已达到当前套餐上限（{exc.current}/{exc.limit}）。\n"
+                    "请删除不需要的提醒或升级套餐后再创建；已有提醒仍可更新。"
+                )
+            },
+        }
 
     if not ok:
         return {

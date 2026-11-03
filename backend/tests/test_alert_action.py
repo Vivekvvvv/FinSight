@@ -1,4 +1,7 @@
 ﻿# -*- coding: utf-8 -*-
+import asyncio
+import threading
+
 import pytest
 
 import importlib
@@ -99,3 +102,149 @@ async def test_alert_action_infers_direction_for_target_mode(monkeypatch):
     assert result["alert_valid"] is True
     payload = svc.last_subscribe_kwargs or {}
     assert payload.get("direction") == "above"
+
+
+@pytest.fixture
+def alert_storage(tmp_path, monkeypatch):
+    from backend.services import entitlements, subscription_service
+
+    monkeypatch.setattr(entitlements, "PLANS_FILE", tmp_path / "plans.json")
+    plans = entitlements.EntitlementsService()
+    monkeypatch.setattr(entitlements, "_service_instance", plans)
+    monkeypatch.setattr(subscription_service, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    svc = subscription_service.SubscriptionService()
+    monkeypatch.setattr(alert_action_module, "get_subscription_service", lambda: svc)
+    return plans, svc
+
+
+def _alert_state(ticker="TSLA", *, user_id="alice", role="user"):
+    return {
+        "user_email": "alice@example.invalid",
+        "thread_id": "private:unrelated_user:default",
+        "ui_context": {"_authenticated_user": {"user_id": user_id, "role": role}},
+        "alert_params": {"ticker": ticker, "alert_mode": "price_change_pct", "price_threshold": 4.0},
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plan,limit", [("free", 3), ("pro", 50), ("team", 200)])
+async def test_chat_alert_cannot_exceed_plan_limit(alert_storage, plan, limit):
+    plans, svc = alert_storage
+    plans.set_plan("alice", plan)
+    for index in range(limit):
+        assert svc.subscribe("alice@example.invalid", f"T{index}")
+    before = svc.subscriptions_file.read_bytes()
+
+    result = await alert_action_module.alert_action(_alert_state())
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    markdown = result["artifacts"]["draft_markdown"]
+    assert "上限" in markdown
+    assert str(limit) in markdown
+    assert "已为" not in markdown
+    assert len(svc.get_subscriptions("alice@example.invalid")) == limit
+    assert svc.subscriptions_file.read_bytes() == before
+
+
+@pytest.mark.asyncio
+async def test_chat_alert_can_update_existing_ticker_at_limit(alert_storage):
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    for ticker in ("AAPL", "MSFT", "NVDA"):
+        assert svc.subscribe("alice@example.invalid", ticker, alert_types=["news"])
+
+    result = await alert_action_module.alert_action(_alert_state("AAPL"))
+
+    assert result["alert_valid"] is True
+    subscriptions = svc.get_subscriptions("alice@example.invalid")
+    assert len(subscriptions) == 3
+    updated = next(sub for sub in subscriptions if sub["ticker"] == "AAPL")
+    assert updated["price_threshold"] == 4.0
+    assert sorted(updated["alert_types"]) == ["news", "price_change"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plan,role", [("pro", "user"), ("team", "user"), ("free", "admin"), ("free", "internal")])
+async def test_chat_alert_respects_paid_and_privileged_identity(alert_storage, plan, role):
+    plans, svc = alert_storage
+    plans.set_plan("alice", plan)
+    for ticker in ("AAPL", "MSFT", "NVDA"):
+        assert svc.subscribe("alice@example.invalid", ticker)
+
+    result = await alert_action_module.alert_action(_alert_state(role=role))
+
+    assert result["alert_valid"] is True
+    assert len(svc.get_subscriptions("alice@example.invalid")) == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ui_context", [None, {}, {"user_id": "unrelated_user", "role": "admin", "max_subscriptions": -1}, {"_authenticated_user": {"role": "admin"}}])
+async def test_chat_alert_without_authenticated_identity_uses_free_limit(alert_storage, ui_context):
+    plans, svc = alert_storage
+    plans.set_plan("unrelated_user", "admin")
+    for ticker in ("AAPL", "MSFT", "NVDA"):
+        assert svc.subscribe("alice@example.invalid", ticker)
+    state = _alert_state()
+    state["ui_context"] = ui_context
+
+    result = await alert_action_module.alert_action(state)
+
+    assert result["alert_valid"] is False
+    assert len(svc.get_subscriptions("alice@example.invalid")) == 3
+
+
+@pytest.mark.asyncio
+async def test_concurrent_chat_alerts_cannot_claim_the_same_remaining_slot(alert_storage, monkeypatch):
+    from backend.services.subscription_service import SubscriptionService
+
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    for ticker in ("AAPL", "MSFT"):
+        assert svc.subscribe("alice@example.invalid", ticker)
+    other_svc = SubscriptionService()
+    services = iter((svc, other_svc))
+    monkeypatch.setattr(alert_action_module, "get_subscription_service", lambda: next(services))
+
+    both_read = threading.Barrier(2)
+    original_get_subscriptions = SubscriptionService.get_subscriptions
+
+    def read_before_either_subscribes(service, email=None):
+        subscriptions = original_get_subscriptions(service, email)
+        both_read.wait(timeout=10)
+        return subscriptions
+
+    with monkeypatch.context() as concurrent_reads:
+        concurrent_reads.setattr(SubscriptionService, "get_subscriptions", read_before_either_subscribes)
+        results = await asyncio.gather(
+            alert_action_module.alert_action(_alert_state("NVDA")),
+            alert_action_module.alert_action(_alert_state("TSLA")),
+        )
+
+    assert sorted(result["alert_valid"] for result in results) == [False, True]
+    assert len(svc.get_subscriptions("alice@example.invalid")) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plan,expected", [("free", False), ("pro", True)])
+async def test_graph_alert_uses_authenticated_plan_after_context_normalization(alert_storage, monkeypatch, plan, expected):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    plans, svc = alert_storage
+    plans.set_plan("alice", plan)
+    for ticker in ("AAPL", "MSFT", "NVDA"):
+        assert svc.subscribe("alice@example.invalid", ticker)
+    identity = {"user_id": "alice", "role": "user"}
+
+    state = await GraphRunner.create().ainvoke(
+        thread_id="private:unrelated_user:default",
+        query="TSLA 涨跌超过 4% 提醒我",
+        ui_context={"user_email": "alice@example.invalid", "_authenticated_user": identity},
+        confirmation_mode="skip",
+    )
+
+    assert state["ui_context"]["_authenticated_user"] == identity
+    assert state["alert_valid"] is expected
+    assert len(svc.get_subscriptions("alice@example.invalid")) == 3 + int(expected)
