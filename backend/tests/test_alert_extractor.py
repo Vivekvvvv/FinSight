@@ -112,6 +112,9 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "AAPL 涨跌超过 3% 或涨跌超过 5% 时提醒我",
     "Notify me if AAPL moves over 3% or falls 5%",
     "Notify me when AAPL goes above 220 or moves over 3% or falls 5%",
+    "AAPL 涨到 220 或跌到 220 时提醒我",
+    "Notify me when AAPL goes above 220 or below 220",
+    "Notify me when AAPL goes over 1,000 or under 1000.0",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -128,6 +131,8 @@ def test_conflicting_thresholds_require_clarification(query):
     ("Notify me when AAPL goes above 1,000 or above 1000.0", "price_target", "price_target", 1000.0),
     ("AAPL 涨到 220 或涨到 220.0 时提醒我", "price_target", "price_target", 220.0),
     ("Notify me if AAPL moves over 3% or rises 3.0 percent", "price_change_pct", "price_threshold", 3.0),
+    ("Notify me when AAPL hits 220 or goes above 220", "price_target", "price_target", 220.0),
+    ("Notify me when AAPL goes below 220 or hits 220", "price_target", "price_target", 220.0),
 ])
 def test_repeated_equivalent_thresholds_are_not_conflicting(query, mode, field, expected):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

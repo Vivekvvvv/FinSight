@@ -126,8 +126,9 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
         for match in _PRICE_TARGET_RE.finditer(query)
     }
     pct_thresholds = {float(match.group("pct")) for match in _PCT_THRESHOLD_RE.finditer(query)}
-    if len(price_targets) > 1 or len(pct_thresholds) > 1:
-        draft = "检测到多个不同的提醒阈值，未创建或修改提醒。请一次只提供一个目标价格或涨跌幅条件。"
+    price_directions = {_extract_direction(match.group(0)) for match in _PRICE_TARGET_RE.finditer(query)}
+    if len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions:
+        draft = "检测到多个不同的提醒条件，未创建或修改提醒。请一次只提供一个目标价格及方向，或一个涨跌幅条件。"
         return {
             "alert_valid": False,
             "skip_session_context": True,

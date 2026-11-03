@@ -439,6 +439,7 @@ async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_st
 @pytest.mark.parametrize("query", [
     "TSLA 涨到 220 或跌到 180 时提醒我",
     "Notify me if TSLA moves over 3% or falls 5%",
+    "TSLA 涨到 220 或跌到 220 时提醒我",
 ])
 async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
     from backend.graph.runner import GraphRunner
