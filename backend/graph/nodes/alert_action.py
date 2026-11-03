@@ -93,11 +93,11 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
 
     if mode == "price_target":
         price_target = safe_float(price_target)
-        if price_target is None:
+        if price_target is None or price_target <= 0:
             return {
                 "alert_valid": False,
                 "skip_session_context": True,
-                "artifacts": {"draft_markdown": "到价提醒缺少目标价格，请补充后重试。"},
+                "artifacts": {"draft_markdown": "到价提醒的目标价格必须是大于 0 的有效数字，请修正后重试。"},
             }
         if direction not in {"above", "below"}:
             # 多源外网抓取，须卸载线程池，协程体内直接调会阻塞事件循环
@@ -107,6 +107,14 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
                 direction = "above" if price_target >= current_price else "below"
             else:
                 direction = "above"
+    else:
+        price_threshold = safe_float(price_threshold)
+        if price_threshold is None or price_threshold <= 0:
+            return {
+                "alert_valid": False,
+                "skip_session_context": True,
+                "artifacts": {"draft_markdown": "涨跌幅提醒的阈值必须是大于 0 的有效数字，请修正后重试。"},
+            }
 
     svc = get_subscription_service()
     max_alerts = await asyncio.to_thread(_resolve_max_alerts, state)

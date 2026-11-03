@@ -118,6 +118,50 @@ def _alert_state(ticker="TSLA", *, user_id="alice", role="user"):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode,field", [
+    ("price_target", "price_target"), ("price_change_pct", "price_threshold"),
+])
+@pytest.mark.parametrize("value", [None, 0, -1, "0", "bad", True, float("inf"), float("nan")])
+async def test_invalid_chat_alert_threshold_preserves_subscription(alert_storage, monkeypatch, mode, field, value):
+    _, svc = alert_storage
+    email = "alice@example.invalid"
+    assert svc.subscribe(email, "AAPL", alert_types=["news", "risk"], risk_threshold="critical")
+    before = svc.subscriptions_file.read_bytes()
+
+    def unexpected_quote(_ticker):
+        raise AssertionError("invalid thresholds must be rejected before fetching quotes")
+
+    monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", unexpected_quote)
+    state = _alert_state("AAPL")
+    state["alert_params"] = {"ticker": "AAPL", "alert_mode": mode, field: value}
+
+    result = await alert_action_module.alert_action(state)
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert "已为" not in result["artifacts"]["draft_markdown"]
+    assert svc.subscriptions_file.read_bytes() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,field", [
+    ("price_target", "price_target"), ("price_change_pct", "price_threshold"),
+])
+@pytest.mark.parametrize("value", [0.01, "0.5"])
+async def test_chat_alert_accepts_positive_thresholds(alert_storage, mode, field, value):
+    _, svc = alert_storage
+    state = _alert_state()
+    state["alert_params"] = {"ticker": "TSLA", "alert_mode": mode, field: value, "direction": "above"}
+
+    result = await alert_action_module.alert_action(state)
+
+    assert result["alert_valid"] is True
+    saved = svc.get_subscriptions("alice@example.invalid")[0]
+    assert saved["alert_mode"] == mode
+    assert saved[field] == float(value)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("plan,limit", [("free", 3), ("pro", 50), ("team", 200)])
 async def test_chat_alert_cannot_exceed_plan_limit(alert_storage, plan, limit):
     plans, svc = alert_storage
@@ -301,3 +345,36 @@ async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage,
     assert saved["price_threshold"] == 12.5
     assert saved["price_target"] is None
     assert "12.5%" in state["artifacts"]["draft_markdown"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["TSLA 涨到 0 美元提醒我", "TSLA 涨跌超过 0% 提醒我"])
+async def test_graph_zero_threshold_does_not_consume_remaining_quota(alert_storage, monkeypatch, query):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    for ticker in ("AAPL", "MSFT"):
+        assert svc.subscribe("alice@example.invalid", ticker, price_threshold=4.0)
+    before = svc.subscriptions_file.read_bytes()
+    runner = GraphRunner.create()
+    ui_context = {
+        "user_email": "alice@example.invalid",
+        "_authenticated_user": {"user_id": "alice", "role": "user"},
+    }
+
+    invalid = await runner.ainvoke(
+        thread_id="private:alice:default", query=query,
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+
+    assert invalid["alert_valid"] is False
+    assert svc.subscriptions_file.read_bytes() == before
+    valid = await runner.ainvoke(
+        thread_id="private:alice:default", query="NVDA 涨跌超过 4% 提醒我",
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+    assert valid["alert_valid"] is True
+    assert {sub["ticker"] for sub in svc.get_subscriptions("alice@example.invalid")} == {"AAPL", "MSFT", "NVDA"}
