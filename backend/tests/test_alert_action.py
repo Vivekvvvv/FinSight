@@ -52,18 +52,9 @@ async def test_alert_action_requires_email(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_alert_action_merges_alert_types_and_subscribes(monkeypatch):
-    svc = StubSubscriptionService()
-    svc._subscriptions.append(
-        {
-            "email": "user@example.com",
-            "ticker": "AAPL",
-            "alert_types": ["news"],
-            "risk_threshold": "high",
-        }
-    )
-    monkeypatch.setattr(alert_action_module, "get_subscription_service", lambda: svc)
-    monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", lambda _ticker: PriceSnapshot(ticker=_ticker, price=100.0, change_percent=0.0))
+async def test_alert_action_merges_alert_types_and_subscribes(alert_storage):
+    _, svc = alert_storage
+    assert svc.subscribe("user@example.com", "AAPL", alert_types=["news"], risk_threshold="high")
 
     result = await alert_action_module.alert_action(
         {
@@ -74,10 +65,10 @@ async def test_alert_action_merges_alert_types_and_subscribes(monkeypatch):
     )
 
     assert result["alert_valid"] is True
-    payload = svc.last_subscribe_kwargs or {}
-    assert payload.get("email") == "user@example.com"
-    assert payload.get("ticker") == "AAPL"
-    assert sorted(payload.get("alert_types") or []) == ["news", "price_change"]
+    saved = svc.get_subscriptions("user@example.com")[0]
+    assert saved["ticker"] == "AAPL"
+    assert saved["price_threshold"] == 4.0
+    assert sorted(saved["alert_types"]) == ["news", "price_change"]
 
 
 @pytest.mark.asyncio
@@ -165,6 +156,43 @@ async def test_chat_alert_can_update_existing_ticker_at_limit(alert_storage):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target"])
+async def test_chat_alert_preserves_subscription_update_before_write(alert_storage, monkeypatch, mode):
+    from backend.services.subscription_service import SubscriptionService
+
+    _, svc = alert_storage
+    email = "alice@example.invalid"
+    assert svc.subscribe(email, "AAPL", alert_types=["news"], risk_threshold="medium")
+    other_svc = SubscriptionService()
+    original_subscribe = svc.subscribe
+
+    def subscribe_after_other_update(**kwargs):
+        # 模拟另一实例在价格提醒写入前更新风险提醒。
+        assert other_svc.subscribe(
+            email, "AAPL", alert_types=["news", "risk"], risk_threshold="critical",
+        )
+        return original_subscribe(**kwargs)
+
+    monkeypatch.setattr(svc, "subscribe", subscribe_after_other_update)
+    state = _alert_state("AAPL")
+    if mode == "price_target":
+        state["alert_params"] = {
+            "ticker": "AAPL", "alert_mode": mode, "price_target": 120.0, "direction": "above",
+        }
+
+    result = await alert_action_module.alert_action(state)
+
+    assert result["alert_valid"] is True
+    saved = other_svc.get_subscriptions(email)[0]
+    assert sorted(saved["alert_types"]) == ["news", "price_change", "risk"]
+    assert saved["risk_threshold"] == "critical"
+    assert saved["alert_mode"] == mode
+    price_field = "price_target" if mode == "price_target" else "price_threshold"
+    assert saved[price_field] == state["alert_params"][price_field]
+    assert "risk" in result["artifacts"]["draft_markdown"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("plan,role", [("pro", "user"), ("team", "user"), ("free", "admin"), ("free", "internal")])
 async def test_chat_alert_respects_paid_and_privileged_identity(alert_storage, plan, role):
     plans, svc = alert_storage
@@ -206,16 +234,15 @@ async def test_concurrent_chat_alerts_cannot_claim_the_same_remaining_slot(alert
     services = iter((svc, other_svc))
     monkeypatch.setattr(alert_action_module, "get_subscription_service", lambda: next(services))
 
-    both_read = threading.Barrier(2)
-    original_get_subscriptions = SubscriptionService.get_subscriptions
+    both_writing = threading.Barrier(2)
+    original_subscribe = SubscriptionService.subscribe
 
-    def read_before_either_subscribes(service, email=None):
-        subscriptions = original_get_subscriptions(service, email)
-        both_read.wait(timeout=10)
-        return subscriptions
+    def subscribe_after_both_attempt(service, **kwargs):
+        both_writing.wait(timeout=10)
+        return original_subscribe(service, **kwargs)
 
-    with monkeypatch.context() as concurrent_reads:
-        concurrent_reads.setattr(SubscriptionService, "get_subscriptions", read_before_either_subscribes)
+    with monkeypatch.context() as concurrent_writes:
+        concurrent_writes.setattr(SubscriptionService, "subscribe", subscribe_after_both_attempt)
         results = await asyncio.gather(
             alert_action_module.alert_action(_alert_state("NVDA")),
             alert_action_module.alert_action(_alert_state("TSLA")),

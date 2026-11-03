@@ -458,6 +458,30 @@ def test_subscription_limit_is_atomic_and_allows_existing_ticker_updates(monkeyp
     assert [item["ticker"] for item in service.get_subscriptions("alice@example.invalid")] == ["AAPL"]
 
 
+@pytest.mark.parametrize("preserve_existing_alerts", [False, True])
+def test_subscription_update_can_preserve_latest_alert_settings(monkeypatch, tmp_path, preserve_existing_alerts):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    writer = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert writer.subscribe(email, "AAPL", alert_types=["news"], risk_threshold="medium")
+    stale = subs.SubscriptionService()
+    assert writer.subscribe(email, "AAPL", alert_types=["news", "risk"], risk_threshold="critical")
+
+    options = {"preserve_existing_alerts": True} if preserve_existing_alerts else {}
+    assert stale.subscribe(
+        email, "AAPL", alert_types=["price_change"], risk_threshold="low", max_subscriptions=1,
+        **options,
+    )
+
+    saved = writer.get_subscriptions(email)[0]
+    expected_types = ["news", "price_change", "risk"] if preserve_existing_alerts else ["price_change"]
+    assert sorted(saved["alert_types"]) == expected_types
+    assert saved["risk_threshold"] == ("critical" if preserve_existing_alerts else "low")
+    assert len(writer.get_subscriptions(email)) == 1
+
+
 def test_dropped_alert_event_metadata_is_marked_not_silently_empty(monkeypatch, tmp_path):
     """metadata 被丢弃时必须留下标记，不能和"本来就没有 metadata"同形。
 

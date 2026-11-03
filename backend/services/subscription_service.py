@@ -301,6 +301,7 @@ class SubscriptionService:
         direction: Optional[str] = None,
         risk_threshold: Optional[str] = "high",
         max_subscriptions: Optional[int] = None,
+        preserve_existing_alerts: bool = False,
     ) -> bool:
         """
         订阅股票提醒
@@ -310,6 +311,7 @@ class SubscriptionService:
             ticker: 股票代码
             alert_types: 提醒类型列表（price_change, news, report）
             price_threshold: 价格变动阈值（百分比）
+            preserve_existing_alerts: 在写入锁内保留已有提醒类型和风险阈值
             
         Returns:
             是否订阅成功
@@ -340,6 +342,9 @@ class SubscriptionService:
                 if self._normalize_ticker(sub.get('ticker')) == normalized_ticker:
                     # 顺带自愈存量小写键
                     sub['ticker'] = normalized_ticker
+                    if preserve_existing_alerts:
+                        alert_types = list(dict.fromkeys([*(sub.get('alert_types') or []), *alert_types]))
+                        normalized_risk_threshold = self._normalize_risk_threshold(sub.get('risk_threshold'))
                     # 更新现有订阅
                     sub['alert_types'] = alert_types
                     sub['price_threshold'] = price_threshold

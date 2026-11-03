@@ -48,13 +48,6 @@ def _resolve_ticker(state: GraphState, alert_params: dict[str, Any]) -> str | No
     return None
 
 
-def _merge_alert_types(existing: list[str] | None) -> list[str]:
-    merged = list(existing or [])
-    if "price_change" not in merged:
-        merged.append("price_change")
-    return merged
-
-
 def _build_success_markdown(*, ticker: str, mode: str, direction: str | None, price_target: float | None, price_threshold: float | None, alert_types: list[str]) -> str:
     if mode == "price_target":
         arrow = "上涨到" if direction == "above" else "下跌到"
@@ -116,29 +109,19 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
                 direction = "above"
 
     svc = get_subscription_service()
-    existing_subs = await asyncio.to_thread(svc.get_subscriptions, user_email)
-    existing = None
-    for item in existing_subs:
-        if str(item.get("ticker") or "").strip().upper() == ticker:
-            existing = item
-            break
-
-    merged_alert_types = _merge_alert_types((existing or {}).get("alert_types") if isinstance(existing, dict) else None)
-    risk_threshold = (existing or {}).get("risk_threshold", "high") if isinstance(existing, dict) else "high"
-
     max_alerts = await asyncio.to_thread(_resolve_max_alerts, state)
     try:
         ok = await asyncio.to_thread(
             svc.subscribe,
             email=user_email,
             ticker=ticker,
-            alert_types=merged_alert_types,
+            alert_types=["price_change"],
             price_threshold=price_threshold,
             alert_mode=mode,
             price_target=price_target,
             direction=direction,
-            risk_threshold=risk_threshold,
             max_subscriptions=max_alerts,
+            preserve_existing_alerts=True,
         )
     except SubscriptionLimitExceeded as exc:
         return {
@@ -159,6 +142,12 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
             "artifacts": {"draft_markdown": "提醒创建失败，请稍后重试。"},
         }
 
+    subscriptions = await asyncio.to_thread(svc.get_subscriptions, user_email)
+    saved = next(
+        (item for item in subscriptions if str(item.get("ticker") or "").strip().upper() == ticker),
+        {},
+    )
+    merged_alert_types = saved.get("alert_types") or ["price_change"]
     markdown = _build_success_markdown(
         ticker=ticker,
         mode=mode,
