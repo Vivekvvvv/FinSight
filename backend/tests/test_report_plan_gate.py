@@ -29,9 +29,23 @@ def report_harness(tmp_path, monkeypatch):
     principal = {"value": Principal("alice", "alice@example.invalid", auth_type="api_key")}
     calls = []
     reference = {"query": None}
+    checkpoint = {"values": {}}
+    state_reads = []
+    resume_calls = []
+
+    class CheckpointRunner:
+        async def aget_state(self, *, thread_id):
+            state_reads.append(thread_id)
+            return dict(checkpoint["values"])
+
+        async def resume(self, **kwargs):
+            resume_calls.append(kwargs)
+            yield {"event": "on_chain_end", "data": {"output": {"artifacts": {"draft_markdown": "完成"}}}}
+
+    runner = CheckpointRunner()
 
     async def get_runner():
-        return object()
+        return runner
 
     async def run_graph(_runner, **kwargs):
         calls.append(kwargs)
@@ -45,6 +59,7 @@ def report_harness(tmp_path, monkeypatch):
     monkeypatch.setattr(importlib.import_module("backend.graph.report_builder"), "build_report_payload", lambda **_kwargs: None)
     monkeypatch.setattr(execution_service, "run_graph_pipeline", pipeline)
     monkeypatch.setattr(execution_router, "run_graph_pipeline", pipeline)
+    monkeypatch.setattr(execution_router, "resume_graph_pipeline", pipeline)
     shared_deps = {
         "get_graph_runner": get_runner,
         "resolve_thread_id": _resolve_thread_id,
@@ -67,7 +82,10 @@ def report_harness(tmp_path, monkeypatch):
     )))
     app.include_router(create_execution_router(ExecutionRouterDeps(**shared_deps)))
     app.dependency_overrides[get_current_user] = lambda: principal["value"]
-    return SimpleNamespace(client=TestClient(app), plans=plans, principal=principal, calls=calls, reference=reference)
+    return SimpleNamespace(
+        client=TestClient(app), plans=plans, principal=principal, calls=calls, reference=reference,
+        runner=runner, checkpoint=checkpoint, state_reads=state_reads, resume_calls=resume_calls,
+    )
 
 
 def _request(endpoint, query, output_mode=None):
@@ -174,3 +192,142 @@ def test_free_user_cannot_request_deep_research_through_execution_depth(report_h
     assert response.status_code == 403
     assert response.json()["detail"]["feature"] == "deep_research"
     assert report_harness.calls == []
+
+
+@pytest.mark.parametrize("checkpoint", [
+    {"output_mode": "investment_report"},
+    {"query": "生成 AAPL 投资报告"},
+    {"output_mode": "brief", "ui_context": {"analysis_depth": "deep_research"}},
+])
+def test_free_user_cannot_resume_report_or_deep_research_checkpoint(report_harness, checkpoint):
+    report_harness.checkpoint["values"] = checkpoint
+    with report_harness.client as client:
+        response = client.post("/api/execute/resume", json={
+            "thread_id": "private:alice:default", "resume_value": "Confirm execute",
+        })
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "plan_feature_required"
+    assert report_harness.calls == []
+    assert report_harness.state_reads == ["private:alice:default"]
+
+
+def test_resume_uses_current_plan_instead_of_checkpointed_privilege(report_harness):
+    report_harness.plans.set_plan("alice", "pro")
+    report_harness.checkpoint["values"] = {
+        "output_mode": "investment_report",
+        "ui_context": {"_authenticated_user": {"user_id": "alice", "role": "admin"}},
+    }
+    report_harness.plans.set_plan("alice", "free")
+    with report_harness.client as client:
+        response = client.post("/api/execute/resume", json={
+            "thread_id": "private:alice:default",
+            "resume_value": {"action": "confirm", "output_mode": "brief"},
+        })
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["plan"] == "free"
+    assert report_harness.calls == []
+
+
+def test_downgraded_user_cannot_advance_real_paused_report_checkpoint(report_harness, monkeypatch):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    runner = GraphRunner.create()
+    thread_id = "private:alice:default"
+    report_harness.plans.set_plan("alice", "pro")
+    initial = asyncio.run(runner.ainvoke(
+        thread_id=thread_id, query="Generate AAPL investment report",
+        ui_context={"active_symbol": "AAPL"}, output_mode="investment_report",
+        confirmation_mode="required",
+    ))
+    assert initial.get("__interrupt__")
+    config = {"configurable": {"thread_id": thread_id}}
+    before = asyncio.run(runner._graph.aget_state(config)).config
+    monkeypatch.setattr(report_harness.runner, "aget_state", runner.aget_state)
+    report_harness.plans.set_plan("alice", "free")
+
+    with report_harness.client as client:
+        response = client.post("/api/execute/resume", json={
+            "thread_id": thread_id, "resume_value": "Confirm execute",
+        })
+
+    assert response.status_code == 403
+    assert report_harness.calls == []
+    assert asyncio.run(runner._graph.aget_state(config)).config == before
+
+
+@pytest.mark.parametrize("plan,role", [
+    ("pro", "user"), ("team", "user"), ("free", "admin"), ("free", "internal"),
+])
+def test_paid_or_privileged_user_can_resume_report_checkpoint(report_harness, plan, role):
+    report_harness.plans.set_plan("alice", plan)
+    report_harness.principal["value"] = Principal("alice", "alice@example.invalid", role=role, auth_type="api_key")
+    report_harness.checkpoint["values"] = {"output_mode": "investment_report"}
+    with report_harness.client as client:
+        response = client.post("/api/execute/resume", json={
+            "thread_id": "private:alice:default", "resume_value": "Confirm execute",
+        })
+
+    assert response.status_code == 200
+    assert report_harness.calls[0]["thread_id"] == "private:alice:default"
+    assert report_harness.calls[0]["resume_value"] == "Confirm execute"
+
+
+@pytest.mark.parametrize("output_mode", ["brief", "chat"])
+def test_free_user_can_resume_non_report_checkpoint(report_harness, output_mode):
+    report_harness.checkpoint["values"] = {"output_mode": output_mode}
+    with report_harness.client as client:
+        response = client.post("/api/execute/resume", json={
+            "thread_id": "private:alice:default", "resume_value": "Confirm execute",
+        })
+
+    assert response.status_code == 200
+    assert len(report_harness.calls) == 1
+
+
+def test_unreadable_resume_checkpoint_does_not_skip_authorization(report_harness, monkeypatch):
+    async def fail_read(**_kwargs):
+        raise RuntimeError("checkpoint unavailable")
+
+    monkeypatch.setattr(report_harness.runner, "aget_state", fail_read)
+    with TestClient(report_harness.client.app, raise_server_exceptions=False) as client:
+        response = client.post("/api/execute/resume", json={
+            "thread_id": "private:alice:default", "resume_value": "Confirm execute",
+        })
+
+    assert response.status_code == 500
+    assert report_harness.calls == []
+
+
+@pytest.mark.parametrize("change", ["checkpoint", "plan"])
+def test_resume_rechecks_authorization_under_execution_lock_before_advancing(report_harness, monkeypatch, change):
+    from backend.api import execution_router
+    from backend.services import execution_service
+    from backend.services.execution_helpers import _get_thread_run_lock
+
+    if change == "plan":
+        report_harness.plans.set_plan("alice", "pro")
+
+    async def changed_checkpoint(*, thread_id):
+        assert _get_thread_run_lock(thread_id).locked(), "读取与恢复必须受同一会话锁保护"
+        report_harness.state_reads.append(thread_id)
+        if change == "plan":
+            if len(report_harness.state_reads) == 2:
+                report_harness.plans.set_plan("alice", "free")
+            return {"output_mode": "investment_report"}
+        return {"output_mode": "brief" if len(report_harness.state_reads) == 1 else "investment_report"}
+
+    monkeypatch.setattr(report_harness.runner, "aget_state", changed_checkpoint)
+    monkeypatch.setattr(execution_router, "resume_graph_pipeline", execution_service.resume_graph_pipeline)
+    with report_harness.client as client:
+        response = client.post("/api/execute/resume", json={
+            "thread_id": "private:alice:default", "resume_value": "Confirm execute",
+        })
+
+    assert response.status_code == 200
+    assert '"type": "error"' in response.text
+    assert report_harness.state_reads == ["private:alice:default", "private:alice:default"]
+    assert report_harness.resume_calls == [], "预检查后的 checkpoint 变化不能绕过权限"

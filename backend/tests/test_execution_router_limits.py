@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -14,8 +16,11 @@ def _client(monkeypatch, captured: dict) -> TestClient:
         captured.update(kwargs)
         yield {"type": "done"}
 
+    async def _aget_state(**_kwargs):
+        return {"output_mode": "brief"}
+
     async def _get_graph_runner():
-        return object()
+        return SimpleNamespace(aget_state=_aget_state)
 
     monkeypatch.setattr(
         execution_router, "resume_graph_pipeline", _resume_graph_pipeline,

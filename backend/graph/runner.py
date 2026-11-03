@@ -198,6 +198,11 @@ class GraphRunner:
         config = {"configurable": {"thread_id": thread_id}}
         return await self._graph.ainvoke(state, config=config)
 
+    async def aget_state(self, *, thread_id: str) -> dict[str, Any]:
+        """Read checkpoint values without advancing the graph."""
+        snapshot = await self._graph.aget_state({"configurable": {"thread_id": thread_id}})
+        return dict(snapshot.values or {})
+
     async def resume(
         self,
         *,

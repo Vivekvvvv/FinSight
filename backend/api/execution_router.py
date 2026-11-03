@@ -23,6 +23,7 @@ from backend.graph.confirmation_policy import parse_confirmation_mode
 from backend.graph.nodes.decide_output_mode import decide_output_mode
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.entitlements import enforce_feature
+from backend.services.execution_helpers import _get_thread_run_lock
 from backend.services.execution_service import ExecutionDeps, run_graph_pipeline, resume_graph_pipeline
 
 logger = logging.getLogger("execution_router")
@@ -281,6 +282,20 @@ def create_execution_router(deps: ExecutionRouterDeps) -> APIRouter:
             except ValueError:
                 pass
 
+        async def _authorize_resume(runner: Any) -> None:
+            checkpoint = await runner.aget_state(thread_id=thread_id)
+            ui_context = checkpoint.get("ui_context") or {}
+            analysis_depth = (
+                str(ui_context.get("analysis_depth") or "").strip().lower()
+                if isinstance(ui_context, dict) else ""
+            )
+            if decide_output_mode(checkpoint)["output_mode"] == "investment_report" or analysis_depth == "deep_research":
+                enforce_feature(current_user, "deep_research")
+
+        runner = await deps.get_graph_runner()
+        async with _get_thread_run_lock(thread_id):
+            await _authorize_resume(runner)
+
         exec_deps = ExecutionDeps(
             get_graph_runner=deps.get_graph_runner,
             schedule_report_index=deps.schedule_report_index,
@@ -290,6 +305,7 @@ def create_execution_router(deps: ExecutionRouterDeps) -> APIRouter:
             is_raw_trace_event=deps.is_raw_trace_event,
             contract_info=deps.contract_info,
             sse_event_schema_version=deps.sse_event_schema_version,
+            authorize_resume=_authorize_resume,
         )
 
         pipeline = resume_graph_pipeline(

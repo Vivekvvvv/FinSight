@@ -44,6 +44,7 @@ class ExecutionDeps:
     is_raw_trace_event: Callable[[dict[str, Any]], bool]
     contract_info: Callable[[], dict[str, str]]
     sse_event_schema_version: str
+    authorize_resume: Callable[[Any], Awaitable[None]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +553,8 @@ async def resume_graph_pipeline(
 
             async def _drain_resume() -> None:
                 nonlocal final_state
+                if deps.authorize_resume is not None:
+                    await deps.authorize_resume(runner)
                 async for event in runner.resume(
                     thread_id=thread_id,
                     resume_value=resume_value,
