@@ -396,8 +396,14 @@ async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage,
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("query", ["TSLA 涨到 0 美元提醒我", "TSLA 涨跌超过 0% 提醒我"])
-async def test_graph_zero_threshold_does_not_consume_remaining_quota(alert_storage, monkeypatch, query):
+@pytest.mark.parametrize("query", [
+    "TSLA 涨到 0 美元提醒我",
+    "TSLA 涨跌超过 0% 提醒我",
+    "TSLA 涨到 1,00 美元时提醒我",
+    "TSLA 涨到 1,0000 美元时提醒我",
+    "TSLA 涨到 1，000 美元时提醒我",
+])
+async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_storage, monkeypatch, query):
     from backend.graph.runner import GraphRunner
 
     initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
@@ -426,6 +432,39 @@ async def test_graph_zero_threshold_does_not_consume_remaining_quota(alert_stora
     )
     assert valid["alert_valid"] is True
     assert {sub["ticker"] for sub in svc.get_subscriptions("alice@example.invalid")} == {"AAPL", "MSFT", "NVDA"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query,expected_price", [
+    ("TSLA 涨到 1,000 美元时提醒我", 1000.0),
+    ("Notify me when TSLA goes below 12,500.75 USD", 12500.75),
+])
+async def test_graph_grouped_target_price_uses_full_amount(alert_storage, monkeypatch, query, expected_price):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("AAPL", "MSFT"):
+        assert svc.subscribe(email, ticker)
+
+    state = await GraphRunner.create().ainvoke(
+        thread_id="private:alice:default", query=query,
+        ui_context={
+            "active_symbol": "TSLA", "user_email": email,
+            "_authenticated_user": {"user_id": "alice", "role": "user"},
+        },
+        confirmation_mode="skip",
+    )
+
+    assert state["alert_valid"] is True
+    subscriptions = svc.get_subscriptions(email)
+    assert len(subscriptions) == 3
+    saved = next(sub for sub in subscriptions if sub["ticker"] == "TSLA")
+    assert saved["alert_mode"] == "price_target"
+    assert saved["price_target"] == expected_price
 
 
 @pytest.mark.asyncio

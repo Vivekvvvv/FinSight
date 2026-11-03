@@ -86,6 +86,36 @@ def test_absolute_prices_keep_target_mode(query):
     assert result["alert_params"]["price_target"] == 125.5
 
 
+@pytest.mark.parametrize("query,expected_price", [
+    ("AAPL 涨到 1,000 美元时提醒我", 1000.0),
+    ("AAPL 跌到 12,500.75 元时提醒我", 12500.75),
+    ("Notify me when AAPL goes above 1,234,567.89 USD", 1234567.89),
+    ("Notify me when AAPL reaches 1,000.50. Thanks.", 1000.5),
+])
+def test_grouped_target_prices_are_not_truncated(query, expected_price):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == "price_target"
+    assert result["alert_params"]["price_target"] == expected_price
+
+
+@pytest.mark.parametrize("query", [
+    "AAPL 涨到 1,00 元时提醒我",
+    "Notify me when AAPL goes above 12,34,567 USD",
+    "AAPL 涨到 1234,567 美元时提醒我",
+    "Notify me when AAPL goes above 1,0000 USD",
+    "AAPL 涨到 1，000 美元时提醒我",
+    "Notify me when AAPL hits 1,000%",
+])
+def test_invalid_or_percentage_grouped_price_requests_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["alert_params"]["price_target"] is None
+    assert result["clarify"]["needed"] is True
+
+
 @pytest.mark.parametrize("query", [
     "Alert me when AAPL hits 12.5%",
     "AAPL 涨到 12.5% 提醒我",

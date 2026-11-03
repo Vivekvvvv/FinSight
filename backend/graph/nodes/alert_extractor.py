@@ -17,9 +17,9 @@ _PRICE_TARGET_RE = re.compile(
     r"(?:rises?|climbs?|goes?)\s+(?:above|over|to)\s*|"
     r"(?:above|below|over|under|at)\s*"
     r")\s*"
-    r"(?P<price>\d+(?:\.\d+)?)"
-    # Reject percentage units without backtracking to a shorter numeric prefix.
-    r"(?!\d|\.\d|\s*(?:%|percent|个点|pct))"
+    r"(?P<price>(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
+    # Reject incomplete numbers and percentages without matching a shorter prefix.
+    r"(?!\d|[.,，]\d|\s*(?:%|percent|个点|pct))"
     r"\s*(?:元|块|美元|dollars?|usd|\$)?",
     re.IGNORECASE,
 )
@@ -123,7 +123,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
 
     if price_target_match:
         alert_params["alert_mode"] = "price_target"
-        alert_params["price_target"] = float(price_target_match.group("price"))
+        alert_params["price_target"] = float(price_target_match.group("price").replace(",", ""))
         alert_params["direction"] = _extract_direction(query)
     elif pct_match:
         alert_params["alert_mode"] = "price_change_pct"
