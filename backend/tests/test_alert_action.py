@@ -275,3 +275,29 @@ async def test_graph_alert_uses_authenticated_plan_after_context_normalization(a
     assert state["ui_context"]["_authenticated_user"] == identity
     assert state["alert_valid"] is expected
     assert len(svc.get_subscriptions("alice@example.invalid")) == 3 + int(expected)
+
+
+@pytest.mark.asyncio
+async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage, monkeypatch):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    _, svc = alert_storage
+
+    state = await GraphRunner.create().ainvoke(
+        thread_id="private:alice:default",
+        query="Notify me if AAPL moves over 12.5%",
+        ui_context={
+            "active_symbol": "AAPL", "user_email": "alice@example.invalid",
+            "_authenticated_user": {"user_id": "alice", "role": "user"},
+        },
+        confirmation_mode="skip",
+    )
+
+    assert state["alert_valid"] is True
+    saved = svc.get_subscriptions("alice@example.invalid")[0]
+    assert saved["alert_mode"] == "price_change_pct"
+    assert saved["price_threshold"] == 12.5
+    assert saved["price_target"] is None
+    assert "12.5%" in state["artifacts"]["draft_markdown"]

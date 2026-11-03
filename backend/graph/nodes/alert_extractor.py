@@ -17,7 +17,10 @@ _PRICE_TARGET_RE = re.compile(
     r"(?:rises?|climbs?|goes?)\s+(?:above|over|to)\s*|"
     r"(?:above|below|over|under|at)\s*"
     r")\s*"
-    r"(?P<price>\d+(?:\.\d+)?)\s*(?:元|块|美元|dollars?|usd|\$)?",
+    r"(?P<price>\d+(?:\.\d+)?)"
+    # Reject percentage units without backtracking to a shorter numeric prefix.
+    r"(?!\d|\.\d|\s*(?:%|percent|个点|pct))"
+    r"\s*(?:元|块|美元|dollars?|usd|\$)?",
     re.IGNORECASE,
 )
 
