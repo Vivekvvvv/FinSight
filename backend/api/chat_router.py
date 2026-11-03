@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from backend.api.schemas import ChatRequest, ChartDataResponse
 from backend.graph.confirmation_policy import parse_confirmation_mode
+from backend.graph.nodes.decide_output_mode import decide_output_mode
 from backend.report.quality_engine import apply_quality_to_report, record_quality_metrics
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.entitlements import enforce_feature
@@ -88,18 +89,19 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
                 strict_selection = request.options.strict_selection
                 confirmation_mode = parse_confirmation_mode(request.options.confirmation_mode)
 
+            resolved_query = deps.resolve_query_reference(request.query, thread_id)
+            output_mode = decide_output_mode({"query": resolved_query, "output_mode": output_mode})["output_mode"]
+
             # Chat entry point defaults to skip — Chat UI has no InterruptCard.
             # Exception: investment_report mode always requires confirmation (auto).
             if str(output_mode or "").strip().lower() == "investment_report":
-                enforce_feature(getattr(http_request.state, "principal", None), "deep_research")
+                enforce_feature(current_user, "deep_research")
 
             if confirmation_mode is None:
                 if str(output_mode or "").strip().lower() == "investment_report":
                     confirmation_mode = "auto"
                 else:
                     confirmation_mode = "skip"
-
-            resolved_query = deps.resolve_query_reference(request.query, thread_id)
 
             from backend.graph.runner import run_graph_traced
             timeout_seconds = _execution_timeout_seconds(output_mode)
@@ -222,10 +224,12 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             strict_selection = request.options.strict_selection
             confirmation_mode = parse_confirmation_mode(request.options.confirmation_mode)
 
+        resolved_query = deps.resolve_query_reference(request.query, thread_id)
+        output_mode = decide_output_mode({"query": resolved_query, "output_mode": output_mode})["output_mode"]
+
         # Plan gate (stream variant)
         if str(output_mode or "").strip().lower() == "investment_report":
-            principal = getattr(http_request.state, "principal", None)
-            enforce_feature(principal, "deep_research")
+            enforce_feature(current_user, "deep_research")
 
         # Chat entry point defaults to skip — Chat UI has no InterruptCard.
         # Exception: investment_report mode always requires confirmation (auto).
@@ -234,8 +238,6 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
                 confirmation_mode = "auto"
             else:
                 confirmation_mode = "skip"
-
-        resolved_query = deps.resolve_query_reference(request.query, thread_id)
 
         exec_deps = ExecutionDeps(
             get_graph_runner=deps.get_graph_runner,

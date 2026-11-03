@@ -20,7 +20,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from backend.graph.confirmation_policy import parse_confirmation_mode
+from backend.graph.nodes.decide_output_mode import decide_output_mode
 from backend.security.auth import Principal, get_current_user, require_matching_identity
+from backend.services.entitlements import enforce_feature
 from backend.services.execution_service import ExecutionDeps, run_graph_pipeline, resume_graph_pipeline
 
 logger = logging.getLogger("execution_router")
@@ -169,6 +171,10 @@ def create_execution_router(deps: ExecutionRouterDeps) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
+        output_mode = decide_output_mode({"query": request.query, "output_mode": request.output_mode})["output_mode"]
+        if output_mode == "investment_report" or request.analysis_depth == "deep_research":
+            enforce_feature(current_user, "deep_research")
+
         # Build ui_context from execution-specific fields
         ui_context: dict[str, Any] = {}
         if request.tickers:
@@ -185,7 +191,7 @@ def create_execution_router(deps: ExecutionRouterDeps) -> APIRouter:
             ui_context["agent_preferences"] = request.agent_preferences
         if request.ensure_all_agents is not None:
             ui_context["ensure_all_agents"] = bool(request.ensure_all_agents)
-        if (request.output_mode or "").strip().lower() == "investment_report":
+        if output_mode == "investment_report":
             ui_context.setdefault("ensure_all_agents", True)
 
         exec_deps = ExecutionDeps(
@@ -205,7 +211,7 @@ def create_execution_router(deps: ExecutionRouterDeps) -> APIRouter:
             thread_id=thread_id,
             run_id=request.run_id,
             ui_context=ui_context,
-            output_mode=request.output_mode,
+            output_mode=output_mode,
             confirmation_mode=parse_confirmation_mode(request.confirmation_mode),
             source=request.source or "execute",
             trace_raw_enabled=True if request.trace_raw is None else bool(request.trace_raw),
