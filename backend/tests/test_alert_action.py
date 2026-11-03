@@ -468,6 +468,44 @@ async def test_graph_grouped_target_price_uses_full_amount(alert_storage, monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("query,target,expected_direction", [
+    ("Notify me when AAPL goes above 220 so I can understand the move", 220.0, "above"),
+    ("Notify me when AAPL hits 80; give me an overview", 80.0, "below"),
+])
+async def test_graph_english_prose_keeps_correct_direction_at_quota(alert_storage, monkeypatch, query, target, expected_direction):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        alert_action_module, "fetch_price_snapshot",
+        lambda ticker: PriceSnapshot(ticker=ticker, price=100.0, change_percent=0.0),
+    )
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    assert svc.subscribe(email, "AAPL", alert_mode="price_target", price_target=80.0, direction="below")
+    for ticker in ("MSFT", "NVDA"):
+        assert svc.subscribe(email, ticker)
+
+    state = await GraphRunner.create().ainvoke(
+        thread_id="private:alice:default", query=query,
+        ui_context={
+            "active_symbol": "AAPL", "user_email": email,
+            "_authenticated_user": {"user_id": "alice", "role": "user"},
+        },
+        confirmation_mode="skip",
+    )
+
+    assert state["alert_valid"] is True
+    subscriptions = svc.get_subscriptions(email)
+    assert len(subscriptions) == 3
+    saved = next(sub for sub in subscriptions if sub["ticker"] == "AAPL")
+    assert saved["price_target"] == target
+    assert saved["direction"] == expected_direction
+
+
+@pytest.mark.asyncio
 async def test_graph_missing_quote_requires_explicit_direction_before_subscribing(alert_storage, monkeypatch):
     from backend.graph.runner import GraphRunner
 

@@ -56,6 +56,39 @@ def test_alert_extractor_pct_mode():
     assert params["price_threshold"] == 3.0
 
 
+@pytest.mark.parametrize("query,expected_direction", [
+    ("Notify me when AAPL goes above 220 so I can understand the move", "above"),
+    ("Notify me when AAPL hits 80; give me an overview", None),
+    ("Notify me when AAPL hits 220; include the underlying rationale", None),
+    ("Notify me when AAPL goes over 1,000; I understand the risks", "above"),
+])
+def test_english_prose_does_not_supply_alert_direction(query, expected_direction):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == "price_target"
+    assert result["alert_params"]["direction"] == expected_direction
+
+
+@pytest.mark.parametrize("word,price,expected_direction", [
+    ("below", 80, "below"),
+    ("under", 80, "below"),
+    ("above", 220, "above"),
+    ("over", 220, "above"),
+    ("BELOW", 80, "below"),
+    ("OVER", 220, "above"),
+])
+def test_english_direction_accepts_adjacent_price(word, price, expected_direction):
+    result = alert_extractor({
+        "query": f"Notify me when AAPL goes {word}{price}",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == price
+    assert result["alert_params"]["direction"] == expected_direction
+
+
 @pytest.mark.parametrize("threshold,unit", [
     (5.0, "%"), (12.5, "%"), (12.5, " percent"),
     (25.0, "pct"), (12.5, " 个点"), (12.5, " PERCENT"),

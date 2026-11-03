@@ -74,12 +74,12 @@ def _pick_ticker(state: GraphState) -> str | None:
 
 def _extract_direction(query: str) -> str | None:
     lowered = str(query or "").lower()
-    below_tokens = ("跌到", "跌破", "低于", "小于", "below", "under", "<=")
-    above_tokens = ("涨到", "突破", "高于", "大于", "above", "over", ">=")
+    below_tokens = ("跌到", "跌破", "低于", "小于", "<=")
+    above_tokens = ("涨到", "突破", "高于", "大于", ">=")
 
-    if any(token in lowered for token in below_tokens):
+    if any(token in lowered for token in below_tokens) or re.search(r"(?<![a-z_])(?:below|under)(?![a-z_])", lowered):
         return "below"
-    if any(token in lowered for token in above_tokens):
+    if any(token in lowered for token in above_tokens) or re.search(r"(?<![a-z_])(?:above|over)(?![a-z_])", lowered):
         return "above"
     return None
 
