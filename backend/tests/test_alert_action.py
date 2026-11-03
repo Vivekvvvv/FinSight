@@ -491,3 +491,57 @@ async def test_graph_declined_alert_cannot_modify_subscriptions(alert_storage, m
     assert "alert_extractor" in spans
     assert "alert_action" not in spans
     assert "未创建" in state["artifacts"]["draft_markdown"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_disabled", [False, True])
+@pytest.mark.parametrize("query", [
+    "取消 AAPL 涨到 220 的提醒",
+    "取消 AAPL 涨到 125.5 的提醒",
+    "Cancel AAPL alerts when it goes above 220",
+    "关闭 AAPL 涨跌超过 3% 的预警",
+])
+async def test_graph_cancellation_cannot_modify_subscriptions(alert_storage, monkeypatch, query, existing_disabled):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("MSFT", "NVDA"):
+        assert svc.subscribe(email, ticker)
+    if existing_disabled:
+        assert svc.subscribe(
+            email, "AAPL", alert_types=["news", "price_change"],
+            alert_mode="price_target", price_target=220.0, direction="above",
+        )
+        assert svc.toggle_subscription(email, "AAPL", enabled=False)
+    before = svc.subscriptions_file.read_bytes()
+    runner = GraphRunner.create()
+    ui_context = {
+        "active_symbol": "AAPL", "user_email": email,
+        "_authenticated_user": {"user_id": "alice", "role": "user"},
+    }
+
+    state = await runner.ainvoke(
+        thread_id="private:alice:default", query=query,
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+
+    assert svc.subscriptions_file.read_bytes() == before
+    assert state["alert_valid"] is False
+    if existing_disabled:
+        saved = next(sub for sub in svc.get_subscriptions(email) if sub["ticker"] == "AAPL")
+        assert saved["disabled"] is True
+    spans = [span.get("node") for span in state["trace"]["spans"]]
+    assert "alert_action" not in spans
+    assert "提醒设置" in state["artifacts"]["draft_markdown"]
+
+    if not existing_disabled:
+        created = await runner.ainvoke(
+            thread_id="private:alice:default", query="AAPL 涨到 220 时提醒我",
+            ui_context=ui_context, confirmation_mode="skip",
+        )
+        assert created["alert_valid"] is True
+        assert len(svc.get_subscriptions(email)) == 3

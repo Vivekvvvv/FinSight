@@ -137,3 +137,45 @@ def test_affirmative_alert_request_with_unrelated_negation_still_proceeds(query)
 
     assert result["alert_valid"] is True
     assert result["alert_params"]["alert_mode"] == "price_target"
+
+
+@pytest.mark.parametrize("query", [
+    "取消 AAPL 涨到 220 的提醒",
+    "取消 AAPL 涨到 125.5 的提醒",
+    "取消 AAPL 涨到 1,000 美元的提醒",
+    "撤销 AAPL 涨跌超过 3% 的预警",
+    "停用 AAPL 跌到 80 的提醒",
+    "关闭 AAPL 涨到 220 的通知",
+    "删除 AAPL 涨到 220 的订阅",
+    "停止在 AAPL 跌到 80 时提醒我",
+    "Cancel my AAPL alert when it goes above 220",
+    "Disable AAPL notifications when it reaches 220",
+    "Stop sending AAPL alerts when it falls below 80",
+    "Unsubscribe AAPL alerts when it goes above 220",
+    "不要取消旧提醒但取消 AAPL 涨到 220 的提醒",
+])
+def test_cancellation_request_cannot_create_alert(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
+    assert "提醒设置" in result["artifacts"]["draft_markdown"]
+
+
+@pytest.mark.parametrize("query", [
+    "不要 取消现有提醒，AAPL 涨到 220 时提醒我",
+    "先别停用现有提醒，AAPL 跌到 80 时提醒我",
+    "Don't    cancel existing alerts; notify me when AAPL goes above 220",
+    "Don't ever cancel existing alerts; notify me when AAPL goes above 220",
+    "No need to disable existing alerts; notify me when AAPL goes above 220",
+    "Never unsubscribe existing alerts; notify me when AAPL goes above 220",
+    "Cancel my buy order; notify me when AAPL goes above 220",
+    "Cancel my buy order. Set an alert when AAPL goes above 220",
+    "取消 AAPL 订单，涨到 220 时提醒我",
+])
+def test_negated_or_unrelated_cancellation_keeps_affirmative_alert_request(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == "price_target"

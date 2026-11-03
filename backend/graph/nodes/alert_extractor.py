@@ -40,11 +40,21 @@ _PCT_THRESHOLD_RE = re.compile(
 # Explicit denial blocks writes; "don't forget" remains an affirmative request.
 _DECLINED_ALERT_RE = re.compile(
     r"(?:不要|(?<![特分])别|勿|不用|不必|无需|不需要|不想)"
-    r"(?!\s*(?:忘记|忘了|漏掉|漏了|错过|取消|撤销|删除|关闭|停止))"
+    r"(?!\s*(?:忘记|忘了|漏掉|漏了|错过|取消|撤销|删除|关闭|停用|停止))"
     r"[^。！？；,，;\n]*(?:提醒|预警|通知|订阅)"
     r"|\b(?:do\s+not|don['’]?t|never|no\s+need\s+to)\s+"
     r"(?:(?:set|create|add|enable)\b[^.!?,;\n]*\b(?:alerts?|reminders?|notifications?)\b"
     r"|(?:subscribe|alert|notify|remind)\b)",
+    re.IGNORECASE,
+)
+
+# Match verbs separately; punctuation inside a price does not end the clause.
+_CANCEL_ALERT_RE = re.compile(
+    r"(?:取消|撤销|关闭|停用|停止|删除)"
+    r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*(?:提醒|预警|通知|订阅))"
+    r"|\b(?:cancel|remove|delete|disable|stop)\b"
+    r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|notifications?|reminders?|subscriptions?)\b)"
+    r"|\bunsubscribe\b",
     re.IGNORECASE,
 )
 
@@ -74,6 +84,20 @@ def _extract_direction(query: str) -> str | None:
     return None
 
 
+def _is_alert_cancel_request(query: str) -> bool:
+    for match in _CANCEL_ALERT_RE.finditer(query):
+        negation = re.search(
+            r"(?:不要|不需要|不用|无需|不必|不想|不能|不可|禁止|(?<![特分])别|勿|不"
+            r"|\b(?:not|never|don['’]?t|can['’]?t|cannot|no\s+need\s+to))"
+            r"\s*(?:(?:再|ever|again)\s*)?$",
+            query[:match.start()],
+            re.IGNORECASE,
+        )
+        if negation is None:
+            return True
+    return False
+
+
 def alert_extractor(state: GraphState) -> dict[str, Any]:
     query = str(state.get("query") or "").strip()
     ticker = _pick_ticker(state)
@@ -89,7 +113,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
         "direction": None,
     }
 
-    if _DECLINED_ALERT_RE.search(query):
+    if _DECLINED_ALERT_RE.search(query) or _is_alert_cancel_request(query):
         return {
             "alert_valid": False,
             "skip_session_context": True,
