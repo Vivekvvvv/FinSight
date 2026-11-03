@@ -136,7 +136,7 @@ def _parse_confirmation_response(
 ) -> tuple[str, str | None]:
     text = _normalize_user_response(response)
     if not text:
-        return _INTENT_CONFIRM, None
+        return _INTENT_ADJUST, None
 
     if text in option_intents:
         intent = str(option_intents.get(text) or "").strip() or _INTENT_CONFIRM
@@ -158,7 +158,7 @@ def _parse_confirmation_response(
     instruction = _strip_adjustment_prefix(text)
     if instruction:
         return _INTENT_ADJUST, instruction
-    return _INTENT_CONFIRM, None
+    return _INTENT_ADJUST, None
 
 
 def _merge_query_with_adjustment(query: Any, instruction: str | None) -> str | None:
@@ -205,33 +205,34 @@ def confirmation_gate(state: GraphState) -> dict[str, Any]:
 
     logger.info("[confirmation_gate] interrupt for confirmation")
 
-    user_response = interrupt(
-        {
-            "prompt": "执行计划确认",
-            "options": options,
-            "plan_summary": plan_ir.get("rationale", ""),
-            "required_agents": plan_ir.get("required_agents", []),
-            "gate_reason_code": gate_reason_code,
-            "gate_reason": gate_reason,
-            "option_effects": option_effects,
-            "option_intents": option_intents,
-            "output_mode": output_mode,
-            "confirmation_mode": confirmation_mode,
+    confirmation_payload = {
+        "prompt": "执行计划确认",
+        "options": options,
+        "plan_summary": plan_ir.get("rationale", ""),
+        "required_agents": plan_ir.get("required_agents", []),
+        "gate_reason_code": gate_reason_code,
+        "gate_reason": gate_reason,
+        "option_effects": option_effects,
+        "option_intents": option_intents,
+        "output_mode": output_mode,
+        "confirmation_mode": confirmation_mode,
+    }
+    while True:
+        user_response = interrupt(confirmation_payload)
+        intent, instruction = _parse_confirmation_response(
+            user_response,
+            option_intents=option_intents,
+        )
+        if intent != _INTENT_ADJUST or instruction:
+            break
+        confirmation_payload = {
+            **confirmation_payload,
+            "prompt": "请明确确认执行、补充具体调整内容或取消",
         }
-    )
-
-    intent, instruction = _parse_confirmation_response(
-        user_response,
-        option_intents=option_intents,
-    )
-    # If user only clicked an "adjust" option without actual instructions,
-    # continue with the current plan to avoid redundant re-planning.
-    if intent == _INTENT_ADJUST and not instruction:
-        intent = _INTENT_CONFIRM
 
     updates: dict[str, Any] = {
         "user_confirmation": user_response,
-        "require_confirmation": False,
+        "require_confirmation": intent == _INTENT_ADJUST,
         "confirmation_mode": confirmation_mode,
         "confirmation_intent": intent,
         "confirmation_instruction": instruction,

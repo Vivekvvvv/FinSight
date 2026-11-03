@@ -220,7 +220,8 @@ class GraphRunner:
             **(config or {}),
         }
         async for event in self._graph.astream_events(
-            Command(resume=resume_value),
+            # LangGraph treats resume=None as no resume value; use an empty reply instead.
+            Command(resume="" if resume_value is None else resume_value),
             config=merged_config,
             version="v2",
         ):

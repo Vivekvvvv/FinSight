@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import importlib
 
+import pytest
+
 
 def _module():
     return importlib.import_module("backend.graph.nodes.confirmation_gate")
@@ -179,3 +181,41 @@ def test_parse_confirmation_response_plain_intents_still_work():
     for text in ("取消", "stop", "abort it", "终止执行"):
         intent, _ = _parse_confirmation_response(text, option_intents={})
         assert intent == _INTENT_CANCEL, text
+
+
+@pytest.mark.parametrize("response", [None, "", " \t\n", {}, [], 0, False, "调整参数", "调整参数：", "Adjust parameters:"])
+def test_confirmation_gate_reprompts_without_concrete_decision(monkeypatch, response):
+    module = _module()
+    responses = iter((response, "确认执行"))
+    prompts = []
+
+    def _fake_interrupt(payload):
+        prompts.append(payload)
+        return next(responses)
+
+    monkeypatch.setattr(module, "interrupt", _fake_interrupt)
+    out = module.confirmation_gate({
+        "query": "Generate AAPL investment report",
+        "output_mode": "investment_report",
+        "confirmation_mode": "required",
+    })
+
+    assert len(prompts) == 2, "空回复或无内容调整不能代替执行确认"
+    assert out["confirmation_intent"] == "confirm_execute"
+    assert out["user_confirmation"] == "确认执行"
+    assert "query" not in out
+
+
+@pytest.mark.parametrize("response", ["focus on fundamentals", "我不确认这个数据", "don't approve"])
+def test_confirmation_gate_keeps_confirmation_required_after_adjustment(monkeypatch, response):
+    module = _module()
+    monkeypatch.setattr(module, "interrupt", lambda _payload: response)
+
+    out = module.confirmation_gate({
+        "query": "Generate AAPL investment report",
+        "output_mode": "investment_report",
+        "confirmation_mode": "required",
+    })
+
+    assert out["confirmation_intent"] == "adjust_parameters"
+    assert out["require_confirmation"] is True, "重规划后的计划必须重新等待确认"
