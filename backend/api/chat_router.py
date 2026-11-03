@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time as _time
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ from backend.graph.confirmation_policy import parse_confirmation_mode
 from backend.report.quality_engine import apply_quality_to_report, record_quality_metrics
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.entitlements import enforce_feature
-from backend.services.execution_helpers import _get_thread_run_lock
+from backend.services.execution_helpers import _execution_timeout_seconds, _get_thread_run_lock
 
 
 @dataclass(frozen=True)
@@ -101,16 +102,27 @@ def create_chat_router(deps: ChatRouterDeps) -> APIRouter:
             resolved_query = deps.resolve_query_reference(request.query, thread_id)
 
             from backend.graph.runner import run_graph_traced
-            async with _get_thread_run_lock(thread_id):
-                state = await run_graph_traced(
-                    runner,
-                    thread_id=thread_id,
-                    query=resolved_query,
-                    ui_context=ui_context,
-                    output_mode=output_mode,
-                    strict_selection=strict_selection,
-                    confirmation_mode=confirmation_mode,
-                )
+            timeout_seconds = _execution_timeout_seconds(output_mode)
+            try:
+                async with _get_thread_run_lock(thread_id):
+                    state = await asyncio.wait_for(
+                        run_graph_traced(
+                            runner,
+                            thread_id=thread_id,
+                            query=resolved_query,
+                            ui_context=ui_context,
+                            output_mode=output_mode,
+                            strict_selection=strict_selection,
+                            confirmation_mode=confirmation_mode,
+                        ),
+                        timeout=timeout_seconds,
+                    )
+            except asyncio.TimeoutError as exc:
+                _logger.error("[chat/supervisor] graph timeout")
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"Chat execution timed out after {int(timeout_seconds)}s; please retry.",
+                ) from exc
             markdown = ((state.get("artifacts") or {}).get("draft_markdown")) or ""
 
             report = None

@@ -265,3 +265,80 @@ def test_sync_chat_execution_failure_releases_thread_lock(monkeypatch):
             assert success.json()["response"] == "ok"
 
     asyncio.run(_scenario())
+
+
+def test_sync_chat_timeout_cancels_graph_and_releases_thread_lock(monkeypatch):
+    router_module = importlib.import_module("backend.api.chat_router")
+    monkeypatch.setattr(router_module, "_execution_timeout_seconds", lambda _mode: 0.02, raising=False)
+    cancelled = asyncio.Event()
+
+    async def _run_graph(_runner, *, query, **_kwargs):
+        if query == "stall":
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+        return {"artifacts": {"draft_markdown": "ok"}}
+
+    _patch_pipeline(monkeypatch, _run_graph)
+    app = _make_chat_app()
+
+    async def _scenario():
+        thread_id = "public:alice:timeout"
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test",
+        ) as client:
+            response = await asyncio.wait_for(client.post("/chat/supervisor", json={
+                "query": "stall", "session_id": thread_id,
+            }), timeout=1)
+
+            assert response.status_code == 504
+            assert "timed out" in response.json()["detail"].lower()
+            assert cancelled.is_set(), "超时必须取消图执行"
+            assert not _get_thread_run_lock(thread_id).locked(), "超时后必须释放会话锁"
+
+            retry = await asyncio.wait_for(client.post("/chat/supervisor", json={
+                "query": "retry", "session_id": thread_id,
+            }), timeout=1)
+            assert retry.status_code == 200
+            assert retry.json()["response"] == "ok"
+
+    asyncio.run(_scenario())
+
+
+@pytest.mark.parametrize("output_mode,expected_status", [
+    (None, 504), ("brief", 504), ("chat", 504), ("investment_report", 200),
+])
+def test_sync_chat_timeout_uses_requested_output_mode(monkeypatch, output_mode, expected_status):
+    router_module = importlib.import_module("backend.api.chat_router")
+    monkeypatch.setattr(
+        router_module, "_execution_timeout_seconds",
+        lambda mode: 0.2 if mode == "investment_report" else 0.02,
+        raising=False,
+    )
+    monkeypatch.setattr(router_module, "enforce_feature", lambda *_args: None)
+
+    async def _run_graph(_runner, **_kwargs):
+        await asyncio.sleep(0.06)
+        return {"artifacts": {"draft_markdown": "ok"}}
+
+    _patch_pipeline(monkeypatch, _run_graph)
+    app = _make_chat_app()
+
+    async def _scenario():
+        request = {"query": "slow", "session_id": "public:alice:mode-timeout"}
+        if output_mode is not None:
+            request["options"] = {"output_mode": output_mode}
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test",
+        ) as client:
+            response = await asyncio.wait_for(
+                client.post("/chat/supervisor", json=request), timeout=1,
+            )
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            assert response.json()["response"] == "ok"
+
+    asyncio.run(_scenario())
