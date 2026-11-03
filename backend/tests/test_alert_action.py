@@ -435,6 +435,51 @@ async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_st
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("existing_subscription", [False, True])
+@pytest.mark.parametrize("query", [
+    "TSLA 涨到 220 或跌到 180 时提醒我",
+    "Notify me if TSLA moves over 3% or falls 5%",
+])
+async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("AAPL", "MSFT"):
+        assert svc.subscribe(email, ticker)
+    if existing_subscription:
+        assert svc.subscribe(email, "TSLA", alert_mode="price_target", price_target=80.0, direction="below")
+    before = svc.subscriptions_file.read_bytes()
+    runner = GraphRunner.create()
+    ui_context = {
+        "active_symbol": "TSLA", "user_email": email,
+        "_authenticated_user": {"user_id": "alice", "role": "user"},
+    }
+
+    state = await runner.ainvoke(
+        thread_id="private:alice:default", query=query,
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+
+    assert svc.subscriptions_file.read_bytes() == before
+    assert state["alert_valid"] is False
+    assert state["clarify"]["reason"] == "alert_conflicting_thresholds"
+    spans = [span.get("node") for span in state["trace"]["spans"]]
+    assert "alert_action" not in spans
+
+    if not existing_subscription:
+        valid = await runner.ainvoke(
+            thread_id="private:alice:default", query="TSLA 涨跌超过 4% 提醒我",
+            ui_context=ui_context, confirmation_mode="skip",
+        )
+        assert valid["alert_valid"] is True
+        assert len(svc.get_subscriptions(email)) == 3
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("query,expected_price", [
     ("TSLA 涨到 1,000 美元时提醒我", 1000.0),
     ("Notify me when TSLA goes below 12,500.75 USD", 12500.75),

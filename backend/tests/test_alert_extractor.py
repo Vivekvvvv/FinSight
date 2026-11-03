@@ -106,6 +106,38 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
 
 
 @pytest.mark.parametrize("query", [
+    "AAPL 涨到 220 或跌到 180 时提醒我",
+    "Notify me when AAPL goes above 220 or below 180",
+    "AAPL 涨到 220 或涨到 230 时提醒我",
+    "AAPL 涨跌超过 3% 或涨跌超过 5% 时提醒我",
+    "Notify me if AAPL moves over 3% or falls 5%",
+    "Notify me when AAPL goes above 220 or moves over 3% or falls 5%",
+])
+def test_conflicting_thresholds_require_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
+    assert result["clarify"]["needed"] is True
+    assert result["clarify"]["reason"] == "alert_conflicting_thresholds"
+    assert "一次" in result["artifacts"]["draft_markdown"]
+
+
+@pytest.mark.parametrize("query,mode,field,expected", [
+    ("Notify me when AAPL goes above 1,000 or above 1000.0", "price_target", "price_target", 1000.0),
+    ("AAPL 涨到 220 或涨到 220.0 时提醒我", "price_target", "price_target", 220.0),
+    ("Notify me if AAPL moves over 3% or rises 3.0 percent", "price_change_pct", "price_threshold", 3.0),
+])
+def test_repeated_equivalent_thresholds_are_not_conflicting(query, mode, field, expected):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == mode
+    assert result["alert_params"][field] == expected
+
+
+@pytest.mark.parametrize("query", [
     "Notify me when AAPL goes over 125.5 USD",
     "Notify me when AAPL goes over 125.5 USD or moves over 12.5%",
     "Notify me when AAPL reaches 125.5. Thanks.",

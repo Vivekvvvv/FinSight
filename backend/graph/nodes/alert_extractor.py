@@ -121,6 +121,25 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
             "artifacts": {"draft_markdown": "未创建或修改提醒。如需停用已有提醒，请在提醒设置中关闭或删除。"},
         }
 
+    price_targets = {
+        float(match.group("price").replace(",", ""))
+        for match in _PRICE_TARGET_RE.finditer(query)
+    }
+    pct_thresholds = {float(match.group("pct")) for match in _PCT_THRESHOLD_RE.finditer(query)}
+    if len(price_targets) > 1 or len(pct_thresholds) > 1:
+        draft = "检测到多个不同的提醒阈值，未创建或修改提醒。请一次只提供一个目标价格或涨跌幅条件。"
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "alert_params": alert_params,
+            "clarify": {
+                "needed": True,
+                "reason": "alert_conflicting_thresholds",
+                "question": draft,
+            },
+            "artifacts": {"draft_markdown": draft},
+        }
+
     if price_target_match:
         alert_params["alert_mode"] = "price_target"
         alert_params["price_target"] = float(price_target_match.group("price").replace(",", ""))
