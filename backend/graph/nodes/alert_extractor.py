@@ -76,10 +76,19 @@ def _extract_direction(query: str) -> str | None:
     lowered = str(query or "").lower()
     below_tokens = ("跌到", "跌破", "低于", "小于", "<=")
     above_tokens = ("涨到", "突破", "高于", "大于", ">=")
+    price_triggers = " ".join(match.group(0) for match in _PRICE_TARGET_RE.finditer(lowered))
 
-    if any(token in lowered for token in below_tokens) or re.search(r"(?<![a-z_])(?:below|under)(?![a-z_])", lowered):
+    if (
+        any(token in lowered for token in below_tokens)
+        or re.search(r"(?<![a-z_])(?:below|under)(?![a-z_])", lowered)
+        or re.search(r"(?<![a-z_])(?:drops?|falls?|dips?)\s+to(?![a-z_])", price_triggers)
+    ):
         return "below"
-    if any(token in lowered for token in above_tokens) or re.search(r"(?<![a-z_])(?:above|over)(?![a-z_])", lowered):
+    if (
+        any(token in lowered for token in above_tokens)
+        or re.search(r"(?<![a-z_])(?:above|over)(?![a-z_])", lowered)
+        or re.search(r"(?<![a-z_])(?:rises?|climbs?)\s+to(?![a-z_])", price_triggers)
+    ):
         return "above"
     return None
 

@@ -517,6 +517,11 @@ async def test_graph_grouped_target_price_uses_full_amount(alert_storage, monkey
 @pytest.mark.parametrize("query,target,expected_direction", [
     ("Notify me when AAPL goes above 220 so I can understand the move", 220.0, "above"),
     ("Notify me when AAPL hits 80; give me an overview", 80.0, "below"),
+    ("Notify me when AAPL drops to 220", 220.0, "below"),
+    ("Notify me when AAPL falls to 220", 220.0, "below"),
+    ("Notify me when AAPL dips to 220", 220.0, "below"),
+    ("Notify me when AAPL rises to 80", 80.0, "above"),
+    ("Notify me when AAPL climbs to 80", 80.0, "above"),
 ])
 async def test_graph_english_prose_keeps_correct_direction_at_quota(alert_storage, monkeypatch, query, target, expected_direction):
     from backend.graph.runner import GraphRunner
@@ -552,7 +557,15 @@ async def test_graph_english_prose_keeps_correct_direction_at_quota(alert_storag
 
 
 @pytest.mark.asyncio
-async def test_graph_missing_quote_requires_explicit_direction_before_subscribing(alert_storage, monkeypatch):
+@pytest.mark.parametrize("query,target,expected_direction", [
+    ("AAPL 跌到 90 美元提醒我", 90.0, "below"),
+    ("Notify me when AAPL drops to 90", 90.0, "below"),
+    ("Notify me when AAPL falls to 90", 90.0, "below"),
+    ("Notify me when AAPL dips to 90", 90.0, "below"),
+    ("Notify me when AAPL rises to 120", 120.0, "above"),
+    ("Notify me when AAPL climbs to 120", 120.0, "above"),
+])
+async def test_graph_missing_quote_requires_explicit_direction_before_subscribing(alert_storage, monkeypatch, query, target, expected_direction):
     from backend.graph.runner import GraphRunner
 
     initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
@@ -573,13 +586,13 @@ async def test_graph_missing_quote_requires_explicit_direction_before_subscribin
     assert svc.get_subscriptions("alice@example.invalid") == []
 
     explicit = await runner.ainvoke(
-        thread_id="private:alice:default", query="AAPL 跌到 90 美元提醒我",
+        thread_id="private:alice:default", query=query,
         ui_context=ui_context, confirmation_mode="skip",
     )
     assert explicit["alert_valid"] is True
     saved = svc.get_subscriptions("alice@example.invalid")[0]
-    assert saved["price_target"] == 90.0
-    assert saved["direction"] == "below"
+    assert saved["price_target"] == target
+    assert saved["direction"] == expected_direction
 
 
 @pytest.mark.asyncio
