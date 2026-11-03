@@ -457,3 +457,37 @@ async def test_graph_missing_quote_requires_explicit_direction_before_subscribin
     saved = svc.get_subscriptions("alice@example.invalid")[0]
     assert saved["price_target"] == 90.0
     assert saved["direction"] == "below"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", [
+    "不要在 AAPL 涨到 220 时提醒我",
+    "Don't notify me when AAPL goes above 220",
+    "我不需要 AAPL 涨跌超过 3% 的提醒",
+])
+async def test_graph_declined_alert_cannot_modify_subscriptions(alert_storage, monkeypatch, query):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    _, svc = alert_storage
+    assert svc.subscribe(
+        "alice@example.invalid", "AAPL", alert_types=["news", "risk"], risk_threshold="critical",
+    )
+    before = svc.subscriptions_file.read_bytes()
+
+    state = await GraphRunner.create().ainvoke(
+        thread_id="private:alice:default", query=query,
+        ui_context={
+            "active_symbol": "AAPL", "user_email": "alice@example.invalid",
+            "_authenticated_user": {"user_id": "alice", "role": "user"},
+        },
+        confirmation_mode="skip",
+    )
+
+    assert state["alert_valid"] is False
+    assert svc.subscriptions_file.read_bytes() == before
+    spans = [span.get("node") for span in state["trace"]["spans"]]
+    assert "alert_extractor" in spans
+    assert "alert_action" not in spans
+    assert "未创建" in state["artifacts"]["draft_markdown"]

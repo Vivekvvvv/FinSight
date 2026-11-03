@@ -96,3 +96,44 @@ def test_percentage_with_unrecognized_trigger_requests_clarification(query):
     assert result["alert_valid"] is False
     assert result["clarify"]["needed"] is True
     assert result["alert_params"]["price_target"] is None
+
+
+@pytest.mark.parametrize("query", [
+    "不要在 AAPL 涨到 220 美元时提醒我",
+    "别帮我设置 AAPL 涨到 220 的提醒",
+    "我不需要 AAPL 涨跌超过 3% 的提醒",
+    "不用在 AAPL 跌到 80 时通知我",
+    "无需订阅 AAPL 涨到 220 的预警",
+    "勿在 AAPL 涨到 220 时提醒我",
+    "Don't notify me when AAPL hits 220",
+    "Don’t notify me when AAPL hits 220",
+    "Dont notify me when AAPL hits 220",
+    "Do not create an alert when AAPL goes above 220",
+    "Never alert me when AAPL drops below 80",
+    "No need to set an alert when AAPL moves 5%",
+])
+def test_declined_alert_creation_cannot_proceed(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
+    assert "未创建" in result["artifacts"]["draft_markdown"]
+
+
+@pytest.mark.parametrize("query", [
+    "不要忘记在 AAPL 涨到 220 时提醒我",
+    "别忘了 AAPL 跌到 80 时提醒我",
+    "Don't forget to notify me when AAPL hits 220",
+    "Don’t forget to notify me when AAPL hits 220",
+    "Don't cancel existing alerts; notify me when AAPL rises above 220",
+    "不要取消现有提醒，AAPL 涨到 220 时提醒我",
+    "不要买入 AAPL，涨到 220 时提醒我",
+    "AAPL 涨到 220 时特别提醒我",
+    "分别为 AAPL 设置涨到 220 的提醒",
+])
+def test_affirmative_alert_request_with_unrelated_negation_still_proceeds(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == "price_target"

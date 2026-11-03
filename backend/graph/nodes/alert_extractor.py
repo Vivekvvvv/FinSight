@@ -37,6 +37,17 @@ _PCT_THRESHOLD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Explicit denial blocks writes; "don't forget" remains an affirmative request.
+_DECLINED_ALERT_RE = re.compile(
+    r"(?:不要|(?<![特分])别|勿|不用|不必|无需|不需要|不想)"
+    r"(?!\s*(?:忘记|忘了|漏掉|漏了|错过|取消|撤销|删除|关闭|停止))"
+    r"[^。！？；,，;\n]*(?:提醒|预警|通知|订阅)"
+    r"|\b(?:do\s+not|don['’]?t|never|no\s+need\s+to)\s+"
+    r"(?:(?:set|create|add|enable)\b[^.!?,;\n]*\b(?:alerts?|reminders?|notifications?)\b"
+    r"|(?:subscribe|alert|notify|remind)\b)",
+    re.IGNORECASE,
+)
+
 
 def _pick_ticker(state: GraphState) -> str | None:
     subject = state.get("subject") or {}
@@ -77,6 +88,14 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
         "price_threshold": None,
         "direction": None,
     }
+
+    if _DECLINED_ALERT_RE.search(query):
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "alert_params": alert_params,
+            "artifacts": {"draft_markdown": "未创建或修改提醒。如需停用已有提醒，请在提醒设置中关闭或删除。"},
+        }
 
     if price_target_match:
         alert_params["alert_mode"] = "price_target"
