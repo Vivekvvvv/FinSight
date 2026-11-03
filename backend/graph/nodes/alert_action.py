@@ -103,10 +103,13 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
             # 多源外网抓取，须卸载线程池，协程体内直接调会阻塞事件循环
             snap = await asyncio.to_thread(fetch_price_snapshot, ticker)
             current_price = safe_float(snap.price if snap is not None else None)
-            if current_price is not None:
-                direction = "above" if price_target >= current_price else "below"
-            else:
-                direction = "above"
+            if current_price is None or current_price <= 0:
+                return {
+                    "alert_valid": False,
+                    "skip_session_context": True,
+                    "artifacts": {"draft_markdown": "暂时无法获取有效行情来判断提醒方向，请明确说「涨到」或「跌到」目标价，或稍后重试。"},
+                }
+            direction = "above" if price_target >= current_price else "below"
     else:
         price_threshold = safe_float(price_threshold)
         if price_threshold is None or price_threshold <= 0:

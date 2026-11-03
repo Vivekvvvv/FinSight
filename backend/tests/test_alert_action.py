@@ -72,7 +72,8 @@ async def test_alert_action_merges_alert_types_and_subscribes(alert_storage):
 
 
 @pytest.mark.asyncio
-async def test_alert_action_infers_direction_for_target_mode(monkeypatch):
+@pytest.mark.parametrize("target,expected_direction", [(80.0, "below"), (100.0, "above"), (120.0, "above")])
+async def test_alert_action_infers_direction_for_target_mode(monkeypatch, target, expected_direction):
     svc = StubSubscriptionService()
     monkeypatch.setattr(alert_action_module, "get_subscription_service", lambda: svc)
     monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", lambda _ticker: PriceSnapshot(ticker=_ticker, price=100.0, change_percent=0.0))
@@ -83,7 +84,7 @@ async def test_alert_action_infers_direction_for_target_mode(monkeypatch):
             "alert_params": {
                 "ticker": "AAPL",
                 "alert_mode": "price_target",
-                "price_target": 120.0,
+                "price_target": target,
                 "direction": None,
             },
             "subject": {"tickers": ["AAPL"]},
@@ -92,7 +93,7 @@ async def test_alert_action_infers_direction_for_target_mode(monkeypatch):
 
     assert result["alert_valid"] is True
     payload = svc.last_subscribe_kwargs or {}
-    assert payload.get("direction") == "above"
+    assert payload.get("direction") == expected_direction
 
 
 @pytest.fixture
@@ -159,6 +160,53 @@ async def test_chat_alert_accepts_positive_thresholds(alert_storage, mode, field
     saved = svc.get_subscriptions("alice@example.invalid")[0]
     assert saved["alert_mode"] == mode
     assert saved[field] == float(value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("price", [None, 0, -1, True, "bad", float("inf"), float("nan")])
+async def test_missing_valid_quote_cannot_overwrite_alert_direction(alert_storage, monkeypatch, price):
+    _, svc = alert_storage
+    email = "alice@example.invalid"
+    assert svc.subscribe(
+        email, "AAPL", alert_types=["news", "risk", "price_change"],
+        alert_mode="price_target", price_target=80.0, direction="below", risk_threshold="critical",
+    )
+    before = svc.subscriptions_file.read_bytes()
+    snapshot = None if price is None else PriceSnapshot(ticker="AAPL", price=price, change_percent=0.0)
+    monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", lambda _ticker: snapshot)
+    state = _alert_state("AAPL")
+    state["alert_params"] = {"ticker": "AAPL", "alert_mode": "price_target", "price_target": 90.0}
+
+    result = await alert_action_module.alert_action(state)
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    markdown = result["artifacts"]["draft_markdown"]
+    assert "涨到" in markdown and "跌到" in markdown
+    assert "已为" not in markdown
+    assert svc.subscriptions_file.read_bytes() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direction", ["above", "below"])
+async def test_explicit_alert_direction_does_not_need_a_quote(alert_storage, monkeypatch, direction):
+    _, svc = alert_storage
+
+    def unexpected_quote(_ticker):
+        raise AssertionError("explicit directions must not depend on quote availability")
+
+    monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", unexpected_quote)
+    state = _alert_state("AAPL")
+    state["alert_params"] = {
+        "ticker": "AAPL", "alert_mode": "price_target", "price_target": 90.0, "direction": direction,
+    }
+
+    result = await alert_action_module.alert_action(state)
+
+    assert result["alert_valid"] is True
+    saved = svc.get_subscriptions("alice@example.invalid")[0]
+    assert saved["price_target"] == 90.0
+    assert saved["direction"] == direction
 
 
 @pytest.mark.asyncio
@@ -378,3 +426,34 @@ async def test_graph_zero_threshold_does_not_consume_remaining_quota(alert_stora
     )
     assert valid["alert_valid"] is True
     assert {sub["ticker"] for sub in svc.get_subscriptions("alice@example.invalid")} == {"AAPL", "MSFT", "NVDA"}
+
+
+@pytest.mark.asyncio
+async def test_graph_missing_quote_requires_explicit_direction_before_subscribing(alert_storage, monkeypatch):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", lambda _ticker: None)
+    _, svc = alert_storage
+    runner = GraphRunner.create()
+    ui_context = {
+        "active_symbol": "AAPL", "user_email": "alice@example.invalid",
+        "_authenticated_user": {"user_id": "alice", "role": "user"},
+    }
+
+    ambiguous = await runner.ainvoke(
+        thread_id="private:alice:default", query="AAPL 到 90 美元提醒我",
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+    assert ambiguous["alert_valid"] is False
+    assert svc.get_subscriptions("alice@example.invalid") == []
+
+    explicit = await runner.ainvoke(
+        thread_id="private:alice:default", query="AAPL 跌到 90 美元提醒我",
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+    assert explicit["alert_valid"] is True
+    saved = svc.get_subscriptions("alice@example.invalid")[0]
+    assert saved["price_target"] == 90.0
+    assert saved["direction"] == "below"
