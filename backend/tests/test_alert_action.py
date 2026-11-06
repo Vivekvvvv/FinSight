@@ -995,6 +995,8 @@ async def test_graph_unwanted_alert_cannot_write_subscriptions(alert_storage, mo
     "Switch AAPL alerts off when it falls below 80",
     "Turn AAPL reminders off when it falls below 80",
     "Remove my reminder when AAPL goes above 220",
+    "Stop notifying me when AAPL goes above 220",
+    "Stop alerting me when AAPL goes above 220",
 ])
 async def test_graph_cancellation_cannot_modify_subscriptions(alert_storage, monkeypatch, query, existing_disabled):
     from backend.graph.runner import GraphRunner

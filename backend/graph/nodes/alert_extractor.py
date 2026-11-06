@@ -65,6 +65,7 @@ _CANCEL_ALERT_RE = re.compile(
     r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|notifications?|reminders?|subscriptions?)\b)"
     r"|\b(?:turn|switch)\b"
     r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|notifications?|reminders?|subscriptions?)\s+off\b)"
+    r"|\bstop\b(?=\s+(?:notifying|reminding|alerting)\b)"
     r"|\bunsubscribe\b",
     re.IGNORECASE,
 )
