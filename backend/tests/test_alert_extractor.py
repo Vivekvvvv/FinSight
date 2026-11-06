@@ -159,6 +159,12 @@ def test_directional_movement_to_price_is_explicit(movement, price, expected_dir
     ("上涨至", "80", "above"),
     ("跌至", "1,000.5", "below"),
     ("涨至", "1,000.5", "above"),
+    ("跌破", "220", "below"),
+    ("低于", "220", "below"),
+    ("小于", "220", "below"),
+    ("突破", "80", "above"),
+    ("高于", "80", "above"),
+    ("大于", "80", "above"),
 ])
 def test_chinese_movement_to_price_keeps_explicit_direction(movement, price, expected_direction):
     result = alert_extractor({
@@ -232,6 +238,8 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me when AAPL goes above $220 or below 180",
     "Notify me when AAPL goes above 220 or below $180",
     "Notify me when AAPL goes above $220 or below $220",
+    "AAPL 低于220元或涨到220元时提醒我",
+    "AAPL 突破220元或跌破220元时提醒我",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

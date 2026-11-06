@@ -9,7 +9,7 @@ from backend.graph.state import GraphState
 _PRICE_TARGET_RE = re.compile(
     r"(?:"
     # Chinese patterns
-    r"涨到|跌到|涨至|跌至|到达|到|达到|至|"
+    r"涨到|跌到|涨至|跌至|跌破|低于|小于|突破|高于|大于|到达|到|达到|至|"
     # English patterns - price target
     r"(?<![a-z0-9_])(?:price\s+(?:of|at|to)|target\s+price|reaches?|hits?|"
     # English patterns - directional
