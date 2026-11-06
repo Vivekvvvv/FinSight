@@ -11,7 +11,7 @@ _PRICE_TARGET_RE = re.compile(
     # Chinese patterns
     r"不高于|不大于|不低于|不小于|"
     r"涨到|跌到|涨至|跌至|跌破|低于|小于|突破|高于|大于|到达|到|达到|至|"
-    r"(?<![<>=!])(?:[<>]=?|[≤≥])|"
+    r"(?:(?<![a-z0-9_])(?:not|no)\s*)?(?<![<>=!])(?:[<>]=?|[≤≥])|"
     # English patterns - price target
     r"(?<![a-z0-9_])(?:price\s+(?:of|at|to)|target\s+price|reaches?|hits?|"
     # English patterns - directional
@@ -94,9 +94,9 @@ def _extract_direction(query: str) -> str | None:
         return "below"
     if any(token in lowered for token in ("不低于", "不小于")):
         return "above"
-    if re.search(r"(?<![a-z_])(?:not|no)\s+(?:above|over|(?:higher|greater)\s+than)(?![a-z_])", lowered):
+    if re.search(r"(?<![a-z_])(?:not|no)(?:\s+(?:above|over|(?:higher|greater)\s+than)(?![a-z_])|\s*(?:>=?|≥))", lowered):
         return "below"
-    if re.search(r"(?<![a-z_])(?:not|no)\s+(?:below|under|(?:lower|less)\s+than)(?![a-z_])", lowered):
+    if re.search(r"(?<![a-z_])(?:not|no)(?:\s+(?:below|under|(?:lower|less)\s+than)(?![a-z_])|\s*(?:<=?|≤))", lowered):
         return "above"
 
     if (
