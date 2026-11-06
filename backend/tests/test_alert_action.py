@@ -589,6 +589,7 @@ async def test_graph_scientific_target_cannot_write_subscriptions(alert_storage,
     "Notify me when TSLA is ≥ 220 or below 220",
     "Notify me when TSLA is not above 220 or above 220",
     "TSLA 不高于220元或高于220元时提醒我",
+    "Notify me when TSLA goes above 220 or below .5",
 ])
 async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
     from backend.graph.runner import GraphRunner
@@ -774,6 +775,7 @@ async def test_graph_background_direction_without_quote_cannot_consume_quota(ale
     ("Notify me when AAPL is no less than 120", 120.0, "above"),
     ("AAPL 不高于90元时提醒我", 90.0, "below"),
     ("AAPL 不低于120元时提醒我", 120.0, "above"),
+    ("Notify me when AAPL drops below .5", 0.5, "below"),
 ])
 async def test_graph_missing_quote_requires_explicit_direction_before_subscribing(alert_storage, monkeypatch, query, target, expected_direction):
     from backend.graph.runner import GraphRunner
