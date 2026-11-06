@@ -537,6 +537,47 @@ def test_old_target_delivery_cannot_mark_new_settings_as_fired(
     assert len(email.sent) == 2
 
 
+@pytest.mark.parametrize("other_alert", ["news", "risk"])
+@pytest.mark.parametrize("previous_price_alert", [False, True])
+def test_other_alert_delivery_does_not_reset_price_cooldown(
+    subscription_service_tmp, other_alert, previous_price_alert,
+):
+    service = subscription_service_tmp
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change", other_alert],
+        price_threshold=3.0, risk_threshold="high",
+    )
+    if previous_price_alert:
+        service.update_last_alert("user@example.com", "AAPL")
+    before = service.get_subscriptions("user@example.com")[0]["last_alert_at"]
+    email = FakeEmailService()
+    if other_alert == "news":
+        from datetime import datetime, timezone
+
+        scheduler = alert_scheduler_module.NewsAlertScheduler(
+            service, email, lambda ticker: [{
+                "title": "Fresh earnings news", "url": "https://example.invalid/news",
+                "published_at": datetime.now(timezone.utc), "related_tickers": [ticker],
+            }],
+        )
+    else:
+        scheduler = alert_scheduler_module.RiskAlertScheduler(
+            service, email, lambda ticker: PriceSnapshot(ticker, 100.0, -9.0),
+        )
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["last_alert_at"] == before
+    assert saved[f"last_{other_alert}_at"] is not None
+    price_scheduler = PriceChangeScheduler(
+        service, email, lambda ticker: PriceSnapshot(ticker, 110.0, 10.0),
+    )
+    assert len(price_scheduler.run_once()) == (0 if previous_price_alert else 1)
+    assert [item["alert_type"] for item in email.sent] == (
+        [other_alert] if previous_price_alert else [other_alert, "price_change"]
+    )
+
+
 def test_unavailable_quotes_are_not_reported_as_a_quiet_cycle(subscription_service_tmp):
     """报价拿不到时至今只 continue：run_once 返回空列表，和"没有订阅突破阈值"
     完全同形——监控方看到"本轮无告警"无法判断其实是报价源全挂了

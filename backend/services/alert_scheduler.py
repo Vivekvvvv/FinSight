@@ -475,7 +475,9 @@ class NewsAlertScheduler:
                     is_transient_error=(error_type == 'transient')
                 )
                 continue
-            self.subscription_service.record_alert_attempt(sub["email"], sub["ticker"], success=True)
+            self.subscription_service.record_alert_attempt(
+                sub["email"], sub["ticker"], success=True, update_price_cooldown=False,
+            )
             self.subscription_service.update_last_news(sub["email"], sub["ticker"])
             self.subscription_service.record_alert_event(
                 sub["email"],
@@ -657,7 +659,9 @@ class RiskAlertScheduler:
                 )
                 continue
 
-            self.subscription_service.record_alert_attempt(sub["email"], sub["ticker"], success=True)
+            self.subscription_service.record_alert_attempt(
+                sub["email"], sub["ticker"], success=True, update_price_cooldown=False,
+            )
             self.subscription_service.update_last_risk(sub["email"], sub["ticker"])
             self.subscription_service.record_alert_event(
                 sub["email"],
