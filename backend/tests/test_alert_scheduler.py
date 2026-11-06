@@ -451,6 +451,27 @@ def test_price_change_scheduler_respects_cooldown(subscription_service_tmp, monk
     assert len(email.sent) == 1
 
 
+def test_price_delivery_preserves_subscription_disabled_while_sending(subscription_service_tmp):
+    service = subscription_service_tmp
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["price_change"], price_threshold=3.0)
+
+    class DisablingEmailService(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert service.toggle_subscription(kwargs["to_email"], kwargs["ticker"], enabled=False)
+            return super().send_stock_alert(**kwargs)
+
+    email = DisablingEmailService()
+    scheduler = PriceChangeScheduler(
+        service, email,
+        lambda ticker: PriceSnapshot(ticker=ticker, price=105.0, change_percent=5.0),
+    )
+
+    assert len(scheduler.run_once()) == 1
+    assert service.get_subscriptions("user@example.com")[0]["disabled"] is True
+    assert scheduler.run_once() == []
+    assert len(email.sent) == 1
+
+
 def test_price_target_scheduler_triggers_once(subscription_service_tmp):
     service = subscription_service_tmp
     email = FakeEmailService()

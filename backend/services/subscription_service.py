@@ -515,7 +515,6 @@ class SubscriptionService:
                             sub['alert_failures'] = 0
                             sub['last_alert_error'] = None
                             sub['last_alert_error_at'] = None
-                            sub['disabled'] = False
                         else:
                             if not is_transient_error:
                                 failure_count = max(0, safe_int(sub.get('alert_failures'), 0) or 0)

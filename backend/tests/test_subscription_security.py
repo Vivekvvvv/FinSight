@@ -241,6 +241,26 @@ def test_record_alert_attempt_recovers_invalid_failure_counter(monkeypatch, tmp_
     assert saved[email][0]["alert_failures"] == 1
 
 
+def test_successful_delivery_cannot_reenable_subscription_disabled_during_send(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL")
+    stale_service = subs.SubscriptionService()
+    service.record_alert_attempt(email, "AAPL", success=False, error="delivery failed")
+    assert service.toggle_subscription(email, "AAPL", enabled=False)
+
+    stale_service.record_alert_attempt(email, "AAPL", success=True)
+
+    saved = service.get_subscriptions(email)[0]
+    assert saved["disabled"] is True
+    assert saved["alert_failures"] == 0
+    assert saved["last_alert_error"] is None
+    assert saved["last_alert_at"] is not None
+
+
 def test_record_alert_event_bounds_persisted_content(monkeypatch, tmp_path):
     from backend.services import subscription_service as subs
 
