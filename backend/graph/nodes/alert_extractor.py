@@ -44,7 +44,9 @@ _DECLINED_ALERT_RE = re.compile(
     r"[^。！？；,，;\n]*(?:提醒|预警|通知|订阅)"
     r"|\b(?:do\s+not|don['’]?t|never|no\s+need\s+to)\s+"
     r"(?:(?:set|create|add|enable)\b[^.!?,;\n]*\b(?:alerts?|reminders?|notifications?)\b"
-    r"|(?:subscribe|alert|notify|remind)\b)",
+    r"|(?:subscribe|alert|notify|remind)\b)"
+    r"|\b(?:(?:do\s+not|don['’]?t)\s+(?:want|need)|no\s+need\s+for)\s+"
+    r"(?:(?:an?|any|price)\s+)*(?:alerts?|reminders?|notifications?)\b",
     re.IGNORECASE,
 )
 
