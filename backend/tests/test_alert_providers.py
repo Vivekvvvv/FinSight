@@ -123,3 +123,39 @@ def test_stooq_uses_previous_trading_close_for_older_quote(monkeypatch, days_sin
 
     assert snapshot is not None
     assert snapshot.change_percent == pytest.approx(5.0)
+
+
+def _mock_fetchers(monkeypatch, snapshots):
+    monkeypatch.setattr(providers, "_PRICE_CACHE", {})
+    calls = []
+    for name, snapshot in zip((
+        "_fetch_with_stooq", "_fetch_with_yfinance", "_fetch_with_yahoo_quote", "_fetch_with_yahoo_chart",
+    ), snapshots):
+        def fetch(_ticker, result=snapshot, provider_name=name):
+            calls.append(provider_name)
+            return result
+        monkeypatch.setattr(providers, name, fetch)
+    return calls
+
+
+def test_snapshot_fallback_prefers_complete_quote_after_price_only_result(monkeypatch):
+    partial = providers.PriceSnapshot("AAPL", 105.0, None)
+    complete = providers.PriceSnapshot("AAPL", 105.0, 5.0)
+    calls = _mock_fetchers(monkeypatch, [partial, complete, None, None])
+
+    snapshot = providers.fetch_price_snapshot("AAPL")
+
+    assert snapshot == complete
+    assert calls == ["_fetch_with_stooq", "_fetch_with_yfinance"]
+    assert providers._get_cached_snapshot("AAPL") == complete
+
+
+def test_snapshot_fallback_keeps_price_only_quote_when_later_sources_fail(monkeypatch):
+    partial = providers.PriceSnapshot("AAPL", 105.0, None)
+    calls = _mock_fetchers(monkeypatch, [partial, None, None, None])
+
+    snapshot = providers.fetch_price_snapshot("AAPL")
+
+    assert snapshot == partial
+    assert len(calls) == 4
+    assert providers._get_cached_snapshot("AAPL") == partial

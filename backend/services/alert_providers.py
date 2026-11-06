@@ -56,11 +56,19 @@ def fetch_price_snapshot(ticker: str) -> Optional[PriceSnapshot]:
         _fetch_with_yahoo_chart,
     )
 
+    price_only_snapshot = None
     for fetcher in fetchers:
         snapshot = fetcher(ticker)
         if snapshot:
+            if snapshot.change_percent is None:
+                price_only_snapshot = price_only_snapshot or snapshot
+                continue
             _set_cache_snapshot(ticker, snapshot)
             return snapshot
+
+    if price_only_snapshot is not None:
+        _set_cache_snapshot(ticker, price_only_snapshot)
+        return price_only_snapshot
 
     # 四个源全试过仍为空：此前这里毫无痕迹地返回 None，调用方（告警循环）
     # 于是把它当成"阈值没突破"跳过，一轮下来"无告警"与"报价源全挂"同形。
