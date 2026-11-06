@@ -62,3 +62,25 @@ def test_yahoo_quote_mismatch_cannot_trigger_price_alert(monkeypatch):
     assert sends == []
     assert attempts == []
     assert scheduler.last_price_unavailable == 1
+
+
+@pytest.mark.parametrize("symbol", ["TSLA", None, ""])
+def test_yahoo_chart_rejects_unidentified_or_unrelated_result(monkeypatch, symbol):
+    _mock_response(monkeypatch, {"chart": {"result": [{
+        "meta": {"symbol": symbol}, "indicators": {"quote": [{"close": [100.0, 120.0]}]},
+    }]}})
+
+    assert providers._fetch_with_yahoo_chart("AAPL") is None
+
+
+def test_yahoo_chart_accepts_normalized_matching_symbol(monkeypatch):
+    _mock_response(monkeypatch, {"chart": {"result": [{
+        "meta": {"symbol": " aapl "}, "indicators": {"quote": [{"close": [100.0, 105.0]}]},
+    }]}})
+
+    snapshot = providers._fetch_with_yahoo_chart("AAPL")
+
+    assert snapshot is not None
+    assert snapshot.ticker == "AAPL"
+    assert snapshot.price == 105.0
+    assert snapshot.change_percent == pytest.approx(5.0)

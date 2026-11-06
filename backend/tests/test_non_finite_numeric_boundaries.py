@@ -960,7 +960,7 @@ def test_yahoo_chart_rejects_non_finite_closes(monkeypatch, index, value):
 
         @staticmethod
         def json():
-            return {"chart": {"result": [{"indicators": {"quote": [{"close": closes}]}}]}}
+            return {"chart": {"result": [{"meta": {"symbol": "AAPL"}, "indicators": {"quote": [{"close": closes}]}}]}}
 
     monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(get=lambda *_args, **_kwargs: FakeResponse()))
 

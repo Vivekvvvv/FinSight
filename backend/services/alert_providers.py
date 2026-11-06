@@ -356,6 +356,8 @@ def _fetch_with_yahoo_chart(ticker: str) -> Optional[PriceSnapshot]:
             return None
         chart = resp.json().get("chart", {})
         result = (chart.get("result") or [None])[0] or {}
+        if str((result.get("meta") or {}).get("symbol") or "").strip().upper() != ticker.strip().upper():
+            return None
         closes = (result.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
         if len(closes) < 2:
             return None
