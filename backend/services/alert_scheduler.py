@@ -27,6 +27,7 @@ from backend.agents.risk_agent import RiskAgent, RiskLevel
 from backend.services.subscription_service import SubscriptionService
 from backend.services.email_service import EmailService
 from backend.tools._item import iter_dict_items
+from backend.utils.quote import safe_float
 
 from backend.services.alert_providers import (
     PriceSnapshot,
@@ -585,6 +586,14 @@ class RiskAlertScheduler:
             if snapshot is None or str(getattr(snapshot, "ticker", "") or "").strip().upper() != ticker:
                 price_unavailable += 1
                 continue
+
+            price = safe_float(snapshot.price)
+            change_percent = safe_float(snapshot.change_percent)
+            if price is None or price <= 0 or change_percent is None:
+                price_unavailable += 1
+                continue
+            snapshot.price = price
+            snapshot.change_percent = change_percent
 
             assessment = RiskAgent.evaluate_ticker_risk_lightweight(
                 str(sub["ticker"]).strip().upper(),
