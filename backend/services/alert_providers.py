@@ -322,13 +322,13 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
             hist_url = f"https://stooq.pl/q/d/l/?s={symbol}&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d"
             hist = requests.get(hist_url, timeout=8)
             if hist.status_code == 200 and hist.text:
-                today_iso = end.isoformat()
+                quote_iso = datetime.fromisoformat(str(item.get("date") or end.isoformat())).date().isoformat()
                 closes = []
                 for row in csv.DictReader(io.StringIO(hist.text)):
                     row_date = str(row.get("Date") or row.get("Data") or "").strip()
                     raw = row.get("Close") or row.get("Zamkniecie")
                     value = _positive_finite_float(raw)
-                    if value is not None and row_date and row_date < today_iso:
+                    if value is not None and row_date and row_date < quote_iso:
                         closes.append(value)
                 if closes:
                     prev = closes[-1]

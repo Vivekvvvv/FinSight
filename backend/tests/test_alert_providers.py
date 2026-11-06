@@ -101,3 +101,25 @@ def test_stooq_accepts_normalized_matching_symbol(monkeypatch):
     assert snapshot is not None
     assert snapshot.ticker == "AAPL"
     assert snapshot.price == 105.0
+
+
+@pytest.mark.parametrize("days_since_quote", [1, 2, 3])
+def test_stooq_uses_previous_trading_close_for_older_quote(monkeypatch, days_since_quote):
+    from datetime import datetime, timedelta, timezone
+
+    quote_date = datetime.now(timezone.utc).date() - timedelta(days=days_since_quote)
+    quote_response = SimpleNamespace(status_code=200, json=lambda: {"symbols": [{
+        "symbol": "AAPL.US", "date": quote_date.isoformat(), "close": 105.0,
+    }]})
+    history_response = SimpleNamespace(
+        status_code=200,
+        text=f"Date,Close\n{quote_date - timedelta(days=1)},100.0\n{quote_date},105.0\n",
+    )
+    monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(
+        get=lambda url, **_kwargs: history_response if "/q/d/l/" in url else quote_response,
+    ))
+
+    snapshot = providers._fetch_with_stooq("AAPL")
+
+    assert snapshot is not None
+    assert snapshot.change_percent == pytest.approx(5.0)
