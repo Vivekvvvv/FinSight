@@ -400,6 +400,9 @@ def test_affirmative_alert_request_with_unrelated_negation_still_proceeds(query)
     "Stop sending AAPL alerts when it falls below 80",
     "Unsubscribe AAPL alerts when it goes above 220",
     "不要取消旧提醒但取消 AAPL 涨到 220 的提醒",
+    "Turn off AAPL alerts when it goes above 220",
+    "Switch off AAPL notifications when it falls below 80",
+    "Turn off the AAPL above $1,000.5 reminder",
 ])
 def test_cancellation_request_cannot_create_alert(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -420,6 +423,9 @@ def test_cancellation_request_cannot_create_alert(query):
     "Cancel my buy order; notify me when AAPL goes above 220",
     "Cancel my buy order. Set an alert when AAPL goes above 220",
     "取消 AAPL 订单，涨到 220 时提醒我",
+    "Don't turn off existing alerts; notify me when AAPL goes above 220",
+    "Do not switch off existing alerts; notify me when AAPL goes above 220",
+    "Turn off the lights; notify me when AAPL goes above 220",
 ])
 def test_negated_or_unrelated_cancellation_keeps_affirmative_alert_request(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

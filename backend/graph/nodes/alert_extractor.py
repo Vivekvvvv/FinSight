@@ -54,7 +54,7 @@ _DECLINED_ALERT_RE = re.compile(
 _CANCEL_ALERT_RE = re.compile(
     r"(?:取消|撤销|关闭|停用|停止|删除)"
     r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*(?:提醒|预警|通知|订阅))"
-    r"|\b(?:cancel|remove|delete|disable|stop)\b"
+    r"|\b(?:cancel|remove|delete|disable|stop|(?:turn|switch)\s+off)\b"
     r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|notifications?|reminders?|subscriptions?)\b)"
     r"|\bunsubscribe\b",
     re.IGNORECASE,
