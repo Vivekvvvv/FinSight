@@ -411,7 +411,7 @@ async def test_graph_alert_uses_authenticated_plan_after_context_normalization(a
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("unit", ["%", "％", " per cent"])
-@pytest.mark.parametrize("threshold,expected_threshold", [("12.5", 12.5), (".5", 0.5)])
+@pytest.mark.parametrize("threshold,expected_threshold", [("12.5", 12.5), (".5", 0.5), ("+3", 3.0), ("+.5", 0.5)])
 async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage, monkeypatch, unit, threshold, expected_threshold):
     from backend.graph.runner import GraphRunner
 
@@ -508,6 +508,8 @@ async def test_graph_multiple_tickers_cannot_partially_write_subscriptions(alert
     "TSLA 涨到220元5角时提醒我",
     "TSLA 涨到220日元时提醒我",
     "TSLA 涨到220港元时提醒我",
+    "Notify me if TSLA falls -3%",
+    "Notify me if TSLA moves over -.5%",
 ])
 async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_storage, monkeypatch, query):
     from backend.graph.runner import GraphRunner
@@ -687,6 +689,10 @@ async def test_graph_scientific_target_cannot_write_subscriptions(alert_storage,
     "Notify me if TSLA moves .5% or rises 3%",
     "Notify me if TSLA moves 3% or rises .5%",
     "TSLA 涨跌超过.5%或涨跌超过3%时提醒我",
+    "Notify me if TSLA moves +3% or falls 5%",
+    "Notify me if TSLA moves over -3% or falls 5%",
+    "Notify me if TSLA moves 5% or rises +3%",
+    "TSLA 涨跌超过+3%或跌-5%时提醒我",
 ])
 async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
     from backend.graph.runner import GraphRunner

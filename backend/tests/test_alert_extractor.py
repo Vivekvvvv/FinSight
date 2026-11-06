@@ -136,6 +136,20 @@ def test_leading_decimal_percentage_keeps_full_threshold(query):
     assert result["alert_params"]["price_target"] is None
 
 
+@pytest.mark.parametrize("value,expected_threshold", [
+    ("+3", 3.0), ("-3", -3.0), ("+.5", 0.5), ("-.5", -0.5),
+])
+def test_signed_percentage_keeps_full_threshold(value, expected_threshold):
+    result = alert_extractor({
+        "query": f"Notify me if AAPL moves over {value}%",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == "price_change_pct"
+    assert result["alert_params"]["price_threshold"] == expected_threshold
+
+
 @pytest.mark.parametrize("query", [
     "AAPL 涨幅不超过3%时提醒我",
     "AAPL 没有涨3%时提醒我",
@@ -144,6 +158,7 @@ def test_leading_decimal_percentage_keeps_full_threshold(query):
     "Notify me if AAPL moves no more than 3%",
     "Notify me if AAPL isn’t up by 3%",
     "Notify me if AAPL does not move over .5%",
+    "Notify me if AAPL does not move over +3%",
 ])
 def test_negated_percentage_condition_requires_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -604,6 +619,10 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me if AAPL moves .5% or rises 3%",
     "Notify me if AAPL moves 3% or rises .5%",
     "AAPL 涨跌超过.5%或涨跌超过3%时提醒我",
+    "Notify me if AAPL moves +3% or falls 5%",
+    "Notify me if AAPL moves over -3% or falls 5%",
+    "Notify me if AAPL moves 5% or rises +3%",
+    "AAPL 涨跌超过+3%或跌-5%时提醒我",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -622,6 +641,7 @@ def test_conflicting_thresholds_require_clarification(query):
     ("Notify me if AAPL moves over 3% or rises 3.0 percent", "price_change_pct", "price_threshold", 3.0),
     ("Notify me when AAPL hits 220 or goes above 220", "price_target", "price_target", 220.0),
     ("Notify me when AAPL goes below 220 or hits 220", "price_target", "price_target", 220.0),
+    ("Notify me if AAPL moves +3% or rises 3%", "price_change_pct", "price_threshold", 3.0),
 ])
 def test_repeated_equivalent_thresholds_are_not_conflicting(query, mode, field, expected):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
