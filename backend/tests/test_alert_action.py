@@ -505,6 +505,8 @@ async def test_graph_multiple_tickers_cannot_partially_write_subscriptions(alert
     "Notify me if TSLA changes 3 pct_change",
     "Notify me when TSLA rises to 220 dollars and 50 cents",
     "TSLA 涨到220元5角时提醒我",
+    "TSLA 涨到220日元时提醒我",
+    "TSLA 涨到220港元时提醒我",
 ])
 async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_storage, monkeypatch, query):
     from backend.graph.runner import GraphRunner

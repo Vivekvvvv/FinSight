@@ -24,7 +24,7 @@ _PRICE_TARGET_RE = re.compile(
     r"(?P<price>[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
     # Reject incomplete numbers and percentages without matching a shorter prefix.
     r"(?!\d|[.,，]\d|e[+-]?\d|\s*(?:[-–—~～/]|to(?![a-z_]))\s*(?:\$\s*)?(?:\d|\.\d)|\s*(?:[%％]|percent|per\s+cent|个点|pct|美分|[千万亿]|(?:[kmb]|thousands?|millions?|billions?|cents?|pence|penn(?:y|ies))(?![a-z_])))"
-    r"\s*(?P<currency>元|块|美元|dollars?|usd|\$|欧元|英镑|€|£|(?:eur|gbp|euros?|pounds?)(?![a-z_]))?",
+    r"\s*(?P<currency>元|块|美元|dollars?|usd|\$|欧元|英镑|日元|港元|港币|€|£|(?:eur|gbp|euros?|pounds?|jpy|hkd|yen)(?![a-z_]))?",
     re.IGNORECASE,
 )
 
@@ -175,7 +175,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
 
     if any(
         match.group("currency_prefix") in {"€", "£"}
-        or (match.group("currency") or "").lower() in {"eur", "gbp", "euro", "euros", "pound", "pounds", "欧元", "英镑", "€", "£"}
+        or (match.group("currency") or "").lower() in {"eur", "gbp", "euro", "euros", "pound", "pounds", "jpy", "hkd", "yen", "欧元", "英镑", "日元", "港元", "港币", "€", "£"}
         for match in _PRICE_TARGET_RE.finditer(query)
     ):
         draft = "当前提醒不支持自动换算币种，未创建或修改提醒。请使用该股票行情的原始币种提供目标价格。"

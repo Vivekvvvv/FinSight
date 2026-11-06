@@ -449,7 +449,7 @@ def test_fractional_amount_in_another_clause_keeps_price_alert():
     assert result["alert_params"]["price_target"] == 220.0
 
 
-@pytest.mark.parametrize("unit", ["EUR", "GBP", "euros", "pounds", "欧元", "英镑", "€", "£"])
+@pytest.mark.parametrize("unit", ["EUR", "GBP", "euros", "pounds", "欧元", "英镑", "€", "£", "JPY", "HKD", "yen", "日元", "港元", "港币"])
 def test_unconverted_foreign_currency_target_requires_clarification(unit):
     result = alert_extractor({
         "query": f"Notify me when AAPL goes above 220 {unit}",
@@ -465,6 +465,16 @@ def test_unconverted_foreign_currency_target_requires_clarification(unit):
 def test_unrelated_foreign_currency_description_does_not_block_alert():
     result = alert_extractor({
         "query": "Notify me when AAPL goes above 220 USD; my savings are in EUR",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
+
+
+def test_unrelated_yen_description_does_not_block_alert():
+    result = alert_extractor({
+        "query": "Notify me when AAPL goes above 220 USD; my savings are in JPY",
         "subject": {"tickers": ["AAPL"]},
     })
 
