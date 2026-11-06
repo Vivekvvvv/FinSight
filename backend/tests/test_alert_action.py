@@ -397,6 +397,46 @@ async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("existing_subscription", [False, True])
+async def test_graph_multiple_tickers_cannot_partially_write_subscriptions(alert_storage, monkeypatch, existing_subscription):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("MSFT", "NVDA"):
+        assert svc.subscribe(email, ticker)
+    if existing_subscription:
+        assert svc.subscribe(email, "AAPL", alert_mode="price_target", price_target=80.0, direction="below")
+    before = svc.subscriptions_file.read_bytes()
+    runner = GraphRunner.create()
+    ui_context = {
+        "user_email": email,
+        "_authenticated_user": {"user_id": "alice", "role": "user"},
+    }
+
+    result = await runner.ainvoke(
+        thread_id="private:alice:default", query="AAPL 和 TSLA 涨到 220 时提醒我",
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+
+    assert svc.subscriptions_file.read_bytes() == before
+    assert result["alert_valid"] is False
+    assert result["clarify"]["reason"] == "alert_multiple_tickers"
+    spans = [span.get("node") for span in result["trace"]["spans"]]
+    assert "alert_action" not in spans
+    if not existing_subscription:
+        valid = await runner.ainvoke(
+            thread_id="private:alice:default", query="AAPL 涨到 220 时提醒我",
+            ui_context=ui_context, confirmation_mode="skip",
+        )
+        assert valid["alert_valid"] is True
+        assert len(svc.get_subscriptions(email)) == 3
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("query", [
     "TSLA 涨到 0 美元提醒我",
     "TSLA 涨跌超过 0% 提醒我",

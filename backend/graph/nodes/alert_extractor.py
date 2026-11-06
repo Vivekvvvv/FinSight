@@ -132,6 +132,28 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
             "artifacts": {"draft_markdown": "未创建或修改提醒。如需停用已有提醒，请在提醒设置中关闭或删除。"},
         }
 
+    subject = state.get("subject") or {}
+    tickers = subject.get("tickers") if isinstance(subject, dict) else None
+    alert_tickers = {str(item or "").strip().upper() for item in tickers if str(item or "").strip()} if isinstance(tickers, list) else set()
+    if not re.search(r"\bUSD\b", _PRICE_TARGET_RE.sub("", query), re.IGNORECASE):
+        alert_tickers.discard("USD")
+    if len(alert_tickers) == 1:
+        ticker = next(iter(alert_tickers))
+        alert_params["ticker"] = ticker
+    if len(alert_tickers) > 1:
+        draft = "检测到多个提醒标的，未创建或修改提醒。请一次只指定一只股票及其提醒条件。"
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "alert_params": alert_params,
+            "clarify": {
+                "needed": True,
+                "reason": "alert_multiple_tickers",
+                "question": draft,
+            },
+            "artifacts": {"draft_markdown": draft},
+        }
+
     price_targets = {
         float(match.group("price").replace(",", ""))
         for match in _PRICE_TARGET_RE.finditer(query)

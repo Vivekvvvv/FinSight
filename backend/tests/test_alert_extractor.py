@@ -43,6 +43,48 @@ def test_alert_extractor_missing_ticker_returns_clarify():
     assert clarify.get("needed") is True
 
 
+def test_multiple_alert_tickers_require_clarification():
+    result = alert_extractor({
+        "query": "AAPL 和 TSLA 涨到 220 时提醒我",
+        "subject": {"tickers": ["AAPL", "TSLA"]},
+    })
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
+    assert result["clarify"]["reason"] == "alert_multiple_tickers"
+
+
+def test_repeated_same_alert_ticker_still_proceeds():
+    result = alert_extractor({
+        "query": "AAPL 涨到 220 时提醒我",
+        "subject": {"tickers": ["AAPL", " aapl "]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["ticker"] == "AAPL"
+
+
+def test_currency_unit_in_target_does_not_count_as_alert_ticker():
+    result = alert_extractor({
+        "query": "Notify me at 220 USD for AAPL",
+        "subject": {"tickers": ["USD", "AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["ticker"] == "AAPL"
+
+
+def test_usd_ticker_outside_price_condition_still_counts():
+    result = alert_extractor({
+        "query": "USD and TSLA go above 220 USD; alert me",
+        "subject": {"tickers": ["USD", "TSLA"]},
+    })
+
+    assert result["alert_valid"] is False
+    assert result["clarify"]["reason"] == "alert_multiple_tickers"
+
+
 def test_alert_extractor_pct_mode():
     state = {
         "query": "AAPL 涨跌超过 3% 提醒我",
