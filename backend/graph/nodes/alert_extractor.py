@@ -20,11 +20,11 @@ _PRICE_TARGET_RE = re.compile(
     r"(?:not|no)\s+(?:(?:less|lower|greater|higher)\s+than|above|below|over|under)\s*|"
     r"(?:less|lower|greater|higher)\s+than\s*|"
     r"(?:above|below|over|under|at)\s*)"
-    r")\s*(?:\$\s*)?"
+    r")\s*(?:(?P<currency_prefix>[$€£])\s*)?"
     r"(?P<price>[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
     # Reject incomplete numbers and percentages without matching a shorter prefix.
     r"(?!\d|[.,，]\d|e[+-]?\d|\s*(?:[-–—~～/]|to(?![a-z_]))\s*(?:\$\s*)?(?:\d|\.\d)|\s*(?:[%％]|percent|per\s+cent|个点|pct|美分|[千万亿]|(?:[kmb]|thousands?|millions?|billions?|cents?|pence|penn(?:y|ies))(?![a-z_])))"
-    r"\s*(?:元|块|美元|dollars?|usd|\$)?",
+    r"\s*(?P<currency>元|块|美元|dollars?|usd|\$|欧元|英镑|€|£|(?:eur|gbp|euros?|pounds?)(?![a-z_]))?",
     re.IGNORECASE,
 )
 
@@ -148,6 +148,20 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
             "skip_session_context": True,
             "alert_params": alert_params,
             "artifacts": {"draft_markdown": "未创建或修改提醒。如需停用已有提醒，请在提醒设置中关闭或删除。"},
+        }
+
+    if any(
+        match.group("currency_prefix") in {"€", "£"}
+        or (match.group("currency") or "").lower() in {"eur", "gbp", "euro", "euros", "pound", "pounds", "欧元", "英镑", "€", "£"}
+        for match in _PRICE_TARGET_RE.finditer(query)
+    ):
+        draft = "当前提醒不支持自动换算币种，未创建或修改提醒。请使用该股票行情的原始币种提供目标价格。"
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "alert_params": alert_params,
+            "clarify": {"needed": True, "reason": "alert_unsupported_currency", "question": draft},
+            "artifacts": {"draft_markdown": draft},
         }
 
     subject = state.get("subject") or {}

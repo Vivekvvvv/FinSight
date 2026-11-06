@@ -340,6 +340,41 @@ def test_fractional_currency_unit_cannot_be_dropped_from_target(query):
     assert result["clarify"]["needed"] is True
 
 
+@pytest.mark.parametrize("unit", ["EUR", "GBP", "euros", "pounds", "欧元", "英镑", "€", "£"])
+def test_unconverted_foreign_currency_target_requires_clarification(unit):
+    result = alert_extractor({
+        "query": f"Notify me when AAPL goes above 220 {unit}",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
+    assert result["clarify"]["reason"] == "alert_unsupported_currency"
+
+
+def test_unrelated_foreign_currency_description_does_not_block_alert():
+    result = alert_extractor({
+        "query": "Notify me when AAPL goes above 220 USD; my savings are in EUR",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
+
+
+@pytest.mark.parametrize("query", [
+    "Notify me when AAPL goes above €220",
+    "Notify me when AAPL goes above £220",
+    "Notify me when AAPL goes above 220 or above 220 EUR",
+])
+def test_foreign_currency_prefix_or_additional_condition_requires_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["clarify"]["reason"] == "alert_unsupported_currency"
+
+
 @pytest.mark.parametrize("value,expected_price", [
     ("+220", 220.0), ("-80", -80.0), ("+.5", 0.5), ("-.5", -0.5),
 ])
