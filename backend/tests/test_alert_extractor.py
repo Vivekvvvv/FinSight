@@ -326,6 +326,18 @@ def test_leading_decimal_target_keeps_full_amount(query, expected_price):
     assert result["alert_params"]["price_target"] == expected_price
 
 
+@pytest.mark.parametrize("value,expected_price", [
+    ("+220", 220.0), ("-80", -80.0), ("+.5", 0.5), ("-.5", -0.5),
+])
+def test_signed_target_price_is_not_discarded(value, expected_price):
+    result = alert_extractor({
+        "query": f"Notify me when AAPL goes above {value}",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_params"]["price_target"] == expected_price
+
+
 @pytest.mark.parametrize("query", [
     "Notify me when AAPL drops below .5.6",
     "Notify me when AAPL reaches $.5%",
@@ -396,6 +408,8 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "AAPL 不高于220元或高于220元时提醒我",
     "AAPL 不低于220元或低于220元时提醒我",
     "Notify me when AAPL goes above 220 or below .5",
+    "Notify me when AAPL goes above 220 or below -80",
+    "Notify me when AAPL goes above 220 or below $-80",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

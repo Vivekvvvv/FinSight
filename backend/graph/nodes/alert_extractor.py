@@ -21,7 +21,7 @@ _PRICE_TARGET_RE = re.compile(
     r"(?:less|lower|greater|higher)\s+than\s*|"
     r"(?:above|below|over|under|at)\s*)"
     r")\s*(?:\$\s*)?"
-    r"(?P<price>(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
+    r"(?P<price>[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
     # Reject incomplete numbers and percentages without matching a shorter prefix.
     r"(?!\d|[.,，]\d|e[+-]?\d|\s*(?:[-–—~～/]|to(?![a-z_]))\s*(?:\$\s*)?(?:\d|\.\d)|\s*(?:[%％]|percent|per\s+cent|个点|pct|[千万亿]|(?:[kmb]|thousands?|millions?|billions?)(?![a-z_])))"
     r"\s*(?:元|块|美元|dollars?|usd|\$)?",
