@@ -11,11 +11,11 @@ _PRICE_TARGET_RE = re.compile(
     # Chinese patterns
     r"涨到|跌到|到达|到|达到|至|"
     # English patterns - price target
-    r"price\s+(?:of|at|to)|target\s+price|reaches?|hits?|"
+    r"(?<![a-z0-9_])(?:price\s+(?:of|at|to)|target\s+price|reaches?|hits?|"
     # English patterns - directional
     r"(?:drops?|falls?|goes?|dips?)\s+(?:below|under|to)\s*|"
     r"(?:rises?|climbs?|goes?)\s+(?:above|over|to)\s*|"
-    r"(?:above|below|over|under|at)\s*"
+    r"(?:above|below|over|under|at)\s*)"
     r")\s*"
     r"(?P<price>(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
     # Reject incomplete numbers and percentages without matching a shorter prefix.
@@ -29,9 +29,9 @@ _PCT_THRESHOLD_RE = re.compile(
     # Chinese patterns
     r"涨|跌|上涨|下跌|变动|超过|涨跌超过|"
     # English patterns
-    r"(?:rises?|drops?|falls?|moves?|changes?|fluctuates?)\s*(?:by\s*)?|"
+    r"(?<![a-z0-9_])(?:(?:rises?|drops?|falls?|moves?|changes?|fluctuates?)\s*(?:by\s*)?|"
     r"(?:up|down)\s*(?:by\s*)?|"
-    r"(?:more\s+than|exceeds?|over)\s*"
+    r"(?:more\s+than|exceeds?|over)\s*)"
     r")\s*"
     r"(?P<pct>\d+(?:\.\d+)?)\s*(?:%|percent|个点|pct)",
     re.IGNORECASE,

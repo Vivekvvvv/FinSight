@@ -56,6 +56,34 @@ def test_alert_extractor_pct_mode():
     assert params["price_threshold"] == 3.0
 
 
+@pytest.mark.parametrize("query", [
+    "Notify me about AAPL turnover 220 USD",
+    "Notify me about AAPL format220",
+    "Notify me about AAPL rollover 5%",
+    "Notify me about AAPL BACKUP5%",
+])
+def test_embedded_english_trigger_requires_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["alert_params"]["alert_mode"] is None
+    assert result["alert_params"]["price_target"] is None
+    assert result["alert_params"]["price_threshold"] is None
+    assert result["clarify"]["needed"] is True
+
+
+@pytest.mark.parametrize("query,mode,field,expected", [
+    ("AAPL 价格above220美元时提醒我", "price_target", "price_target", 220.0),
+    ("AAPL 涨幅over3%时提醒我", "price_change_pct", "price_threshold", 3.0),
+])
+def test_english_trigger_after_cjk_accepts_adjacent_number(query, mode, field, expected):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == mode
+    assert result["alert_params"][field] == expected
+
+
 @pytest.mark.parametrize("query,expected_direction", [
     ("Notify me when AAPL goes above 220 so I can understand the move", "above"),
     ("Notify me when AAPL hits 80; give me an overview", None),
