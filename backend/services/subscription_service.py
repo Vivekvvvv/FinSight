@@ -582,7 +582,7 @@ class SubscriptionService:
                         self._save_subscriptions()
                         break
 
-    def set_price_target_fired(self, email: str, ticker: str) -> bool:
+    def set_price_target_fired(self, email: str, ticker: str, *, expected_updated_at: Optional[str] = None) -> bool:
         """Mark one-shot target alert as fired."""
         ticker_norm = str(ticker or "").strip().upper()
         with self._lock:
@@ -591,6 +591,8 @@ class SubscriptionService:
                 return False
             for sub in self.subscriptions[email]:
                 if str(sub.get("ticker") or "").strip().upper() == ticker_norm:
+                    if expected_updated_at is not None and sub.get("updated_at") != expected_updated_at:
+                        return False
                     sub["price_target_fired"] = True
                     sub["updated_at"] = datetime.now().isoformat()
                     self._save_subscriptions()

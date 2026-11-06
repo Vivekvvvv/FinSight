@@ -270,7 +270,9 @@ class PriceChangeScheduler:
 
             self.subscription_service.record_alert_attempt(sub["email"], sub["ticker"], success=True)
             if alert_mode == "price_target":
-                self.subscription_service.set_price_target_fired(sub["email"], sub["ticker"])
+                self.subscription_service.set_price_target_fired(
+                    sub["email"], sub["ticker"], expected_updated_at=sub.get("updated_at"),
+                )
 
             severity = "medium"
             if alert_mode != "price_target" and threshold_payload is not None and snapshot.change_percent is not None:

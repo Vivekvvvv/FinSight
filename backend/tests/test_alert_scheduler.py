@@ -499,6 +499,44 @@ def test_price_target_scheduler_triggers_once(subscription_service_tmp):
     assert stored.get("price_target_fired") is True
 
 
+@pytest.mark.parametrize("target,direction,second_price", [
+    (120.0, "above", 125.0), (80.0, "below", 75.0), (100.0, "above", 110.0),
+])
+def test_old_target_delivery_cannot_mark_new_settings_as_fired(
+    subscription_service_tmp, target, direction, second_price,
+):
+    service = subscription_service_tmp
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change"],
+        alert_mode="price_target", price_target=100.0, direction="above",
+    )
+
+    class UpdatingEmailService(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            if not self.sent:
+                assert service.subscribe(
+                    "user@example.com", "AAPL", alert_types=["price_change"],
+                    alert_mode="price_target", price_target=target, direction=direction,
+                )
+            return super().send_stock_alert(**kwargs)
+
+    email = UpdatingEmailService()
+    prices = iter((110.0, second_price))
+    scheduler = PriceChangeScheduler(
+        service, email,
+        lambda ticker: PriceSnapshot(ticker=ticker, price=next(prices), change_percent=1.0),
+    )
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["price_target"] == target
+    assert saved["direction"] == direction
+    assert saved["price_target_fired"] is False
+    assert len(scheduler.run_once()) == 1
+    assert service.get_subscriptions("user@example.com")[0]["price_target_fired"] is True
+    assert len(email.sent) == 2
+
+
 def test_unavailable_quotes_are_not_reported_as_a_quiet_cycle(subscription_service_tmp):
     """报价拿不到时至今只 continue：run_once 返回空列表，和"没有订阅突破阈值"
     完全同形——监控方看到"本轮无告警"无法判断其实是报价源全挂了
