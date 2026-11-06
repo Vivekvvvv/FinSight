@@ -446,6 +446,8 @@ async def test_graph_multiple_tickers_cannot_partially_write_subscriptions(alert
     "TSLA 涨到 1万元时提醒我",
     "Notify me when TSLA goes above $2k",
     "Notify me when TSLA goes above 220-230",
+    "Notify me when TSLA goes above 220 to $230",
+    "Notify me when TSLA goes above .5 to $.75",
     "TSLA 涨到 1/2 元时提醒我",
 ])
 async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_storage, monkeypatch, query):

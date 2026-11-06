@@ -482,6 +482,10 @@ def test_scaled_target_price_requires_plain_amount(query):
     "AAPL 涨到 1/2 元时提醒我",
     "Notify me when AAPL goes above 220~230",
     "Notify me when AAPL goes above 220 to 230",
+    "Notify me when AAPL goes above 220 to $230",
+    "Notify me when AAPL goes above $220-$230",
+    "Notify me when AAPL goes above .5 to $.75",
+    "Notify me when AAPL goes above 220~.5",
 ])
 def test_range_or_fraction_target_requires_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
