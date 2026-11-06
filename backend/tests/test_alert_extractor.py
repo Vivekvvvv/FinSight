@@ -339,6 +339,21 @@ def test_symbol_price_comparison_keeps_explicit_direction(operator, expected_dir
     assert result["alert_params"]["direction"] == expected_direction
 
 
+@pytest.mark.parametrize("comparison,expected_direction", [
+    ("不>", "below"), ("不>=", "below"), ("不 ≥", "below"),
+    ("不<", "above"), ("不<=", "above"), ("不 ≤", "above"),
+])
+def test_negated_chinese_symbol_price_comparison_keeps_direction(comparison, expected_direction):
+    result = alert_extractor({
+        "query": f"AAPL {comparison}220元时提醒我",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
+    assert result["alert_params"]["direction"] == expected_direction
+
+
 @pytest.mark.parametrize("movement,price,expected_direction", [
     ("跌至", "220", "below"),
     ("下跌至", "220", "below"),
@@ -529,6 +544,8 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me when AAPL isn’t <=220 or below 220",
     "AAPL 不高于220元或高于220元时提醒我",
     "AAPL 不低于220元或低于220元时提醒我",
+    "AAPL 不>=220元或高于220元时提醒我",
+    "AAPL 不<=220元或低于220元时提醒我",
     "Notify me when AAPL goes above 220 or below .5",
     "Notify me when AAPL goes above 220 or below -80",
     "Notify me when AAPL goes above 220 or below $-80",

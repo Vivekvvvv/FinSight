@@ -868,6 +868,8 @@ async def test_graph_background_direction_without_quote_cannot_consume_quota(ale
     ("Notify me when AAPL isn’t <120", 120.0, "above"),
     ("AAPL 不高于90元时提醒我", 90.0, "below"),
     ("AAPL 不低于120元时提醒我", 120.0, "above"),
+    ("AAPL 不>=90元时提醒我", 90.0, "below"),
+    ("AAPL 不<=120元时提醒我", 120.0, "above"),
     ("Notify me when AAPL drops below .5", 0.5, "below"),
     ("Set a reminder when AAPL drops below 90", 90.0, "below"),
     ("Create a notification when AAPL goes above 120", 120.0, "above"),
