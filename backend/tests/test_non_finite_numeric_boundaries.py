@@ -882,7 +882,7 @@ def test_yfinance_uses_later_finite_fallback_value(monkeypatch, field, value):
 def test_yahoo_quote_rejects_non_finite_values(monkeypatch, field, value):
     from backend.services.alert_scheduler import _fetch_with_yahoo_quote
 
-    item = {"regularMarketPrice": 100.0, "regularMarketPreviousClose": 90.0, field: value}
+    item = {"symbol": "AAPL", "regularMarketPrice": 100.0, "regularMarketPreviousClose": 90.0, field: value}
 
     class FakeResponse:
         status_code = 200

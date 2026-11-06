@@ -264,7 +264,12 @@ def _fetch_with_yahoo_quote(ticker: str) -> Optional[PriceSnapshot]:
         data = resp.json().get("quoteResponse", {}).get("result", [])
         if not data:
             return None
-        item = data[0]
+        item = next((
+            entry for entry in data if isinstance(entry, dict)
+            and str(entry.get("symbol") or "").strip().upper() == ticker.strip().upper()
+        ), None)
+        if item is None:
+            return None
         price = _positive_finite_float(item.get("regularMarketPrice"))
         if price is None:
             return None
