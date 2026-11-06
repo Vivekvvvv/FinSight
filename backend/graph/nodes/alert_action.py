@@ -103,7 +103,10 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
             # 多源外网抓取，须卸载线程池，协程体内直接调会阻塞事件循环
             snap = await asyncio.to_thread(fetch_price_snapshot, ticker)
             current_price = safe_float(snap.price if snap is not None else None)
-            if current_price is None or current_price <= 0:
+            if (
+                current_price is None or current_price <= 0
+                or str(getattr(snap, "ticker", "") or "").strip().upper() != ticker
+            ):
                 return {
                     "alert_valid": False,
                     "skip_session_context": True,
