@@ -76,7 +76,8 @@ _DECLINED_ALERT_RE = re.compile(
     r"(?:(?:an?|any|the|my|price)\s+)*(?:alerts?|reminders?|notifications?)\b"
     r"|\b(?:(?:do\s+not|don['’]?t|no\s+longer)\s+(?:want|need)|no\s+need\s+for)\s+"
     r"(?:(?:an?|any|the|my)\s+)+"
-    r"[a-z0-9][a-z0-9._-]{0,31}\s+(?:price\s+)?(?:alerts?|reminders?|notifications?)\b",
+    r"[a-z0-9][a-z0-9._-]{0,31}\s+(?:price\s+)?(?:alerts?|reminders?|notifications?)\b"
+    r"|^\s*(?:please[,\s]+)?no\s+(?:price\s+)?(?:alerts?|reminders?|notifications?)\s+(?:when|if)\b",
     re.IGNORECASE,
 )
 

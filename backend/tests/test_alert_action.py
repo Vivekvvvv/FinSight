@@ -1012,6 +1012,9 @@ async def test_graph_declined_alert_cannot_modify_subscriptions(alert_storage, m
     "I do not want to set an alert when AAPL goes above 220",
     "I don't need to create a notification when AAPL drops below 80",
     "I no longer want to keep reminding me when AAPL goes above 220",
+    "No notifications when AAPL goes above 220",
+    "No alerts when AAPL drops below 80",
+    "No price reminders if AAPL moves over 3%",
 ])
 async def test_graph_unwanted_alert_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_disabled):
     from backend.graph.runner import GraphRunner
