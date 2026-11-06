@@ -125,6 +125,26 @@ def test_stooq_uses_previous_trading_close_for_older_quote(monkeypatch, days_sin
     assert snapshot.change_percent == pytest.approx(5.0)
 
 
+@pytest.mark.parametrize("row_order", [(0, 1), (1, 0)])
+def test_stooq_previous_close_uses_latest_date_instead_of_csv_order(monkeypatch, row_order):
+    from datetime import datetime, timedelta, timezone
+
+    quote_date = datetime.now(timezone.utc).date()
+    rows = [f"{quote_date - timedelta(days=2)},90.0", f"{quote_date - timedelta(days=1)},100.0"]
+    quote_response = SimpleNamespace(status_code=200, json=lambda: {"symbols": [{
+        "symbol": "AAPL.US", "date": quote_date.isoformat(), "close": 110.0,
+    }]})
+    history_response = SimpleNamespace(status_code=200, text="Date,Close\n" + "\n".join(rows[i] for i in row_order))
+    monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(
+        get=lambda url, **_kwargs: history_response if "/q/d/l/" in url else quote_response,
+    ))
+
+    snapshot = providers._fetch_with_stooq("AAPL")
+
+    assert snapshot is not None
+    assert snapshot.change_percent == pytest.approx(10.0)
+
+
 def _mock_fetchers(monkeypatch, snapshots):
     monkeypatch.setattr(providers, "_PRICE_CACHE", {})
     calls = []

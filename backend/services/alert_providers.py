@@ -337,9 +337,9 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
                     raw = row.get("Close") or row.get("Zamkniecie")
                     value = _positive_finite_float(raw)
                     if value is not None and row_date and row_date < quote_iso:
-                        closes.append(value)
+                        closes.append((row_date, value))
                 if closes:
-                    prev = closes[-1]
+                    prev = max(closes, key=lambda row: row[0])[1]
         except Exception as exc:
             logger.debug('Stooq history fetch failed')
             prev = None
