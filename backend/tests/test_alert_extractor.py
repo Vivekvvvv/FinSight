@@ -123,6 +123,35 @@ def test_alert_extractor_pct_mode():
 
 
 @pytest.mark.parametrize("query", [
+    "AAPL 涨幅不超过3%时提醒我",
+    "AAPL 没有涨3%时提醒我",
+    "Notify me if AAPL does not move over 3%",
+    "Notify me if AAPL doesn't rise 3%",
+    "Notify me if AAPL moves no more than 3%",
+    "Notify me if AAPL isn’t up by 3%",
+])
+def test_negated_percentage_condition_requires_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
+    assert result["clarify"]["reason"] == "alert_unsupported_pct_condition"
+
+
+@pytest.mark.parametrize("query", [
+    "Do not forget to notify me if AAPL moves over 3%",
+    "Notify me if AAPL moves over 3%; I do not want to buy it",
+    "不要买入 AAPL，涨跌超过3%时提醒我",
+])
+def test_unrelated_negation_keeps_percentage_alert(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_threshold"] == 3.0
+
+
+@pytest.mark.parametrize("query", [
     "Notify me about AAPL turnover 220 USD",
     "Notify me about AAPL format220",
     "Notify me about AAPL rollover 5%",

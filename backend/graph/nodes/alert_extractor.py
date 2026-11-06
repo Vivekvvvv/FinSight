@@ -41,6 +41,13 @@ _PCT_THRESHOLD_RE = re.compile(
     re.IGNORECASE,
 )
 
+_NEGATED_PCT_CONDITION_RE = re.compile(
+    r"(?:不|没(?:有)?|未|\b(?:not|no|isn['’]t|doesn['’]t|don['’]t)\s+)"
+    r"(?:(?:rises?|drops?|falls?|moves?|changes?|fluctuates?)\s+)?"
+    + _PCT_THRESHOLD_RE.pattern,
+    re.IGNORECASE,
+)
+
 # Explicit denial blocks writes; "don't forget" remains an affirmative request.
 _DECLINED_ALERT_RE = re.compile(
     r"(?:不要|(?<![特分])别|勿|不用|不必|无需|不需要|不想)"
@@ -215,6 +222,15 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
         alert_params["price_target"] = float(price_target_match.group("price").replace(",", ""))
         alert_params["direction"] = next((value for value in price_directions if value is not None), None)
     elif pct_match:
+        if _NEGATED_PCT_CONDITION_RE.search(query):
+            draft = "当前涨跌幅提醒只支持绝对涨跌幅达到指定百分比，无法按否定或上限条件触发。未创建或修改提醒，请提供达到的百分比阈值。"
+            return {
+                "alert_valid": False,
+                "skip_session_context": True,
+                "alert_params": alert_params,
+                "clarify": {"needed": True, "reason": "alert_unsupported_pct_condition", "question": draft},
+                "artifacts": {"draft_markdown": draft},
+            }
         alert_params["alert_mode"] = "price_change_pct"
         alert_params["price_threshold"] = float(pct_match.group("pct"))
 
