@@ -326,6 +326,20 @@ def test_leading_decimal_target_keeps_full_amount(query, expected_price):
     assert result["alert_params"]["price_target"] == expected_price
 
 
+@pytest.mark.parametrize("query", [
+    "Notify me when AAPL goes above 220 cents",
+    "Notify me when AAPL goes above 220 CENTS",
+    "Notify me when AAPL goes above 220 pence",
+    "AAPL 涨到220美分时提醒我",
+])
+def test_fractional_currency_unit_cannot_be_dropped_from_target(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["alert_params"]["price_target"] is None
+    assert result["clarify"]["needed"] is True
+
+
 @pytest.mark.parametrize("value,expected_price", [
     ("+220", 220.0), ("-80", -80.0), ("+.5", 0.5), ("-.5", -0.5),
 ])
