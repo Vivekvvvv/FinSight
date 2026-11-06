@@ -177,6 +177,13 @@ class SubscriptionRequest(BaseModel):
             raise ValueError(f"unsupported risk_threshold: {v}")
         return normalized
 
+    @model_validator(mode="after")
+    def require_price_target_settings(self) -> "SubscriptionRequest":
+        if self.alert_mode == "price_target" and "price_change" in (self.alert_types or ["price_change", "news"]):
+            if self.price_target is None or self.direction is None:
+                raise ValueError("price_target alerts require price_target and direction")
+        return self
+
 
 class ScreenerRunRequest(BaseModel):
     market: Literal["US", "CN", "HK"] = Field("US", description="market scope")

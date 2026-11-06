@@ -172,3 +172,56 @@ def test_subscribe_invalid_ticker_returns_bad_request_without_writing(tmp_path, 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid ticker"
     assert service.subscriptions_file.read_bytes() == before
+
+
+@pytest.mark.parametrize("existing_subscription", [False, True])
+@pytest.mark.parametrize("settings", [
+    {}, {"price_target": 120.0}, {"direction": "above"},
+])
+def test_incomplete_price_target_request_cannot_write_or_consume_quota(
+    tmp_path, monkeypatch, settings, existing_subscription,
+):
+    from backend.services import entitlements
+
+    _configure_test_storage(tmp_path)
+    monkeypatch.setattr(entitlements, "PLANS_FILE", tmp_path / "plans.json")
+    monkeypatch.setattr(entitlements, "_service_instance", entitlements.EntitlementsService())
+    service = subs.get_subscription_service()
+    email = "user@example.com"
+    for ticker in ("AAPL", "MSFT"):
+        assert service.subscribe(email, ticker)
+    if existing_subscription:
+        assert service.subscribe(
+            email, "TSLA", alert_types=["price_change"],
+            alert_mode="price_target", price_target=80.0, direction="below",
+        )
+    before = service.subscriptions_file.read_bytes()
+    with TestClient(app) as client:
+        invalid = client.post("/api/subscribe", json={
+            "email": email, "ticker": "TSLA", "alert_types": ["price_change"],
+            "alert_mode": "price_target", **settings,
+        })
+
+        assert invalid.status_code == 422
+        assert service.subscriptions_file.read_bytes() == before
+        valid = client.post("/api/subscribe", json={
+            "email": email, "ticker": "TSLA", "alert_types": ["price_change"],
+            "alert_mode": "price_target", "price_target": 120.0, "direction": "above",
+        })
+
+    assert valid.status_code == 200
+    assert len(service.get_subscriptions(email)) == 3
+    saved = next(item for item in service.get_subscriptions(email) if item["ticker"] == "TSLA")
+    assert saved["price_target"] == 120.0
+    assert saved["direction"] == "above"
+
+
+def test_price_target_settings_are_optional_when_price_alerts_are_not_enabled():
+    from backend.api.schemas import SubscriptionRequest
+
+    request = SubscriptionRequest(
+        email="user@example.com", ticker="AAPL", alert_types=["news"], alert_mode="price_target",
+    )
+
+    assert request.alert_types == ["news"]
+    assert request.price_target is None
