@@ -171,6 +171,21 @@ def test_chinese_movement_to_price_keeps_explicit_direction(movement, price, exp
     assert result["alert_params"]["direction"] == expected_direction
 
 
+@pytest.mark.parametrize("query,price,expected_direction", [
+    ("Notify me when AAPL goes above $220", 220.0, "above"),
+    ("Notify me when AAPL drops to $12,500.75", 12500.75, "below"),
+    ("Notify me when AAPL hits $220", 220.0, None),
+    ("AAPL 涨到$220时提醒我", 220.0, "above"),
+])
+def test_dollar_prefixed_target_keeps_price_and_direction(query, price, expected_direction):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == "price_target"
+    assert result["alert_params"]["price_target"] == price
+    assert result["alert_params"]["direction"] == expected_direction
+
+
 @pytest.mark.parametrize("query", [
     "Notify me when AAPL goes to 90",
     "Notify me when AAPL hits 220; risk rises to a higher level",
@@ -213,6 +228,9 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me when AAPL rises to 220 or falls to 220",
     "AAPL 涨至 220 或跌至 220 时提醒我",
     "AAPL 涨到 220 或跌至 220 时提醒我",
+    "Notify me when AAPL goes above $220 or below 180",
+    "Notify me when AAPL goes above 220 or below $180",
+    "Notify me when AAPL goes above $220 or below $220",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -275,6 +293,8 @@ def test_grouped_target_prices_are_not_truncated(query, expected_price):
     "Notify me when AAPL goes above 1,0000 USD",
     "AAPL 涨到 1，000 美元时提醒我",
     "Notify me when AAPL hits 1,000%",
+    "Notify me when AAPL goes above $1,00",
+    "Notify me when AAPL hits $12.5%",
 ])
 def test_invalid_or_percentage_grouped_price_requests_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -290,6 +310,7 @@ def test_invalid_or_percentage_grouped_price_requests_clarification(query):
     "Notify me when AAPL goes below 1E+3 USD",
     "AAPL 涨到 2e-3 元时提醒我",
     "AAPL 涨到 1,000e3 元时提醒我",
+    "Notify me when AAPL goes above $1e3",
 ])
 def test_scientific_target_price_requires_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

@@ -535,6 +535,9 @@ async def test_graph_scientific_target_cannot_write_subscriptions(alert_storage,
     "TSLA 涨到 220 或跌到 220 时提醒我",
     "TSLA 涨到 220 或跌至 220 时提醒我",
     "TSLA 涨至 220 或跌到 220 时提醒我",
+    "Notify me when TSLA goes above $220 or below 180",
+    "Notify me when TSLA goes above 220 or below $180",
+    "Notify me when TSLA goes above $220 or below $220",
 ])
 async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
     from backend.graph.runner import GraphRunner
@@ -579,6 +582,7 @@ async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_sto
 @pytest.mark.parametrize("query,expected_price", [
     ("TSLA 涨到 1,000 美元时提醒我", 1000.0),
     ("Notify me when TSLA goes below 12,500.75 USD", 12500.75),
+    ("Notify me when TSLA goes below $12,500.75", 12500.75),
 ])
 async def test_graph_grouped_target_price_uses_full_amount(alert_storage, monkeypatch, query, expected_price):
     from backend.graph.runner import GraphRunner
@@ -707,6 +711,8 @@ async def test_graph_background_direction_without_quote_cannot_consume_quota(ale
     ("Notify me when AAPL dips to 90", 90.0, "below"),
     ("Notify me when AAPL rises to 120", 120.0, "above"),
     ("Notify me when AAPL climbs to 120", 120.0, "above"),
+    ("Notify me when AAPL drops to $90", 90.0, "below"),
+    ("Notify me when AAPL goes above $120", 120.0, "above"),
 ])
 async def test_graph_missing_quote_requires_explicit_direction_before_subscribing(alert_storage, monkeypatch, query, target, expected_direction):
     from backend.graph.runner import GraphRunner

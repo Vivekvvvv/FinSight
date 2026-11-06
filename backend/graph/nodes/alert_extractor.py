@@ -16,7 +16,7 @@ _PRICE_TARGET_RE = re.compile(
     r"(?:drops?|falls?|goes?|dips?)\s+(?:below|under|to)\s*|"
     r"(?:rises?|climbs?|goes?)\s+(?:above|over|to)\s*|"
     r"(?:above|below|over|under|at)\s*)"
-    r")\s*"
+    r")\s*(?:\$\s*)?"
     r"(?P<price>(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
     # Reject incomplete numbers and percentages without matching a shorter prefix.
     r"(?!\d|[.,，]\d|e[+-]?\d|\s*(?:%|percent|个点|pct))"
