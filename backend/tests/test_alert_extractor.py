@@ -504,6 +504,9 @@ def test_affirmative_alert_request_with_unrelated_negation_still_proceeds(query)
     "Turn off AAPL alerts when it goes above 220",
     "Switch off AAPL notifications when it falls below 80",
     "Turn off the AAPL above $1,000.5 reminder",
+    "Turn AAPL alerts off when it goes above 220",
+    "Switch AAPL reminders off when it falls below 80",
+    "Turn the AAPL above $1,000.5 reminder off",
 ])
 def test_cancellation_request_cannot_create_alert(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -527,6 +530,9 @@ def test_cancellation_request_cannot_create_alert(query):
     "Don't turn off existing alerts; notify me when AAPL goes above 220",
     "Do not switch off existing alerts; notify me when AAPL goes above 220",
     "Turn off the lights; notify me when AAPL goes above 220",
+    "Don't turn AAPL alerts off; notify me when it goes above 220",
+    "Do not switch AAPL reminders off; notify me when it goes above 220",
+    "Turn the lights off; notify me when AAPL goes above 220",
 ])
 def test_negated_or_unrelated_cancellation_keeps_affirmative_alert_request(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

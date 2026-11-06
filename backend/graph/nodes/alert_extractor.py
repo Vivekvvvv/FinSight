@@ -57,6 +57,8 @@ _CANCEL_ALERT_RE = re.compile(
     r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*(?:提醒|预警|通知|订阅))"
     r"|\b(?:cancel|remove|delete|disable|stop|(?:turn|switch)\s+off)\b"
     r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|notifications?|reminders?|subscriptions?)\b)"
+    r"|\b(?:turn|switch)\b"
+    r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|notifications?|reminders?|subscriptions?)\s+off\b)"
     r"|\bunsubscribe\b",
     re.IGNORECASE,
 )
