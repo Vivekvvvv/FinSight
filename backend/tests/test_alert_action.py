@@ -875,6 +875,7 @@ async def test_graph_background_direction_without_quote_cannot_consume_quota(ale
     ("Notify me when AAPL drops below .5", 0.5, "below"),
     ("Set a reminder when AAPL drops below 90", 90.0, "below"),
     ("Create a notification when AAPL goes above 120", 120.0, "above"),
+    ("Keep reminding me when AAPL goes above 120", 120.0, "above"),
 ])
 async def test_graph_missing_quote_requires_explicit_direction_before_subscribing(alert_storage, monkeypatch, query, target, expected_direction):
     from backend.graph.runner import GraphRunner
@@ -1013,6 +1014,7 @@ async def test_graph_unwanted_alert_cannot_write_subscriptions(alert_storage, mo
     "Remove my reminder when AAPL goes above 220",
     "Stop notifying me when AAPL goes above 220",
     "Stop alerting me when AAPL goes above 220",
+    "Stop reminding me when AAPL goes above 220",
 ])
 async def test_graph_cancellation_cannot_modify_subscriptions(alert_storage, monkeypatch, query, existing_disabled):
     from backend.graph.runner import GraphRunner

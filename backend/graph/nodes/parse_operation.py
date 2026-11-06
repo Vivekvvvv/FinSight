@@ -186,7 +186,7 @@ def parse_operation(state: GraphState) -> dict:
         keyword_hits = hits
         guardrail_a_hit = "backtest"
 
-    elif (hits := _match_any(_ALERT_KEYWORDS, lowered) + re.findall(r"(?<![a-z0-9_])(?:reminders?|notifications?)(?![a-z0-9_])", lowered)):
+    elif (hits := _match_any(_ALERT_KEYWORDS, lowered) + re.findall(r"(?<![a-z0-9_])(?:reminders?|notifications?|reminding\s+me)(?![a-z0-9_])", lowered)):
         op = "alert_set"
         confidence = 0.88
         source = "keyword"

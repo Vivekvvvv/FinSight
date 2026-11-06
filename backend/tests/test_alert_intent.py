@@ -41,6 +41,8 @@ def test_parse_operation_alert_priority_over_price_keyword():
     "Create a notification when AAPL goes above 220",
     "Turn AAPL reminders off when it falls below 80",
     "Remove my reminder when AAPL goes above 220",
+    "Keep reminding me when AAPL goes above 220",
+    "Stop reminding me when AAPL goes above 220",
 ])
 def test_reminder_and_notification_nouns_route_to_alert_flow(query):
     result = parse_operation({
@@ -55,6 +57,8 @@ def test_reminder_and_notification_nouns_route_to_alert_flow(query):
 @pytest.mark.parametrize("query", [
     "AAPL reminder_count220",
     "AAPL notifications_cache220",
+    "AAPL reminding_me_cache220",
+    "I am reminding myself about AAPL earnings",
 ])
 def test_embedded_reminder_and_notification_names_do_not_route_to_alert(query):
     result = parse_operation({
