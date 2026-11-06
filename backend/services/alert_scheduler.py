@@ -582,7 +582,7 @@ class RiskAlertScheduler:
                 logger.warning('Risk price fetch failed')
                 price_unavailable += 1
                 continue
-            if snapshot is None:
+            if snapshot is None or str(getattr(snapshot, "ticker", "") or "").strip().upper() != ticker:
                 price_unavailable += 1
                 continue
 

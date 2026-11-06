@@ -125,6 +125,35 @@ def test_risk_scheduler_skips_when_below_threshold(subscription_service_tmp):
     assert email.sent == []
 
 
+def test_risk_scheduler_rejects_unrelated_quote_before_marking_alert(subscription_service_tmp):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["risk"], risk_threshold="high")
+    before = service.subscriptions_file.read_bytes()
+    scheduler = RiskAlertScheduler(
+        service, email,
+        lambda _ticker: PriceSnapshot(ticker="TSLA", price=100.0, change_percent=-9.0),
+    )
+
+    assert scheduler.run_once() == []
+    assert email.sent == []
+    assert scheduler.last_price_unavailable == 1
+    assert service.subscriptions_file.read_bytes() == before
+
+
+def test_risk_scheduler_accepts_normalized_quote_ticker(subscription_service_tmp):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["risk"], risk_threshold="high")
+    scheduler = RiskAlertScheduler(
+        service, email,
+        lambda _ticker: PriceSnapshot(ticker=" aapl ", price=100.0, change_percent=-9.0),
+    )
+
+    assert len(scheduler.run_once()) == 1
+    assert scheduler.last_price_unavailable == 0
+
+
 def test_risk_scheduler_isolates_price_fetch_failure(subscription_service_tmp, monkeypatch):
     service = subscription_service_tmp
     email = FakeEmailService()
