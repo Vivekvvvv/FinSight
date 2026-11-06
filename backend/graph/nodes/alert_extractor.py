@@ -9,6 +9,7 @@ from backend.graph.state import GraphState
 _PRICE_TARGET_RE = re.compile(
     r"(?:"
     # Chinese patterns
+    r"不高于|不大于|不低于|不小于|"
     r"涨到|跌到|涨至|跌至|跌破|低于|小于|突破|高于|大于|到达|到|达到|至|"
     r"(?<![<>=!])(?:[<>]=?|[≤≥])|"
     # English patterns - price target
@@ -85,6 +86,10 @@ def _extract_direction(query: str) -> str | None:
     above_tokens = ("涨到", "涨至", "突破", "高于", "大于", ">", "≥")
     price_triggers = " ".join(match.group(0) for match in _PRICE_TARGET_RE.finditer(lowered))
 
+    if any(token in lowered for token in ("不高于", "不大于")):
+        return "below"
+    if any(token in lowered for token in ("不低于", "不小于")):
+        return "above"
     if re.search(r"(?<![a-z_])(?:not|no)\s+(?:above|over|(?:higher|greater)\s+than)(?![a-z_])", lowered):
         return "below"
     if re.search(r"(?<![a-z_])(?:not|no)\s+(?:below|under|(?:lower|less)\s+than)(?![a-z_])", lowered):
