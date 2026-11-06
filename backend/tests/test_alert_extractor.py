@@ -351,6 +351,10 @@ def test_percentage_with_unrecognized_trigger_requests_clarification(query):
     "I do not need a reminder when AAPL goes below 80",
     "No need for an alert when AAPL goes above 220",
     "No need for notifications when AAPL moves over 3%",
+    "不要在 AAPL 涨到 1,000 美元时提醒我",
+    "不要在 AAPL 涨到 12,500.75 美元时提醒我",
+    "Do not create an AAPL above 125.5 alert",
+    "Don't add an AAPL above 1,000.5 alert",
 ])
 def test_declined_alert_creation_cannot_proceed(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

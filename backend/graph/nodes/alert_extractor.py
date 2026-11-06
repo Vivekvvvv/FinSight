@@ -41,9 +41,9 @@ _PCT_THRESHOLD_RE = re.compile(
 _DECLINED_ALERT_RE = re.compile(
     r"(?:不要|(?<![特分])别|勿|不用|不必|无需|不需要|不想)"
     r"(?!\s*(?:忘记|忘了|漏掉|漏了|错过|取消|撤销|删除|关闭|停用|停止))"
-    r"[^。！？；,，;\n]*(?:提醒|预警|通知|订阅)"
+    r"(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*(?:提醒|预警|通知|订阅)"
     r"|\b(?:do\s+not|don['’]?t|never|no\s+need\s+to)\s+"
-    r"(?:(?:set|create|add|enable)\b[^.!?,;\n]*\b(?:alerts?|reminders?|notifications?)\b"
+    r"(?:(?:set|create|add|enable)\b(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|reminders?|notifications?)\b"
     r"|(?:subscribe|alert|notify|remind)\b)"
     r"|\b(?:(?:do\s+not|don['’]?t)\s+(?:want|need)|no\s+need\s+for)\s+"
     r"(?:(?:an?|any|price)\s+)*(?:alerts?|reminders?|notifications?)\b",
