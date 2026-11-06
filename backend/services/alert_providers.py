@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
+from backend.utils.quote import safe_float
+
 logger = logging.getLogger(__name__)
 
 def _positive_finite_float(value: object) -> Optional[float]:
@@ -60,6 +62,11 @@ def fetch_price_snapshot(ticker: str) -> Optional[PriceSnapshot]:
     for fetcher in fetchers:
         snapshot = fetcher(ticker)
         if snapshot:
+            price = _positive_finite_float(snapshot.price)
+            if price is None:
+                continue
+            snapshot.price = price
+            snapshot.change_percent = safe_float(snapshot.change_percent)
             if snapshot.change_percent is None:
                 price_only_snapshot = price_only_snapshot or snapshot
                 continue
@@ -397,10 +404,16 @@ def _get_cached_snapshot(ticker: str) -> Optional[PriceSnapshot]:
         age = now - float(ts)
     except (TypeError, ValueError, OverflowError):
         age = math.inf
+    price = _positive_finite_float(getattr(snap, "price", None))
+    change_percent = safe_float(getattr(snap, "change_percent", None))
     if (
         math.isfinite(age) and 0 <= age <= _CACHE_TTL
         and str(getattr(snap, "ticker", "") or "").strip().upper() == ticker.strip().upper()
+        and price is not None
+        and (snap.change_percent is None or change_percent is not None)
     ):
+        snap.price = price
+        snap.change_percent = change_percent
         return snap
     _PRICE_CACHE.pop(ticker.upper(), None)
     return None

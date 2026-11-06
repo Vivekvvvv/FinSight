@@ -203,3 +203,74 @@ def test_matching_cached_ticker_accepts_case_and_spaces_without_fetch(monkeypatc
 
     assert providers.fetch_price_snapshot("AAPL") == snapshot
     assert calls == []
+
+
+@pytest.mark.parametrize("origin", ["provider", "cache"])
+@pytest.mark.parametrize("field,value", [
+    ("price", None), ("price", 0), ("price", -1), ("price", True), ("price", "bad"),
+    ("price", float("nan")), ("price", float("inf")), ("price", "1e309"),
+    ("change_percent", True), ("change_percent", "bad"),
+    ("change_percent", float("nan")), ("change_percent", float("inf")),
+    ("change_percent", float("-inf")), ("change_percent", "1e309"),
+])
+def test_invalid_quote_numbers_do_not_block_source_fallback(monkeypatch, origin, field, value):
+    invalid = providers.PriceSnapshot("AAPL", 105.0, 5.0)
+    setattr(invalid, field, value)
+    complete = providers.PriceSnapshot("AAPL", 105.0, 5.0)
+    sources = [invalid, complete, None, None] if origin == "provider" else [complete, None, None, None]
+    calls = _mock_fetchers(monkeypatch, sources)
+    if origin == "cache":
+        providers._PRICE_CACHE["AAPL"] = (invalid, providers.time.time())
+
+    assert providers.fetch_price_snapshot("AAPL") is complete
+    assert calls == (["_fetch_with_stooq", "_fetch_with_yfinance"] if origin == "provider" else ["_fetch_with_stooq"])
+    assert providers._get_cached_snapshot("AAPL") is complete
+
+
+def test_overflowing_yfinance_percentage_falls_back_to_healthy_quote(monkeypatch):
+    yfinance_fetcher = providers._fetch_with_yfinance
+    complete = providers.PriceSnapshot("AAPL", 105.0, 5.0)
+    calls = _mock_fetchers(monkeypatch, [None, None, complete, None])
+    monkeypatch.setattr(providers, "_fetch_with_yfinance", yfinance_fetcher)
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
+        Ticker=lambda _ticker: SimpleNamespace(fast_info={"last_price": 1e308, "previous_close": 1e-308}),
+    ))
+
+    assert providers.fetch_price_snapshot("AAPL") is complete
+    assert providers.fetch_price_snapshot("AAPL") is complete
+    assert calls == ["_fetch_with_stooq", "_fetch_with_yahoo_quote"]
+
+
+@pytest.mark.parametrize("change_percent", [None, 0.0, -5.0])
+def test_valid_cached_quote_numbers_keep_cache_hit(monkeypatch, change_percent):
+    calls = _mock_fetchers(monkeypatch, [None, None, None, None])
+    snapshot = providers.PriceSnapshot("AAPL", 105.0, change_percent)
+    providers._PRICE_CACHE["AAPL"] = (snapshot, providers.time.time())
+
+    assert providers.fetch_price_snapshot("AAPL") is snapshot
+    assert calls == []
+
+
+def test_invalid_percentage_keeps_valid_price_when_fallback_sources_fail(monkeypatch):
+    partial = providers.PriceSnapshot("AAPL", 105.0, float("inf"))
+    calls = _mock_fetchers(monkeypatch, [partial, None, None, None])
+
+    snapshot = providers.fetch_price_snapshot("AAPL")
+
+    assert snapshot is not None
+    assert snapshot.price == 105.0
+    assert snapshot.change_percent is None
+    assert len(calls) == 4
+    assert providers._get_cached_snapshot("AAPL") is snapshot
+
+
+def test_provider_numeric_strings_are_normalized_without_extra_fallback(monkeypatch):
+    snapshot = providers.PriceSnapshot("AAPL", "105", "-5")
+    calls = _mock_fetchers(monkeypatch, [snapshot, None, None, None])
+
+    result = providers.fetch_price_snapshot("AAPL")
+
+    assert result is not None
+    assert result.price == 105.0
+    assert result.change_percent == -5.0
+    assert calls == ["_fetch_with_stooq"]
