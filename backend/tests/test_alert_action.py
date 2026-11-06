@@ -533,6 +533,8 @@ async def test_graph_scientific_target_cannot_write_subscriptions(alert_storage,
     "TSLA 涨到 220 或跌到 180 时提醒我",
     "Notify me if TSLA moves over 3% or falls 5%",
     "TSLA 涨到 220 或跌到 220 时提醒我",
+    "TSLA 涨到 220 或跌至 220 时提醒我",
+    "TSLA 涨至 220 或跌到 220 时提醒我",
 ])
 async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
     from backend.graph.runner import GraphRunner
@@ -696,6 +698,10 @@ async def test_graph_background_direction_without_quote_cannot_consume_quota(ale
 @pytest.mark.asyncio
 @pytest.mark.parametrize("query,target,expected_direction", [
     ("AAPL 跌到 90 美元提醒我", 90.0, "below"),
+    ("AAPL 跌至 90 美元提醒我", 90.0, "below"),
+    ("AAPL 下跌至90美元提醒我", 90.0, "below"),
+    ("AAPL 涨至 120 美元提醒我", 120.0, "above"),
+    ("AAPL 上涨至120美元提醒我", 120.0, "above"),
     ("Notify me when AAPL drops to 90", 90.0, "below"),
     ("Notify me when AAPL falls to 90", 90.0, "below"),
     ("Notify me when AAPL dips to 90", 90.0, "below"),

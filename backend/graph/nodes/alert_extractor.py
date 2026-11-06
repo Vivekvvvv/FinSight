@@ -9,7 +9,7 @@ from backend.graph.state import GraphState
 _PRICE_TARGET_RE = re.compile(
     r"(?:"
     # Chinese patterns
-    r"涨到|跌到|到达|到|达到|至|"
+    r"涨到|跌到|涨至|跌至|到达|到|达到|至|"
     # English patterns - price target
     r"(?<![a-z0-9_])(?:price\s+(?:of|at|to)|target\s+price|reaches?|hits?|"
     # English patterns - directional
@@ -74,8 +74,8 @@ def _pick_ticker(state: GraphState) -> str | None:
 
 def _extract_direction(query: str) -> str | None:
     lowered = str(query or "").lower()
-    below_tokens = ("跌到", "跌破", "低于", "小于", "<=")
-    above_tokens = ("涨到", "突破", "高于", "大于", ">=")
+    below_tokens = ("跌到", "跌至", "跌破", "低于", "小于", "<=")
+    above_tokens = ("涨到", "涨至", "突破", "高于", "大于", ">=")
     price_triggers = " ".join(match.group(0) for match in _PRICE_TARGET_RE.finditer(lowered))
 
     if (
