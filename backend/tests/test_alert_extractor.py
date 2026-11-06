@@ -195,6 +195,13 @@ def test_unrelated_negation_keeps_percentage_alert(query):
     "Notify me if AAPL moves 3% to -5%",
     "Notify me if AAPL moves .5% to +.75%",
     "AAPL 涨跌超过3%至-5%时提醒我",
+    "Notify me if AAPL moves 3-5%",
+    "Notify me if AAPL moves .5 to .75 per cent",
+    "Notify me if AAPL moves 3% or rises 3-5%",
+    "Notify me if AAPL rises 3-5% or moves 3%",
+    "Notify me if AAPL moves 3% or rises .5-.75%",
+    "Notify me if AAPL moves 3% or rises 4 to 5 percent",
+    "AAPL 涨跌超过3%或涨跌超过3至5%时提醒我",
 ])
 def test_percentage_range_requires_single_threshold(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -653,6 +660,8 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "AAPL 未高于220元或高于220元时提醒我",
     "Notify me when AAPL is not going above 220 or above 220",
     "Notify me when AAPL is below 220 or not going below 220",
+    "Notify me if AAPL moves 3% or rises 3-5%",
+    "Notify me if AAPL rises 3-5% or moves 3%",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

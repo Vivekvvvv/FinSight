@@ -47,7 +47,9 @@ _PCT_THRESHOLD_RE = re.compile(
     r"(?:up|down)\s*(?:by\s*)?|"
     r"(?:more\s+than|exceeds?|over)\s*)"
     r")\s*"
-    r"(?P<pct>[+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(?:[%％](?!\d)|(?:percent|per\s+cent|pct)(?![a-z0-9_])|个点)",
+    r"(?P<pct>[+-]?(?:\d+(?:\.\d+)?|\.\d+))"
+    r"(?:\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?P<pct_end>[+-]?(?:\d+(?:\.\d+)?|\.\d+)))?"
+    r"\s*(?:[%％](?!\d)|(?:percent|per\s+cent|pct)(?![a-z0-9_])|个点)",
     re.IGNORECASE,
 )
 
@@ -222,6 +224,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
     price_directions = {_extract_direction(match.group(0)) for match in _PRICE_TARGET_RE.finditer(query)}
     if (
         len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions
+        or any(match.group("pct_end") is not None for match in _PCT_THRESHOLD_RE.finditer(query))
         or _PCT_RANGE_RE.search(query) or _PRICE_RANGE_RE.search(query) or _COMPOUND_PRICE_RE.search(query)
     ):
         draft = "检测到多个不同的提醒条件，未创建或修改提醒。请一次只提供一个目标价格及方向，或一个涨跌幅条件。"
