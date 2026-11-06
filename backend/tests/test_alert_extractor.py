@@ -387,6 +387,20 @@ def test_scaled_target_price_requires_plain_amount(query):
 
 
 @pytest.mark.parametrize("query", [
+    "Notify me when AAPL goes above 220-230",
+    "AAPL 涨到 220 至 230 元时提醒我",
+    "AAPL 涨到 1/2 元时提醒我",
+    "Notify me when AAPL goes above 220~230",
+    "Notify me when AAPL goes above 220 to 230",
+])
+def test_range_or_fraction_target_requires_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["clarify"]["needed"] is True
+
+
+@pytest.mark.parametrize("query", [
     "Alert me when AAPL hits 12.5%",
     "AAPL 涨到 12.5% 提醒我",
 ])
