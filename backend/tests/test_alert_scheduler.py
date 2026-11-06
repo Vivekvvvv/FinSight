@@ -853,7 +853,7 @@ def test_stooq_snapshot_change_uses_previous_close_not_open(monkeypatch):
         status_code = 200
 
         def json(self):
-            return {"symbols": [{"close": "105.0", "open": "104.9"}]}
+            return {"symbols": [{"symbol": "AAPL.US", "close": "105.0", "open": "104.9"}]}
 
     class _HistResp:
         status_code = 200
@@ -884,7 +884,7 @@ def test_stooq_snapshot_change_none_when_history_unavailable(monkeypatch):
         status_code = 200
 
         def json(self):
-            return {"symbols": [{"close": "105.0", "open": "104.9"}]}
+            return {"symbols": [{"symbol": "AAPL.US", "close": "105.0", "open": "104.9"}]}
 
     class _FailResp:
         status_code = 500

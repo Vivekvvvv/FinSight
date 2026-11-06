@@ -306,6 +306,8 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
         if not data:
             return None
         item = data[0]
+        if str(item.get("symbol") or "").strip().lower() != symbol:
+            return None
         close = item.get("close")
         if close in (None, "N/D"):
             return None

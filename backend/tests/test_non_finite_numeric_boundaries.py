@@ -912,7 +912,7 @@ def test_stooq_rejects_non_finite_snapshot_price(monkeypatch, value):
 
         @staticmethod
         def json():
-            return {"symbols": [{"close": value}]}
+            return {"symbols": [{"symbol": "AAPL.US", "close": value}]}
 
     monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(get=lambda *_args, **_kwargs: FakeResponse()))
 
@@ -929,7 +929,7 @@ def test_stooq_ignores_non_finite_historical_close(monkeypatch, value):
 
         @staticmethod
         def json():
-            return {"symbols": [{"close": 100.0}]}
+            return {"symbols": [{"symbol": "AAPL.US", "close": 100.0}]}
 
     class HistoryResponse:
         status_code = 200

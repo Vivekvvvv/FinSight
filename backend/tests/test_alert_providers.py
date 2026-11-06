@@ -84,3 +84,20 @@ def test_yahoo_chart_accepts_normalized_matching_symbol(monkeypatch):
     assert snapshot.ticker == "AAPL"
     assert snapshot.price == 105.0
     assert snapshot.change_percent == pytest.approx(5.0)
+
+
+@pytest.mark.parametrize("symbol", ["TSLA.US", None, ""])
+def test_stooq_rejects_unidentified_or_unrelated_quote(monkeypatch, symbol):
+    _mock_response(monkeypatch, {"symbols": [{"symbol": symbol, "close": 120.0}]})
+
+    assert providers._fetch_with_stooq("AAPL") is None
+
+
+def test_stooq_accepts_normalized_matching_symbol(monkeypatch):
+    _mock_response(monkeypatch, {"symbols": [{"symbol": " aapl.US ", "close": 105.0}]})
+
+    snapshot = providers._fetch_with_stooq("AAPL")
+
+    assert snapshot is not None
+    assert snapshot.ticker == "AAPL"
+    assert snapshot.price == 105.0
