@@ -202,6 +202,7 @@ def test_generic_or_unrelated_to_phrase_does_not_supply_direction(query):
 @pytest.mark.parametrize("threshold,unit", [
     (5.0, "%"), (12.5, "%"), (12.5, " percent"),
     (25.0, "pct"), (12.5, " 个点"), (12.5, " PERCENT"),
+    (3.0, "％"), (12.5, " per cent"), (12.5, " PER CENT"),
 ])
 def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, unit):
     result = alert_extractor({

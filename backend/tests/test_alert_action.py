@@ -370,7 +370,8 @@ async def test_graph_alert_uses_authenticated_plan_after_context_normalization(a
 
 
 @pytest.mark.asyncio
-async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage, monkeypatch):
+@pytest.mark.parametrize("unit", ["%", "％", " per cent"])
+async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage, monkeypatch, unit):
     from backend.graph.runner import GraphRunner
 
     initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
@@ -379,7 +380,7 @@ async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage,
 
     state = await GraphRunner.create().ainvoke(
         thread_id="private:alice:default",
-        query="Notify me if AAPL moves over 12.5%",
+        query=f"Notify me if AAPL moves over 12.5{unit}",
         ui_context={
             "active_symbol": "AAPL", "user_email": "alice@example.invalid",
             "_authenticated_user": {"user_id": "alice", "role": "user"},
