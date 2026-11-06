@@ -152,6 +152,24 @@ def test_unrelated_negation_keeps_percentage_alert(query):
 
 
 @pytest.mark.parametrize("query", [
+    "Notify me if AAPL moves 3% to 5%",
+    "Notify me if AAPL moves over 3%-5%",
+    "Notify me if AAPL moves 3 percent to 5 percent",
+    "Notify me if AAPL moves 3 per cent to .5 per cent",
+    "AAPL 涨跌超过3%至5%时提醒我",
+    "AAPL 涨跌超过3％～5％时提醒我",
+    "Notify me if AAPL moves 3% to 5% or rises 6%",
+    "Notify me when AAPL goes above 220 or moves 3% to 5%",
+])
+def test_percentage_range_requires_single_threshold(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["alert_params"]["price_threshold"] is None
+    assert result["clarify"]["needed"] is True
+
+
+@pytest.mark.parametrize("query", [
     "Notify me about AAPL turnover 220 USD",
     "Notify me about AAPL format220",
     "Notify me about AAPL rollover 5%",

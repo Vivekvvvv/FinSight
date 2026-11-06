@@ -48,6 +48,11 @@ _NEGATED_PCT_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+_PCT_RANGE_RE = re.compile(
+    _PCT_THRESHOLD_RE.pattern + r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?:\d|\.\d)",
+    re.IGNORECASE,
+)
+
 # Explicit denial blocks writes; "don't forget" remains an affirmative request.
 _DECLINED_ALERT_RE = re.compile(
     r"(?:不要|(?<![特分])别|勿|不用|不必|无需|不需要|不想)"
@@ -203,7 +208,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
     }
     pct_thresholds = {float(match.group("pct")) for match in _PCT_THRESHOLD_RE.finditer(query)}
     price_directions = {_extract_direction(match.group(0)) for match in _PRICE_TARGET_RE.finditer(query)}
-    if len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions:
+    if len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions or _PCT_RANGE_RE.search(query):
         draft = "检测到多个不同的提醒条件，未创建或修改提醒。请一次只提供一个目标价格及方向，或一个涨跌幅条件。"
         return {
             "alert_valid": False,
