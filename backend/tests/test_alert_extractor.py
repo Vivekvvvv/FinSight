@@ -424,6 +424,31 @@ def test_fractional_currency_unit_cannot_be_dropped_from_target(query):
     assert result["clarify"]["needed"] is True
 
 
+@pytest.mark.parametrize("query", [
+    "Notify me when AAPL rises to 220 dollars and 50 cents",
+    "Notify me when AAPL goes above 220 USD 50 cents",
+    "AAPL 涨到220元5角时提醒我",
+    "AAPL 涨到220美元50美分时提醒我",
+    "AAPL 涨到220元50分时提醒我",
+])
+def test_compound_currency_amount_requires_full_decimal_price(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["alert_params"]["alert_mode"] is None
+    assert result["clarify"]["reason"] == "alert_conflicting_thresholds"
+
+
+def test_fractional_amount_in_another_clause_keeps_price_alert():
+    result = alert_extractor({
+        "query": "Notify me when AAPL goes above 220 USD; the fee is 50 cents",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
+
+
 @pytest.mark.parametrize("unit", ["EUR", "GBP", "euros", "pounds", "欧元", "英镑", "€", "£"])
 def test_unconverted_foreign_currency_target_requires_clarification(unit):
     result = alert_extractor({
