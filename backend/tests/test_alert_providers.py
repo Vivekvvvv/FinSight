@@ -159,3 +159,27 @@ def test_snapshot_fallback_keeps_price_only_quote_when_later_sources_fail(monkey
     assert snapshot == partial
     assert len(calls) == 4
     assert providers._get_cached_snapshot("AAPL") == partial
+
+
+@pytest.mark.parametrize("cached_ticker", ["TSLA", "", None])
+def test_mismatched_cached_quote_is_evicted_before_source_fallback(monkeypatch, cached_ticker):
+    complete = providers.PriceSnapshot("AAPL", 105.0, 5.0)
+    calls = _mock_fetchers(monkeypatch, [complete, None, None, None])
+    providers._PRICE_CACHE["AAPL"] = (
+        providers.PriceSnapshot(cached_ticker, 300.0, 10.0), providers.time.time(),
+    )
+
+    snapshot = providers.fetch_price_snapshot("AAPL")
+
+    assert snapshot == complete
+    assert calls == ["_fetch_with_stooq"]
+    assert providers._get_cached_snapshot("AAPL") == complete
+
+
+def test_matching_cached_ticker_accepts_case_and_spaces_without_fetch(monkeypatch):
+    calls = _mock_fetchers(monkeypatch, [None, None, None, None])
+    snapshot = providers.PriceSnapshot(" aapl ", 105.0, 5.0)
+    providers._PRICE_CACHE["AAPL"] = (snapshot, providers.time.time())
+
+    assert providers.fetch_price_snapshot("AAPL") == snapshot
+    assert calls == []

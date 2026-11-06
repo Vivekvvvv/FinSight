@@ -397,7 +397,10 @@ def _get_cached_snapshot(ticker: str) -> Optional[PriceSnapshot]:
         age = now - float(ts)
     except (TypeError, ValueError, OverflowError):
         age = math.inf
-    if math.isfinite(age) and 0 <= age <= _CACHE_TTL:
+    if (
+        math.isfinite(age) and 0 <= age <= _CACHE_TTL
+        and str(getattr(snap, "ticker", "") or "").strip().upper() == ticker.strip().upper()
+    ):
         return snap
     _PRICE_CACHE.pop(ticker.upper(), None)
     return None
