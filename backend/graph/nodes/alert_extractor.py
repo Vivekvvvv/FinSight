@@ -68,7 +68,7 @@ _DECLINED_ALERT_RE = re.compile(
     r"(?:不要|(?<![特分])别|勿|不用|不必|无需|不需要|不想)"
     r"(?!\s*(?:忘记|忘了|漏掉|漏了|错过|取消|撤销|删除|关闭|停用|停止))"
     r"(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*(?:提醒|预警|通知|订阅)"
-    r"|\b(?:do\s+not|don['’]?t|never|no\s+need\s+to)\s+"
+    r"|\b(?:(?:do\s+not|don['’]?t|never)(?:\s+(?:want|need)\s+to)?|no\s+need\s+to|no\s+longer\s+(?:want|need)\s+to)\s+"
     r"(?:(?:set|create|add|enable|send)\b(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|reminders?|notifications?)\b"
     r"|keep\s+(?:alerting|notifying|reminding)\b"
     r"|(?:subscribe|alert|notify|remind)\b)"
