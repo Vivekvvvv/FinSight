@@ -437,6 +437,54 @@ async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_st
 @pytest.mark.asyncio
 @pytest.mark.parametrize("existing_subscription", [False, True])
 @pytest.mark.parametrize("query", [
+    "Notify me when TSLA goes above 1e3 USD",
+    "TSLA 涨到 2e-3 元时提醒我",
+])
+async def test_graph_scientific_target_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("AAPL", "MSFT"):
+        assert svc.subscribe(email, ticker)
+    if existing_subscription:
+        assert svc.subscribe(email, "TSLA", alert_mode="price_target", price_target=80.0, direction="below")
+    before = svc.subscriptions_file.read_bytes()
+    runner = GraphRunner.create()
+    ui_context = {
+        "active_symbol": "TSLA", "user_email": email,
+        "_authenticated_user": {"user_id": "alice", "role": "user"},
+    }
+
+    state = await runner.ainvoke(
+        thread_id="private:alice:default", query=query,
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+
+    assert state["alert_valid"] is False
+    assert state["clarify"]["needed"] is True
+    assert svc.subscriptions_file.read_bytes() == before
+    spans = [span.get("node") for span in state["trace"]["spans"]]
+    assert "alert_action" not in spans
+
+    if not existing_subscription:
+        valid = await runner.ainvoke(
+            thread_id="private:alice:default", query="TSLA 涨到 1000 元时提醒我",
+            ui_context=ui_context, confirmation_mode="skip",
+        )
+        assert valid["alert_valid"] is True
+        subscriptions = svc.get_subscriptions(email)
+        assert len(subscriptions) == 3
+        saved = next(sub for sub in subscriptions if sub["ticker"] == "TSLA")
+        assert saved["price_target"] == 1000.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_subscription", [False, True])
+@pytest.mark.parametrize("query", [
     "TSLA 涨到 220 或跌到 180 时提醒我",
     "Notify me if TSLA moves over 3% or falls 5%",
     "TSLA 涨到 220 或跌到 220 时提醒我",

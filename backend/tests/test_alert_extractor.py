@@ -236,6 +236,21 @@ def test_invalid_or_percentage_grouped_price_requests_clarification(query):
 
 
 @pytest.mark.parametrize("query", [
+    "Notify me when AAPL goes above 1e3 USD",
+    "Notify me when AAPL is at 2.2e2 USD",
+    "Notify me when AAPL goes below 1E+3 USD",
+    "AAPL 涨到 2e-3 元时提醒我",
+    "AAPL 涨到 1,000e3 元时提醒我",
+])
+def test_scientific_target_price_requires_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["alert_params"]["price_target"] is None
+    assert result["clarify"]["needed"] is True
+
+
+@pytest.mark.parametrize("query", [
     "Alert me when AAPL hits 12.5%",
     "AAPL 涨到 12.5% 提醒我",
 ])
