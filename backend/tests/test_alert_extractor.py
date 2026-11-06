@@ -403,6 +403,12 @@ def test_negated_chinese_symbol_price_comparison_keeps_direction(comparison, exp
     ("不大于", "220", "below"),
     ("不低于", "80", "above"),
     ("不小于", "80", "above"),
+    ("不 高于", "220", "below"),
+    ("不 大于", "220", "below"),
+    ("不 低于", "80", "above"),
+    ("不 小于", "80", "above"),
+    ("不\t高于", "220", "below"),
+    ("不　小于", "80", "above"),
 ])
 def test_chinese_movement_to_price_keeps_explicit_direction(movement, price, expected_direction):
     result = alert_extractor({
@@ -623,6 +629,10 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me if AAPL moves over -3% or falls 5%",
     "Notify me if AAPL moves 5% or rises +3%",
     "AAPL 涨跌超过+3%或跌-5%时提醒我",
+    "AAPL 不 高于220元或高于220元时提醒我",
+    "AAPL 低于220元或不 低于220元时提醒我",
+    "AAPL 不 大于220元或大于220元时提醒我",
+    "AAPL 小于220元或不 小于220元时提醒我",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
