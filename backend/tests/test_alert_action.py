@@ -119,6 +119,25 @@ def _alert_state(ticker="TSLA", *, user_id="alice", role="user"):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ticker", ["BAD TICKER", ".AAPL", "A" * 21])
+async def test_chat_invalid_ticker_cannot_consume_remaining_quota(alert_storage, ticker):
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for existing in ("AAPL", "MSFT"):
+        assert svc.subscribe(email, existing)
+    before = svc.subscriptions_file.read_bytes()
+
+    result = await alert_action_module.alert_action(_alert_state(ticker))
+
+    assert result["alert_valid"] is False
+    assert svc.subscriptions_file.read_bytes() == before
+    valid = await alert_action_module.alert_action(_alert_state("NVDA"))
+    assert valid["alert_valid"] is True
+    assert len(svc.get_subscriptions(email)) == 3
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode,field", [
     ("price_target", "price_target"), ("price_change_pct", "price_threshold"),
 ])

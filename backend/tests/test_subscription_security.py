@@ -78,6 +78,10 @@ def test_subscription_internal_errors_are_redacted(monkeypatch, method, path, pa
             return True
 
         @staticmethod
+        def is_valid_ticker(_ticker):
+            return True
+
+        @staticmethod
         def fail(*_args, **_kwargs):
             raise RuntimeError("private subscription storage detail")
 
@@ -273,6 +277,33 @@ def test_unsubscribe_missing_ticker_does_not_report_success_or_rewrite_storage(m
     assert service.unsubscribe(email, "TSLA") is False
     assert service.subscriptions_file.read_bytes() == before
     assert [item["ticker"] for item in service.get_subscriptions(email)] == ["AAPL"]
+
+
+@pytest.mark.parametrize("ticker", [None, "", "   ", "BAD TICKER", ".AAPL", "A" * 21])
+def test_invalid_subscription_ticker_cannot_claim_remaining_slot(monkeypatch, tmp_path, ticker):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+
+    assert service.subscribe(email, ticker, max_subscriptions=2) is False
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "MSFT", max_subscriptions=2)
+
+
+@pytest.mark.parametrize("ticker", [" aapl ", "000001.SZ", "BRK.B", "BTC-USD", "^GSPC", "EURUSD=X", "A" * 20])
+def test_subscription_ticker_validation_keeps_scheduler_supported_symbols(monkeypatch, tmp_path, ticker):
+    from backend.services import subscription_service as subs
+    from backend.services.alert_scheduler import _subscription_ticker
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    assert service.subscribe("alice@example.invalid", ticker)
+    saved = service.get_subscriptions("alice@example.invalid")[0]
+    assert _subscription_ticker(saved) == ticker.strip().upper()
 
 
 def test_record_alert_event_bounds_persisted_content(monkeypatch, tmp_path):

@@ -7,6 +7,7 @@ import os
 import sys
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -154,4 +155,20 @@ def test_unsubscribe_unknown_ticker_returns_not_found_for_existing_email(tmp_pat
         response = client.post("/api/unsubscribe", json={"email": email, "ticker": "TSLA"})
 
     assert response.status_code == 404
+    assert service.subscriptions_file.read_bytes() == before
+
+
+@pytest.mark.parametrize("ticker", ["   ", "BAD TICKER", ".AAPL", "A" * 21])
+def test_subscribe_invalid_ticker_returns_bad_request_without_writing(tmp_path, ticker):
+    _configure_test_storage(tmp_path)
+    service = subs.get_subscription_service()
+    email = "user@example.com"
+    assert service.subscribe(email, "AAPL")
+    before = service.subscriptions_file.read_bytes()
+
+    with TestClient(app) as client:
+        response = client.post("/api/subscribe", json={"email": email, "ticker": ticker})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid ticker"
     assert service.subscriptions_file.read_bytes() == before

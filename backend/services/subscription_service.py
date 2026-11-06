@@ -331,6 +331,10 @@ class SubscriptionService:
             logger.info("Invalid email address rejected")
             return False
 
+        if not self.is_valid_ticker(ticker):
+            logger.info("Invalid subscription ticker rejected")
+            return False
+
         normalized_ticker = self._normalize_ticker(ticker)
         with self._lock:
             self._load_subscriptions()
@@ -406,6 +410,13 @@ class SubscriptionService:
         if not email or "@" not in email:
             return False
         return bool(EMAIL_REGEX.match(email))
+
+    @staticmethod
+    def is_valid_ticker(ticker: object) -> bool:
+        """与调度器使用相同的标的格式，避免无效订阅占用配额。"""
+        return isinstance(ticker, str) and re.fullmatch(
+            r"[A-Z0-9^][A-Z0-9.^=-]{0,19}", ticker.strip().upper(),
+        ) is not None
     
     def unsubscribe(self, email: str, ticker: Optional[str] = None) -> bool:
         """
