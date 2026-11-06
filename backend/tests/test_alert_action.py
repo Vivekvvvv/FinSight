@@ -522,6 +522,9 @@ async def test_graph_grouped_target_price_uses_full_amount(alert_storage, monkey
     ("Notify me when AAPL dips to 220", 220.0, "below"),
     ("Notify me when AAPL rises to 80", 80.0, "above"),
     ("Notify me when AAPL climbs to 80", 80.0, "above"),
+    ("Notify me when AAPL goes above 220; I am under my budget", 220.0, "above"),
+    ("Notify me when AAPL rises to 80; costs are under control", 80.0, "above"),
+    ("Notify me when AAPL hits 80; show performance over time", 80.0, "below"),
 ])
 async def test_graph_english_prose_keeps_correct_direction_at_quota(alert_storage, monkeypatch, query, target, expected_direction):
     from backend.graph.runner import GraphRunner
@@ -554,6 +557,47 @@ async def test_graph_english_prose_keeps_correct_direction_at_quota(alert_storag
     saved = next(sub for sub in subscriptions if sub["ticker"] == "AAPL")
     assert saved["price_target"] == target
     assert saved["direction"] == expected_direction
+
+
+@pytest.mark.asyncio
+async def test_graph_background_direction_without_quote_cannot_consume_quota(alert_storage, monkeypatch):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", lambda _ticker: None)
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("MSFT", "NVDA"):
+        assert svc.subscribe(email, ticker)
+    before = svc.subscriptions_file.read_bytes()
+    runner = GraphRunner.create()
+    ui_context = {
+        "active_symbol": "AAPL", "user_email": email,
+        "_authenticated_user": {"user_id": "alice", "role": "user"},
+    }
+
+    ambiguous = await runner.ainvoke(
+        thread_id="private:alice:default",
+        query="Notify me when AAPL hits 80; show performance over time",
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+
+    assert ambiguous["alert_valid"] is False
+    assert svc.subscriptions_file.read_bytes() == before
+
+    explicit = await runner.ainvoke(
+        thread_id="private:alice:default", query="Notify me when AAPL drops to 80",
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+
+    assert explicit["alert_valid"] is True
+    subscriptions = svc.get_subscriptions(email)
+    assert len(subscriptions) == 3
+    saved = next(sub for sub in subscriptions if sub["ticker"] == "AAPL")
+    assert saved["price_target"] == 80.0
+    assert saved["direction"] == "below"
 
 
 @pytest.mark.asyncio

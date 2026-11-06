@@ -153,7 +153,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
     if price_target_match:
         alert_params["alert_mode"] = "price_target"
         alert_params["price_target"] = float(price_target_match.group("price").replace(",", ""))
-        alert_params["direction"] = _extract_direction(query)
+        alert_params["direction"] = next((value for value in price_directions if value is not None), None)
     elif pct_match:
         alert_params["alert_mode"] = "price_change_pct"
         alert_params["price_threshold"] = float(pct_match.group("pct"))

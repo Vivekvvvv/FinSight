@@ -70,6 +70,21 @@ def test_english_prose_does_not_supply_alert_direction(query, expected_direction
     assert result["alert_params"]["direction"] == expected_direction
 
 
+@pytest.mark.parametrize("query,expected_direction", [
+    ("Notify me when AAPL goes above 220; I am under my budget", "above"),
+    ("Notify me when AAPL rises to 80; costs are under control", "above"),
+    ("Notify me when AAPL hits 80; show performance over time", None),
+    ("Notify me when AAPL hits 220; costs are under control", None),
+    ("AAPL 涨到 220 时提醒我；附上低于市场预期的原因", "above"),
+    ("AAPL 到 80 元提醒我；附上高于市场预期的消息", None),
+])
+def test_background_direction_words_do_not_change_price_condition(query, expected_direction):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["direction"] == expected_direction
+
+
 @pytest.mark.parametrize("word,price,expected_direction", [
     ("below", 80, "below"),
     ("under", 80, "below"),
