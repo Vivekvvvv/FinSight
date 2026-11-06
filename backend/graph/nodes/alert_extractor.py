@@ -42,7 +42,7 @@ _PCT_THRESHOLD_RE = re.compile(
     r"(?:up|down)\s*(?:by\s*)?|"
     r"(?:more\s+than|exceeds?|over)\s*)"
     r")\s*"
-    r"(?P<pct>\d+(?:\.\d+)?)\s*(?:[%％]|percent|per\s+cent|个点|pct)",
+    r"(?P<pct>\d+(?:\.\d+)?)\s*(?:[%％](?!\d)|(?:percent|per\s+cent|pct)(?![a-z0-9_])|个点)",
     re.IGNORECASE,
 )
 

@@ -170,6 +170,21 @@ def test_percentage_range_requires_single_threshold(query):
 
 
 @pytest.mark.parametrize("query", [
+    "Notify me if AAPL moves 3 percentiles",
+    "Notify me if AAPL moves 3 per century",
+    "Notify me if AAPL changes 3 pct_change",
+    "Notify me if AAPL moves over 3 percentages",
+    "Notify me if AAPL moves 3%5",
+])
+def test_partial_percentage_units_cannot_create_alert(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["alert_params"]["price_threshold"] is None
+    assert result["clarify"]["needed"] is True
+
+
+@pytest.mark.parametrize("query", [
     "Notify me about AAPL turnover 220 USD",
     "Notify me about AAPL format220",
     "Notify me about AAPL rollover 5%",
