@@ -246,6 +246,10 @@ def test_english_price_comparison_keeps_explicit_direction(comparison, price, ex
     ("not >", "below"), ("not >=", "below"), ("not ≥", "below"),
     ("not <", "above"), ("not <=", "above"), ("not ≤", "above"),
     ("NOT>=", "below"), ("no <", "above"),
+    ("isn't above", "below"), ("isn’t over", "below"),
+    ("isn't higher than", "below"), ("ISN'T>=", "below"),
+    ("isn't below", "above"), ("isn’t under", "above"),
+    ("isn't less than", "above"), ("isn't <", "above"),
 ])
 def test_negated_english_price_comparison_keeps_direction(comparison, expected_direction):
     result = alert_extractor({
@@ -459,6 +463,8 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me when AAPL is no less than 220 or below 220",
     "Notify me when AAPL is not >=220 or above 220",
     "Notify me when AAPL is not <220 or below 220",
+    "Notify me when AAPL isn't above 220 or above 220",
+    "Notify me when AAPL isn’t <=220 or below 220",
     "AAPL 不高于220元或高于220元时提醒我",
     "AAPL 不低于220元或低于220元时提醒我",
     "Notify me when AAPL goes above 220 or below .5",
