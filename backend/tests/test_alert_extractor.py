@@ -767,6 +767,10 @@ def test_percentage_with_unrecognized_trigger_requests_clarification(query):
     "No need for an AAPL alert when it goes above 220",
     "I don't want an AAPL price alert when it goes above 220",
     "I do not need a 000001.SZ alert when it goes above 220",
+    "Do not send me notifications when AAPL goes above 220",
+    "Don't send me AAPL alerts if it moves over 3%",
+    "Do not keep reminding me when AAPL goes above 220",
+    "Do not keep notifying me when AAPL goes above 220",
 ])
 def test_declined_alert_creation_cannot_proceed(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -795,6 +799,8 @@ def test_declined_alert_creation_cannot_proceed(query):
     "I don't want to miss an alert; notify me when AAPL goes above 220",
     "I do not need a report on AAPL; set an alert when it goes above 220",
     "I do not need a report about AAPL alerts; notify me when AAPL goes above 220",
+    "Do not send me a report; notify me when AAPL goes above 220",
+    "Don't forget to send me notifications when AAPL goes above 220",
 ])
 def test_affirmative_alert_request_with_unrelated_negation_still_proceeds(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
