@@ -192,6 +192,9 @@ def test_unrelated_negation_keeps_percentage_alert(query):
     "Notify me when AAPL goes above 220 or moves 3% to 5%",
     "Notify me if AAPL moves .5% to .75%",
     "AAPL 涨跌超过.5％～.75％时提醒我",
+    "Notify me if AAPL moves 3% to -5%",
+    "Notify me if AAPL moves .5% to +.75%",
+    "AAPL 涨跌超过3%至-5%时提醒我",
 ])
 def test_percentage_range_requires_single_threshold(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -771,6 +774,12 @@ def test_scaled_target_price_requires_plain_amount(query):
     "Notify me when AAPL goes above 220 USD to $.5",
     "AAPL 涨到220元～230元时提醒我",
     "Notify me when AAPL goes above 220 USD to 230 USD or above 220 USD",
+    "Notify me when AAPL goes above 220 to -80",
+    "Notify me when AAPL goes above 220 to +230",
+    "Notify me when AAPL goes above 220 to $-80",
+    "Notify me when AAPL goes above 220 USD to +230 USD",
+    "Notify me when AAPL goes above 220 USD to $-80 USD",
+    "AAPL 涨到220元至-80元时提醒我",
 ])
 def test_range_or_fraction_target_requires_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

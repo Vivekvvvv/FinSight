@@ -23,13 +23,13 @@ _PRICE_TARGET_RE = re.compile(
     r")\s*(?:(?P<currency_prefix>[$€£])\s*)?"
     r"(?P<price>[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
     # Reject incomplete numbers and percentages without matching a shorter prefix.
-    r"(?!\d|[.,，]\d|e[+-]?\d|\s*(?:[-–—~～/]|to(?![a-z_]))\s*(?:\$\s*)?(?:\d|\.\d)|\s*(?:[%％]|percent|per\s+cent|个点|pct|美分|[千万亿]|(?:[kmb]|thousands?|millions?|billions?|cents?|pence|penn(?:y|ies))(?![a-z_])))"
+    r"(?!\d|[.,，]\d|e[+-]?\d|\s*(?:[-–—~～/]|to(?![a-z_]))\s*(?:\$\s*)?[+-]?(?:\d|\.\d)|\s*(?:[%％]|percent|per\s+cent|个点|pct|美分|[千万亿]|(?:[kmb]|thousands?|millions?|billions?|cents?|pence|penn(?:y|ies))(?![a-z_])))"
     r"\s*(?P<currency>元|块|美元|dollars?|usd|\$|欧元|英镑|日元|港元|港币|€|£|(?:eur|gbp|euros?|pounds?|jpy|hkd|yen)(?![a-z_]))?",
     re.IGNORECASE,
 )
 
 _PRICE_RANGE_RE = re.compile(
-    _PRICE_TARGET_RE.pattern + r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?:[$€£]\s*)?(?:\d|\.\d)",
+    _PRICE_TARGET_RE.pattern + r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?:[$€£]\s*)?[+-]?(?:\d|\.\d)",
     re.IGNORECASE,
 )
 
@@ -59,7 +59,7 @@ _NEGATED_PCT_CONDITION_RE = re.compile(
 )
 
 _PCT_RANGE_RE = re.compile(
-    _PCT_THRESHOLD_RE.pattern + r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?:\d|\.\d)",
+    _PCT_THRESHOLD_RE.pattern + r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*[+-]?(?:\d|\.\d)",
     re.IGNORECASE,
 )
 
