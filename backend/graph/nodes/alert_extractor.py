@@ -16,6 +16,7 @@ _PRICE_TARGET_RE = re.compile(
     # English patterns - directional
     r"(?:drops?|falls?|goes?|dips?)\s+(?:below|under|to)\s*|"
     r"(?:rises?|climbs?|goes?)\s+(?:above|over|to)\s*|"
+    r"(?:not|no)\s+(?:(?:less|lower|greater|higher)\s+than|above|below|over|under)\s*|"
     r"(?:less|lower|greater|higher)\s+than\s*|"
     r"(?:above|below|over|under|at)\s*)"
     r")\s*(?:\$\s*)?"
@@ -83,6 +84,11 @@ def _extract_direction(query: str) -> str | None:
     below_tokens = ("跌到", "跌至", "跌破", "低于", "小于", "<", "≤")
     above_tokens = ("涨到", "涨至", "突破", "高于", "大于", ">", "≥")
     price_triggers = " ".join(match.group(0) for match in _PRICE_TARGET_RE.finditer(lowered))
+
+    if re.search(r"(?<![a-z_])(?:not|no)\s+(?:above|over|(?:higher|greater)\s+than)(?![a-z_])", lowered):
+        return "below"
+    if re.search(r"(?<![a-z_])(?:not|no)\s+(?:below|under|(?:lower|less)\s+than)(?![a-z_])", lowered):
+        return "above"
 
     if (
         any(token in lowered for token in below_tokens)

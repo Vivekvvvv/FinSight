@@ -213,6 +213,24 @@ def test_english_price_comparison_keeps_explicit_direction(comparison, price, ex
     assert result["alert_params"]["direction"] == expected_direction
 
 
+@pytest.mark.parametrize("comparison,expected_direction", [
+    ("not above", "below"), ("not over", "below"),
+    ("no higher than", "below"), ("no greater than", "below"),
+    ("not below", "above"), ("not under", "above"),
+    ("no lower than", "above"), ("no less than", "above"),
+    ("NOT ABOVE", "below"),
+])
+def test_negated_english_price_comparison_keeps_direction(comparison, expected_direction):
+    result = alert_extractor({
+        "query": f"Notify me when AAPL is {comparison} 220",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
+    assert result["alert_params"]["direction"] == expected_direction
+
+
 @pytest.mark.parametrize("operator,expected_direction", [
     ("<", "below"), ("<=", "below"), ("≤", "below"),
     (">", "above"), (">=", "above"), ("≥", "above"),
@@ -320,6 +338,8 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me when AAPL is greater than 220 or goes below 220",
     "Notify me when AAPL is <= 220 or above 220",
     "Notify me when AAPL is ≥ 220 or below 220",
+    "Notify me when AAPL is not above 220 or above 220",
+    "Notify me when AAPL is no less than 220 or below 220",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
