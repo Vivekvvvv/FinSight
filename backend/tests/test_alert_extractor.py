@@ -631,12 +631,28 @@ def test_scaled_target_price_requires_plain_amount(query):
     "Notify me when AAPL goes above $220-$230",
     "Notify me when AAPL goes above .5 to $.75",
     "Notify me when AAPL goes above 220~.5",
+    "Notify me when AAPL goes above 220 USD to 230 USD",
+    "Notify me when AAPL goes above 220 dollars-230 dollars",
+    "Notify me when AAPL goes above 220 USD to $230",
+    "Notify me when AAPL goes above 220 USD to $.5",
+    "AAPL 涨到220元～230元时提醒我",
+    "Notify me when AAPL goes above 220 USD to 230 USD or above 220 USD",
 ])
 def test_range_or_fraction_target_requires_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
 
     assert result["alert_valid"] is False
     assert result["clarify"]["needed"] is True
+
+
+def test_range_separator_in_another_clause_keeps_price_alert():
+    result = alert_extractor({
+        "query": "Notify me when AAPL goes above 220 USD; transfer to 230 accounts",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
 
 
 @pytest.mark.parametrize("query", [
