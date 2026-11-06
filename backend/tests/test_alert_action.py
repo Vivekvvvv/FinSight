@@ -411,7 +411,8 @@ async def test_graph_alert_uses_authenticated_plan_after_context_normalization(a
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("unit", ["%", "％", " per cent"])
-async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage, monkeypatch, unit):
+@pytest.mark.parametrize("threshold,expected_threshold", [("12.5", 12.5), (".5", 0.5)])
+async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage, monkeypatch, unit, threshold, expected_threshold):
     from backend.graph.runner import GraphRunner
 
     initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
@@ -420,7 +421,7 @@ async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage,
 
     state = await GraphRunner.create().ainvoke(
         thread_id="private:alice:default",
-        query=f"Notify me if AAPL moves over 12.5{unit}",
+        query=f"Notify me if AAPL moves over {threshold}{unit}",
         ui_context={
             "active_symbol": "AAPL", "user_email": "alice@example.invalid",
             "_authenticated_user": {"user_id": "alice", "role": "user"},
@@ -431,9 +432,9 @@ async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage,
     assert state["alert_valid"] is True
     saved = svc.get_subscriptions("alice@example.invalid")[0]
     assert saved["alert_mode"] == "price_change_pct"
-    assert saved["price_threshold"] == 12.5
+    assert saved["price_threshold"] == expected_threshold
     assert saved["price_target"] is None
-    assert "12.5%" in state["artifacts"]["draft_markdown"]
+    assert f"{expected_threshold}%" in state["artifacts"]["draft_markdown"]
 
 
 @pytest.mark.asyncio
@@ -683,6 +684,9 @@ async def test_graph_scientific_target_cannot_write_subscriptions(alert_storage,
     "TSLA 不高于220元或高于220元时提醒我",
     "Notify me when TSLA goes above 220 or below .5",
     "Notify me when TSLA goes above 220 or below -80",
+    "Notify me if TSLA moves .5% or rises 3%",
+    "Notify me if TSLA moves 3% or rises .5%",
+    "TSLA 涨跌超过.5%或涨跌超过3%时提醒我",
 ])
 async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
     from backend.graph.runner import GraphRunner

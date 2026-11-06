@@ -123,12 +123,27 @@ def test_alert_extractor_pct_mode():
 
 
 @pytest.mark.parametrize("query", [
+    "Notify me if AAPL moves .5%",
+    "Notify me if AAPL moves over .5 per cent",
+    "AAPL 涨跌超过.5％时提醒我",
+])
+def test_leading_decimal_percentage_keeps_full_threshold(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["alert_mode"] == "price_change_pct"
+    assert result["alert_params"]["price_threshold"] == 0.5
+    assert result["alert_params"]["price_target"] is None
+
+
+@pytest.mark.parametrize("query", [
     "AAPL 涨幅不超过3%时提醒我",
     "AAPL 没有涨3%时提醒我",
     "Notify me if AAPL does not move over 3%",
     "Notify me if AAPL doesn't rise 3%",
     "Notify me if AAPL moves no more than 3%",
     "Notify me if AAPL isn’t up by 3%",
+    "Notify me if AAPL does not move over .5%",
 ])
 def test_negated_percentage_condition_requires_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -160,6 +175,8 @@ def test_unrelated_negation_keeps_percentage_alert(query):
     "AAPL 涨跌超过3％～5％时提醒我",
     "Notify me if AAPL moves 3% to 5% or rises 6%",
     "Notify me when AAPL goes above 220 or moves 3% to 5%",
+    "Notify me if AAPL moves .5% to .75%",
+    "AAPL 涨跌超过.5％～.75％时提醒我",
 ])
 def test_percentage_range_requires_single_threshold(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -584,6 +601,9 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me when AAPL goes above 220 or below .5",
     "Notify me when AAPL goes above 220 or below -80",
     "Notify me when AAPL goes above 220 or below $-80",
+    "Notify me if AAPL moves .5% or rises 3%",
+    "Notify me if AAPL moves 3% or rises .5%",
+    "AAPL 涨跌超过.5%或涨跌超过3%时提醒我",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
