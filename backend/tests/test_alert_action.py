@@ -482,6 +482,38 @@ async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_st
 
 
 @pytest.mark.asyncio
+async def test_graph_currency_only_subject_cannot_consume_alert_quota(alert_storage, monkeypatch):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        alert_action_module, "fetch_price_snapshot",
+        lambda ticker: PriceSnapshot(ticker=ticker, price=100.0, change_percent=0.0),
+    )
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("AAPL", "MSFT"):
+        assert svc.subscribe(email, ticker)
+    before = svc.subscriptions_file.read_bytes()
+
+    state = await GraphRunner.create().ainvoke(
+        thread_id="private:alice:default", query="Notify me at 220 USD",
+        ui_context={
+            "user_email": email,
+            "_authenticated_user": {"user_id": "alice", "role": "user"},
+        },
+        confirmation_mode="skip",
+    )
+
+    assert state["alert_valid"] is False
+    assert state["clarify"]["needed"] is True
+    assert svc.subscriptions_file.read_bytes() == before
+    assert "alert_action" not in [span.get("node") for span in state["trace"]["spans"]]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("existing_subscription", [False, True])
 @pytest.mark.parametrize("query", [
     "Notify me about TSLA turnover 220",

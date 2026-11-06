@@ -152,6 +152,9 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
     alert_tickers = {str(item or "").strip().upper() for item in tickers if str(item or "").strip()} if isinstance(tickers, list) else set()
     if not re.search(r"\bUSD\b", _PRICE_TARGET_RE.sub("", query), re.IGNORECASE):
         alert_tickers.discard("USD")
+        if ticker == "USD":
+            ticker = _pick_ticker({"ui_context": state.get("ui_context")})
+            alert_params["ticker"] = ticker
     if len(alert_tickers) == 1:
         ticker = next(iter(alert_tickers))
         alert_params["ticker"] = ticker

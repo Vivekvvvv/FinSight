@@ -75,6 +75,30 @@ def test_currency_unit_in_target_does_not_count_as_alert_ticker():
     assert result["alert_params"]["ticker"] == "AAPL"
 
 
+@pytest.mark.parametrize("active_symbol", [None, "AAPL"])
+def test_currency_only_subject_requires_a_real_alert_ticker(active_symbol):
+    result = alert_extractor({
+        "query": "Notify me at 220 USD",
+        "subject": {"tickers": ["USD"]},
+        "ui_context": {"active_symbol": active_symbol},
+    })
+
+    assert result["alert_params"]["ticker"] == active_symbol
+    assert result["alert_valid"] is bool(active_symbol)
+    if not active_symbol:
+        assert result["clarify"]["needed"] is True
+
+
+def test_explicit_usd_ticker_still_accepts_a_price_alert():
+    result = alert_extractor({
+        "query": "Notify me when USD goes above 220",
+        "subject": {"tickers": ["USD"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["ticker"] == "USD"
+
+
 def test_usd_ticker_outside_price_condition_still_counts():
     result = alert_extractor({
         "query": "USD and TSLA go above 220 USD; alert me",
