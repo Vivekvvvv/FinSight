@@ -403,6 +403,8 @@ async def test_graph_percentage_alert_persists_percentage_trigger(alert_storage,
     "TSLA 涨到 1,00 美元时提醒我",
     "TSLA 涨到 1,0000 美元时提醒我",
     "TSLA 涨到 1，000 美元时提醒我",
+    "TSLA 涨到 1万元时提醒我",
+    "Notify me when TSLA goes above $2k",
 ])
 async def test_graph_invalid_threshold_does_not_consume_remaining_quota(alert_storage, monkeypatch, query):
     from backend.graph.runner import GraphRunner
