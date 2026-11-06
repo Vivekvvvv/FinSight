@@ -144,7 +144,7 @@ class PriceChangeScheduler:
                 logger.warning('Price fetch failed')
                 price_unavailable += 1
                 continue
-            if snapshot is None:
+            if snapshot is None or str(getattr(snapshot, "ticker", "") or "").strip().upper() != ticker:
                 price_unavailable += 1
                 continue
             # bool 是 int 子类：True 会被 float() 收成 1.0 通过有限性/正数检查，

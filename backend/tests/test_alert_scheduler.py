@@ -145,6 +145,39 @@ def test_price_change_scheduler_skips_when_below_threshold(subscription_service_
     assert subs_list[0].get("last_alert_at") is None
 
 
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target"])
+def test_price_scheduler_rejects_unrelated_quote_before_marking_alert(subscription_service_tmp, mode):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change"],
+        alert_mode=mode, price_threshold=3.0, price_target=100.0, direction="above",
+    )
+    before = service.subscriptions_file.read_bytes()
+    scheduler = PriceChangeScheduler(
+        service, email,
+        lambda _ticker: PriceSnapshot(ticker="TSLA", price=120.0, change_percent=6.0),
+    )
+
+    assert scheduler.run_once() == []
+    assert email.sent == []
+    assert scheduler.last_price_unavailable == 1
+    assert service.subscriptions_file.read_bytes() == before
+
+
+def test_price_scheduler_accepts_normalized_quote_ticker(subscription_service_tmp):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["price_change"], price_threshold=3.0)
+    scheduler = PriceChangeScheduler(
+        service, email,
+        lambda _ticker: PriceSnapshot(ticker=" aapl ", price=120.0, change_percent=6.0),
+    )
+
+    assert len(scheduler.run_once()) == 1
+    assert scheduler.last_price_unavailable == 0
+
+
 @pytest.mark.parametrize("threshold", ["nan", "inf", "-inf", 0, -1, True, False])
 def test_price_change_scheduler_rejects_invalid_stored_threshold(
     subscription_service_tmp,
