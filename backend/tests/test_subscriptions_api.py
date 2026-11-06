@@ -141,3 +141,17 @@ def test_subscription_endpoints_reject_oversized_inputs(tmp_path):
     assert email_resp.status_code == 422
     assert threshold_resp.status_code == 422
     assert target_resp.status_code == 422
+
+
+def test_unsubscribe_unknown_ticker_returns_not_found_for_existing_email(tmp_path):
+    _configure_test_storage(tmp_path)
+    service = subs.get_subscription_service()
+    email = "user@example.com"
+    assert service.subscribe(email, "AAPL")
+    before = service.subscriptions_file.read_bytes()
+
+    with TestClient(app) as client:
+        response = client.post("/api/unsubscribe", json={"email": email, "ticker": "TSLA"})
+
+    assert response.status_code == 404
+    assert service.subscriptions_file.read_bytes() == before

@@ -261,6 +261,20 @@ def test_successful_delivery_cannot_reenable_subscription_disabled_during_send(m
     assert saved["last_alert_at"] is not None
 
 
+def test_unsubscribe_missing_ticker_does_not_report_success_or_rewrite_storage(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL")
+    before = service.subscriptions_file.read_bytes()
+
+    assert service.unsubscribe(email, "TSLA") is False
+    assert service.subscriptions_file.read_bytes() == before
+    assert [item["ticker"] for item in service.get_subscriptions(email)] == ["AAPL"]
+
+
 def test_record_alert_event_bounds_persisted_content(monkeypatch, tmp_path):
     from backend.services import subscription_service as subs
 

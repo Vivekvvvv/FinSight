@@ -428,10 +428,13 @@ class SubscriptionService:
             else:
                 # 取消特定股票的订阅
                 ticker_norm = self._normalize_ticker(ticker)
-                self.subscriptions[email] = [
+                remaining_subscriptions = [
                     sub for sub in self.subscriptions[email]
                     if self._normalize_ticker(sub.get('ticker')) != ticker_norm
                 ]
+                if len(remaining_subscriptions) == len(self.subscriptions[email]):
+                    return False
+                self.subscriptions[email] = remaining_subscriptions
 
                 # 如果该邮箱没有其他订阅，删除邮箱记录
                 if not self.subscriptions[email]:
