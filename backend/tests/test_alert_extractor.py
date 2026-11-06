@@ -194,6 +194,25 @@ def test_directional_movement_to_price_is_explicit(movement, price, expected_dir
     assert result["alert_params"]["direction"] == expected_direction
 
 
+@pytest.mark.parametrize("comparison,price,expected_direction", [
+    ("less than", 220, "below"),
+    ("lower than", 220, "below"),
+    ("greater than", 80, "above"),
+    ("higher than", 80, "above"),
+    ("LESS THAN", 220, "below"),
+    ("HIGHER THAN", 80, "above"),
+])
+def test_english_price_comparison_keeps_explicit_direction(comparison, price, expected_direction):
+    result = alert_extractor({
+        "query": f"Notify me when AAPL is {comparison} {price} USD",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == price
+    assert result["alert_params"]["direction"] == expected_direction
+
+
 @pytest.mark.parametrize("movement,price,expected_direction", [
     ("跌至", "220", "below"),
     ("下跌至", "220", "below"),
@@ -282,6 +301,8 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me when AAPL goes above $220 or below $220",
     "AAPL 低于220元或涨到220元时提醒我",
     "AAPL 突破220元或跌破220元时提醒我",
+    "Notify me when AAPL is less than 220 or goes above 220",
+    "Notify me when AAPL is greater than 220 or goes below 220",
 ])
 def test_conflicting_thresholds_require_clarification(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})

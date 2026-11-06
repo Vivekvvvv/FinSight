@@ -15,6 +15,7 @@ _PRICE_TARGET_RE = re.compile(
     # English patterns - directional
     r"(?:drops?|falls?|goes?|dips?)\s+(?:below|under|to)\s*|"
     r"(?:rises?|climbs?|goes?)\s+(?:above|over|to)\s*|"
+    r"(?:less|lower|greater|higher)\s+than\s*|"
     r"(?:above|below|over|under|at)\s*)"
     r")\s*(?:\$\s*)?"
     r"(?P<price>(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
@@ -82,13 +83,13 @@ def _extract_direction(query: str) -> str | None:
 
     if (
         any(token in lowered for token in below_tokens)
-        or re.search(r"(?<![a-z_])(?:below|under)(?![a-z_])", lowered)
+        or re.search(r"(?<![a-z_])(?:below|under|(?:less|lower)\s+than)(?![a-z_])", lowered)
         or re.search(r"(?<![a-z_])(?:drops?|falls?|dips?)\s+to(?![a-z_])", price_triggers)
     ):
         return "below"
     if (
         any(token in lowered for token in above_tokens)
-        or re.search(r"(?<![a-z_])(?:above|over)(?![a-z_])", lowered)
+        or re.search(r"(?<![a-z_])(?:above|over|(?:greater|higher)\s+than)(?![a-z_])", lowered)
         or re.search(r"(?<![a-z_])(?:rises?|climbs?)\s+to(?![a-z_])", price_triggers)
     ):
         return "above"
