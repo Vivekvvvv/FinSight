@@ -329,6 +329,10 @@ class SubscriptionService:
             not isinstance(alert_mode, str) or alert_mode.strip().lower() not in ALERT_MODE_ALLOWED
         ):
             raise ValueError("unsupported alert_mode")
+        if risk_threshold is not None and (
+            not isinstance(risk_threshold, str) or risk_threshold.strip().lower() not in RISK_THRESHOLD_ALLOWED
+        ):
+            raise ValueError("unsupported risk_threshold")
         price_threshold = _finite_optional_number(
             price_threshold,
             field="price_threshold",

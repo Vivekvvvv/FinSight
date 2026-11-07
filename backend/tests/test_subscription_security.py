@@ -330,6 +330,38 @@ def test_valid_alert_modes_keep_default_and_case_normalization(monkeypatch, tmp_
     assert service.get_subscriptions("alice@example.invalid")[0]["alert_mode"] == expected
 
 
+@pytest.mark.parametrize("threshold", ["unknown", "", " ", False, [], {}])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_invalid_risk_threshold_cannot_overwrite_subscription_or_claim_quota(monkeypatch, tmp_path, threshold, existing_subscription):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["risk"], risk_threshold="critical", max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match="unsupported risk_threshold"):
+        service.subscribe(email, ticker, alert_types=["risk"], risk_threshold=threshold, max_subscriptions=2)
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.get_subscriptions(email)[0]["risk_threshold"] == "critical"
+    assert service.subscribe(email, "NVDA", alert_types=["risk"], risk_threshold="medium", max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
+@pytest.mark.parametrize("threshold,expected", [(None, "high"), (" CRITICAL ", "critical"), ("MEDIUM", "medium")])
+def test_valid_risk_thresholds_keep_default_and_case_normalization(monkeypatch, tmp_path, threshold, expected):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+
+    assert service.subscribe("alice@example.invalid", "AAPL", alert_types=["risk"], risk_threshold=threshold)
+    assert service.get_subscriptions("alice@example.invalid")[0]["risk_threshold"] == expected
+
+
 @pytest.mark.parametrize("alert_types", [[], ["unknown"], ["news", "unknown"], "news", {}, True, [["news"]]])
 @pytest.mark.parametrize("existing_subscription", [False, True])
 def test_invalid_alert_types_cannot_overwrite_subscription_or_claim_quota(
