@@ -225,3 +225,37 @@ def test_price_target_settings_are_optional_when_price_alerts_are_not_enabled():
 
     assert request.alert_types == ["news"]
     assert request.price_target is None
+
+
+@pytest.mark.parametrize("alert_types", [[], False, 0, "", {}])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_empty_or_invalid_alert_types_cannot_create_default_alerts(tmp_path, alert_types, existing_subscription):
+    _configure_test_storage(tmp_path)
+    service = subs.get_subscription_service()
+    email = "user@example.com"
+    for ticker in ("AAPL", "MSFT"):
+        assert service.subscribe(email, ticker, alert_types=["news"])
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "TSLA"
+
+    with TestClient(app) as client:
+        response = client.post("/api/subscribe", json={
+            "email": email, "ticker": ticker, "alert_types": alert_types, "price_threshold": 3.0,
+        })
+        assert response.status_code == 422
+        assert service.subscriptions_file.read_bytes() == before
+        valid = client.post("/api/subscribe", json={"email": email, "ticker": "NVDA", "alert_types": ["news"]})
+
+    assert valid.status_code == 200
+    assert len(service.get_subscriptions(email)) == 3
+
+
+@pytest.mark.parametrize("payload", [{}, {"alert_types": None}])
+def test_unspecified_alert_types_keep_existing_defaults(tmp_path, payload):
+    _configure_test_storage(tmp_path)
+    with TestClient(app) as client:
+        response = client.post("/api/subscribe", json={"email": "user@example.com", "ticker": "AAPL", **payload})
+
+    assert response.status_code == 200
+    saved = subs.get_subscription_service().get_subscriptions("user@example.com")[0]
+    assert saved["alert_types"] == ["price_change", "news"]
