@@ -1084,3 +1084,17 @@ def test_negated_or_unrelated_cancellation_keeps_affirmative_alert_request(query
 
     assert result["alert_valid"] is True
     assert result["alert_params"]["alert_mode"] == "price_target"
+
+
+@pytest.mark.parametrize("query", [
+    "No AAPL alerts when it goes above 220",
+    "Please, no AAPL price alerts when it drops below 80",
+    "No 000001.SZ reminders if it goes above 220",
+    "No AAPL notifications when it moves 3%",
+])
+def test_ticker_named_denial_cannot_create_alert(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
