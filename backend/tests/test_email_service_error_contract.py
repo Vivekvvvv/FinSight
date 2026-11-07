@@ -1,5 +1,6 @@
 from backend.services import email_service as email_module
 from backend.services.email_service import EmailService
+import pytest
 
 
 def _configured_service() -> EmailService:
@@ -42,6 +43,55 @@ def test_email_permanent_error_is_redacted(monkeypatch, caplog):
     assert secret not in str(result)
     assert secret not in caplog.text
     assert "[EmailService] Permanent SMTP error" in caplog.text
+
+
+@pytest.mark.parametrize("error_kind", ["authentication", "recipient", "sender", "data"])
+@pytest.mark.parametrize("code,expected_type", [(450, "transient"), (550, "permanent")])
+def test_smtp_rejections_use_status_code_without_exposing_provider_details(
+    monkeypatch, caplog, error_kind, code, expected_type,
+):
+    smtp = email_module.smtplib
+    secret = b"PRIVATE recipient and SMTP credentials"
+    error = {
+        "authentication": smtp.SMTPAuthenticationError(code, secret),
+        "recipient": smtp.SMTPRecipientsRefused({"user@example.com": (code, secret)}),
+        "sender": smtp.SMTPSenderRefused(code, secret, "sender@example.com"),
+        "data": smtp.SMTPDataError(code, secret),
+    }[error_kind]
+
+    def fail_smtp(*_args, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(smtp, "SMTP", fail_smtp)
+    result = _configured_service().send_email("user@example.com", "subject", "<p>body</p>")
+
+    assert result[0] is False
+    assert result[1] == expected_type
+    assert "PRIVATE" not in str(result)
+    assert "PRIVATE" not in caplog.text
+
+
+def test_smtp_temporary_rejection_does_not_disable_alert_subscription(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+    from backend.services.alert_scheduler import PriceChangeScheduler, PriceSnapshot
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    monkeypatch.setattr(subs, "ALERT_FAILURE_LIMIT", 1)
+    service = subs.SubscriptionService()
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["price_change"], price_threshold=3.0)
+
+    def fail_smtp(*_args, **_kwargs):
+        raise email_module.smtplib.SMTPDataError(450, b"Temporary delivery refusal")
+
+    monkeypatch.setattr(email_module.smtplib, "SMTP", fail_smtp)
+    scheduler = PriceChangeScheduler(
+        service, _configured_service(), lambda ticker: PriceSnapshot(ticker, 105.0, 5.0),
+    )
+    assert scheduler.run_once() == []
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["disabled"] is False
+    assert saved["alert_failures"] == 0
+    assert saved["last_alert_error"] == "transient_delivery_error"
 
 
 def test_email_unexpected_error_is_redacted(monkeypatch, caplog):

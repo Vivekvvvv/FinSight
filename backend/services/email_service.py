@@ -86,6 +86,14 @@ class EmailService:
             smtplib.SMTPSenderRefused,
             smtplib.SMTPDataError,
         ) as exc:
+            codes = (
+                [code for code, _ in exc.recipients.values()]
+                if isinstance(exc, smtplib.SMTPRecipientsRefused)
+                else [exc.smtp_code]
+            )
+            if any(400 <= code < 500 for code in codes):
+                logger.error('[EmailService] Transient SMTP error')
+                return False, "transient", "Email delivery unavailable"
             logger.error('[EmailService] Permanent SMTP error')
             return False, "permanent", "Email delivery rejected"
         except Exception as exc:  # noqa: BLE001 - 保持外部接口兼容
