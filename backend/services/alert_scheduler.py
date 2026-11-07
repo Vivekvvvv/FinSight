@@ -231,6 +231,7 @@ class PriceChangeScheduler:
                     success=False,
                     error="invalid_email",
                     disable=True,
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
@@ -250,6 +251,7 @@ class PriceChangeScheduler:
                     sub["ticker"],
                     success=False,
                     error="send_failed",
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
             if isinstance(result, tuple):
@@ -266,10 +268,13 @@ class PriceChangeScheduler:
                     success=False,
                     error=error_msg or "send_failed",
                     is_transient_error=(error_type == "transient"),
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
-            self.subscription_service.record_alert_attempt(sub["email"], sub["ticker"], success=True)
+            self.subscription_service.record_alert_attempt(
+                sub["email"], sub["ticker"], success=True, expected_updated_at=sub.get("updated_at"),
+            )
             if alert_mode == "price_target":
                 self.subscription_service.set_price_target_fired(
                     sub["email"], sub["ticker"], expected_updated_at=sub.get("updated_at"),
@@ -438,6 +443,7 @@ class NewsAlertScheduler:
                     success=False,
                     error="invalid_email",
                     disable=True,
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
@@ -457,6 +463,7 @@ class NewsAlertScheduler:
                     sub["ticker"],
                     success=False,
                     error="send_failed",
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
             
@@ -474,11 +481,13 @@ class NewsAlertScheduler:
                     sub["ticker"],
                     success=False,
                     error=error_msg or "send_failed",
-                    is_transient_error=(error_type == 'transient')
+                    is_transient_error=(error_type == 'transient'),
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
             self.subscription_service.record_alert_attempt(
                 sub["email"], sub["ticker"], success=True, update_price_cooldown=False,
+                expected_updated_at=sub.get("updated_at"),
             )
             self.subscription_service.update_last_news(
                 sub["email"], sub["ticker"], published_at=related[0]["published_at"],
@@ -624,6 +633,7 @@ class RiskAlertScheduler:
                     success=False,
                     error="invalid_email",
                     disable=True,
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
@@ -643,6 +653,7 @@ class RiskAlertScheduler:
                     sub["ticker"],
                     success=False,
                     error="send_failed",
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
@@ -660,11 +671,13 @@ class RiskAlertScheduler:
                     success=False,
                     error=error_msg or "send_failed",
                     is_transient_error=(error_type == "transient"),
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
             self.subscription_service.record_alert_attempt(
                 sub["email"], sub["ticker"], success=True, update_price_cooldown=False,
+                expected_updated_at=sub.get("updated_at"),
             )
             self.subscription_service.update_last_risk(sub["email"], sub["ticker"])
             self.subscription_service.record_alert_event(

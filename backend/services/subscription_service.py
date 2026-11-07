@@ -513,7 +513,7 @@ class SubscriptionService:
                         self._save_subscriptions()
                         break
 
-    def record_alert_attempt(self, email: str, ticker: str, success: bool, error: Optional[str] = None, disable: bool = False, is_transient_error: bool = False, *, update_price_cooldown: bool = True):
+    def record_alert_attempt(self, email: str, ticker: str, success: bool, error: Optional[str] = None, disable: bool = False, is_transient_error: bool = False, *, update_price_cooldown: bool = True, expected_updated_at: Optional[str] = None):
         """Record alert delivery attempt and optionally disable subscription."""
         ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
@@ -521,6 +521,8 @@ class SubscriptionService:
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        if expected_updated_at is not None and sub.get("updated_at") != expected_updated_at:
+                            return
                         sub['ticker'] = ticker_norm
                         now = datetime.now().isoformat()
                         sub['last_alert_attempt_at'] = now

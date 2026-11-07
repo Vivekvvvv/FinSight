@@ -537,6 +537,59 @@ def test_old_target_delivery_cannot_mark_new_settings_as_fired(
     assert len(email.sent) == 2
 
 
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target", "news", "risk"])
+@pytest.mark.parametrize("success", [False, True])
+def test_delivery_attempt_cannot_overwrite_settings_updated_while_sending(
+    subscription_service_tmp, monkeypatch, mode, success,
+):
+    service = subscription_service_tmp
+    monkeypatch.setattr(subs, "ALERT_FAILURE_LIMIT", 1)
+    alert_types = [mode] if mode in {"news", "risk"} else ["price_change"]
+    price_mode = mode if mode in {"price_change_pct", "price_target"} else "price_change_pct"
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=alert_types,
+        alert_mode=price_mode, price_threshold=3.0, price_target=100.0, direction="above",
+    )
+
+    class UpdatingEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert service.subscribe(
+                "user@example.com", "AAPL", alert_types=alert_types,
+                alert_mode=price_mode, price_threshold=5.0, price_target=120.0, direction="above",
+            )
+            super().send_stock_alert(**kwargs)
+            return success, "permanent", "old delivery outcome"
+
+    email = UpdatingEmail()
+    if mode == "news":
+        from datetime import timedelta
+
+        scheduler = alert_scheduler_module.NewsAlertScheduler(
+            service, email, lambda _ticker: [{
+                "title": "AAPL earnings", "published_at": _utcnow_naive() - timedelta(minutes=1),
+                "related_tickers": ["AAPL"],
+            }],
+        )
+    elif mode == "risk":
+        scheduler = alert_scheduler_module.RiskAlertScheduler(
+            service, email, lambda ticker: PriceSnapshot(ticker, 110.0, -9.0),
+        )
+    else:
+        scheduler = PriceChangeScheduler(
+            service, email, lambda ticker: PriceSnapshot(ticker, 110.0, 10.0),
+        )
+    scheduler.run_once()
+
+    assert len(email.sent) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["price_threshold"] == 5.0
+    assert saved["disabled"] is False
+    assert saved["alert_failures"] == 0
+    assert saved["last_alert_error"] is None
+    assert saved["last_alert_attempt_at"] is None
+    assert saved["last_alert_at"] is None
+
+
 @pytest.mark.parametrize("direction", [None, "", "sideways"])
 def test_stored_target_without_valid_direction_cannot_send_or_fire(
     subscription_service_tmp, direction,
