@@ -611,6 +611,11 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
 
 @pytest.mark.parametrize("query", [
     "AAPL 涨到 220 或跌到 180 时提醒我",
+    "AAPL 涨到220元或涨跌超过3%时提醒我",
+    "AAPL 涨跌超过3%或涨到220元时提醒我",
+    "Notify me when AAPL goes above 220 or moves over 3%",
+    "Notify me when AAPL goes over 125.5 USD or moves over 12.5%",
+    "Notify me if AAPL moves 3% or goes below 80",
     "Notify me when AAPL goes above 220 or below 180",
     "AAPL 涨到 220 或涨到 230 时提醒我",
     "AAPL 涨跌超过 3% 或涨跌超过 5% 时提醒我",
@@ -692,7 +697,6 @@ def test_repeated_equivalent_thresholds_are_not_conflicting(query, mode, field, 
 
 @pytest.mark.parametrize("query", [
     "Notify me when AAPL goes over 125.5 USD",
-    "Notify me when AAPL goes over 125.5 USD or moves over 12.5%",
     "Notify me when AAPL reaches 125.5. Thanks.",
     "AAPL 涨到 125.5 元提醒我",
 ])

@@ -224,6 +224,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
     price_directions = {_extract_direction(match.group(0)) for match in _PRICE_TARGET_RE.finditer(query)}
     if (
         len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions
+        or (price_target_match is not None and pct_match is not None)
         or any(match.group("pct_end") is not None for match in _PCT_THRESHOLD_RE.finditer(query))
         or _PCT_RANGE_RE.search(query) or _PRICE_RANGE_RE.search(query) or _COMPOUND_PRICE_RE.search(query)
     ):
