@@ -114,7 +114,7 @@ class AnalysisRequest(BaseModel):
 class SubscriptionRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=320, description="email")
     ticker: str = Field(..., min_length=1, max_length=32, description="ticker")
-    alert_types: Optional[list[str]] = Field(None, max_length=4, description="alert types")
+    alert_types: Optional[list[str]] = Field(None, min_length=1, max_length=4, description="alert types")
     price_threshold: Optional[float] = Field(
         None, allow_inf_nan=False, description="price threshold",
     )
@@ -134,7 +134,7 @@ class SubscriptionRequest(BaseModel):
     @field_validator("alert_types", mode="before")
     @classmethod
     def default_alert_types(cls, v):
-        return v or ["price_change", "news"]
+        return ["price_change", "news"] if v is None else v
 
     @field_validator("price_threshold", "price_target", mode="before")
     @classmethod
@@ -176,6 +176,16 @@ class SubscriptionRequest(BaseModel):
         if normalized not in allowed:
             raise ValueError(f"unsupported risk_threshold: {v}")
         return normalized
+
+    @model_validator(mode="after")
+    def require_price_target_settings(self) -> "SubscriptionRequest":
+        if self.alert_mode != "price_target" and set(self.alert_types or ["price_change", "news"]) == {"price_change"}:
+            if self.price_threshold is None:
+                raise ValueError("price_change alerts require price_threshold")
+        if self.alert_mode == "price_target" and "price_change" in (self.alert_types or ["price_change", "news"]):
+            if self.price_target is None or self.direction is None:
+                raise ValueError("price_target alerts require price_target and direction")
+        return self
 
 
 class ScreenerRunRequest(BaseModel):

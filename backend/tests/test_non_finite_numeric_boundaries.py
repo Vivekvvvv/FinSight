@@ -882,7 +882,7 @@ def test_yfinance_uses_later_finite_fallback_value(monkeypatch, field, value):
 def test_yahoo_quote_rejects_non_finite_values(monkeypatch, field, value):
     from backend.services.alert_scheduler import _fetch_with_yahoo_quote
 
-    item = {"regularMarketPrice": 100.0, "regularMarketPreviousClose": 90.0, field: value}
+    item = {"symbol": "AAPL", "regularMarketPrice": 100.0, "regularMarketPreviousClose": 90.0, field: value}
 
     class FakeResponse:
         status_code = 200
@@ -912,7 +912,7 @@ def test_stooq_rejects_non_finite_snapshot_price(monkeypatch, value):
 
         @staticmethod
         def json():
-            return {"symbols": [{"close": value}]}
+            return {"symbols": [{"symbol": "AAPL.US", "close": value}]}
 
     monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(get=lambda *_args, **_kwargs: FakeResponse()))
 
@@ -929,7 +929,7 @@ def test_stooq_ignores_non_finite_historical_close(monkeypatch, value):
 
         @staticmethod
         def json():
-            return {"symbols": [{"close": 100.0}]}
+            return {"symbols": [{"symbol": "AAPL.US", "close": 100.0}]}
 
     class HistoryResponse:
         status_code = 200
@@ -960,7 +960,7 @@ def test_yahoo_chart_rejects_non_finite_closes(monkeypatch, index, value):
 
         @staticmethod
         def json():
-            return {"chart": {"result": [{"indicators": {"quote": [{"close": closes}]}}]}}
+            return {"chart": {"result": [{"meta": {"symbol": "AAPL"}, "indicators": {"quote": [{"close": closes}]}}]}}
 
     monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(get=lambda *_args, **_kwargs: FakeResponse()))
 

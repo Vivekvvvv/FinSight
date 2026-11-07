@@ -65,7 +65,7 @@ def test_usage_counts_actual_subscriptions(tmp_path, monkeypatch):
     monkeypatch.setattr(subs, "_subscription_service", None)
 
     service = subs.get_subscription_service()
-    service.subscribe("u_alerts@example.invalid", "AAPL", alert_types=["price_change"])
+    service.subscribe("u_alerts@example.invalid", "AAPL", alert_types=["price_change"], price_threshold=3.0)
     service.subscribe("u_alerts@example.invalid", "MSFT", alert_types=["news"])
 
     from backend.services.entitlements import build_usage_view, get_entitlements_service

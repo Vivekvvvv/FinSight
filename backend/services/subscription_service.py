@@ -16,6 +16,7 @@ import math
 import os
 import tempfile
 import threading
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from pathlib import Path
@@ -57,6 +58,8 @@ def _finite_optional_number(value: object, *, field: str) -> float | None:
         raise ValueError(f"{field} must be finite") from exc
     if not math.isfinite(number):
         raise ValueError(f"{field} must be finite")
+    if number <= 0:
+        raise ValueError(f"{field} must be positive")
     return number
 
 
@@ -287,7 +290,7 @@ class SubscriptionService:
                 "triggered_at": str(item.get("triggered_at") or "")[:64],
                 "metadata": self._normalize_event_metadata(item.get("metadata")),
             })
-        keep.sort(key=lambda item: str(item.get("triggered_at") or ""), reverse=True)
+        keep.sort(key=lambda item: self._to_utc_naive(self._parse_iso(item["triggered_at"])), reverse=True)
         return keep[: max(1, ALERT_EVENTS_PER_SUB)]
     
     def subscribe(
@@ -318,6 +321,19 @@ class SubscriptionService:
         """
         if alert_types is None:
             alert_types = ["price_change", "news"]
+        if not isinstance(alert_types, list) or not alert_types or any(
+            not isinstance(item, str) or item not in {"price_change", "news", "report", "risk"}
+            for item in alert_types
+        ):
+            raise ValueError("alert_types must contain supported alert types")
+        if alert_mode is not None and (
+            not isinstance(alert_mode, str) or alert_mode.strip().lower() not in ALERT_MODE_ALLOWED
+        ):
+            raise ValueError("unsupported alert_mode")
+        if risk_threshold is not None and (
+            not isinstance(risk_threshold, str) or risk_threshold.strip().lower() not in RISK_THRESHOLD_ALLOWED
+        ):
+            raise ValueError("unsupported risk_threshold")
         price_threshold = _finite_optional_number(
             price_threshold,
             field="price_threshold",
@@ -326,9 +342,18 @@ class SubscriptionService:
         normalized_risk_threshold = self._normalize_risk_threshold(risk_threshold)
         normalized_alert_mode = self._normalize_alert_mode(alert_mode)
         normalized_direction = self._normalize_direction(direction)
+        if normalized_alert_mode == "price_change_pct" and set(alert_types) == {"price_change"} and price_threshold is None:
+            raise ValueError("price_change alerts require price_threshold")
+        if normalized_alert_mode == "price_target" and "price_change" in alert_types:
+            if price_target is None or normalized_direction is None:
+                raise ValueError("price_target alerts require price_target and direction")
 
         if not self.is_valid_email(email):
             logger.info("Invalid email address rejected")
+            return False
+
+        if not self.is_valid_ticker(ticker):
+            logger.info("Invalid subscription ticker rejected")
             return False
 
         normalized_ticker = self._normalize_ticker(ticker)
@@ -345,6 +370,9 @@ class SubscriptionService:
                     if preserve_existing_alerts:
                         alert_types = list(dict.fromkeys([*(sub.get('alert_types') or []), *alert_types]))
                         normalized_risk_threshold = self._normalize_risk_threshold(sub.get('risk_threshold'))
+                        if normalized_alert_mode == "price_target" and "price_change" in alert_types:
+                            if price_target is None or normalized_direction is None:
+                                raise ValueError("price_target alerts require price_target and direction")
                     # 更新现有订阅
                     sub['alert_types'] = alert_types
                     sub['price_threshold'] = price_threshold
@@ -405,7 +433,14 @@ class SubscriptionService:
         """Basic email format validation."""
         if not email or "@" not in email:
             return False
-        return bool(EMAIL_REGEX.match(email))
+        return bool(EMAIL_REGEX.fullmatch(email))
+
+    @staticmethod
+    def is_valid_ticker(ticker: object) -> bool:
+        """与调度器使用相同的标的格式，避免无效订阅占用配额。"""
+        return isinstance(ticker, str) and re.fullmatch(
+            r"[A-Z0-9^][A-Z0-9.^=-]{0,19}", ticker.strip().upper(),
+        ) is not None
     
     def unsubscribe(self, email: str, ticker: Optional[str] = None) -> bool:
         """
@@ -428,10 +463,13 @@ class SubscriptionService:
             else:
                 # 取消特定股票的订阅
                 ticker_norm = self._normalize_ticker(ticker)
-                self.subscriptions[email] = [
+                remaining_subscriptions = [
                     sub for sub in self.subscriptions[email]
                     if self._normalize_ticker(sub.get('ticker')) != ticker_norm
                 ]
+                if len(remaining_subscriptions) == len(self.subscriptions[email]):
+                    return False
+                self.subscriptions[email] = remaining_subscriptions
 
                 # 如果该邮箱没有其他订阅，删除邮箱记录
                 if not self.subscriptions[email]:
@@ -460,11 +498,11 @@ class SubscriptionService:
                 all_subs = []
                 for email_key, subs in self.subscriptions.items():
                     all_subs.extend(subs)
-                return all_subs
+                return deepcopy(all_subs)
         else:
             with self._lock:
                 self._load_subscriptions()
-                return list(self.subscriptions.get(email, []))
+                return deepcopy(self.subscriptions.get(email, []))
 
     def get_subscribers_for_ticker(self, ticker: str) -> List[Dict]:
         """
@@ -483,7 +521,7 @@ class SubscriptionService:
             for email, subs in self.subscriptions.items():
                 for sub in subs:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
-                        subscribers.append(sub)
+                        subscribers.append(deepcopy(sub))
         return subscribers
 
     def update_last_alert(self, email: str, ticker: str):
@@ -499,7 +537,7 @@ class SubscriptionService:
                         self._save_subscriptions()
                         break
 
-    def record_alert_attempt(self, email: str, ticker: str, success: bool, error: Optional[str] = None, disable: bool = False, is_transient_error: bool = False):
+    def record_alert_attempt(self, email: str, ticker: str, success: bool, error: Optional[str] = None, disable: bool = False, is_transient_error: bool = False, *, update_price_cooldown: bool = True, expected_updated_at: Optional[str] = None):
         """Record alert delivery attempt and optionally disable subscription."""
         ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
@@ -507,15 +545,17 @@ class SubscriptionService:
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        if expected_updated_at is not None and sub.get("updated_at") != expected_updated_at:
+                            return
                         sub['ticker'] = ticker_norm
                         now = datetime.now().isoformat()
                         sub['last_alert_attempt_at'] = now
                         if success:
-                            sub['last_alert_at'] = now
+                            if update_price_cooldown:
+                                sub['last_alert_at'] = now
                             sub['alert_failures'] = 0
                             sub['last_alert_error'] = None
                             sub['last_alert_error_at'] = None
-                            sub['disabled'] = False
                         else:
                             if not is_transient_error:
                                 failure_count = max(0, safe_int(sub.get('alert_failures'), 0) or 0)
@@ -538,7 +578,7 @@ class SubscriptionService:
                         self._save_subscriptions()
                         break
 
-    def update_last_news(self, email: str, ticker: str):
+    def update_last_news(self, email: str, ticker: str, *, published_at: Optional[datetime] = None, expected_updated_at: Optional[str] = None):
         """更新最后新闻提醒时间
 
         写 naive-UTC（审计 C3）：该值在 NewsAlertScheduler.run_once 里与文章
@@ -551,12 +591,18 @@ class SubscriptionService:
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        if expected_updated_at is not None and sub.get("updated_at") != expected_updated_at:
+                            return
                         sub['ticker'] = ticker_norm
-                        sub['last_news_at'] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+                        news_at = self._to_utc_naive(published_at) if published_at is not None else datetime.now(timezone.utc).replace(tzinfo=None)
+                        previous_news_at = self._to_utc_naive(self._parse_iso(sub.get('last_news_at')))
+                        if previous_news_at is not None and news_at <= previous_news_at:
+                            return
+                        sub['last_news_at'] = news_at.isoformat()
                         self._save_subscriptions()
                         break
 
-    def update_last_risk(self, email: str, ticker: str):
+    def update_last_risk(self, email: str, ticker: str, *, expected_updated_at: Optional[str] = None):
         """Update last risk alert timestamp."""
         ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
@@ -564,12 +610,14 @@ class SubscriptionService:
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        if expected_updated_at is not None and sub.get("updated_at") != expected_updated_at:
+                            return
                         sub['ticker'] = ticker_norm
                         sub['last_risk_at'] = datetime.now().isoformat()
                         self._save_subscriptions()
                         break
 
-    def set_price_target_fired(self, email: str, ticker: str) -> bool:
+    def set_price_target_fired(self, email: str, ticker: str, *, expected_updated_at: Optional[str] = None) -> bool:
         """Mark one-shot target alert as fired."""
         ticker_norm = str(ticker or "").strip().upper()
         with self._lock:
@@ -578,8 +626,9 @@ class SubscriptionService:
                 return False
             for sub in self.subscriptions[email]:
                 if str(sub.get("ticker") or "").strip().upper() == ticker_norm:
+                    if expected_updated_at is not None and sub.get("updated_at") != expected_updated_at:
+                        return False
                     sub["price_target_fired"] = True
-                    sub["updated_at"] = datetime.now().isoformat()
                     self._save_subscriptions()
                     return True
             return False
@@ -629,6 +678,7 @@ class SubscriptionService:
         message: str = "",
         metadata: Optional[Dict] = None,
         triggered_at: Optional[str] = None,
+        expected_created_at: Optional[str] = None,
     ) -> bool:
         """Append one alert trigger event into subscription.recent_events."""
         updated = False
@@ -643,6 +693,8 @@ class SubscriptionService:
             for sub in self.subscriptions[email]:
                 if str(sub.get("ticker") or "").strip().upper() != normalized_ticker:
                     continue
+                if expected_created_at is not None and sub.get("created_at") != expected_created_at:
+                    return False
 
                 events = sub.get("recent_events")
                 if not isinstance(events, list):
@@ -697,7 +749,7 @@ class SubscriptionService:
                     continue
                 events.append(item)
 
-        events.sort(key=lambda item: str(item.get("triggered_at") or ""), reverse=True)
+        events.sort(key=lambda item: self._to_utc_naive(self._parse_iso(item["triggered_at"])), reverse=True)
         return events[: max(1, safe_int(limit, 50) or 50)]
 
 

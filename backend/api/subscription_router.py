@@ -30,6 +30,8 @@ def create_subscription_router() -> APIRouter:
             require_matching_identity(principal=current_user, provided=request.email, expected=resolved_email, field_name="email")
             if not subscription_service.is_valid_email(resolved_email):
                 raise HTTPException(status_code=400, detail="Invalid email")
+            if not subscription_service.is_valid_ticker(request.ticker):
+                raise HTTPException(status_code=400, detail="Invalid ticker")
 
             entitlements = get_entitlements_service().get_entitlements(
                 current_user.user_id,

@@ -78,6 +78,10 @@ def test_subscription_internal_errors_are_redacted(monkeypatch, method, path, pa
             return True
 
         @staticmethod
+        def is_valid_ticker(_ticker):
+            return True
+
+        @staticmethod
         def fail(*_args, **_kwargs):
             raise RuntimeError("private subscription storage detail")
 
@@ -196,6 +200,232 @@ def test_subscription_service_rejects_boolean_numeric_values(
     assert not storage_path.exists()
 
 
+@pytest.mark.parametrize("field", ["price_threshold", "price_target"])
+@pytest.mark.parametrize("value", [0, -1, "0", "-1"])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_subscription_service_rejects_non_positive_prices_without_using_quota(
+    monkeypatch, tmp_path, field, value, existing_subscription,
+):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news"], max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match=f"{field} must be positive"):
+        service.subscribe(email, ticker, max_subscriptions=2, **{field: value})
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "NVDA", price_threshold=3.0, max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
+@pytest.mark.parametrize("settings", [
+    {}, {"price_target": 220.0}, {"direction": "above"},
+    {"price_target": 220.0, "direction": "sideways"},
+])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_incomplete_price_target_cannot_overwrite_subscription_or_claim_quota(
+    monkeypatch, tmp_path, settings, existing_subscription,
+):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news"], max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match="price_target alerts require price_target and direction"):
+        service.subscribe(email, ticker, alert_types=["price_change"], alert_mode="price_target", **settings)
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "NVDA", price_threshold=3.0, max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
+def test_non_price_subscription_does_not_require_target_settings(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+
+    assert service.subscribe("alice@example.invalid", "AAPL", alert_types=["news"], alert_mode="price_target")
+    assert service.get_subscriptions("alice@example.invalid")[0]["price_target"] is None
+
+
+@pytest.mark.parametrize("existing_subscription", [False, True])
+@pytest.mark.parametrize("mode", [None, "price_change_pct"])
+def test_price_only_subscription_requires_threshold_before_claiming_quota(monkeypatch, tmp_path, mode, existing_subscription):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news"], max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match="price_change alerts require price_threshold"):
+        service.subscribe(email, ticker, alert_types=["price_change"], alert_mode=mode, max_subscriptions=2)
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "NVDA", alert_types=["price_change"], price_threshold=3.0, max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
+@pytest.mark.parametrize("settings", [{}, {"price_target": 220.0}, {"direction": "above"}])
+def test_preserved_price_alerts_still_require_complete_target_settings(monkeypatch, tmp_path, settings):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["price_change"], price_threshold=3.0, max_subscriptions=1)
+    before = service.subscriptions_file.read_bytes()
+
+    with pytest.raises(ValueError, match="price_target alerts require price_target and direction"):
+        service.subscribe(
+            email, "AAPL", alert_types=["news"], alert_mode="price_target",
+            preserve_existing_alerts=True, max_subscriptions=1, **settings,
+        )
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.get_subscriptions(email)[0]["price_threshold"] == 3.0
+
+
+def test_preserved_price_alert_accepts_complete_target_settings(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["price_change"], price_threshold=3.0, max_subscriptions=1)
+
+    assert service.subscribe(
+        email, "AAPL", alert_types=["news"], alert_mode="price_target", price_target=220.0,
+        direction="above", preserve_existing_alerts=True, max_subscriptions=1,
+    )
+    saved = service.get_subscriptions(email)[0]
+    assert saved["alert_types"] == ["price_change", "news"]
+    assert saved["price_target"] == 220.0
+    assert saved["direction"] == "above"
+
+
+@pytest.mark.parametrize("mode", ["unknown", "", " ", False, [], {}])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_invalid_alert_mode_cannot_overwrite_subscription_or_claim_quota(monkeypatch, tmp_path, mode, existing_subscription):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news"], max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match="unsupported alert_mode"):
+        service.subscribe(
+            email, ticker, alert_mode=mode, price_threshold=3.0, price_target=220.0,
+            direction="above", max_subscriptions=2,
+        )
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "NVDA", price_threshold=3.0, max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
+@pytest.mark.parametrize("mode,expected", [(None, "price_change_pct"), (" PRICE_TARGET ", "price_target"), ("PRICE_CHANGE_PCT", "price_change_pct")])
+def test_valid_alert_modes_keep_default_and_case_normalization(monkeypatch, tmp_path, mode, expected):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+
+    assert service.subscribe("alice@example.invalid", "AAPL", alert_mode=mode, price_threshold=3.0, price_target=220.0, direction="above")
+    assert service.get_subscriptions("alice@example.invalid")[0]["alert_mode"] == expected
+
+
+@pytest.mark.parametrize("threshold", ["unknown", "", " ", False, [], {}])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_invalid_risk_threshold_cannot_overwrite_subscription_or_claim_quota(monkeypatch, tmp_path, threshold, existing_subscription):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["risk"], risk_threshold="critical", max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match="unsupported risk_threshold"):
+        service.subscribe(email, ticker, alert_types=["risk"], risk_threshold=threshold, max_subscriptions=2)
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.get_subscriptions(email)[0]["risk_threshold"] == "critical"
+    assert service.subscribe(email, "NVDA", alert_types=["risk"], risk_threshold="medium", max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
+@pytest.mark.parametrize("threshold,expected", [(None, "high"), (" CRITICAL ", "critical"), ("MEDIUM", "medium")])
+def test_valid_risk_thresholds_keep_default_and_case_normalization(monkeypatch, tmp_path, threshold, expected):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+
+    assert service.subscribe("alice@example.invalid", "AAPL", alert_types=["risk"], risk_threshold=threshold)
+    assert service.get_subscriptions("alice@example.invalid")[0]["risk_threshold"] == expected
+
+
+@pytest.mark.parametrize("alert_types", [[], ["unknown"], ["news", "unknown"], "news", {}, True, [["news"]]])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_invalid_alert_types_cannot_overwrite_subscription_or_claim_quota(
+    monkeypatch, tmp_path, alert_types, existing_subscription,
+):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news", "risk"], max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match="alert_types must contain supported alert types"):
+        service.subscribe(email, ticker, alert_types=alert_types, max_subscriptions=2)
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "NVDA", price_threshold=3.0, max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
+@pytest.mark.parametrize("email", ["alice@example.invalid\n", "alice@example.invalid\r\n"])
+def test_malformed_email_cannot_create_subscription_or_claim_quota(monkeypatch, tmp_path, email):
+    from backend.api import main
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setenv("DEV_MODE", "1")
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    monkeypatch.setattr(subs, "get_subscription_service", lambda: service)
+    assert service.subscribe("alice@example.invalid", "AAPL")
+    before = service.subscriptions_file.read_bytes()
+
+    assert service.is_valid_email(email) is False
+    assert service.subscribe(email, "MSFT", max_subscriptions=1) is False
+    with TestClient(main.app) as client:
+        response = client.post("/api/subscribe", json={"email": email, "ticker": "MSFT"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid email"
+    assert service.subscriptions_file.read_bytes() == before
+
+
 def test_subscription_storage_key_controls_delivery_email(monkeypatch, tmp_path):
     from backend.services import subscription_service as subs
 
@@ -239,6 +469,67 @@ def test_record_alert_attempt_recovers_invalid_failure_counter(monkeypatch, tmp_
 
     saved = json.loads(storage_path.read_text(encoding="utf-8"))
     assert saved[email][0]["alert_failures"] == 1
+
+
+def test_successful_delivery_cannot_reenable_subscription_disabled_during_send(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL")
+    stale_service = subs.SubscriptionService()
+    service.record_alert_attempt(email, "AAPL", success=False, error="delivery failed")
+    assert service.toggle_subscription(email, "AAPL", enabled=False)
+
+    stale_service.record_alert_attempt(email, "AAPL", success=True)
+
+    saved = service.get_subscriptions(email)[0]
+    assert saved["disabled"] is True
+    assert saved["alert_failures"] == 0
+    assert saved["last_alert_error"] is None
+    assert saved["last_alert_at"] is not None
+
+
+def test_unsubscribe_missing_ticker_does_not_report_success_or_rewrite_storage(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL")
+    before = service.subscriptions_file.read_bytes()
+
+    assert service.unsubscribe(email, "TSLA") is False
+    assert service.subscriptions_file.read_bytes() == before
+    assert [item["ticker"] for item in service.get_subscriptions(email)] == ["AAPL"]
+
+
+@pytest.mark.parametrize("ticker", [None, "", "   ", "BAD TICKER", ".AAPL", "A" * 21])
+def test_invalid_subscription_ticker_cannot_claim_remaining_slot(monkeypatch, tmp_path, ticker):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+
+    assert service.subscribe(email, ticker, max_subscriptions=2) is False
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "MSFT", max_subscriptions=2)
+
+
+@pytest.mark.parametrize("ticker", [" aapl ", "000001.SZ", "BRK.B", "BTC-USD", "^GSPC", "EURUSD=X", "A" * 20])
+def test_subscription_ticker_validation_keeps_scheduler_supported_symbols(monkeypatch, tmp_path, ticker):
+    from backend.services import subscription_service as subs
+    from backend.services.alert_scheduler import _subscription_ticker
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    assert service.subscribe("alice@example.invalid", ticker)
+    saved = service.get_subscriptions("alice@example.invalid")[0]
+    assert _subscription_ticker(saved) == ticker.strip().upper()
 
 
 def test_record_alert_event_bounds_persisted_content(monkeypatch, tmp_path):
@@ -301,6 +592,33 @@ def test_legacy_alert_events_are_bounded_when_loaded(monkeypatch, tmp_path):
     # 16 KiB blob 序列化后（含 {"blob": ...} 的外壳）必然越过上限，被丢弃并留标记。
     assert loaded["metadata"] == {"_metadata_unavailable": "oversized"}
     assert "unexpected" not in loaded
+
+
+@pytest.mark.parametrize("same_subscription", [False, True])
+def test_alert_retention_and_feed_use_time_instead_of_iso_text(monkeypatch, tmp_path, same_subscription):
+    from datetime import datetime, timedelta, timezone
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    monkeypatch.setattr(subs, "ALERT_EVENTS_PER_SUB", 1)
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL")
+    other_ticker = "AAPL" if same_subscription else "MSFT"
+    if not same_subscription:
+        assert service.subscribe(email, other_ticker)
+    now = datetime.now(timezone.utc)
+    older = (now - timedelta(hours=2)).astimezone(timezone(timedelta(hours=8)))
+    newer = now - timedelta(hours=1)
+    assert service.record_alert_event(email, "AAPL", "news", title="older", triggered_at=older.isoformat())
+    assert service.record_alert_event(email, other_ticker, "news", title="newer", triggered_at=newer.isoformat())
+
+    latest = service.list_alert_events(email, limit=1)
+
+    assert [event["title"] for event in latest] == ["newer"]
+    assert latest[0]["triggered_at"] == newer.isoformat()
+    if same_subscription:
+        assert service.get_subscriptions(email)[0]["recent_events"][0]["title"] == "newer"
 
 
 def test_subscription_instances_do_not_overwrite_new_subscribers(monkeypatch, tmp_path):
@@ -471,7 +789,7 @@ def test_subscription_update_can_preserve_latest_alert_settings(monkeypatch, tmp
 
     options = {"preserve_existing_alerts": True} if preserve_existing_alerts else {}
     assert stale.subscribe(
-        email, "AAPL", alert_types=["price_change"], risk_threshold="low", max_subscriptions=1,
+        email, "AAPL", alert_types=["price_change"], price_threshold=3.0, risk_threshold="low", max_subscriptions=1,
         **options,
     )
 
@@ -544,3 +862,33 @@ def test_absent_alert_event_metadata_stays_empty(monkeypatch, tmp_path):
 
     event = service.list_alert_events("alice@example.invalid")[0]
     assert event["metadata"] == {}
+
+
+@pytest.mark.parametrize("lookup", ["email", "all", "ticker"])
+def test_read_subscription_snapshot_cannot_modify_persisted_user_settings(monkeypatch, tmp_path, lookup):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news", "risk"], risk_threshold="critical")
+    assert service.record_alert_event(email, "AAPL", "news", metadata={"nested": {"levels": ["high"]}})
+    before = service.subscriptions_file.read_bytes()
+    if lookup == "all":
+        snapshot = service.get_subscriptions(allow_all=True)
+    elif lookup == "ticker":
+        snapshot = service.get_subscribers_for_ticker("AAPL")
+    else:
+        snapshot = service.get_subscriptions(email)
+
+    snapshot[0]["disabled"] = True
+    snapshot[0]["alert_types"].append("price_change")
+    snapshot[0]["recent_events"][0]["metadata"]["nested"]["levels"].append("low")
+    with service._lock:
+        service._save_subscriptions()
+
+    assert service.subscriptions_file.read_bytes() == before
+    saved = service.get_subscriptions(email)[0]
+    assert saved["disabled"] is False
+    assert saved["alert_types"] == ["news", "risk"]
+    assert saved["recent_events"][0]["metadata"]["nested"]["levels"] == ["high"]

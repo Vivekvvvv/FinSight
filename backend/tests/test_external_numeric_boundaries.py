@@ -2058,7 +2058,7 @@ async def test_alert_action_rejects_non_finite_target(monkeypatch, value):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-async def test_alert_action_ignores_non_finite_current_price(monkeypatch, value):
+async def test_alert_action_rejects_direction_inference_from_non_finite_price(monkeypatch, value):
     module = importlib.import_module("backend.graph.nodes.alert_action")
 
     service = _SubscriptionStub()
@@ -2077,8 +2077,10 @@ async def test_alert_action_ignores_non_finite_current_price(monkeypatch, value)
         }
     )
 
-    assert result["alert_valid"] is True
-    assert service.payload["direction"] == "above"
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert service.payload is None
+    assert "暂时无法获取有效行情" in result["artifacts"]["draft_markdown"]
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "1e309"])
