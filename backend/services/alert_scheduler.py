@@ -183,10 +183,11 @@ class PriceChangeScheduler:
                 if not math.isfinite(price_target_payload) or price_target_payload <= 0:
                     continue
                 direction_payload = str(sub.get("direction") or "").strip().lower()
+                if direction_payload not in {"above", "below"}:
+                    continue
                 if direction_payload == "below":
                     triggered = snapshot.price <= price_target_payload
                 else:
-                    direction_payload = "above"
                     triggered = snapshot.price >= price_target_payload
                 if not triggered:
                     continue

@@ -537,6 +537,30 @@ def test_old_target_delivery_cannot_mark_new_settings_as_fired(
     assert len(email.sent) == 2
 
 
+@pytest.mark.parametrize("direction", [None, "", "sideways"])
+def test_stored_target_without_valid_direction_cannot_send_or_fire(
+    subscription_service_tmp, direction,
+):
+    service = subscription_service_tmp
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change"],
+        alert_mode="price_target", price_target=100.0, direction="above",
+    )
+    service.subscriptions["user@example.com"][0]["direction"] = direction
+    service._save_subscriptions()
+    email = FakeEmailService()
+    scheduler = PriceChangeScheduler(
+        service, email, lambda ticker: PriceSnapshot(ticker, 110.0, 10.0),
+    )
+
+    assert scheduler.run_once() == []
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert email.sent == []
+    assert saved["price_target_fired"] is False
+    assert saved["last_alert_at"] is None
+    assert saved["recent_events"] == []
+
+
 @pytest.mark.parametrize("other_alert", ["news", "risk"])
 @pytest.mark.parametrize("previous_price_alert", [False, True])
 def test_other_alert_delivery_does_not_reset_price_cooldown(
