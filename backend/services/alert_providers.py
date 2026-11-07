@@ -121,6 +121,10 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
     def _add_article(title: str, url: str, source: str, published_at: datetime, related: List[str] | None = None):
         if not isinstance(published_at, datetime) or published_at < cutoff:
             return
+        if isinstance(related, str):
+            related = related.split(",")
+        elif not isinstance(related, list):
+            related = []
         articles.append(
             {
                 "title": str(title or "")[:512],
@@ -202,7 +206,7 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                         source = item.get("source", "")
                         ts = item.get("datetime")
                         pub_dt = _parse_pub_datetime(ts)
-                        related = item.get("related", "").split(",") if item.get("related") else [ticker_up]
+                        related = item.get("related") or [ticker_up]
                         _add_article(title, link, source, pub_dt, related)
             except Exception as e:
                 logger.info("[NewsFetcher] finnhub news failed: %s", type(e).__name__)

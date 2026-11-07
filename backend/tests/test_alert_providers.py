@@ -353,3 +353,63 @@ def test_finnhub_timestamp_formats_keep_utc_news(monkeypatch, timestamp_format):
 
     assert len(articles) == 1
     assert articles[0]["published_at"] == published.replace(tzinfo=None)
+
+
+@pytest.mark.parametrize("source", ["yfinance", "finnhub"])
+@pytest.mark.parametrize("related,expected", [
+    (" aapl , msft ", ["AAPL", "MSFT"]),
+    ([" aapl ", None, 123, "msft"], ["AAPL", "MSFT"]),
+    ({"symbol": "AAPL"}, []),
+    (123, []),
+    (True, []),
+])
+def test_news_related_tickers_normalize_without_dropping_following_articles(monkeypatch, source, related, expected):
+    from datetime import datetime, timedelta, timezone
+
+    published = int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp())
+    if source == "finnhub":
+        _mock_finnhub_news(monkeypatch, [
+            {"headline": "First earnings release", "datetime": published, "related": related},
+            {"headline": "Second earnings release", "datetime": published, "related": "AAPL"},
+        ])
+    else:
+        news = [
+            {"title": "First earnings release", "providerPublishTime": published, "relatedTickers": related},
+            {"title": "Second earnings release", "providerPublishTime": published, "relatedTickers": ["AAPL"]},
+        ]
+        monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=news)))
+        monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+        monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+
+    articles = providers.fetch_news_articles("AAPL")
+
+    assert [article["title"] for article in articles] == ["First earnings release", "Second earnings release"]
+    assert articles[0]["related_tickers"] == expected
+    assert articles[1]["related_tickers"] == ["AAPL"]
+
+
+def test_string_related_ticker_can_deliver_news_without_symbol_in_title(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    published = int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp())
+    news = [{"title": "Earnings exceed expectations", "providerPublishTime": published, "relatedTickers": "AAPL"}]
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=news)))
+    sends = []
+    subscription_service = SimpleNamespace(
+        get_subscriptions=lambda **_kwargs: [{
+            "email": "alice@example.invalid", "ticker": "AAPL", "alert_types": ["news"],
+        }],
+        is_valid_email=lambda _email: True,
+        record_alert_attempt=lambda *args, **kwargs: None,
+        update_last_news=lambda *args, **kwargs: None,
+        record_alert_event=lambda *args, **kwargs: None,
+    )
+    scheduler = NewsAlertScheduler(
+        subscription_service, SimpleNamespace(send_stock_alert=lambda **kwargs: sends.append(kwargs) or True),
+        providers.fetch_news_articles,
+    )
+
+    assert len(scheduler.run_once()) == 1
+    assert len(sends) == 1
+    assert "Earnings exceed expectations" in sends[0]["message"]
