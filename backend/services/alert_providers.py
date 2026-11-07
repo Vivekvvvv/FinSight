@@ -238,6 +238,8 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                         except (TypeError, ValueError, KeyError):
                             pub_dt = None
                     related = item.get("ticker_sentiment", [])
+                    if not isinstance(related, list):
+                        related = []
                     rel_codes = [r.get("ticker") for r in related if isinstance(r, dict) and r.get("ticker")]
                     _add_article(title, link, source, pub_dt, rel_codes or [ticker_up])
             except Exception as e:

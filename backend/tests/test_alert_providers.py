@@ -372,6 +372,22 @@ def test_alpha_vantage_news_timestamp_keeps_feed_format_and_precision(monkeypatc
     assert articles[0]["related_tickers"] == ["AAPL"]
 
 
+@pytest.mark.parametrize("related", [None, 123, True, "bad", {"ticker": "AAPL"}])
+def test_bad_alpha_vantage_related_field_does_not_drop_following_news(monkeypatch, related):
+    from datetime import datetime, timedelta, timezone
+
+    published = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y%m%dT%H%M%S")
+    _mock_alpha_vantage_news(monkeypatch, [
+        {"title": "AAPL first earnings release", "time_published": published, "ticker_sentiment": related},
+        {"title": "AAPL second earnings release", "time_published": published, "ticker_sentiment": [{"ticker": "AAPL"}]},
+    ])
+
+    articles = providers.fetch_news_articles("AAPL")
+
+    assert [article["title"] for article in articles] == ["AAPL first earnings release", "AAPL second earnings release"]
+    assert articles[1]["related_tickers"] == ["AAPL"]
+
+
 @pytest.mark.parametrize("timestamp", [None, "bad", {}, [], True, float("inf"), float("nan"), 1e100])
 def test_bad_finnhub_timestamp_does_not_drop_following_news(monkeypatch, timestamp):
     from datetime import datetime, timedelta, timezone
