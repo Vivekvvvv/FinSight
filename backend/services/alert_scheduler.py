@@ -492,6 +492,7 @@ class NewsAlertScheduler:
             )
             self.subscription_service.update_last_news(
                 sub["email"], sub["ticker"], published_at=related[0]["published_at"],
+                expected_updated_at=sub.get("updated_at"),
             )
             self.subscription_service.record_alert_event(
                 sub["email"],
@@ -680,7 +681,9 @@ class RiskAlertScheduler:
                 sub["email"], sub["ticker"], success=True, update_price_cooldown=False,
                 expected_updated_at=sub.get("updated_at"),
             )
-            self.subscription_service.update_last_risk(sub["email"], sub["ticker"])
+            self.subscription_service.update_last_risk(
+                sub["email"], sub["ticker"], expected_updated_at=sub.get("updated_at"),
+            )
             self.subscription_service.record_alert_event(
                 sub["email"],
                 sub["ticker"],

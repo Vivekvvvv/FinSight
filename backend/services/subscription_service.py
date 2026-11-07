@@ -564,7 +564,7 @@ class SubscriptionService:
                         self._save_subscriptions()
                         break
 
-    def update_last_news(self, email: str, ticker: str, *, published_at: Optional[datetime] = None):
+    def update_last_news(self, email: str, ticker: str, *, published_at: Optional[datetime] = None, expected_updated_at: Optional[str] = None):
         """更新最后新闻提醒时间
 
         写 naive-UTC（审计 C3）：该值在 NewsAlertScheduler.run_once 里与文章
@@ -577,6 +577,8 @@ class SubscriptionService:
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        if expected_updated_at is not None and sub.get("updated_at") != expected_updated_at:
+                            return
                         sub['ticker'] = ticker_norm
                         news_at = self._to_utc_naive(published_at) if published_at is not None else datetime.now(timezone.utc).replace(tzinfo=None)
                         previous_news_at = self._to_utc_naive(self._parse_iso(sub.get('last_news_at')))
@@ -586,7 +588,7 @@ class SubscriptionService:
                         self._save_subscriptions()
                         break
 
-    def update_last_risk(self, email: str, ticker: str):
+    def update_last_risk(self, email: str, ticker: str, *, expected_updated_at: Optional[str] = None):
         """Update last risk alert timestamp."""
         ticker_norm = self._normalize_ticker(ticker)
         with self._lock:
@@ -594,6 +596,8 @@ class SubscriptionService:
             if email in self.subscriptions:
                 for sub in self.subscriptions[email]:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
+                        if expected_updated_at is not None and sub.get("updated_at") != expected_updated_at:
+                            return
                         sub['ticker'] = ticker_norm
                         sub['last_risk_at'] = datetime.now().isoformat()
                         self._save_subscriptions()

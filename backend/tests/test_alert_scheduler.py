@@ -618,6 +618,37 @@ def test_delivery_attempt_cannot_overwrite_settings_updated_while_sending(
     assert saved["last_alert_error"] is None
     assert saved["last_alert_attempt_at"] is None
     assert saved["last_alert_at"] is None
+    if mode in {"news", "risk"}:
+        assert saved[f"last_{mode}_at"] is None
+
+
+@pytest.mark.parametrize("mode", ["news", "risk"])
+def test_old_delivery_cannot_set_cooldown_on_recreated_subscription(subscription_service_tmp, mode):
+    from datetime import timedelta
+
+    service = subscription_service_tmp
+    email_address = "user@example.com"
+    assert service.subscribe(email_address, "AAPL", alert_types=[mode])
+
+    class RecreatingEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert service.unsubscribe(email_address, "AAPL")
+            assert service.subscribe(email_address, "AAPL", alert_types=[mode])
+            return super().send_stock_alert(**kwargs)
+
+    email = RecreatingEmail()
+    if mode == "news":
+        scheduler = alert_scheduler_module.NewsAlertScheduler(service, email, lambda _ticker: [{
+            "title": "Earnings release", "published_at": _utcnow_naive() - timedelta(minutes=1),
+            "related_tickers": ["AAPL"],
+        }])
+    else:
+        scheduler = alert_scheduler_module.RiskAlertScheduler(service, email, lambda ticker: PriceSnapshot(ticker, 110.0, -9.0))
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions(email_address)[0]
+    assert saved[f"last_{mode}_at"] is None
+    assert saved["last_alert_attempt_at"] is None
 
 
 @pytest.mark.parametrize("direction", [None, "", "sideways"])
