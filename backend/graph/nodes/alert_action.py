@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from backend.graph.state import GraphState
@@ -9,6 +10,8 @@ from backend.services.alert_scheduler import fetch_price_snapshot
 from backend.services.entitlements import DEFAULT_PLAN, PLAN_LIMITS, get_entitlements_service
 from backend.services.subscription_service import SubscriptionLimitExceeded, get_subscription_service
 from backend.utils.quote import safe_float, safe_int
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_user_email(state: GraphState) -> str | None:
@@ -101,7 +104,11 @@ async def alert_action(state: GraphState) -> dict[str, Any]:
             }
         if direction not in {"above", "below"}:
             # 多源外网抓取，须卸载线程池，协程体内直接调会阻塞事件循环
-            snap = await asyncio.to_thread(fetch_price_snapshot, ticker)
+            try:
+                snap = await asyncio.to_thread(fetch_price_snapshot, ticker)
+            except Exception:
+                logger.warning("Alert direction quote unavailable")
+                snap = None
             current_price = safe_float(snap.price if snap is not None else None)
             if (
                 current_price is None or current_price <= 0

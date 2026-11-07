@@ -230,6 +230,44 @@ async def test_explicit_alert_direction_does_not_need_a_quote(alert_storage, mon
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("existing_subscription", [False, True])
+@pytest.mark.parametrize("error_kind", [TimeoutError, ConnectionError, RuntimeError])
+async def test_quote_failure_clarifies_direction_without_writing_or_using_quota(
+    alert_storage, monkeypatch, caplog, existing_subscription, error_kind,
+):
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("MSFT", "NVDA"):
+        assert svc.subscribe(email, ticker)
+    if existing_subscription:
+        assert svc.subscribe(email, "AAPL", alert_mode="price_target", price_target=80.0, direction="below")
+    before = svc.subscriptions_file.read_bytes()
+
+    def failed_quote(_ticker):
+        raise error_kind("PRIVATE provider token and endpoint")
+
+    monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", failed_quote)
+    state = _alert_state("AAPL")
+    state["alert_params"] = {"ticker": "AAPL", "alert_mode": "price_target", "price_target": 220.0}
+
+    result = await alert_action_module.alert_action(state)
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    markdown = result["artifacts"]["draft_markdown"]
+    assert "涨到" in markdown and "跌到" in markdown
+    assert "PRIVATE" not in str(result)
+    assert "PRIVATE" not in caplog.text
+    assert svc.subscriptions_file.read_bytes() == before
+    if not existing_subscription:
+        state["alert_params"]["direction"] = "above"
+        valid = await alert_action_module.alert_action(state)
+        assert valid["alert_valid"] is True
+        assert len(svc.get_subscriptions(email)) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_subscription", [False, True])
 async def test_unrelated_quote_cannot_supply_chat_alert_direction(alert_storage, monkeypatch, existing_subscription):
     _, svc = alert_storage
     email = "alice@example.invalid"
