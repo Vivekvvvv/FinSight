@@ -94,6 +94,58 @@ def test_smtp_temporary_rejection_does_not_disable_alert_subscription(monkeypatc
     assert saved["last_alert_error"] == "transient_delivery_error"
 
 
+@pytest.mark.parametrize("missing_field", ["smtp_user", "smtp_password"])
+def test_missing_smtp_configuration_is_not_a_permanent_subscription_failure(monkeypatch, missing_field):
+    service = _configured_service()
+    setattr(service, missing_field, "")
+
+    def unexpected_connection(*_args, **_kwargs):
+        raise AssertionError("missing credentials must not open SMTP connections")
+
+    monkeypatch.setattr(email_module.smtplib, "SMTP", unexpected_connection)
+
+    assert service.send_email("user@example.com", "subject", "<p>body</p>") == (
+        False, "transient", "SMTP credentials missing",
+    )
+
+
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target", "news", "risk"])
+def test_missing_smtp_configuration_preserves_alerts_for_later_delivery(monkeypatch, tmp_path, mode):
+    from datetime import datetime, timedelta, timezone
+    from backend.services import subscription_service as subs
+    from backend.services.alert_scheduler import NewsAlertScheduler, PriceChangeScheduler, PriceSnapshot, RiskAlertScheduler
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    monkeypatch.setattr(subs, "ALERT_FAILURE_LIMIT", 1)
+    service = subs.SubscriptionService()
+    price_mode = mode if mode in {"price_change_pct", "price_target"} else "price_change_pct"
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=[mode] if mode in {"news", "risk"} else ["price_change"],
+        alert_mode=price_mode, price_threshold=3.0, price_target=110.0, direction="above",
+    )
+    email = _configured_service()
+    email.smtp_password = ""
+    quote = lambda ticker: PriceSnapshot(ticker, 120.0, -9.0)
+    if mode == "news":
+        scheduler = NewsAlertScheduler(service, email, lambda _ticker: [{
+            "title": "Earnings release", "related_tickers": ["AAPL"],
+            "published_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        }])
+    elif mode == "risk":
+        scheduler = RiskAlertScheduler(service, email, quote)
+    else:
+        scheduler = PriceChangeScheduler(service, email, quote)
+
+    assert scheduler.run_once() == []
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["disabled"] is False
+    assert saved["alert_failures"] == 0
+    assert saved["price_target_fired"] is False
+    assert saved["last_news_at"] is None
+    assert saved["last_risk_at"] is None
+    assert saved["last_alert_error"] == "transient_delivery_error"
+
+
 def test_email_unexpected_error_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://email:secret@db/unexpected"
 

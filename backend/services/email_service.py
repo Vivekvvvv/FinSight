@@ -57,7 +57,7 @@ class EmailService:
         """
         if not self.smtp_user or not self.smtp_password:
             logger.warning("⚠️ 邮件服务未配置：请设置 SMTP_USER 和 SMTP_PASSWORD 环境变量")
-            return False, "permanent", "SMTP credentials missing"
+            return False, "transient", "SMTP credentials missing"
 
         try:
             msg = MIMEMultipart("alternative")
