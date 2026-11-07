@@ -296,6 +296,40 @@ def test_preserved_price_alert_accepts_complete_target_settings(monkeypatch, tmp
     assert saved["direction"] == "above"
 
 
+@pytest.mark.parametrize("mode", ["unknown", "", " ", False, [], {}])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_invalid_alert_mode_cannot_overwrite_subscription_or_claim_quota(monkeypatch, tmp_path, mode, existing_subscription):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news"], max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match="unsupported alert_mode"):
+        service.subscribe(
+            email, ticker, alert_mode=mode, price_threshold=3.0, price_target=220.0,
+            direction="above", max_subscriptions=2,
+        )
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "NVDA", price_threshold=3.0, max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
+@pytest.mark.parametrize("mode,expected", [(None, "price_change_pct"), (" PRICE_TARGET ", "price_target"), ("PRICE_CHANGE_PCT", "price_change_pct")])
+def test_valid_alert_modes_keep_default_and_case_normalization(monkeypatch, tmp_path, mode, expected):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+
+    assert service.subscribe("alice@example.invalid", "AAPL", alert_mode=mode, price_threshold=3.0, price_target=220.0, direction="above")
+    assert service.get_subscriptions("alice@example.invalid")[0]["alert_mode"] == expected
+
+
 @pytest.mark.parametrize("alert_types", [[], ["unknown"], ["news", "unknown"], "news", {}, True, [["news"]]])
 @pytest.mark.parametrize("existing_subscription", [False, True])
 def test_invalid_alert_types_cannot_overwrite_subscription_or_claim_quota(

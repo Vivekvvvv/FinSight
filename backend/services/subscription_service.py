@@ -325,6 +325,10 @@ class SubscriptionService:
             for item in alert_types
         ):
             raise ValueError("alert_types must contain supported alert types")
+        if alert_mode is not None and (
+            not isinstance(alert_mode, str) or alert_mode.strip().lower() not in ALERT_MODE_ALLOWED
+        ):
+            raise ValueError("unsupported alert_mode")
         price_threshold = _finite_optional_number(
             price_threshold,
             field="price_threshold",
