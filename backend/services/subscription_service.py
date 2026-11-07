@@ -359,6 +359,9 @@ class SubscriptionService:
                     if preserve_existing_alerts:
                         alert_types = list(dict.fromkeys([*(sub.get('alert_types') or []), *alert_types]))
                         normalized_risk_threshold = self._normalize_risk_threshold(sub.get('risk_threshold'))
+                        if normalized_alert_mode == "price_target" and "price_change" in alert_types:
+                            if price_target is None or normalized_direction is None:
+                                raise ValueError("price_target alerts require price_target and direction")
                     # 更新现有订阅
                     sub['alert_types'] = alert_types
                     sub['price_threshold'] = price_threshold

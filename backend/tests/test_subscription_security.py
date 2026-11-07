@@ -258,6 +258,44 @@ def test_non_price_subscription_does_not_require_target_settings(monkeypatch, tm
     assert service.get_subscriptions("alice@example.invalid")[0]["price_target"] is None
 
 
+@pytest.mark.parametrize("settings", [{}, {"price_target": 220.0}, {"direction": "above"}])
+def test_preserved_price_alerts_still_require_complete_target_settings(monkeypatch, tmp_path, settings):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["price_change"], price_threshold=3.0, max_subscriptions=1)
+    before = service.subscriptions_file.read_bytes()
+
+    with pytest.raises(ValueError, match="price_target alerts require price_target and direction"):
+        service.subscribe(
+            email, "AAPL", alert_types=["news"], alert_mode="price_target",
+            preserve_existing_alerts=True, max_subscriptions=1, **settings,
+        )
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.get_subscriptions(email)[0]["price_threshold"] == 3.0
+
+
+def test_preserved_price_alert_accepts_complete_target_settings(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["price_change"], price_threshold=3.0, max_subscriptions=1)
+
+    assert service.subscribe(
+        email, "AAPL", alert_types=["news"], alert_mode="price_target", price_target=220.0,
+        direction="above", preserve_existing_alerts=True, max_subscriptions=1,
+    )
+    saved = service.get_subscriptions(email)[0]
+    assert saved["alert_types"] == ["price_change", "news"]
+    assert saved["price_target"] == 220.0
+    assert saved["direction"] == "above"
+
+
 @pytest.mark.parametrize("alert_types", [[], ["unknown"], ["news", "unknown"], "news", {}, True, [["news"]]])
 @pytest.mark.parametrize("existing_subscription", [False, True])
 def test_invalid_alert_types_cannot_overwrite_subscription_or_claim_quota(
