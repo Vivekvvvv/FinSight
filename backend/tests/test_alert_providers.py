@@ -412,6 +412,31 @@ def test_future_primary_news_does_not_block_valid_fallback(monkeypatch):
     assert [article["title"] for article in articles] == ["Actual earnings release"]
 
 
+@pytest.mark.parametrize("source", ["yfinance", "finnhub"])
+@pytest.mark.parametrize("timestamp", ["0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-14:00"])
+def test_overflowing_news_timezone_does_not_drop_following_article(monkeypatch, source, timestamp):
+    from datetime import datetime, timedelta, timezone
+
+    published = (datetime.now(timezone.utc) - timedelta(hours=1)).timestamp()
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    if source == "finnhub":
+        _mock_finnhub_news(monkeypatch, [
+            {"headline": "Invalid timezone", "datetime": timestamp},
+            {"headline": "Actual earnings release", "datetime": published, "related": "AAPL"},
+        ])
+    else:
+        monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+        monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=[
+            {"title": "Invalid timezone", "providerPublishTime": timestamp},
+            {"title": "Actual earnings release", "providerPublishTime": published, "relatedTickers": ["AAPL"]},
+        ])))
+
+    articles = providers.fetch_news_articles("AAPL")
+
+    assert [article["title"] for article in articles] == ["Actual earnings release"]
+    assert articles[0]["related_tickers"] == ["AAPL"]
+
+
 @pytest.mark.parametrize("timestamp_format", ["%Y%m%dT%H%M%S", "%Y%m%d%H%M%S", "%Y%m%d%H%M"])
 def test_alpha_vantage_news_timestamp_keeps_feed_format_and_precision(monkeypatch, timestamp_format):
     from datetime import datetime, timedelta, timezone

@@ -106,7 +106,7 @@ def _parse_pub_datetime(raw: Any) -> Optional[datetime]:
         if dt.tzinfo is not None:
             dt = dt.astimezone(timezone.utc)
         return dt.replace(tzinfo=None)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
