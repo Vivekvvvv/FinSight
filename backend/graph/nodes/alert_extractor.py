@@ -60,6 +60,14 @@ _NEGATED_PCT_CONDITION_RE = re.compile(
     re.IGNORECASE,
 )
 
+_NEGATED_PRICE_MOVEMENT_RE = re.compile(
+    r"(?:(?:不|没(?:有)?|未)\s*(?:上|下)?(?:涨到|跌到|涨至|跌至|跌破|突破|到达|达到|到|至)"
+    r"|\b(?:not|no|never|isn['’]t|doesn['’]t|don['’]t)\s+"
+    r"(?:reach(?:es)?|hits?|(?:go(?:es)?|rises?|climbs?|drops?|falls?|dips?)\s+to))"
+    r"\s*(?:[$€£]\s*)?[+-]?(?:\d|\.\d)",
+    re.IGNORECASE,
+)
+
 _PCT_RANGE_RE = re.compile(
     _PCT_THRESHOLD_RE.pattern + r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*[+-]?(?:\d|\.\d)",
     re.IGNORECASE,
@@ -175,6 +183,16 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
             "skip_session_context": True,
             "alert_params": alert_params,
             "artifacts": {"draft_markdown": "未创建或修改提醒。如需停用已有提醒，请在提醒设置中关闭或删除。"},
+        }
+
+    if _NEGATED_PRICE_MOVEMENT_RE.search(query):
+        draft = "当前到价提醒无法按未达到或未突破条件触发。未创建或修改提醒，请明确提供上涨到或下跌到的目标价。"
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "alert_params": alert_params,
+            "clarify": {"needed": True, "reason": "alert_unsupported_price_condition", "question": draft},
+            "artifacts": {"draft_markdown": draft},
         }
 
     if any(

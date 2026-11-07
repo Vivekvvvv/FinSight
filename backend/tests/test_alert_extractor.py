@@ -465,6 +465,41 @@ def test_dollar_prefixed_target_keeps_price_and_direction(query, price, expected
     assert result["alert_params"]["direction"] == expected_direction
 
 
+@pytest.mark.parametrize("query", [
+    "AAPL 不涨到220元时提醒我",
+    "AAPL 不上涨至220元时提醒我",
+    "AAPL 没有跌到220元时提醒我",
+    "AAPL 未下跌至220元时提醒我",
+    "AAPL 不跌破220元时提醒我",
+    "AAPL 没有突破220元时提醒我",
+    "AAPL 未到达220元时提醒我",
+    "AAPL 没 涨到220元时提醒我",
+    "Notify me when AAPL does not reach 220",
+    "Notify me when AAPL never hits 220",
+    "Notify me when AAPL doesn't rise to 220",
+    "Notify me when AAPL does not fall to 220",
+])
+def test_negated_price_movement_requires_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["price_target"] is None
+    assert result["clarify"]["reason"] == "alert_unsupported_price_condition"
+
+
+@pytest.mark.parametrize("query", [
+    "AAPL 没有上涨，涨到220元时提醒我",
+    "I do not own AAPL; notify me when AAPL rises to 220",
+])
+def test_unrelated_negation_keeps_affirmative_price_movement(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
+    assert result["alert_params"]["direction"] == "above"
+
+
 @pytest.mark.parametrize("query,expected_price", [
     ("Notify me when AAPL drops below .5", 0.5),
     ("Notify me when AAPL goes above $.75", 0.75),
