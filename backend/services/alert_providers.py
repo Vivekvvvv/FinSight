@@ -10,8 +10,10 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
+
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,7 @@ def fetch_price_snapshot(ticker: str) -> Optional[PriceSnapshot]:
     Lightweight price fetcher with multi-source free fallbacks (no API key required):
     浼樺厛鍏嶅皝閿佺殑 stooq锛屽啀灏濊瘯 yfinance/Yahoo銆?    """
     snap = _get_cached_snapshot(ticker)
-    if snap:
+    if snap is not None and snap.change_percent is not None:
         return snap
 
     fetchers = (
@@ -56,11 +58,29 @@ def fetch_price_snapshot(ticker: str) -> Optional[PriceSnapshot]:
         _fetch_with_yahoo_chart,
     )
 
+    price_only_snapshot = None
     for fetcher in fetchers:
         snapshot = fetcher(ticker)
         if snapshot:
+            if str(getattr(snapshot, "ticker", "") or "").strip().upper() != ticker.strip().upper():
+                continue
+            price = _positive_finite_float(snapshot.price)
+            if price is None:
+                continue
+            snapshot.price = price
+            snapshot.change_percent = safe_float(snapshot.change_percent)
+            if snapshot.change_percent is None:
+                price_only_snapshot = price_only_snapshot or snapshot
+                continue
             _set_cache_snapshot(ticker, snapshot)
             return snapshot
+
+    if price_only_snapshot is not None:
+        _set_cache_snapshot(ticker, price_only_snapshot)
+        return price_only_snapshot
+
+    if snap is not None:
+        return snap
 
     # 四个源全试过仍为空：此前这里毫无痕迹地返回 None，调用方（告警循环）
     # 于是把它当成"阈值没突破"跳过，一轮下来"无告警"与"报价源全挂"同形。
@@ -86,7 +106,7 @@ def _parse_pub_datetime(raw: Any) -> Optional[datetime]:
         if dt.tzinfo is not None:
             dt = dt.astimezone(timezone.utc)
         return dt.replace(tzinfo=None)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -99,7 +119,21 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
     ticker_up = ticker.upper()
 
     def _add_article(title: str, url: str, source: str, published_at: datetime, related: List[str] | None = None):
-        if not isinstance(published_at, datetime) or published_at < cutoff:
+        if (
+            not isinstance(published_at, datetime) or published_at < cutoff
+            or published_at > datetime.now(timezone.utc).replace(tzinfo=None)
+        ):
+            return
+        if isinstance(related, str):
+            related = related.split(",")
+        elif not isinstance(related, list):
+            related = []
+        related_tickers = [
+            r.strip().upper()[:20]
+            for r in related[:50]
+            if isinstance(r, str) and r.strip()
+        ]
+        if related_tickers and ticker_up not in related_tickers:
             return
         articles.append(
             {
@@ -107,11 +141,7 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                 "url": str(url or "")[:2048],
                 "source": str(source or "")[:128],
                 "published_at": published_at,
-                "related_tickers": [
-                    r.strip().upper()[:20]
-                    for r in (related or [])[:50]
-                    if isinstance(r, str) and r.strip()
-                ],
+                "related_tickers": related_tickers,
             }
         )
 
@@ -181,11 +211,8 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                         link = item.get("url", "")
                         source = item.get("source", "")
                         ts = item.get("datetime")
-                        pub_dt = (
-                            datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
-                            if ts else None
-                        )
-                        related = item.get("related", "").split(",") if item.get("related") else [ticker_up]
+                        pub_dt = _parse_pub_datetime(ts)
+                        related = item.get("related") or [ticker_up]
                         _add_article(title, link, source, pub_dt, related)
             except Exception as e:
                 logger.info("[NewsFetcher] finnhub news failed: %s", type(e).__name__)
@@ -212,10 +239,13 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                     pub_dt = None
                     if ts_str:
                         try:
-                            pub_dt = datetime.strptime(ts_str[:12], "%Y%m%d%H%M")
-                        except Exception:
+                            timestamp_format = {12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S", 15: "%Y%m%dT%H%M%S"}[len(ts_str)]
+                            pub_dt = datetime.strptime(ts_str, timestamp_format)
+                        except (TypeError, ValueError, KeyError):
                             pub_dt = None
                     related = item.get("ticker_sentiment", [])
+                    if not isinstance(related, list):
+                        related = []
                     rel_codes = [r.get("ticker") for r in related if isinstance(r, dict) and r.get("ticker")]
                     _add_article(title, link, source, pub_dt, rel_codes or [ticker_up])
             except Exception as e:
@@ -264,7 +294,12 @@ def _fetch_with_yahoo_quote(ticker: str) -> Optional[PriceSnapshot]:
         data = resp.json().get("quoteResponse", {}).get("result", [])
         if not data:
             return None
-        item = data[0]
+        item = next((
+            entry for entry in data if isinstance(entry, dict)
+            and str(entry.get("symbol") or "").strip().upper() == ticker.strip().upper()
+        ), None)
+        if item is None:
+            return None
         price = _positive_finite_float(item.get("regularMarketPrice"))
         if price is None:
             return None
@@ -301,6 +336,8 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
         if not data:
             return None
         item = data[0]
+        if str(item.get("symbol") or "").strip().lower() != symbol:
+            return None
         close = item.get("close")
         if close in (None, "N/D"):
             return None
@@ -315,16 +352,20 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
             hist_url = f"https://stooq.pl/q/d/l/?s={symbol}&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d"
             hist = requests.get(hist_url, timeout=8)
             if hist.status_code == 200 and hist.text:
-                today_iso = end.isoformat()
+                quote_iso = datetime.fromisoformat(str(item.get("date") or end.isoformat())).date().isoformat()
                 closes = []
                 for row in csv.DictReader(io.StringIO(hist.text)):
                     row_date = str(row.get("Date") or row.get("Data") or "").strip()
+                    try:
+                        row_date = date.fromisoformat(row_date).isoformat()
+                    except ValueError:
+                        continue
                     raw = row.get("Close") or row.get("Zamkniecie")
                     value = _positive_finite_float(raw)
-                    if value is not None and row_date and row_date < today_iso:
-                        closes.append(value)
+                    if value is not None and row_date and row_date < quote_iso:
+                        closes.append((row_date, value))
                 if closes:
-                    prev = closes[-1]
+                    prev = max(closes, key=lambda row: row[0])[1]
         except Exception as exc:
             logger.debug('Stooq history fetch failed')
             prev = None
@@ -351,7 +392,10 @@ def _fetch_with_yahoo_chart(ticker: str) -> Optional[PriceSnapshot]:
             return None
         chart = resp.json().get("chart", {})
         result = (chart.get("result") or [None])[0] or {}
+        if str((result.get("meta") or {}).get("symbol") or "").strip().upper() != ticker.strip().upper():
+            return None
         closes = (result.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
+        closes = [close for close in closes if close is not None]
         if len(closes) < 2:
             return None
         prev_close = _positive_finite_float(closes[-2])
@@ -380,7 +424,16 @@ def _get_cached_snapshot(ticker: str) -> Optional[PriceSnapshot]:
         age = now - float(ts)
     except (TypeError, ValueError, OverflowError):
         age = math.inf
-    if math.isfinite(age) and 0 <= age <= _CACHE_TTL:
+    price = _positive_finite_float(getattr(snap, "price", None))
+    change_percent = safe_float(getattr(snap, "change_percent", None))
+    if (
+        math.isfinite(age) and 0 <= age <= _CACHE_TTL
+        and str(getattr(snap, "ticker", "") or "").strip().upper() == ticker.strip().upper()
+        and price is not None
+        and (snap.change_percent is None or change_percent is not None)
+    ):
+        snap.price = price
+        snap.change_percent = change_percent
         return snap
     _PRICE_CACHE.pop(ticker.upper(), None)
     return None
