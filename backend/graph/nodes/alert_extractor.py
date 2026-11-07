@@ -9,18 +9,40 @@ from backend.graph.state import GraphState
 _PRICE_TARGET_RE = re.compile(
     r"(?:"
     # Chinese patterns
-    r"涨到|跌到|到达|到|达到|至|"
+    r"(?:不|没(?:有)?|未)\s*(?:高于|大于|低于|小于)|"
+    r"涨到|跌到|涨至|跌至|跌破|低于|小于|突破|高于|大于|到达|到|达到|至|"
+    r"(?:(?:不|(?<![a-z0-9_])(?:not|no|isn['’]t|doesn['’]t|don['’]t))\s*)?(?<![<>=!])(?:[<>]=?|[≤≥])|"
     # English patterns - price target
-    r"price\s+(?:of|at|to)|target\s+price|reaches?|hits?|"
+    r"(?<![a-z0-9_])(?:price\s+(?:of|at|to)|target\s+price|reaches?|hits?|"
     # English patterns - directional
     r"(?:drops?|falls?|goes?|dips?)\s+(?:below|under|to)\s*|"
     r"(?:rises?|climbs?|goes?)\s+(?:above|over|to)\s*|"
-    r"(?:above|below|over|under|at)\s*"
-    r")\s*"
-    r"(?P<price>(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
+    r"(?:not|no|isn['’]t|doesn['’]t|don['’]t)\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:(?:less|lower|greater|higher)\s+than|above|below|over|under)\s*|"
+    r"(?:less|lower|greater|higher)\s+than\s*|"
+    r"(?:above|below|over|under|at)\s*)"
+    r")\s*(?:(?P<currency_prefix>[$€£])\s*)?"
+    r"(?P<price>[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
     # Reject incomplete numbers and percentages without matching a shorter prefix.
-    r"(?!\d|[.,，]\d|\s*(?:%|percent|个点|pct))"
-    r"\s*(?:元|块|美元|dollars?|usd|\$)?",
+    r"(?!\d|[.,，]\d|e[+-]?\d|\s*(?:[-–—~～/]|to(?![a-z_]))\s*(?:\$\s*)?[+-]?(?:\d|\.\d)|\s*(?:[%％]|percent|per\s+cent|个点|pct|美分|[分角千万亿]|(?:[kmb]|thousands?|millions?|billions?|(?:euro|(?:us|u\.s\.)\s+)?cents?|pence|penn(?:y|ies))(?![a-z_])))"
+    r"\s*(?P<currency>元|块|美元|dollars?|usd|\$|欧元|英镑|日元|港元|港币|加元|澳元|€|£|(?:eur|gbp|euros?|pounds?|jpy|hkd|yen|cad|aud|(?:canadian|australian)\s+dollars?)(?![a-z_]))?",
+    re.IGNORECASE,
+)
+
+_PRICE_RANGE_RE = re.compile(
+    _PRICE_TARGET_RE.pattern + r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?:[$€£]\s*)?[+-]?(?:\d|\.\d)",
+    re.IGNORECASE,
+)
+
+_COMPOUND_PRICE_RE = re.compile(
+    _PRICE_TARGET_RE.pattern + r"\s*(?:and\s+)?\d+(?:\.\d+)?\s*(?:美分|角|分|cents?\b|pence\b)",
+    re.IGNORECASE,
+)
+
+_ADDITIONAL_PRICE_RE = re.compile(
+    r"\s*(?:(?:and|or)(?![a-z_])|[与或及和])\s*(?:(?P<currency_prefix>[$€£])\s*)?"
+    r"(?P<price>[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
+    r"(?!\d|[.,，]\d|e[+-]?\d)\s*"
+    r"(?P<currency>元|块|美元|dollars?|usd|\$|欧元|英镑|日元|港元|港币|加元|澳元|€|£|(?:eur|gbp|euros?|pounds?|jpy|hkd|yen|cad|aud|(?:canadian|australian)\s+dollars?)(?![a-z_]))?",
     re.IGNORECASE,
 )
 
@@ -29,11 +51,42 @@ _PCT_THRESHOLD_RE = re.compile(
     # Chinese patterns
     r"涨|跌|上涨|下跌|变动|超过|涨跌超过|"
     # English patterns
-    r"(?:rises?|drops?|falls?|moves?|changes?|fluctuates?)\s*(?:by\s*)?|"
+    r"(?<![a-z0-9_])(?:(?:rises?|drops?|falls?|moves?|changes?|fluctuates?)\s*(?:by\s*)?|"
     r"(?:up|down)\s*(?:by\s*)?|"
-    r"(?:more\s+than|exceeds?|over)\s*"
+    r"(?:more\s+than|exceeds?|over)\s*)"
     r")\s*"
-    r"(?P<pct>\d+(?:\.\d+)?)\s*(?:%|percent|个点|pct)",
+    r"(?P<pct>[+-]?(?:\d+(?:\.\d+)?|\.\d+))"
+    r"(?:\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?P<pct_end>[+-]?(?:\d+(?:\.\d+)?|\.\d+)))?"
+    r"\s*(?:[%％](?!\d)|(?:percent|per\s+cent|pct)(?![a-z0-9_])|个点)",
+    re.IGNORECASE,
+)
+
+_ADDITIONAL_PCT_RE = re.compile(
+    r"\s*(?:(?:and|or)(?![a-z_])|[与或及和])\s*"
+    r"(?P<pct>[+-]?(?:\d+(?:\.\d+)?|\.\d+))"
+    r"(?:\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?P<pct_end>[+-]?(?:\d+(?:\.\d+)?|\.\d+)))?"
+    r"\s*(?:[%％](?!\d)|(?:percent|per\s+cent|pct)(?![a-z0-9_])|个点)"
+    r"(?P<range_after>\s*(?:[-–—~～/至]|to(?![a-z_]))\s*[+-]?(?:\d|\.\d))?",
+    re.IGNORECASE,
+)
+
+_NEGATED_PCT_CONDITION_RE = re.compile(
+    r"(?:(?:不|没(?:有)?|未)\s*|\b(?:not|no|never|isn['’]t|doesn['’]t|don['’]t)\s+)"
+    r"(?:(?:rises?|rising|drops?|dropping|falls?|falling|moves?|moving|changes?|changing|fluctuates?|fluctuating)\s+)?"
+    + _PCT_THRESHOLD_RE.pattern,
+    re.IGNORECASE,
+)
+
+_NEGATED_PRICE_MOVEMENT_RE = re.compile(
+    r"(?:(?:不|没(?:有)?|未)\s*(?:上|下)?(?:涨到|跌到|涨至|跌至|跌破|突破|到达|达到|到|至)"
+    r"|\b(?:not|no|never|isn['’]t|doesn['’]t|don['’]t)\s+"
+    r"(?:reach(?:es)?|hits?|(?:go(?:es)?|rises?|climbs?|drops?|falls?|dips?)\s+to))"
+    r"\s*(?:[$€£]\s*)?[+-]?(?:\d|\.\d)",
+    re.IGNORECASE,
+)
+
+_PCT_RANGE_RE = re.compile(
+    _PCT_THRESHOLD_RE.pattern + r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*[+-]?(?:\d|\.\d)",
     re.IGNORECASE,
 )
 
@@ -41,10 +94,17 @@ _PCT_THRESHOLD_RE = re.compile(
 _DECLINED_ALERT_RE = re.compile(
     r"(?:不要|(?<![特分])别|勿|不用|不必|无需|不需要|不想)"
     r"(?!\s*(?:忘记|忘了|漏掉|漏了|错过|取消|撤销|删除|关闭|停用|停止))"
-    r"[^。！？；,，;\n]*(?:提醒|预警|通知|订阅)"
-    r"|\b(?:do\s+not|don['’]?t|never|no\s+need\s+to)\s+"
-    r"(?:(?:set|create|add|enable)\b[^.!?,;\n]*\b(?:alerts?|reminders?|notifications?)\b"
-    r"|(?:subscribe|alert|notify|remind)\b)",
+    r"(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*(?:提醒|预警|通知|订阅)"
+    r"|\b(?:(?:do\s+not|don['’]?t|never)(?:\s+(?:want|need)\s+to)?|no\s+need\s+to|no\s+longer\s+(?:want|need)\s+to)\s+"
+    r"(?:(?:set|create|add|enable|send)\b(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|reminders?|notifications?)\b"
+    r"|keep\s+(?:alerting|notifying|reminding)\b"
+    r"|(?:subscribe|alert|notify|remind)\b)"
+    r"|\b(?:(?:do\s+not|don['’]?t|no\s+longer)\s+(?:want|need)|no\s+need\s+for)\s+"
+    r"(?:(?:an?|any|the|my|price)\s+)*(?:alerts?|reminders?|notifications?)\b"
+    r"|\b(?:(?:do\s+not|don['’]?t|no\s+longer)\s+(?:want|need)|no\s+need\s+for)\s+"
+    r"(?:(?:an?|any|the|my)\s+)+"
+    r"[a-z0-9][a-z0-9._-]{0,31}\s+(?:price\s+)?(?:alerts?|reminders?|notifications?)\b"
+    r"|^\s*(?:please[,\s]+)?no\s+(?:[a-z0-9][a-z0-9._-]{0,31}\s+)?(?:price\s+)?(?:alerts?|reminders?|notifications?)\s+(?:when|if)\b",
     re.IGNORECASE,
 )
 
@@ -52,8 +112,11 @@ _DECLINED_ALERT_RE = re.compile(
 _CANCEL_ALERT_RE = re.compile(
     r"(?:取消|撤销|关闭|停用|停止|删除)"
     r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*(?:提醒|预警|通知|订阅))"
-    r"|\b(?:cancel|remove|delete|disable|stop)\b"
+    r"|\b(?:cancel|remove|delete|disable|stop|(?:turn|switch)\s+off)\b"
     r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|notifications?|reminders?|subscriptions?)\b)"
+    r"|\b(?:turn|switch)\b"
+    r"(?=(?:[^。！？；.!?,，;\n]|(?<=\d)[.,，](?=\d))*\b(?:alerts?|notifications?|reminders?|subscriptions?)\s+off\b)"
+    r"|\bstop\b(?=\s+(?:notifying|reminding|alerting)\b)"
     r"|\bunsubscribe\b",
     re.IGNORECASE,
 )
@@ -74,19 +137,28 @@ def _pick_ticker(state: GraphState) -> str | None:
 
 def _extract_direction(query: str) -> str | None:
     lowered = str(query or "").lower()
-    below_tokens = ("跌到", "跌破", "低于", "小于", "<=")
-    above_tokens = ("涨到", "突破", "高于", "大于", ">=")
+    below_tokens = ("跌到", "跌至", "跌破", "低于", "小于", "<", "≤")
+    above_tokens = ("涨到", "涨至", "突破", "高于", "大于", ">", "≥")
     price_triggers = " ".join(match.group(0) for match in _PRICE_TARGET_RE.finditer(lowered))
+
+    if re.search(r"(?:不|没(?:有)?|未)\s*(?:高于|大于|>=?|≥)", lowered):
+        return "below"
+    if re.search(r"(?:不|没(?:有)?|未)\s*(?:低于|小于|<=?|≤)", lowered):
+        return "above"
+    if re.search(r"(?<![a-z_])(?:not|no|isn['’]t|doesn['’]t|don['’]t)(?:\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:above|over|(?:higher|greater)\s+than)(?![a-z_])|\s*(?:>=?|≥))", lowered):
+        return "below"
+    if re.search(r"(?<![a-z_])(?:not|no|isn['’]t|doesn['’]t|don['’]t)(?:\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:below|under|(?:lower|less)\s+than)(?![a-z_])|\s*(?:<=?|≤))", lowered):
+        return "above"
 
     if (
         any(token in lowered for token in below_tokens)
-        or re.search(r"(?<![a-z_])(?:below|under)(?![a-z_])", lowered)
+        or re.search(r"(?<![a-z_])(?:below|under|(?:less|lower)\s+than)(?![a-z_])", lowered)
         or re.search(r"(?<![a-z_])(?:drops?|falls?|dips?)\s+to(?![a-z_])", price_triggers)
     ):
         return "below"
     if (
         any(token in lowered for token in above_tokens)
-        or re.search(r"(?<![a-z_])(?:above|over)(?![a-z_])", lowered)
+        or re.search(r"(?<![a-z_])(?:above|over|(?:greater|higher)\s+than)(?![a-z_])", lowered)
         or re.search(r"(?<![a-z_])(?:rises?|climbs?)\s+to(?![a-z_])", price_triggers)
     ):
         return "above"
@@ -130,13 +202,82 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
             "artifacts": {"draft_markdown": "未创建或修改提醒。如需停用已有提醒，请在提醒设置中关闭或删除。"},
         }
 
+    if _NEGATED_PRICE_MOVEMENT_RE.search(query):
+        draft = "当前到价提醒无法按未达到或未突破条件触发。未创建或修改提醒，请明确提供上涨到或下跌到的目标价。"
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "alert_params": alert_params,
+            "clarify": {"needed": True, "reason": "alert_unsupported_price_condition", "question": draft},
+            "artifacts": {"draft_markdown": draft},
+        }
+
+    price_matches = list(_PRICE_TARGET_RE.finditer(query))
+    for match in price_matches[:]:
+        additional = _ADDITIONAL_PRICE_RE.match(query, match.end())
+        while additional is not None:
+            price_matches.append(additional)
+            additional = _ADDITIONAL_PRICE_RE.match(query, additional.end())
+
+    if any(
+        match.group("currency_prefix") in {"€", "£"}
+        or " ".join((match.group("currency") or "").lower().split()) in {"eur", "gbp", "euro", "euros", "pound", "pounds", "jpy", "hkd", "yen", "cad", "aud", "canadian dollar", "canadian dollars", "australian dollar", "australian dollars", "欧元", "英镑", "日元", "港元", "港币", "加元", "澳元", "€", "£"}
+        for match in price_matches
+    ):
+        draft = "当前提醒不支持自动换算币种，未创建或修改提醒。请使用该股票行情的原始币种提供目标价格。"
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "alert_params": alert_params,
+            "clarify": {"needed": True, "reason": "alert_unsupported_currency", "question": draft},
+            "artifacts": {"draft_markdown": draft},
+        }
+
+    subject = state.get("subject") or {}
+    tickers = subject.get("tickers") if isinstance(subject, dict) else None
+    alert_tickers = {str(item or "").strip().upper() for item in tickers if str(item or "").strip()} if isinstance(tickers, list) else set()
+    if not re.search(r"\bUSD\b", _PRICE_TARGET_RE.sub("", query), re.IGNORECASE):
+        alert_tickers.discard("USD")
+        if ticker == "USD":
+            ticker = _pick_ticker({"ui_context": state.get("ui_context")})
+            alert_params["ticker"] = ticker
+    if len(alert_tickers) == 1:
+        ticker = next(iter(alert_tickers))
+        alert_params["ticker"] = ticker
+    if len(alert_tickers) > 1:
+        draft = "检测到多个提醒标的，未创建或修改提醒。请一次只指定一只股票及其提醒条件。"
+        return {
+            "alert_valid": False,
+            "skip_session_context": True,
+            "alert_params": alert_params,
+            "clarify": {
+                "needed": True,
+                "reason": "alert_multiple_tickers",
+                "question": draft,
+            },
+            "artifacts": {"draft_markdown": draft},
+        }
+
     price_targets = {
         float(match.group("price").replace(",", ""))
-        for match in _PRICE_TARGET_RE.finditer(query)
+        for match in price_matches
     }
     pct_thresholds = {float(match.group("pct")) for match in _PCT_THRESHOLD_RE.finditer(query)}
+    additional_pct_range = False
+    for match in _PCT_THRESHOLD_RE.finditer(query):
+        additional = _ADDITIONAL_PCT_RE.match(query, match.end())
+        while additional is not None:
+            pct_thresholds.add(float(additional.group("pct")))
+            additional_pct_range |= additional.group("pct_end") is not None or additional.group("range_after") is not None
+            additional = _ADDITIONAL_PCT_RE.match(query, additional.end())
     price_directions = {_extract_direction(match.group(0)) for match in _PRICE_TARGET_RE.finditer(query)}
-    if len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions:
+    if (
+        len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions
+        or (price_target_match is not None and pct_match is not None)
+        or any(match.group("pct_end") is not None for match in _PCT_THRESHOLD_RE.finditer(query))
+        or additional_pct_range
+        or _PCT_RANGE_RE.search(query) or _PRICE_RANGE_RE.search(query) or _COMPOUND_PRICE_RE.search(query)
+    ):
         draft = "检测到多个不同的提醒条件，未创建或修改提醒。请一次只提供一个目标价格及方向，或一个涨跌幅条件。"
         return {
             "alert_valid": False,
@@ -153,8 +294,17 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
     if price_target_match:
         alert_params["alert_mode"] = "price_target"
         alert_params["price_target"] = float(price_target_match.group("price").replace(",", ""))
-        alert_params["direction"] = _extract_direction(query)
+        alert_params["direction"] = next((value for value in price_directions if value is not None), None)
     elif pct_match:
+        if _NEGATED_PCT_CONDITION_RE.search(query):
+            draft = "当前涨跌幅提醒只支持绝对涨跌幅达到指定百分比，无法按否定或上限条件触发。未创建或修改提醒，请提供达到的百分比阈值。"
+            return {
+                "alert_valid": False,
+                "skip_session_context": True,
+                "alert_params": alert_params,
+                "clarify": {"needed": True, "reason": "alert_unsupported_pct_condition", "question": draft},
+                "artifacts": {"draft_markdown": draft},
+            }
         alert_params["alert_mode"] = "price_change_pct"
         alert_params["price_threshold"] = float(pct_match.group("pct"))
 

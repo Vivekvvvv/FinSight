@@ -1,4 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
+import pytest
+
 from backend.graph.nodes.parse_operation import parse_operation
 
 
@@ -32,3 +34,36 @@ def test_parse_operation_alert_priority_over_price_keyword():
         }
     )
     assert result["operation"]["name"] == "alert_set"
+
+
+@pytest.mark.parametrize("query", [
+    "Set a reminder when AAPL drops below 80",
+    "Create a notification when AAPL goes above 220",
+    "Turn AAPL reminders off when it falls below 80",
+    "Remove my reminder when AAPL goes above 220",
+    "Keep reminding me when AAPL goes above 220",
+    "Stop reminding me when AAPL goes above 220",
+])
+def test_reminder_and_notification_nouns_route_to_alert_flow(query):
+    result = parse_operation({
+        "query": query,
+        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+    })
+
+    assert result["operation"]["name"] == "alert_set"
+    assert result["trace"]["operation_decision"]["guardrail_a_hit"] == "alert_set"
+
+
+@pytest.mark.parametrize("query", [
+    "AAPL reminder_count220",
+    "AAPL notifications_cache220",
+    "AAPL reminding_me_cache220",
+    "I am reminding myself about AAPL earnings",
+])
+def test_embedded_reminder_and_notification_names_do_not_route_to_alert(query):
+    result = parse_operation({
+        "query": query,
+        "subject": {"subject_type": "company", "tickers": ["AAPL"]},
+    })
+
+    assert result["operation"]["name"] == "qa"
