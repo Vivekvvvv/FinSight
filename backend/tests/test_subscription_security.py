@@ -200,6 +200,29 @@ def test_subscription_service_rejects_boolean_numeric_values(
     assert not storage_path.exists()
 
 
+@pytest.mark.parametrize("field", ["price_threshold", "price_target"])
+@pytest.mark.parametrize("value", [0, -1, "0", "-1"])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_subscription_service_rejects_non_positive_prices_without_using_quota(
+    monkeypatch, tmp_path, field, value, existing_subscription,
+):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news"], max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match=f"{field} must be positive"):
+        service.subscribe(email, ticker, max_subscriptions=2, **{field: value})
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "NVDA", price_threshold=3.0, max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
 def test_subscription_storage_key_controls_delivery_email(monkeypatch, tmp_path):
     from backend.services import subscription_service as subs
 

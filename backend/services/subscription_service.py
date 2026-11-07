@@ -57,6 +57,8 @@ def _finite_optional_number(value: object, *, field: str) -> float | None:
         raise ValueError(f"{field} must be finite") from exc
     if not math.isfinite(number):
         raise ValueError(f"{field} must be finite")
+    if number <= 0:
+        raise ValueError(f"{field} must be positive")
     return number
 
 
