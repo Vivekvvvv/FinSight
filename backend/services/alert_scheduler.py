@@ -372,6 +372,7 @@ class NewsAlertScheduler:
             if not articles:
                 continue
 
+            fetched_at = datetime.now(timezone.utc).replace(tzinfo=None)
             # 相关性：优先 related_tickers 命中，其次标题出现 ticker 型 token
             related: List[Dict] = []
             for art in iter_dict_items(articles):
@@ -386,7 +387,7 @@ class NewsAlertScheduler:
                 # 带时区的 aware 值归一到 naive-UTC，避免与 naive 的 lookback 比较抛 TypeError
                 if pub_dt.tzinfo is not None:
                     pub_dt = pub_dt.astimezone(timezone.utc).replace(tzinfo=None)
-                if pub_dt < lookback:
+                if pub_dt < lookback or pub_dt > fetched_at:
                     continue
                 if last_dt and pub_dt <= last_dt:
                     continue

@@ -794,6 +794,36 @@ def test_c3_aware_published_at_string_normalized(subscription_service_tmp):
     assert len(sent) == 1
 
 
+@pytest.mark.parametrize("include_current", [False, True])
+def test_news_scheduler_rejects_future_articles(subscription_service_tmp, include_current):
+    from datetime import timedelta
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    service = subscription_service_tmp
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["news"])
+    now = _utcnow_naive()
+    articles = [{
+        "title": "AAPL future news", "published_at": now + timedelta(hours=2),
+        "related_tickers": ["AAPL"],
+    }]
+    if include_current:
+        articles.append({
+            "title": "AAPL current news", "published_at": now - timedelta(minutes=1),
+            "related_tickers": ["AAPL"],
+        })
+    email = FakeEmailService()
+    sent = NewsAlertScheduler(service, email, lambda _ticker: articles).run_once()
+
+    assert len(sent) == int(include_current)
+    assert all("future news" not in item["message"] for item in email.sent)
+    if include_current:
+        assert "current news" in email.sent[0]["message"]
+    else:
+        saved = service.get_subscriptions("user@example.com")[0]
+        assert saved["last_news_at"] is None
+        assert saved["recent_events"] == []
+
+
 def test_news_scheduler_ignores_invalid_stored_last_news_at(subscription_service_tmp):
     from datetime import timedelta
     from backend.services.alert_scheduler import NewsAlertScheduler
