@@ -264,7 +264,7 @@ def test_overflowing_yfinance_percentage_falls_back_to_healthy_quote(monkeypatch
     assert calls == ["_fetch_with_stooq", "_fetch_with_yahoo_quote"]
 
 
-@pytest.mark.parametrize("change_percent", [None, 0.0, -5.0])
+@pytest.mark.parametrize("change_percent", [0.0, -5.0])
 def test_valid_cached_quote_numbers_keep_cache_hit(monkeypatch, change_percent):
     calls = _mock_fetchers(monkeypatch, [None, None, None, None])
     snapshot = providers.PriceSnapshot("AAPL", 105.0, change_percent)
@@ -272,6 +272,21 @@ def test_valid_cached_quote_numbers_keep_cache_hit(monkeypatch, change_percent):
 
     assert providers.fetch_price_snapshot("AAPL") is snapshot
     assert calls == []
+
+
+@pytest.mark.parametrize("available", [False, True])
+def test_price_only_cache_allows_percentage_fallback_without_extending_its_age(monkeypatch, available):
+    partial = providers.PriceSnapshot("AAPL", 105.0, None)
+    complete = providers.PriceSnapshot("AAPL", 110.0, 10.0) if available else None
+    calls = _mock_fetchers(monkeypatch, [None, complete, None, None])
+    monkeypatch.setattr(providers.time, "time", lambda: 1000.0)
+    providers._PRICE_CACHE["AAPL"] = (partial, 900.0)
+
+    result = providers.fetch_price_snapshot("AAPL")
+
+    assert result is (complete if available else partial)
+    assert len(calls) == (2 if available else 4)
+    assert providers._PRICE_CACHE["AAPL"][1] == (1000.0 if available else 900.0)
 
 
 def test_invalid_percentage_keeps_valid_price_when_fallback_sources_fail(monkeypatch):
