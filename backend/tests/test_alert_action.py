@@ -528,6 +528,8 @@ async def test_graph_multiple_tickers_cannot_partially_write_subscriptions(alert
     "TSLA 涨到220日元时提醒我",
     "TSLA 涨到220港元时提醒我",
     "Notify me if TSLA falls -3%",
+    "TSLA 不 超过3%时提醒我",
+    "TSLA 没有 涨3%时提醒我",
     "Notify me if TSLA moves over -.5%",
     "Notify me if TSLA moves 3% to -5%",
     "Notify me if TSLA moves .5% to +.75%",

@@ -54,7 +54,7 @@ _PCT_THRESHOLD_RE = re.compile(
 )
 
 _NEGATED_PCT_CONDITION_RE = re.compile(
-    r"(?:不|没(?:有)?|未|\b(?:not|no|isn['’]t|doesn['’]t|don['’]t)\s+)"
+    r"(?:(?:不|没(?:有)?|未)\s*|\b(?:not|no|isn['’]t|doesn['’]t|don['’]t)\s+)"
     r"(?:(?:rises?|drops?|falls?|moves?|changes?|fluctuates?)\s+)?"
     + _PCT_THRESHOLD_RE.pattern,
     re.IGNORECASE,

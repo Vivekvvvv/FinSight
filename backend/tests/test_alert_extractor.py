@@ -153,6 +153,9 @@ def test_signed_percentage_keeps_full_threshold(value, expected_threshold):
 @pytest.mark.parametrize("query", [
     "AAPL 涨幅不超过3%时提醒我",
     "AAPL 没有涨3%时提醒我",
+    "AAPL 不 超过3%时提醒我",
+    "AAPL 没有 涨3%时提醒我",
+    "AAPL 未　涨跌超过3%时提醒我",
     "Notify me if AAPL does not move over 3%",
     "Notify me if AAPL doesn't rise 3%",
     "Notify me if AAPL moves no more than 3%",
