@@ -651,6 +651,43 @@ def test_old_delivery_cannot_set_cooldown_on_recreated_subscription(subscription
     assert saved["last_alert_attempt_at"] is None
 
 
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target", "news", "risk"])
+def test_old_delivery_event_cannot_enter_recreated_subscription(subscription_service_tmp, mode):
+    from datetime import timedelta
+
+    service = subscription_service_tmp
+    email_address = "user@example.com"
+    options = {
+        "alert_types": [mode] if mode in {"news", "risk"} else ["price_change"],
+        "alert_mode": mode if mode in {"price_change_pct", "price_target"} else "price_change_pct",
+        "price_threshold": 3.0, "price_target": 100.0, "direction": "above",
+    }
+    assert service.subscribe(email_address, "AAPL", **options)
+
+    class RecreatingEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert service.unsubscribe(email_address, "AAPL")
+            assert service.subscribe(email_address, "AAPL", **options)
+            return super().send_stock_alert(**kwargs)
+
+    email = RecreatingEmail()
+    if mode == "news":
+        scheduler = alert_scheduler_module.NewsAlertScheduler(service, email, lambda _ticker: [{
+            "title": "Earnings release", "published_at": _utcnow_naive() - timedelta(minutes=1),
+            "related_tickers": ["AAPL"],
+        }])
+    elif mode == "risk":
+        scheduler = alert_scheduler_module.RiskAlertScheduler(service, email, lambda ticker: PriceSnapshot(ticker, 110.0, -9.0))
+    else:
+        scheduler = PriceChangeScheduler(service, email, lambda ticker: PriceSnapshot(ticker, 110.0, 9.0))
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions(email_address)[0]
+    assert saved["recent_events"] == []
+    assert saved["last_alert_attempt_at"] is None
+    assert saved["price_target_fired"] is False
+
+
 @pytest.mark.parametrize("direction", [None, "", "sideways"])
 def test_stored_target_without_valid_direction_cannot_send_or_fire(
     subscription_service_tmp, direction,

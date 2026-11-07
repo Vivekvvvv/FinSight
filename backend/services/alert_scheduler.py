@@ -289,6 +289,7 @@ class PriceChangeScheduler:
                 sub["email"],
                 sub["ticker"],
                 "price_target" if alert_mode == "price_target" else "price_change",
+                expected_created_at=sub.get("created_at"),
                 severity=severity,
                 title=(
                     f"{sub['ticker']} 到价触发 {snapshot.price:.2f}"
@@ -498,6 +499,7 @@ class NewsAlertScheduler:
                 sub["email"],
                 sub["ticker"],
                 "news",
+                expected_created_at=sub.get("created_at"),
                 severity="high" if len(related) >= 2 else "medium",
                 title=f"{sub['ticker']} 相关新闻触发 ({len(related)} 条)",
                 message=message,
@@ -688,6 +690,7 @@ class RiskAlertScheduler:
                 sub["email"],
                 sub["ticker"],
                 "risk",
+                expected_created_at=sub.get("created_at"),
                 severity=assessment.risk_level.value,
                 title=f"{assessment.ticker} 风险等级 {assessment.risk_level.value}",
                 message=message,

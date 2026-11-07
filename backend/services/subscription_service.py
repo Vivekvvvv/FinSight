@@ -668,6 +668,7 @@ class SubscriptionService:
         message: str = "",
         metadata: Optional[Dict] = None,
         triggered_at: Optional[str] = None,
+        expected_created_at: Optional[str] = None,
     ) -> bool:
         """Append one alert trigger event into subscription.recent_events."""
         updated = False
@@ -682,6 +683,8 @@ class SubscriptionService:
             for sub in self.subscriptions[email]:
                 if str(sub.get("ticker") or "").strip().upper() != normalized_ticker:
                     continue
+                if expected_created_at is not None and sub.get("created_at") != expected_created_at:
+                    return False
 
                 events = sub.get("recent_events")
                 if not isinstance(events, list):
