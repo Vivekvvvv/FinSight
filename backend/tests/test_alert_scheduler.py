@@ -749,10 +749,52 @@ def test_c3_news_window_and_dedup_use_utc_basis(subscription_service_tmp):
     assert "stale news" not in message
 
 
+def test_news_published_during_delivery_is_not_lost(subscription_service_tmp, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    clock = {"now": datetime(2026, 11, 7, 8, tzinfo=timezone.utc)}
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = clock["now"]
+            return current.astimezone(tz) if tz is not None else current.replace(tzinfo=None)
+
+    clock["now"] = FixedDatetime(2026, 11, 7, 8, tzinfo=timezone.utc)
+    monkeypatch.setattr(alert_scheduler_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(subs, "datetime", FixedDatetime)
+    service = subscription_service_tmp
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["news"])
+    first_time = clock["now"] - timedelta(minutes=30)
+    second_time = clock["now"] + timedelta(minutes=1)
+    articles = [{
+        "title": "AAPL first news", "published_at": first_time, "related_tickers": ["AAPL"],
+    }]
+
+    class DelayedEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            if not self.sent:
+                articles.append({
+                    "title": "AAPL arrived during delivery", "published_at": second_time,
+                    "related_tickers": ["AAPL"],
+                })
+                clock["now"] += timedelta(minutes=2)
+            return super().send_stock_alert(**kwargs)
+
+    email = DelayedEmail()
+    scheduler = NewsAlertScheduler(service, email, lambda _ticker: list(articles))
+    assert len(scheduler.run_once()) == 1
+    assert service.get_subscriptions("user@example.com")[0]["last_news_at"] == first_time.replace(tzinfo=None).isoformat()
+    assert len(scheduler.run_once()) == 1
+    assert "arrived during delivery" in email.sent[1]["message"]
+    assert "first news" not in email.sent[1]["message"]
+    assert scheduler.run_once() == []
+
+
 def test_c3_last_news_at_written_as_utc(subscription_service_tmp):
-    """发送成功后 last_news_at 须写 naive-UTC；本地时区机器上旧代码
-    （裸 datetime.now()）写出的值会超前 UTC 数小时导致断言失败。"""
-    from datetime import datetime, timedelta
+    """last_news_at 保留已送达新闻的最新发布时间，统一 naive-UTC。"""
+    from datetime import timedelta
 
     from backend.services.alert_scheduler import NewsAlertScheduler
 
@@ -770,8 +812,7 @@ def test_c3_last_news_at_written_as_utc(subscription_service_tmp):
 
     stored = service.get_subscriptions("user@example.com")[0]["last_news_at"]
     assert stored is not None
-    delta = abs(datetime.fromisoformat(stored) - _utcnow_naive())
-    assert delta < timedelta(minutes=5)
+    assert stored == (now - timedelta(minutes=30)).isoformat()
 
 
 def test_c3_aware_published_at_string_normalized(subscription_service_tmp):

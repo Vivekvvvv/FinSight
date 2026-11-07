@@ -552,7 +552,7 @@ class SubscriptionService:
                         self._save_subscriptions()
                         break
 
-    def update_last_news(self, email: str, ticker: str):
+    def update_last_news(self, email: str, ticker: str, *, published_at: Optional[datetime] = None):
         """更新最后新闻提醒时间
 
         写 naive-UTC（审计 C3）：该值在 NewsAlertScheduler.run_once 里与文章
@@ -566,7 +566,8 @@ class SubscriptionService:
                 for sub in self.subscriptions[email]:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
                         sub['ticker'] = ticker_norm
-                        sub['last_news_at'] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+                        news_at = self._to_utc_naive(published_at) if published_at is not None else datetime.now(timezone.utc).replace(tzinfo=None)
+                        sub['last_news_at'] = news_at.isoformat()
                         self._save_subscriptions()
                         break
 

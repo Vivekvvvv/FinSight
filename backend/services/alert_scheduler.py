@@ -480,7 +480,9 @@ class NewsAlertScheduler:
             self.subscription_service.record_alert_attempt(
                 sub["email"], sub["ticker"], success=True, update_price_cooldown=False,
             )
-            self.subscription_service.update_last_news(sub["email"], sub["ticker"])
+            self.subscription_service.update_last_news(
+                sub["email"], sub["ticker"], published_at=related[0]["published_at"],
+            )
             self.subscription_service.record_alert_event(
                 sub["email"],
                 sub["ticker"],
