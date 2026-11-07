@@ -201,10 +201,7 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                         link = item.get("url", "")
                         source = item.get("source", "")
                         ts = item.get("datetime")
-                        pub_dt = (
-                            datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
-                            if ts else None
-                        )
+                        pub_dt = _parse_pub_datetime(ts)
                         related = item.get("related", "").split(",") if item.get("related") else [ticker_up]
                         _add_article(title, link, source, pub_dt, related)
             except Exception as e:

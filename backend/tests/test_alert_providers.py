@@ -312,3 +312,44 @@ def test_provider_numeric_strings_are_normalized_without_extra_fallback(monkeypa
     assert result.price == 105.0
     assert result.change_percent == -5.0
     assert calls == ["_fetch_with_stooq"]
+
+
+def _mock_finnhub_news(monkeypatch, payload):
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=[])))
+    monkeypatch.setenv("FINNHUB_API_KEY", "test-key")
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    _mock_response(monkeypatch, payload)
+
+
+@pytest.mark.parametrize("timestamp", [None, "bad", {}, [], True, float("inf"), float("nan"), 1e100])
+def test_bad_finnhub_timestamp_does_not_drop_following_news(monkeypatch, timestamp):
+    from datetime import datetime, timedelta, timezone
+
+    published = int((datetime.now(timezone.utc) - timedelta(hours=1)).timestamp())
+    _mock_finnhub_news(monkeypatch, [
+        {"headline": "AAPL malformed timestamp", "datetime": timestamp, "related": "AAPL"},
+        {"headline": "AAPL valid news", "datetime": published, "related": "AAPL"},
+    ])
+
+    articles = providers.fetch_news_articles("AAPL")
+
+    assert [article["title"] for article in articles] == ["AAPL valid news"]
+    assert articles[0]["published_at"] == datetime.fromtimestamp(published, tz=timezone.utc).replace(tzinfo=None)
+
+
+@pytest.mark.parametrize("timestamp_format", ["epoch", "numeric_string", "iso"])
+def test_finnhub_timestamp_formats_keep_utc_news(monkeypatch, timestamp_format):
+    from datetime import datetime, timedelta, timezone
+
+    published = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(microsecond=0)
+    timestamp = {
+        "epoch": published.timestamp(),
+        "numeric_string": str(int(published.timestamp())),
+        "iso": published.astimezone(timezone(timedelta(hours=8))).isoformat(),
+    }[timestamp_format]
+    _mock_finnhub_news(monkeypatch, [{"headline": "AAPL valid news", "datetime": timestamp}])
+
+    articles = providers.fetch_news_articles("AAPL")
+
+    assert len(articles) == 1
+    assert articles[0]["published_at"] == published.replace(tzinfo=None)
