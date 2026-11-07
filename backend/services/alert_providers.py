@@ -62,6 +62,8 @@ def fetch_price_snapshot(ticker: str) -> Optional[PriceSnapshot]:
     for fetcher in fetchers:
         snapshot = fetcher(ticker)
         if snapshot:
+            if str(getattr(snapshot, "ticker", "") or "").strip().upper() != ticker.strip().upper():
+                continue
             price = _positive_finite_float(snapshot.price)
             if price is None:
                 continue

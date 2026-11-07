@@ -170,6 +170,29 @@ def test_snapshot_fallback_prefers_complete_quote_after_price_only_result(monkey
     assert providers._get_cached_snapshot("AAPL") == complete
 
 
+@pytest.mark.parametrize("symbol", ["TSLA", "", None])
+@pytest.mark.parametrize("change_percent", [None, 5.0])
+@pytest.mark.parametrize("available", [False, True])
+def test_unrelated_provider_snapshot_cannot_block_valid_fallback(monkeypatch, symbol, change_percent, available):
+    wrong = providers.PriceSnapshot(symbol, 300.0, change_percent)
+    correct = providers.PriceSnapshot("AAPL", 105.0, 5.0) if available else None
+    calls = _mock_fetchers(monkeypatch, [wrong, correct, None, None])
+
+    snapshot = providers.fetch_price_snapshot("AAPL")
+
+    assert snapshot == correct
+    assert len(calls) == (2 if available else 4)
+    assert providers._get_cached_snapshot("AAPL") == correct
+
+
+def test_matching_provider_snapshot_keeps_normalized_symbol(monkeypatch):
+    quote = providers.PriceSnapshot(" aapl ", 105.0, 5.0)
+    calls = _mock_fetchers(monkeypatch, [quote, None, None, None])
+
+    assert providers.fetch_price_snapshot("AAPL") == quote
+    assert calls == ["_fetch_with_stooq"]
+
+
 def test_snapshot_fallback_keeps_price_only_quote_when_later_sources_fail(monkeypatch):
     partial = providers.PriceSnapshot("AAPL", 105.0, None)
     calls = _mock_fetchers(monkeypatch, [partial, None, None, None])
