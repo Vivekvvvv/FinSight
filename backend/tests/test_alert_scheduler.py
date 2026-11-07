@@ -845,6 +845,31 @@ def test_news_published_during_delivery_is_not_lost(subscription_service_tmp, mo
     assert scheduler.run_once() == []
 
 
+def test_older_news_batch_cannot_rewind_newer_delivered_timestamp(subscription_service_tmp):
+    from datetime import timedelta
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    service = subscription_service_tmp
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["news"])
+    now = _utcnow_naive()
+    old_time, new_time = now - timedelta(hours=2), now - timedelta(hours=1)
+    old_article = {"title": "AAPL old batch", "published_at": old_time, "related_tickers": ["AAPL"]}
+    new_article = {"title": "AAPL new batch", "published_at": new_time, "related_tickers": ["AAPL"]}
+    newer_email = FakeEmailService()
+    newer_scheduler = NewsAlertScheduler(service, newer_email, lambda _ticker: [new_article])
+
+    class OlderDelayedEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert len(newer_scheduler.run_once()) == 1
+            return super().send_stock_alert(**kwargs)
+
+    older_email = OlderDelayedEmail()
+    assert len(NewsAlertScheduler(service, older_email, lambda _ticker: [old_article]).run_once()) == 1
+    assert service.get_subscriptions("user@example.com")[0]["last_news_at"] == new_time.isoformat()
+    assert newer_scheduler.run_once() == []
+    assert len(newer_email.sent) == 1
+
+
 def test_c3_last_news_at_written_as_utc(subscription_service_tmp):
     """last_news_at 保留已送达新闻的最新发布时间，统一 naive-UTC。"""
     from datetime import timedelta

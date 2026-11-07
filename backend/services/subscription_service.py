@@ -569,6 +569,9 @@ class SubscriptionService:
                     if self._normalize_ticker(sub.get('ticker')) == ticker_norm:
                         sub['ticker'] = ticker_norm
                         news_at = self._to_utc_naive(published_at) if published_at is not None else datetime.now(timezone.utc).replace(tzinfo=None)
+                        previous_news_at = self._to_utc_naive(self._parse_iso(sub.get('last_news_at')))
+                        if previous_news_at is not None and news_at <= previous_news_at:
+                            return
                         sub['last_news_at'] = news_at.isoformat()
                         self._save_subscriptions()
                         break
