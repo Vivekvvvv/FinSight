@@ -61,6 +61,15 @@ _PCT_THRESHOLD_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ADDITIONAL_PCT_RE = re.compile(
+    r"\s*(?:(?:and|or)(?![a-z_])|[与或及和])\s*"
+    r"(?P<pct>[+-]?(?:\d+(?:\.\d+)?|\.\d+))"
+    r"(?:\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?P<pct_end>[+-]?(?:\d+(?:\.\d+)?|\.\d+)))?"
+    r"\s*(?:[%％](?!\d)|(?:percent|per\s+cent|pct)(?![a-z0-9_])|个点)"
+    r"(?P<range_after>\s*(?:[-–—~～/至]|to(?![a-z_]))\s*[+-]?(?:\d|\.\d))?",
+    re.IGNORECASE,
+)
+
 _NEGATED_PCT_CONDITION_RE = re.compile(
     r"(?:(?:不|没(?:有)?|未)\s*|\b(?:not|no|isn['’]t|doesn['’]t|don['’]t)\s+)"
     r"(?:(?:rises?|drops?|falls?|moves?|changes?|fluctuates?)\s+)?"
@@ -252,11 +261,19 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
             price_targets.add(float(additional.group("price").replace(",", "")))
             additional = _ADDITIONAL_PRICE_RE.match(query, additional.end())
     pct_thresholds = {float(match.group("pct")) for match in _PCT_THRESHOLD_RE.finditer(query)}
+    additional_pct_range = False
+    for match in _PCT_THRESHOLD_RE.finditer(query):
+        additional = _ADDITIONAL_PCT_RE.match(query, match.end())
+        while additional is not None:
+            pct_thresholds.add(float(additional.group("pct")))
+            additional_pct_range |= additional.group("pct_end") is not None or additional.group("range_after") is not None
+            additional = _ADDITIONAL_PCT_RE.match(query, additional.end())
     price_directions = {_extract_direction(match.group(0)) for match in _PRICE_TARGET_RE.finditer(query)}
     if (
         len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions
         or (price_target_match is not None and pct_match is not None)
         or any(match.group("pct_end") is not None for match in _PCT_THRESHOLD_RE.finditer(query))
+        or additional_pct_range
         or _PCT_RANGE_RE.search(query) or _PRICE_RANGE_RE.search(query) or _COMPOUND_PRICE_RE.search(query)
     ):
         draft = "检测到多个不同的提醒条件，未创建或修改提醒。请一次只提供一个目标价格及方向，或一个涨跌幅条件。"

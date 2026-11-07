@@ -136,6 +136,44 @@ def test_leading_decimal_percentage_keeps_full_threshold(query):
     assert result["alert_params"]["price_target"] is None
 
 
+@pytest.mark.parametrize("query", [
+    "Notify me if AAPL moves 3% and 5%",
+    "Notify me if AAPL moves 3 percent or 5 percent",
+    "Notify me if AAPL moves .5% or +3%",
+    "Notify me if AAPL moves 3% and 3% or 5%",
+    "Notify me if AAPL moves 3% or 3-5%",
+    "Notify me if AAPL moves 3% or 3% to 5%",
+    "Notify me if AAPL moves 3% or 3% to -5%",
+    "Notify me if AAPL moves 3% or 3 to 3%",
+    "AAPL 涨跌超过3%或5%时提醒我",
+    "AAPL 涨跌超过3％与5％时提醒我",
+    "AAPL 涨跌超过3个点及5个点时提醒我",
+    "AAPL 涨跌超过3%和5%或3%时提醒我",
+    "AAPL 涨跌超过3%或3至5%时提醒我",
+])
+def test_additional_percentage_without_trigger_word_requires_clarification(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
+    assert result["clarify"]["reason"] == "alert_conflicting_thresholds"
+
+
+@pytest.mark.parametrize("query", [
+    "Notify me if AAPL moves 3% or 3.0 percent",
+    "AAPL 涨跌超过3%和3.0%时提醒我",
+    "Notify me if AAPL moves 3% or 3% or +3%",
+    "Notify me if AAPL moves 3%; the earlier change was 5%",
+    "Notify me if AAPL moves 3% and the index return is 5%",
+])
+def test_equivalent_or_unrelated_additional_percentage_keeps_threshold(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_threshold"] == 3.0
+
+
 @pytest.mark.parametrize("value,expected_threshold", [
     ("+3", 3.0), ("-3", -3.0), ("+.5", 0.5), ("-.5", -0.5),
 ])
