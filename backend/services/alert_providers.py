@@ -233,8 +233,9 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                     pub_dt = None
                     if ts_str:
                         try:
-                            pub_dt = datetime.strptime(ts_str[:12], "%Y%m%d%H%M")
-                        except Exception:
+                            timestamp_format = {12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S", 15: "%Y%m%dT%H%M%S"}[len(ts_str)]
+                            pub_dt = datetime.strptime(ts_str, timestamp_format)
+                        except (TypeError, ValueError, KeyError):
                             pub_dt = None
                     related = item.get("ticker_sentiment", [])
                     rel_codes = [r.get("ticker") for r in related if isinstance(r, dict) and r.get("ticker")]

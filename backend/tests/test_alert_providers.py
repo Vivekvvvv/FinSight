@@ -345,6 +345,33 @@ def _mock_finnhub_news(monkeypatch, payload):
     _mock_response(monkeypatch, payload)
 
 
+def _mock_alpha_vantage_news(monkeypatch, feed):
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=[])))
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "test-key")
+    _mock_response(monkeypatch, {"feed": feed})
+
+
+@pytest.mark.parametrize("timestamp_format", ["%Y%m%dT%H%M%S", "%Y%m%d%H%M%S", "%Y%m%d%H%M"])
+def test_alpha_vantage_news_timestamp_keeps_feed_format_and_precision(monkeypatch, timestamp_format):
+    from datetime import datetime, timedelta, timezone
+
+    published = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(microsecond=0, second=37)
+    _mock_alpha_vantage_news(monkeypatch, [{
+        "title": "AAPL earnings release", "time_published": published.strftime(timestamp_format),
+        "ticker_sentiment": [{"ticker": "AAPL"}],
+    }])
+
+    articles = providers.fetch_news_articles("AAPL")
+
+    assert len(articles) == 1
+    expected = published.replace(tzinfo=None)
+    if timestamp_format == "%Y%m%d%H%M":
+        expected = expected.replace(second=0)
+    assert articles[0]["published_at"] == expected
+    assert articles[0]["related_tickers"] == ["AAPL"]
+
+
 @pytest.mark.parametrize("timestamp", [None, "bad", {}, [], True, float("inf"), float("nan"), 1e100])
 def test_bad_finnhub_timestamp_does_not_drop_following_news(monkeypatch, timestamp):
     from datetime import datetime, timedelta, timezone
