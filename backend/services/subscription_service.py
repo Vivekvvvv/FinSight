@@ -328,6 +328,9 @@ class SubscriptionService:
         normalized_risk_threshold = self._normalize_risk_threshold(risk_threshold)
         normalized_alert_mode = self._normalize_alert_mode(alert_mode)
         normalized_direction = self._normalize_direction(direction)
+        if normalized_alert_mode == "price_target" and "price_change" in alert_types:
+            if price_target is None or normalized_direction is None:
+                raise ValueError("price_target alerts require price_target and direction")
 
         if not self.is_valid_email(email):
             logger.info("Invalid email address rejected")
