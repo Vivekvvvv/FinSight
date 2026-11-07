@@ -57,7 +57,7 @@ class EmailService:
         """
         if not self.smtp_user or not self.smtp_password:
             logger.warning("⚠️ 邮件服务未配置：请设置 SMTP_USER 和 SMTP_PASSWORD 环境变量")
-            return False, "permanent", "SMTP credentials missing"
+            return False, "transient", "SMTP credentials missing"
 
         try:
             msg = MIMEMultipart("alternative")
@@ -86,6 +86,14 @@ class EmailService:
             smtplib.SMTPSenderRefused,
             smtplib.SMTPDataError,
         ) as exc:
+            codes = (
+                [code for code, _ in exc.recipients.values()]
+                if isinstance(exc, smtplib.SMTPRecipientsRefused)
+                else [exc.smtp_code]
+            )
+            if isinstance(exc, (smtplib.SMTPAuthenticationError, smtplib.SMTPSenderRefused)) or any(400 <= code < 500 for code in codes):
+                logger.error('[EmailService] Transient SMTP error')
+                return False, "transient", "Email delivery unavailable"
             logger.error('[EmailService] Permanent SMTP error')
             return False, "permanent", "Email delivery rejected"
         except Exception as exc:  # noqa: BLE001 - 保持外部接口兼容
