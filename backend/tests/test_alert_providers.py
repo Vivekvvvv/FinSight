@@ -86,6 +86,28 @@ def test_yahoo_chart_accepts_normalized_matching_symbol(monkeypatch):
     assert snapshot.change_percent == pytest.approx(5.0)
 
 
+@pytest.mark.parametrize("closes", [[100.0, None, 105.0], [100.0, 105.0, None], [None, 100.0, None, 105.0, None]])
+def test_yahoo_chart_null_gaps_do_not_discard_valid_trading_closes(monkeypatch, closes):
+    _mock_response(monkeypatch, {"chart": {"result": [{
+        "meta": {"symbol": "AAPL"}, "indicators": {"quote": [{"close": closes}]},
+    }]}})
+
+    snapshot = providers._fetch_with_yahoo_chart("AAPL")
+
+    assert snapshot is not None
+    assert snapshot.price == 105.0
+    assert snapshot.change_percent == pytest.approx(5.0)
+
+
+@pytest.mark.parametrize("latest", [True, -1.0, "bad"])
+def test_yahoo_chart_invalid_latest_value_does_not_reuse_older_close(monkeypatch, latest):
+    _mock_response(monkeypatch, {"chart": {"result": [{
+        "meta": {"symbol": "AAPL"}, "indicators": {"quote": [{"close": [100.0, 105.0, latest]}]},
+    }]}})
+
+    assert providers._fetch_with_yahoo_chart("AAPL") is None
+
+
 @pytest.mark.parametrize("symbol", ["TSLA.US", None, ""])
 def test_stooq_rejects_unidentified_or_unrelated_quote(monkeypatch, symbol):
     _mock_response(monkeypatch, {"symbols": [{"symbol": symbol, "close": 120.0}]})

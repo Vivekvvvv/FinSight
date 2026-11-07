@@ -389,6 +389,7 @@ def _fetch_with_yahoo_chart(ticker: str) -> Optional[PriceSnapshot]:
         if str((result.get("meta") or {}).get("symbol") or "").strip().upper() != ticker.strip().upper():
             return None
         closes = (result.get("indicators", {}).get("quote") or [{}])[0].get("close") or []
+        closes = [close for close in closes if close is not None]
         if len(closes) < 2:
             return None
         prev_close = _positive_finite_float(closes[-2])
