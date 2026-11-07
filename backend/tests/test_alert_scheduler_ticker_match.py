@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from backend.services.alert_scheduler import NewsAlertScheduler
 
 
@@ -102,6 +104,20 @@ def test_real_ticker_uppercase_token_still_matches():
 def test_single_letter_ticker_related_tickers_path_still_works():
     # 单字母 ticker 不能靠标题匹配，但 related_tickers 精确命中仍应发送。
     email = _run("T", [_article("Telecom giants slide after open", related=["T"])])
+    assert len(email.sent) == 1
+
+
+@pytest.mark.parametrize("title", ["ALL airlines report strong demand", "AAPL mentioned alongside MSFT"])
+def test_explicit_other_tickers_override_incidental_title_match(title):
+    ticker = "ALL" if title.startswith("ALL") else "AAPL"
+    email = _run(ticker, [_article(title, related=["MSFT"])])
+
+    assert email.sent == []
+
+
+def test_matching_related_ticker_still_delivers_without_title_match():
+    email = _run("AAPL", [_article("Earnings beat estimates", related=["MSFT", "AAPL"])])
+
     assert len(email.sent) == 1
 
 

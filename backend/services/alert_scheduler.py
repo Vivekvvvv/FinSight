@@ -27,6 +27,7 @@ from backend.agents.risk_agent import RiskAgent, RiskLevel
 from backend.services.subscription_service import SubscriptionService
 from backend.services.email_service import EmailService
 from backend.tools._item import iter_dict_items
+from backend.utils.quote import safe_float
 
 from backend.services.alert_providers import (
     PriceSnapshot,
@@ -144,7 +145,7 @@ class PriceChangeScheduler:
                 logger.warning('Price fetch failed')
                 price_unavailable += 1
                 continue
-            if snapshot is None:
+            if snapshot is None or str(getattr(snapshot, "ticker", "") or "").strip().upper() != ticker:
                 price_unavailable += 1
                 continue
             # bool 是 int 子类：True 会被 float() 收成 1.0 通过有限性/正数检查，
@@ -182,13 +183,15 @@ class PriceChangeScheduler:
                 if not math.isfinite(price_target_payload) or price_target_payload <= 0:
                     continue
                 direction_payload = str(sub.get("direction") or "").strip().lower()
+                if direction_payload not in {"above", "below"}:
+                    continue
                 if direction_payload == "below":
                     triggered = snapshot.price <= price_target_payload
                 else:
-                    direction_payload = "above"
                     triggered = snapshot.price >= price_target_payload
                 if not triggered:
                     continue
+                snapshot.change_percent = safe_float(snapshot.change_percent)
                 message = (
                     f"{sub['ticker']} reached target price {price_target_payload:.2f} "
                     f"({direction_payload}), current={snapshot.price:.2f}."
@@ -229,6 +232,7 @@ class PriceChangeScheduler:
                     success=False,
                     error="invalid_email",
                     disable=True,
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
@@ -248,6 +252,7 @@ class PriceChangeScheduler:
                     sub["ticker"],
                     success=False,
                     error="send_failed",
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
             if isinstance(result, tuple):
@@ -264,12 +269,17 @@ class PriceChangeScheduler:
                     success=False,
                     error=error_msg or "send_failed",
                     is_transient_error=(error_type == "transient"),
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
-            self.subscription_service.record_alert_attempt(sub["email"], sub["ticker"], success=True)
+            self.subscription_service.record_alert_attempt(
+                sub["email"], sub["ticker"], success=True, expected_updated_at=sub.get("updated_at"),
+            )
             if alert_mode == "price_target":
-                self.subscription_service.set_price_target_fired(sub["email"], sub["ticker"])
+                self.subscription_service.set_price_target_fired(
+                    sub["email"], sub["ticker"], expected_updated_at=sub.get("updated_at"),
+                )
 
             severity = "medium"
             if alert_mode != "price_target" and threshold_payload is not None and snapshot.change_percent is not None:
@@ -279,6 +289,7 @@ class PriceChangeScheduler:
                 sub["email"],
                 sub["ticker"],
                 "price_target" if alert_mode == "price_target" else "price_change",
+                expected_created_at=sub.get("created_at"),
                 severity=severity,
                 title=(
                     f"{sub['ticker']} 到价触发 {snapshot.price:.2f}"
@@ -358,7 +369,11 @@ class NewsAlertScheduler:
                 last_dt = None
             # 统一 naive-UTC 基准（审计 C3）：与 lookback / 文章 published_at 同基准比较
             if last_dt is not None and last_dt.tzinfo is not None:
-                last_dt = last_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                try:
+                    last_dt = last_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                except (ValueError, OverflowError):
+                    logger.warning("News subscription skipped: invalid UTC watermark")
+                    continue
 
             try:
                 articles = self.news_fetcher(sub["ticker"])
@@ -368,6 +383,7 @@ class NewsAlertScheduler:
             if not articles:
                 continue
 
+            fetched_at = datetime.now(timezone.utc).replace(tzinfo=None)
             # 相关性：优先 related_tickers 命中，其次标题出现 ticker 型 token
             related: List[Dict] = []
             for art in iter_dict_items(articles):
@@ -381,8 +397,11 @@ class NewsAlertScheduler:
                     continue
                 # 带时区的 aware 值归一到 naive-UTC，避免与 naive 的 lookback 比较抛 TypeError
                 if pub_dt.tzinfo is not None:
-                    pub_dt = pub_dt.astimezone(timezone.utc).replace(tzinfo=None)
-                if pub_dt < lookback:
+                    try:
+                        pub_dt = pub_dt.astimezone(timezone.utc).replace(tzinfo=None)
+                    except (ValueError, OverflowError):
+                        continue
+                if pub_dt < lookback or pub_dt > fetched_at:
                     continue
                 if last_dt and pub_dt <= last_dt:
                     continue
@@ -404,7 +423,7 @@ class NewsAlertScheduler:
                     rf"(?<![A-Z0-9.]){re.escape(ticker_upper)}(?![A-Z0-9])",
                     title,
                 ) is not None
-                if ticker_upper in rel or title_hit:
+                if ticker_upper in rel or (not rel and title_hit):
                     related.append({
                         "title": title,
                         "source": str(art.get("source") or "")[:128],
@@ -433,6 +452,7 @@ class NewsAlertScheduler:
                     success=False,
                     error="invalid_email",
                     disable=True,
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
@@ -452,6 +472,7 @@ class NewsAlertScheduler:
                     sub["ticker"],
                     success=False,
                     error="send_failed",
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
             
@@ -469,15 +490,23 @@ class NewsAlertScheduler:
                     sub["ticker"],
                     success=False,
                     error=error_msg or "send_failed",
-                    is_transient_error=(error_type == 'transient')
+                    is_transient_error=(error_type == 'transient'),
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
-            self.subscription_service.record_alert_attempt(sub["email"], sub["ticker"], success=True)
-            self.subscription_service.update_last_news(sub["email"], sub["ticker"])
+            self.subscription_service.record_alert_attempt(
+                sub["email"], sub["ticker"], success=True, update_price_cooldown=False,
+                expected_updated_at=sub.get("updated_at"),
+            )
+            self.subscription_service.update_last_news(
+                sub["email"], sub["ticker"], published_at=related[0]["published_at"],
+                expected_updated_at=sub.get("updated_at"),
+            )
             self.subscription_service.record_alert_event(
                 sub["email"],
                 sub["ticker"],
                 "news",
+                expected_created_at=sub.get("created_at"),
                 severity="high" if len(related) >= 2 else "medium",
                 title=f"{sub['ticker']} 相关新闻触发 ({len(related)} 条)",
                 message=message,
@@ -582,9 +611,17 @@ class RiskAlertScheduler:
                 logger.warning('Risk price fetch failed')
                 price_unavailable += 1
                 continue
-            if snapshot is None:
+            if snapshot is None or str(getattr(snapshot, "ticker", "") or "").strip().upper() != ticker:
                 price_unavailable += 1
                 continue
+
+            price = safe_float(snapshot.price)
+            change_percent = safe_float(snapshot.change_percent)
+            if price is None or price <= 0 or change_percent is None:
+                price_unavailable += 1
+                continue
+            snapshot.price = price
+            snapshot.change_percent = change_percent
 
             assessment = RiskAgent.evaluate_ticker_risk_lightweight(
                 str(sub["ticker"]).strip().upper(),
@@ -607,6 +644,7 @@ class RiskAlertScheduler:
                     success=False,
                     error="invalid_email",
                     disable=True,
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
@@ -626,6 +664,7 @@ class RiskAlertScheduler:
                     sub["ticker"],
                     success=False,
                     error="send_failed",
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
@@ -643,15 +682,22 @@ class RiskAlertScheduler:
                     success=False,
                     error=error_msg or "send_failed",
                     is_transient_error=(error_type == "transient"),
+                    expected_updated_at=sub.get("updated_at"),
                 )
                 continue
 
-            self.subscription_service.record_alert_attempt(sub["email"], sub["ticker"], success=True)
-            self.subscription_service.update_last_risk(sub["email"], sub["ticker"])
+            self.subscription_service.record_alert_attempt(
+                sub["email"], sub["ticker"], success=True, update_price_cooldown=False,
+                expected_updated_at=sub.get("updated_at"),
+            )
+            self.subscription_service.update_last_risk(
+                sub["email"], sub["ticker"], expected_updated_at=sub.get("updated_at"),
+            )
             self.subscription_service.record_alert_event(
                 sub["email"],
                 sub["ticker"],
                 "risk",
+                expected_created_at=sub.get("created_at"),
                 severity=assessment.risk_level.value,
                 title=f"{assessment.ticker} 风险等级 {assessment.risk_level.value}",
                 message=message,

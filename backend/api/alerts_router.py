@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -26,6 +26,12 @@ def create_alerts_router() -> APIRouter:
             expected=resolved_email,
             field_name="email",
         )
+
+        if since is not None and since.tzinfo is not None:
+            try:
+                since = since.astimezone(timezone.utc)
+            except (ValueError, OverflowError) as exc:
+                raise HTTPException(status_code=422, detail="since is outside the UTC datetime range") from exc
 
         service = get_subscription_service()
         if not service.is_valid_email(resolved_email):

@@ -6,6 +6,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -89,6 +90,23 @@ def test_alert_feed_rejects_invalid_since_before_service(monkeypatch):
         response = client.get(
             "/api/alerts/feed",
             params={"email": "user@example.com", "since": "not-an-iso-date"},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("since", ["0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"])
+def test_alert_feed_rejects_overflowing_since_before_service(monkeypatch, since):
+    from backend.api import alerts_router
+
+    def _unexpected_service():
+        raise AssertionError("overflowing since must be rejected before service access")
+
+    monkeypatch.setattr(alerts_router, "get_subscription_service", _unexpected_service)
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/alerts/feed",
+            params={"email": "user@example.com", "since": since},
         )
 
     assert response.status_code == 422

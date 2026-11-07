@@ -145,6 +145,39 @@ def test_price_change_scheduler_skips_when_below_threshold(subscription_service_
     assert subs_list[0].get("last_alert_at") is None
 
 
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target"])
+def test_price_scheduler_rejects_unrelated_quote_before_marking_alert(subscription_service_tmp, mode):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change"],
+        alert_mode=mode, price_threshold=3.0, price_target=100.0, direction="above",
+    )
+    before = service.subscriptions_file.read_bytes()
+    scheduler = PriceChangeScheduler(
+        service, email,
+        lambda _ticker: PriceSnapshot(ticker="TSLA", price=120.0, change_percent=6.0),
+    )
+
+    assert scheduler.run_once() == []
+    assert email.sent == []
+    assert scheduler.last_price_unavailable == 1
+    assert service.subscriptions_file.read_bytes() == before
+
+
+def test_price_scheduler_accepts_normalized_quote_ticker(subscription_service_tmp):
+    service = subscription_service_tmp
+    email = FakeEmailService()
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["price_change"], price_threshold=3.0)
+    scheduler = PriceChangeScheduler(
+        service, email,
+        lambda _ticker: PriceSnapshot(ticker=" aapl ", price=120.0, change_percent=6.0),
+    )
+
+    assert len(scheduler.run_once()) == 1
+    assert scheduler.last_price_unavailable == 0
+
+
 @pytest.mark.parametrize("threshold", ["nan", "inf", "-inf", 0, -1, True, False])
 def test_price_change_scheduler_rejects_invalid_stored_threshold(
     subscription_service_tmp,
@@ -418,6 +451,57 @@ def test_price_change_scheduler_respects_cooldown(subscription_service_tmp, monk
     assert len(email.sent) == 1
 
 
+def test_price_delivery_preserves_subscription_disabled_while_sending(subscription_service_tmp):
+    service = subscription_service_tmp
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["price_change"], price_threshold=3.0)
+
+    class DisablingEmailService(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert service.toggle_subscription(kwargs["to_email"], kwargs["ticker"], enabled=False)
+            return super().send_stock_alert(**kwargs)
+
+    email = DisablingEmailService()
+    scheduler = PriceChangeScheduler(
+        service, email,
+        lambda ticker: PriceSnapshot(ticker=ticker, price=105.0, change_percent=5.0),
+    )
+
+    assert len(scheduler.run_once()) == 1
+    assert service.get_subscriptions("user@example.com")[0]["disabled"] is True
+    assert scheduler.run_once() == []
+    assert len(email.sent) == 1
+
+
+@pytest.mark.parametrize("change_percent,expected", [
+    (None, None), ("bad", None), (True, None), (float("nan"), None),
+    (float("inf"), None), ("-5", -5.0), (5.0, 5.0),
+])
+def test_price_target_delivery_normalizes_optional_percentage(subscription_service_tmp, monkeypatch, change_percent, expected):
+    from backend.services.email_service import EmailService
+
+    service = subscription_service_tmp
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change"],
+        alert_mode="price_target", price_target=100.0, direction="above",
+    )
+    monkeypatch.setattr(subs, "ALERT_FAILURE_LIMIT", 1)
+    email = EmailService()
+    messages = []
+    monkeypatch.setattr(email, "send_email", lambda *args: messages.append(args) or (True, "none", None))
+    scheduler = PriceChangeScheduler(service, email, lambda ticker: PriceSnapshot(ticker, 105.0, change_percent))
+
+    sent = scheduler.run_once()
+
+    assert len(sent) == 1
+    assert sent[0]["change_percent"] == expected
+    assert len(messages) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["price_target_fired"] is True
+    assert saved["disabled"] is False
+    assert saved["alert_failures"] == 0
+    assert saved["recent_events"][0]["metadata"]["change_percent"] == expected
+
+
 def test_price_target_scheduler_triggers_once(subscription_service_tmp):
     service = subscription_service_tmp
     email = FakeEmailService()
@@ -443,6 +527,273 @@ def test_price_target_scheduler_triggers_once(subscription_service_tmp):
     assert len(email.sent) == 1
     stored = service.get_subscriptions("user@example.com")[0]
     assert stored.get("price_target_fired") is True
+
+
+@pytest.mark.parametrize("target,direction,second_price", [
+    (120.0, "above", 125.0), (80.0, "below", 75.0), (100.0, "above", 110.0),
+])
+def test_old_target_delivery_cannot_mark_new_settings_as_fired(
+    subscription_service_tmp, target, direction, second_price,
+):
+    service = subscription_service_tmp
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change"],
+        alert_mode="price_target", price_target=100.0, direction="above",
+    )
+
+    class UpdatingEmailService(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            if not self.sent:
+                assert service.subscribe(
+                    "user@example.com", "AAPL", alert_types=["price_change"],
+                    alert_mode="price_target", price_target=target, direction=direction,
+                )
+            return super().send_stock_alert(**kwargs)
+
+    email = UpdatingEmailService()
+    prices = iter((110.0, second_price))
+    scheduler = PriceChangeScheduler(
+        service, email,
+        lambda ticker: PriceSnapshot(ticker=ticker, price=next(prices), change_percent=1.0),
+    )
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["price_target"] == target
+    assert saved["direction"] == direction
+    assert saved["price_target_fired"] is False
+    assert len(scheduler.run_once()) == 1
+    assert service.get_subscriptions("user@example.com")[0]["price_target_fired"] is True
+    assert len(email.sent) == 2
+
+
+@pytest.mark.parametrize("other_alert", ["news", "risk"])
+def test_target_delivery_does_not_invalidate_other_inflight_alert(subscription_service_tmp, other_alert):
+    from datetime import timedelta
+
+    service = subscription_service_tmp
+    address = "user@example.com"
+    assert service.subscribe(
+        address, "AAPL", alert_types=["price_change", other_alert],
+        alert_mode="price_target", price_target=100.0, direction="above", risk_threshold="high",
+    )
+    settings_version = service.get_subscriptions(address)[0]["updated_at"]
+    target_email = FakeEmailService()
+    target_scheduler = PriceChangeScheduler(
+        service, target_email, lambda ticker: PriceSnapshot(ticker, 110.0, -9.0),
+    )
+
+    class OverlappingEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            if not self.sent:
+                assert len(target_scheduler.run_once()) == 1
+            return super().send_stock_alert(**kwargs)
+
+    email = OverlappingEmail()
+    if other_alert == "news":
+        published = _utcnow_naive() - timedelta(minutes=1)
+        scheduler = alert_scheduler_module.NewsAlertScheduler(service, email, lambda ticker: [{
+            "title": "Earnings release", "published_at": published, "related_tickers": [ticker],
+        }])
+    else:
+        scheduler = alert_scheduler_module.RiskAlertScheduler(
+            service, email, lambda ticker: PriceSnapshot(ticker, 110.0, -9.0),
+        )
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions(address)[0]
+    assert saved[f"last_{other_alert}_at"] is not None
+    assert saved["price_target_fired"] is True
+    assert saved["updated_at"] == settings_version
+    assert {event["event_type"] for event in saved["recent_events"]} == {"price_target", other_alert}
+    assert scheduler.run_once() == []
+    assert len(email.sent) == len(target_email.sent) == 1
+
+
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target", "news", "risk"])
+@pytest.mark.parametrize("success", [False, True])
+def test_delivery_attempt_cannot_overwrite_settings_updated_while_sending(
+    subscription_service_tmp, monkeypatch, mode, success,
+):
+    service = subscription_service_tmp
+    monkeypatch.setattr(subs, "ALERT_FAILURE_LIMIT", 1)
+    alert_types = [mode] if mode in {"news", "risk"} else ["price_change"]
+    price_mode = mode if mode in {"price_change_pct", "price_target"} else "price_change_pct"
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=alert_types,
+        alert_mode=price_mode, price_threshold=3.0, price_target=100.0, direction="above",
+    )
+
+    class UpdatingEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert service.subscribe(
+                "user@example.com", "AAPL", alert_types=alert_types,
+                alert_mode=price_mode, price_threshold=5.0, price_target=120.0, direction="above",
+            )
+            super().send_stock_alert(**kwargs)
+            return success, "permanent", "old delivery outcome"
+
+    email = UpdatingEmail()
+    if mode == "news":
+        from datetime import timedelta
+
+        scheduler = alert_scheduler_module.NewsAlertScheduler(
+            service, email, lambda _ticker: [{
+                "title": "AAPL earnings", "published_at": _utcnow_naive() - timedelta(minutes=1),
+                "related_tickers": ["AAPL"],
+            }],
+        )
+    elif mode == "risk":
+        scheduler = alert_scheduler_module.RiskAlertScheduler(
+            service, email, lambda ticker: PriceSnapshot(ticker, 110.0, -9.0),
+        )
+    else:
+        scheduler = PriceChangeScheduler(
+            service, email, lambda ticker: PriceSnapshot(ticker, 110.0, 10.0),
+        )
+    scheduler.run_once()
+
+    assert len(email.sent) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["price_threshold"] == 5.0
+    assert saved["disabled"] is False
+    assert saved["alert_failures"] == 0
+    assert saved["last_alert_error"] is None
+    assert saved["last_alert_attempt_at"] is None
+    assert saved["last_alert_at"] is None
+    if mode in {"news", "risk"}:
+        assert saved[f"last_{mode}_at"] is None
+
+
+@pytest.mark.parametrize("mode", ["news", "risk"])
+def test_old_delivery_cannot_set_cooldown_on_recreated_subscription(subscription_service_tmp, mode):
+    from datetime import timedelta
+
+    service = subscription_service_tmp
+    email_address = "user@example.com"
+    assert service.subscribe(email_address, "AAPL", alert_types=[mode])
+
+    class RecreatingEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert service.unsubscribe(email_address, "AAPL")
+            assert service.subscribe(email_address, "AAPL", alert_types=[mode])
+            return super().send_stock_alert(**kwargs)
+
+    email = RecreatingEmail()
+    if mode == "news":
+        scheduler = alert_scheduler_module.NewsAlertScheduler(service, email, lambda _ticker: [{
+            "title": "Earnings release", "published_at": _utcnow_naive() - timedelta(minutes=1),
+            "related_tickers": ["AAPL"],
+        }])
+    else:
+        scheduler = alert_scheduler_module.RiskAlertScheduler(service, email, lambda ticker: PriceSnapshot(ticker, 110.0, -9.0))
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions(email_address)[0]
+    assert saved[f"last_{mode}_at"] is None
+    assert saved["last_alert_attempt_at"] is None
+
+
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target", "news", "risk"])
+def test_old_delivery_event_cannot_enter_recreated_subscription(subscription_service_tmp, mode):
+    from datetime import timedelta
+
+    service = subscription_service_tmp
+    email_address = "user@example.com"
+    options = {
+        "alert_types": [mode] if mode in {"news", "risk"} else ["price_change"],
+        "alert_mode": mode if mode in {"price_change_pct", "price_target"} else "price_change_pct",
+        "price_threshold": 3.0, "price_target": 100.0, "direction": "above",
+    }
+    assert service.subscribe(email_address, "AAPL", **options)
+
+    class RecreatingEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert service.unsubscribe(email_address, "AAPL")
+            assert service.subscribe(email_address, "AAPL", **options)
+            return super().send_stock_alert(**kwargs)
+
+    email = RecreatingEmail()
+    if mode == "news":
+        scheduler = alert_scheduler_module.NewsAlertScheduler(service, email, lambda _ticker: [{
+            "title": "Earnings release", "published_at": _utcnow_naive() - timedelta(minutes=1),
+            "related_tickers": ["AAPL"],
+        }])
+    elif mode == "risk":
+        scheduler = alert_scheduler_module.RiskAlertScheduler(service, email, lambda ticker: PriceSnapshot(ticker, 110.0, -9.0))
+    else:
+        scheduler = PriceChangeScheduler(service, email, lambda ticker: PriceSnapshot(ticker, 110.0, 9.0))
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions(email_address)[0]
+    assert saved["recent_events"] == []
+    assert saved["last_alert_attempt_at"] is None
+    assert saved["price_target_fired"] is False
+
+
+@pytest.mark.parametrize("direction", [None, "", "sideways"])
+def test_stored_target_without_valid_direction_cannot_send_or_fire(
+    subscription_service_tmp, direction,
+):
+    service = subscription_service_tmp
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change"],
+        alert_mode="price_target", price_target=100.0, direction="above",
+    )
+    service.subscriptions["user@example.com"][0]["direction"] = direction
+    service._save_subscriptions()
+    email = FakeEmailService()
+    scheduler = PriceChangeScheduler(
+        service, email, lambda ticker: PriceSnapshot(ticker, 110.0, 10.0),
+    )
+
+    assert scheduler.run_once() == []
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert email.sent == []
+    assert saved["price_target_fired"] is False
+    assert saved["last_alert_at"] is None
+    assert saved["recent_events"] == []
+
+
+@pytest.mark.parametrize("other_alert", ["news", "risk"])
+@pytest.mark.parametrize("previous_price_alert", [False, True])
+def test_other_alert_delivery_does_not_reset_price_cooldown(
+    subscription_service_tmp, other_alert, previous_price_alert,
+):
+    service = subscription_service_tmp
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change", other_alert],
+        price_threshold=3.0, risk_threshold="high",
+    )
+    if previous_price_alert:
+        service.update_last_alert("user@example.com", "AAPL")
+    before = service.get_subscriptions("user@example.com")[0]["last_alert_at"]
+    email = FakeEmailService()
+    if other_alert == "news":
+        from datetime import datetime, timezone
+
+        scheduler = alert_scheduler_module.NewsAlertScheduler(
+            service, email, lambda ticker: [{
+                "title": "Fresh earnings news", "url": "https://example.invalid/news",
+                "published_at": datetime.now(timezone.utc), "related_tickers": [ticker],
+            }],
+        )
+    else:
+        scheduler = alert_scheduler_module.RiskAlertScheduler(
+            service, email, lambda ticker: PriceSnapshot(ticker, 100.0, -9.0),
+        )
+
+    assert len(scheduler.run_once()) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["last_alert_at"] == before
+    assert saved[f"last_{other_alert}_at"] is not None
+    price_scheduler = PriceChangeScheduler(
+        service, email, lambda ticker: PriceSnapshot(ticker, 110.0, 10.0),
+    )
+    assert len(price_scheduler.run_once()) == (0 if previous_price_alert else 1)
+    assert [item["alert_type"] for item in email.sent] == (
+        [other_alert] if previous_price_alert else [other_alert, "price_change"]
+    )
 
 
 def test_unavailable_quotes_are_not_reported_as_a_quiet_cycle(subscription_service_tmp):
@@ -592,10 +943,77 @@ def test_c3_news_window_and_dedup_use_utc_basis(subscription_service_tmp):
     assert "stale news" not in message
 
 
+def test_news_published_during_delivery_is_not_lost(subscription_service_tmp, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    clock = {"now": datetime(2026, 11, 7, 8, tzinfo=timezone.utc)}
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = clock["now"]
+            return current.astimezone(tz) if tz is not None else current.replace(tzinfo=None)
+
+    clock["now"] = FixedDatetime(2026, 11, 7, 8, tzinfo=timezone.utc)
+    monkeypatch.setattr(alert_scheduler_module, "datetime", FixedDatetime)
+    monkeypatch.setattr(subs, "datetime", FixedDatetime)
+    service = subscription_service_tmp
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["news"])
+    first_time = clock["now"] - timedelta(minutes=30)
+    second_time = clock["now"] + timedelta(minutes=1)
+    articles = [{
+        "title": "AAPL first news", "published_at": first_time, "related_tickers": ["AAPL"],
+    }]
+
+    class DelayedEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            if not self.sent:
+                articles.append({
+                    "title": "AAPL arrived during delivery", "published_at": second_time,
+                    "related_tickers": ["AAPL"],
+                })
+                clock["now"] += timedelta(minutes=2)
+            return super().send_stock_alert(**kwargs)
+
+    email = DelayedEmail()
+    scheduler = NewsAlertScheduler(service, email, lambda _ticker: list(articles))
+    assert len(scheduler.run_once()) == 1
+    assert service.get_subscriptions("user@example.com")[0]["last_news_at"] == first_time.replace(tzinfo=None).isoformat()
+    assert len(scheduler.run_once()) == 1
+    assert "arrived during delivery" in email.sent[1]["message"]
+    assert "first news" not in email.sent[1]["message"]
+    assert scheduler.run_once() == []
+
+
+def test_older_news_batch_cannot_rewind_newer_delivered_timestamp(subscription_service_tmp):
+    from datetime import timedelta
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    service = subscription_service_tmp
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["news"])
+    now = _utcnow_naive()
+    old_time, new_time = now - timedelta(hours=2), now - timedelta(hours=1)
+    old_article = {"title": "AAPL old batch", "published_at": old_time, "related_tickers": ["AAPL"]}
+    new_article = {"title": "AAPL new batch", "published_at": new_time, "related_tickers": ["AAPL"]}
+    newer_email = FakeEmailService()
+    newer_scheduler = NewsAlertScheduler(service, newer_email, lambda _ticker: [new_article])
+
+    class OlderDelayedEmail(FakeEmailService):
+        def send_stock_alert(self, **kwargs):
+            assert len(newer_scheduler.run_once()) == 1
+            return super().send_stock_alert(**kwargs)
+
+    older_email = OlderDelayedEmail()
+    assert len(NewsAlertScheduler(service, older_email, lambda _ticker: [old_article]).run_once()) == 1
+    assert service.get_subscriptions("user@example.com")[0]["last_news_at"] == new_time.isoformat()
+    assert newer_scheduler.run_once() == []
+    assert len(newer_email.sent) == 1
+
+
 def test_c3_last_news_at_written_as_utc(subscription_service_tmp):
-    """发送成功后 last_news_at 须写 naive-UTC；本地时区机器上旧代码
-    （裸 datetime.now()）写出的值会超前 UTC 数小时导致断言失败。"""
-    from datetime import datetime, timedelta
+    """last_news_at 保留已送达新闻的最新发布时间，统一 naive-UTC。"""
+    from datetime import timedelta
 
     from backend.services.alert_scheduler import NewsAlertScheduler
 
@@ -613,8 +1031,7 @@ def test_c3_last_news_at_written_as_utc(subscription_service_tmp):
 
     stored = service.get_subscriptions("user@example.com")[0]["last_news_at"]
     assert stored is not None
-    delta = abs(datetime.fromisoformat(stored) - _utcnow_naive())
-    assert delta < timedelta(minutes=5)
+    assert stored == (now - timedelta(minutes=30)).isoformat()
 
 
 def test_c3_aware_published_at_string_normalized(subscription_service_tmp):
@@ -635,6 +1052,36 @@ def test_c3_aware_published_at_string_normalized(subscription_service_tmp):
 
     sent = NewsAlertScheduler(service, email, fake_news_fetcher).run_once()
     assert len(sent) == 1
+
+
+@pytest.mark.parametrize("include_current", [False, True])
+def test_news_scheduler_rejects_future_articles(subscription_service_tmp, include_current):
+    from datetime import timedelta
+    from backend.services.alert_scheduler import NewsAlertScheduler
+
+    service = subscription_service_tmp
+    assert service.subscribe("user@example.com", "AAPL", alert_types=["news"])
+    now = _utcnow_naive()
+    articles = [{
+        "title": "AAPL future news", "published_at": now + timedelta(hours=2),
+        "related_tickers": ["AAPL"],
+    }]
+    if include_current:
+        articles.append({
+            "title": "AAPL current news", "published_at": now - timedelta(minutes=1),
+            "related_tickers": ["AAPL"],
+        })
+    email = FakeEmailService()
+    sent = NewsAlertScheduler(service, email, lambda _ticker: articles).run_once()
+
+    assert len(sent) == int(include_current)
+    assert all("future news" not in item["message"] for item in email.sent)
+    if include_current:
+        assert "current news" in email.sent[0]["message"]
+    else:
+        saved = service.get_subscriptions("user@example.com")[0]
+        assert saved["last_news_at"] is None
+        assert saved["recent_events"] == []
 
 
 def test_news_scheduler_ignores_invalid_stored_last_news_at(subscription_service_tmp):
@@ -660,6 +1107,38 @@ def test_news_scheduler_ignores_invalid_stored_last_news_at(subscription_service
     ).run_once()
 
     assert len(sent) == 1
+    assert len(email.sent) == 1
+
+
+@pytest.mark.parametrize("timestamp", ["0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-14:00"])
+def test_overflowing_news_watermark_is_isolated_without_losing_subscription_data(
+    subscription_service_tmp, monkeypatch, timestamp,
+):
+    from datetime import timedelta
+
+    service = subscription_service_tmp
+    address = "user@example.com"
+    for ticker in ("AAPL", "MSFT"):
+        assert service.subscribe(address, ticker, alert_types=["news"])
+    service.subscriptions[address][0]["last_news_at"] = timestamp
+    service._save_subscriptions()
+    records = _capture_warnings(monkeypatch)
+    email = FakeEmailService()
+    published = _utcnow_naive() - timedelta(minutes=1)
+    scheduler = alert_scheduler_module.NewsAlertScheduler(service, email, lambda ticker: [{
+        "title": "Fresh earnings release", "published_at": published,
+        "related_tickers": [ticker],
+    }])
+
+    assert [item["ticker"] for item in scheduler.run_once()] == ["MSFT"]
+    saved = service.get_subscriptions(address)
+    assert len(saved) == 2
+    assert saved[0]["last_news_at"] == timestamp
+    assert saved[0]["disabled"] is False
+    assert saved[0]["alert_failures"] == 0
+    assert saved[0]["recent_events"] == []
+    assert any("invalid UTC watermark" in record.getMessage() for record in records)
+    assert scheduler.run_once() == []
     assert len(email.sent) == 1
 
 
@@ -820,7 +1299,7 @@ def test_stooq_snapshot_change_uses_previous_close_not_open(monkeypatch):
         status_code = 200
 
         def json(self):
-            return {"symbols": [{"close": "105.0", "open": "104.9"}]}
+            return {"symbols": [{"symbol": "AAPL.US", "close": "105.0", "open": "104.9"}]}
 
     class _HistResp:
         status_code = 200
@@ -851,7 +1330,7 @@ def test_stooq_snapshot_change_none_when_history_unavailable(monkeypatch):
         status_code = 200
 
         def json(self):
-            return {"symbols": [{"close": "105.0", "open": "104.9"}]}
+            return {"symbols": [{"symbol": "AAPL.US", "close": "105.0", "open": "104.9"}]}
 
     class _FailResp:
         status_code = 500
@@ -1046,3 +1525,26 @@ def test_risk_cycle_warns_when_quotes_were_unavailable(subscription_service_tmp,
 
     assert sent == []
     assert any("no quote" in r.getMessage() for r in records)
+
+
+@pytest.mark.parametrize("timestamp", ["0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-14:00"])
+@pytest.mark.parametrize("as_string", [False, True])
+def test_news_publication_timezone_overflow_does_not_abort_cycle(subscription_service_tmp, timestamp, as_string):
+    from datetime import datetime, timedelta
+
+    service = subscription_service_tmp
+    for ticker in ("AAPL", "MSFT"):
+        assert service.subscribe("user@example.com", ticker, alert_types=["news"])
+    invalid_time = timestamp if as_string else datetime.fromisoformat(timestamp)
+    news = [
+        {"title": "Invalid date", "published_at": invalid_time, "related_tickers": ["AAPL", "MSFT"]},
+        {"title": "Actual earnings", "published_at": _utcnow_naive() - timedelta(hours=1), "related_tickers": ["AAPL", "MSFT"]},
+    ]
+    email = FakeEmailService()
+    scheduler = alert_scheduler_module.NewsAlertScheduler(service, email, lambda _ticker: news)
+
+    assert len(scheduler.run_once()) == 2
+    assert len(email.sent) == 2
+    assert all("Invalid date" not in item["message"] for item in email.sent)
+    assert all("Actual earnings" in item["message"] for item in email.sent)
+    assert scheduler.run_once() == []
