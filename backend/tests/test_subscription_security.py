@@ -258,6 +258,28 @@ def test_non_price_subscription_does_not_require_target_settings(monkeypatch, tm
     assert service.get_subscriptions("alice@example.invalid")[0]["price_target"] is None
 
 
+@pytest.mark.parametrize("alert_types", [[], ["unknown"], ["news", "unknown"], "news", {}, True, [["news"]]])
+@pytest.mark.parametrize("existing_subscription", [False, True])
+def test_invalid_alert_types_cannot_overwrite_subscription_or_claim_quota(
+    monkeypatch, tmp_path, alert_types, existing_subscription,
+):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", alert_types=["news", "risk"], max_subscriptions=2)
+    before = service.subscriptions_file.read_bytes()
+    ticker = "AAPL" if existing_subscription else "MSFT"
+
+    with pytest.raises(ValueError, match="alert_types must contain supported alert types"):
+        service.subscribe(email, ticker, alert_types=alert_types, max_subscriptions=2)
+
+    assert service.subscriptions_file.read_bytes() == before
+    assert service.subscribe(email, "NVDA", price_threshold=3.0, max_subscriptions=2)
+    assert len(service.get_subscriptions(email)) == 2
+
+
 @pytest.mark.parametrize("email", ["alice@example.invalid\n", "alice@example.invalid\r\n"])
 def test_malformed_email_cannot_create_subscription_or_claim_quota(monkeypatch, tmp_path, email):
     from backend.api import main

@@ -320,6 +320,11 @@ class SubscriptionService:
         """
         if alert_types is None:
             alert_types = ["price_change", "news"]
+        if not isinstance(alert_types, list) or not alert_types or any(
+            not isinstance(item, str) or item not in {"price_change", "news", "report", "risk"}
+            for item in alert_types
+        ):
+            raise ValueError("alert_types must contain supported alert types")
         price_threshold = _finite_optional_number(
             price_threshold,
             field="price_threshold",
