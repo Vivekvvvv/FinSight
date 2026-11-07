@@ -415,7 +415,7 @@ class NewsAlertScheduler:
                     rf"(?<![A-Z0-9.]){re.escape(ticker_upper)}(?![A-Z0-9])",
                     title,
                 ) is not None
-                if ticker_upper in rel or title_hit:
+                if ticker_upper in rel or (not rel and title_hit):
                     related.append({
                         "title": title,
                         "source": str(art.get("source") or "")[:128],
