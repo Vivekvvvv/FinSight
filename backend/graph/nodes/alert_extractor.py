@@ -38,6 +38,14 @@ _COMPOUND_PRICE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ADDITIONAL_PRICE_RE = re.compile(
+    r"\s*(?:(?:and|or)(?![a-z_])|[与或及和])\s*(?:[$€£]\s*)?"
+    r"(?P<price>[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
+    r"(?!\d|[.,，]\d|e[+-]?\d)\s*"
+    r"(?:元|块|美元|dollars?|usd|\$|欧元|英镑|日元|港元|港币|€|£|(?:eur|gbp|euros?|pounds?|jpy|hkd|yen)(?![a-z_]))?",
+    re.IGNORECASE,
+)
+
 _PCT_THRESHOLD_RE = re.compile(
     r"(?:"
     # Chinese patterns
@@ -238,6 +246,11 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
         float(match.group("price").replace(",", ""))
         for match in _PRICE_TARGET_RE.finditer(query)
     }
+    for match in _PRICE_TARGET_RE.finditer(query):
+        additional = _ADDITIONAL_PRICE_RE.match(query, match.end())
+        while additional is not None:
+            price_targets.add(float(additional.group("price").replace(",", "")))
+            additional = _ADDITIONAL_PRICE_RE.match(query, additional.end())
     pct_thresholds = {float(match.group("pct")) for match in _PCT_THRESHOLD_RE.finditer(query)}
     price_directions = {_extract_direction(match.group(0)) for match in _PRICE_TARGET_RE.finditer(query)}
     if (

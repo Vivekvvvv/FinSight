@@ -717,6 +717,16 @@ def test_percentage_after_over_is_not_interpreted_as_target_price(threshold, uni
     "Notify me when AAPL is below 220 or not going below 220",
     "Notify me when AAPL doesn't go above 220 or goes above 220",
     "Notify me when AAPL goes below 220 or does not fall below 220",
+    "Notify me when AAPL goes above 220 and 230",
+    "Notify me when AAPL goes above 220 or 230",
+    "Notify me when AAPL goes above 220 USD and $230",
+    "Notify me when AAPL goes above 220 USD and -.5 USD",
+    "AAPL 价格涨到220与230元时提醒我",
+    "AAPL 价格涨到220或230元时提醒我",
+    "AAPL 涨到220元及230元时提醒我",
+    "AAPL 涨到220元和230元时提醒我",
+    "Notify me when AAPL goes above 220 USD or 220 USD or 230 USD",
+    "AAPL 涨到220元和230元或220元时提醒我",
     "Notify me if AAPL moves 3% or rises 3-5%",
     "Notify me if AAPL rises 3-5% or moves 3%",
 ])
@@ -738,6 +748,9 @@ def test_conflicting_thresholds_require_clarification(query):
     ("Notify me when AAPL hits 220 or goes above 220", "price_target", "price_target", 220.0),
     ("Notify me when AAPL goes below 220 or hits 220", "price_target", "price_target", 220.0),
     ("Notify me if AAPL moves +3% or rises 3%", "price_change_pct", "price_threshold", 3.0),
+    ("Notify me when AAPL goes above 220 USD or 220.0", "price_target", "price_target", 220.0),
+    ("AAPL 涨到220元和220.0元时提醒我", "price_target", "price_target", 220.0),
+    ("Notify me when AAPL goes above 220 USD or 220 USD or 220.0 USD", "price_target", "price_target", 220.0),
 ])
 def test_repeated_equivalent_thresholds_are_not_conflicting(query, mode, field, expected):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
@@ -745,6 +758,18 @@ def test_repeated_equivalent_thresholds_are_not_conflicting(query, mode, field, 
     assert result["alert_valid"] is True
     assert result["alert_params"]["alert_mode"] == mode
     assert result["alert_params"][field] == expected
+
+
+@pytest.mark.parametrize("query", [
+    "Notify me when AAPL goes above 220 USD; 230 is yesterday's high",
+    "Notify me when AAPL goes above 220 USD and the volume exceeds 230",
+    "AAPL 涨到220元时提醒我，昨日高点是230元",
+])
+def test_unrelated_number_after_price_condition_keeps_single_target(query):
+    result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
 
 
 @pytest.mark.parametrize("query", [

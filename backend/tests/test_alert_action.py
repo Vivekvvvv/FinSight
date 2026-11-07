@@ -516,6 +516,8 @@ async def test_graph_multiple_tickers_cannot_partially_write_subscriptions(alert
     "TSLA 涨到220分钱时提醒我",
     "Notify me when TSLA goes above 220 eurocents",
     "Notify me when TSLA goes above 220 US cents",
+    "TSLA 涨到220元与230元时提醒我",
+    "Notify me when TSLA goes above 220 and 230",
     "Notify me when TSLA goes above 220 EUR",
     "Notify me when TSLA goes above 220 £",
     "TSLA 涨幅不超过3%时提醒我",
