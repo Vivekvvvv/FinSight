@@ -472,6 +472,36 @@ def test_price_delivery_preserves_subscription_disabled_while_sending(subscripti
     assert len(email.sent) == 1
 
 
+@pytest.mark.parametrize("change_percent,expected", [
+    (None, None), ("bad", None), (True, None), (float("nan"), None),
+    (float("inf"), None), ("-5", -5.0), (5.0, 5.0),
+])
+def test_price_target_delivery_normalizes_optional_percentage(subscription_service_tmp, monkeypatch, change_percent, expected):
+    from backend.services.email_service import EmailService
+
+    service = subscription_service_tmp
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=["price_change"],
+        alert_mode="price_target", price_target=100.0, direction="above",
+    )
+    monkeypatch.setattr(subs, "ALERT_FAILURE_LIMIT", 1)
+    email = EmailService()
+    messages = []
+    monkeypatch.setattr(email, "send_email", lambda *args: messages.append(args) or (True, "none", None))
+    scheduler = PriceChangeScheduler(service, email, lambda ticker: PriceSnapshot(ticker, 105.0, change_percent))
+
+    sent = scheduler.run_once()
+
+    assert len(sent) == 1
+    assert sent[0]["change_percent"] == expected
+    assert len(messages) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["price_target_fired"] is True
+    assert saved["disabled"] is False
+    assert saved["alert_failures"] == 0
+    assert saved["recent_events"][0]["metadata"]["change_percent"] == expected
+
+
 def test_price_target_scheduler_triggers_once(subscription_service_tmp):
     service = subscription_service_tmp
     email = FakeEmailService()

@@ -191,6 +191,7 @@ class PriceChangeScheduler:
                     triggered = snapshot.price >= price_target_payload
                 if not triggered:
                     continue
+                snapshot.change_percent = safe_float(snapshot.change_percent)
                 message = (
                     f"{sub['ticker']} reached target price {price_target_payload:.2f} "
                     f"({direction_payload}), current={snapshot.price:.2f}."
