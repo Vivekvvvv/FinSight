@@ -374,6 +374,44 @@ def _mock_alpha_vantage_news(monkeypatch, feed):
     _mock_response(monkeypatch, {"feed": feed})
 
 
+@pytest.mark.parametrize("source", ["yfinance", "finnhub", "alpha_vantage"])
+def test_future_dated_news_cannot_enter_alert_feed(monkeypatch, source):
+    from datetime import datetime, timedelta, timezone
+
+    future = datetime.now(timezone.utc) + timedelta(hours=2)
+    if source == "alpha_vantage":
+        _mock_alpha_vantage_news(monkeypatch, [{
+            "title": "Future earnings release", "time_published": future.strftime("%Y%m%dT%H%M%S"),
+        }])
+    elif source == "finnhub":
+        _mock_finnhub_news(monkeypatch, [{"headline": "Future earnings release", "datetime": future.timestamp()}])
+        monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    else:
+        monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=[{
+            "title": "Future earnings release", "providerPublishTime": future.timestamp(),
+        }])))
+        monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+        monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+
+    assert providers.fetch_news_articles("AAPL") == []
+
+
+def test_future_primary_news_does_not_block_valid_fallback(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    _mock_finnhub_news(monkeypatch, [{
+        "headline": "Actual earnings release", "datetime": (now - timedelta(hours=1)).timestamp(), "related": "AAPL",
+    }])
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=[{
+        "title": "Future earnings release", "providerPublishTime": (now + timedelta(hours=2)).timestamp(),
+    }])))
+
+    articles = providers.fetch_news_articles("AAPL")
+
+    assert [article["title"] for article in articles] == ["Actual earnings release"]
+
+
 @pytest.mark.parametrize("timestamp_format", ["%Y%m%dT%H%M%S", "%Y%m%d%H%M%S", "%Y%m%d%H%M"])
 def test_alpha_vantage_news_timestamp_keeps_feed_format_and_precision(monkeypatch, timestamp_format):
     from datetime import datetime, timedelta, timezone

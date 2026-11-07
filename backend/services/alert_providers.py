@@ -119,7 +119,10 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
     ticker_up = ticker.upper()
 
     def _add_article(title: str, url: str, source: str, published_at: datetime, related: List[str] | None = None):
-        if not isinstance(published_at, datetime) or published_at < cutoff:
+        if (
+            not isinstance(published_at, datetime) or published_at < cutoff
+            or published_at > datetime.now(timezone.utc).replace(tzinfo=None)
+        ):
             return
         if isinstance(related, str):
             related = related.split(",")
