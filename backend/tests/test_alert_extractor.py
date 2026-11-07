@@ -1098,3 +1098,26 @@ def test_ticker_named_denial_cannot_create_alert(query):
     assert result["alert_valid"] is False
     assert result["skip_session_context"] is True
     assert result["alert_params"]["alert_mode"] is None
+
+
+@pytest.mark.parametrize("unit", ["CAD", "AUD", "Canadian dollars", "Australian dollars", "Canadian   dollars", "AUSTRALIAN\tdollar", "加元", "澳元"])
+def test_foreign_dollar_currency_is_not_silently_used_as_quote_currency(unit):
+    result = alert_extractor({
+        "query": f"Notify me when AAPL goes above 220 {unit}",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is False
+    assert result["skip_session_context"] is True
+    assert result["alert_params"]["alert_mode"] is None
+    assert result["clarify"]["reason"] == "alert_unsupported_currency"
+
+
+def test_foreign_dollar_currency_in_other_clause_keeps_original_quote_target():
+    result = alert_extractor({
+        "query": "Notify me when AAPL goes above 220 USD; my savings are in Canadian dollars",
+        "subject": {"tickers": ["AAPL"]},
+    })
+
+    assert result["alert_valid"] is True
+    assert result["alert_params"]["price_target"] == 220.0
