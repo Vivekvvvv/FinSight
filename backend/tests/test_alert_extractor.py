@@ -517,6 +517,14 @@ def test_leading_decimal_target_keeps_full_amount(query, expected_price):
     "Notify me when AAPL goes above 220 CENTS",
     "Notify me when AAPL goes above 220 pence",
     "AAPL 涨到220美分时提醒我",
+    "Notify me when AAPL goes above 220 eurocent",
+    "Notify me when AAPL goes above 220 eurocents",
+    "Notify me when AAPL goes above 220 US cents",
+    "Notify me when AAPL goes above 220 U.S. cents",
+    "AAPL 涨到220分钱时提醒我",
+    "AAPL 涨到220角钱时提醒我",
+    "AAPL 涨到220分时提醒我",
+    "AAPL 涨到220角时提醒我",
 ])
 def test_fractional_currency_unit_cannot_be_dropped_from_target(query):
     result = alert_extractor({"query": query, "subject": {"tickers": ["AAPL"]}})
