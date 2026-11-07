@@ -10,7 +10,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 from backend.utils.quote import safe_float
@@ -347,6 +347,10 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
                 closes = []
                 for row in csv.DictReader(io.StringIO(hist.text)):
                     row_date = str(row.get("Date") or row.get("Data") or "").strip()
+                    try:
+                        row_date = date.fromisoformat(row_date).isoformat()
+                    except ValueError:
+                        continue
                     raw = row.get("Close") or row.get("Zamkniecie")
                     value = _positive_finite_float(raw)
                     if value is not None and row_date and row_date < quote_iso:

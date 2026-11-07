@@ -145,6 +145,30 @@ def test_stooq_previous_close_uses_latest_date_instead_of_csv_order(monkeypatch,
     assert snapshot.change_percent == pytest.approx(10.0)
 
 
+@pytest.mark.parametrize("suffix", ["-bad", "Tbad", "Z"])
+@pytest.mark.parametrize("valid_history", [False, True])
+def test_stooq_invalid_history_date_cannot_supply_previous_close(monkeypatch, suffix, valid_history):
+    from datetime import datetime, timedelta, timezone
+
+    quote_date = datetime.now(timezone.utc).date()
+    rows = [f"{quote_date - timedelta(days=1)}{suffix},50.0"]
+    if valid_history:
+        rows.append(f"{quote_date - timedelta(days=2)},100.0")
+    quote_response = SimpleNamespace(status_code=200, json=lambda: {"symbols": [{
+        "symbol": "AAPL.US", "date": quote_date.isoformat(), "close": 105.0,
+    }]})
+    history_response = SimpleNamespace(status_code=200, text="Date,Close\n" + "\n".join(rows))
+    monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(
+        get=lambda url, **_kwargs: history_response if "/q/d/l/" in url else quote_response,
+    ))
+
+    snapshot = providers._fetch_with_stooq("AAPL")
+
+    assert snapshot is not None
+    assert snapshot.price == 105.0
+    assert snapshot.change_percent == (pytest.approx(5.0) if valid_history else None)
+
+
 def _mock_fetchers(monkeypatch, snapshots):
     monkeypatch.setattr(providers, "_PRICE_CACHE", {})
     calls = []
