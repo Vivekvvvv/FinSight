@@ -287,7 +287,7 @@ class SubscriptionService:
                 "triggered_at": str(item.get("triggered_at") or "")[:64],
                 "metadata": self._normalize_event_metadata(item.get("metadata")),
             })
-        keep.sort(key=lambda item: str(item.get("triggered_at") or ""), reverse=True)
+        keep.sort(key=lambda item: self._to_utc_naive(self._parse_iso(item["triggered_at"])), reverse=True)
         return keep[: max(1, ALERT_EVENTS_PER_SUB)]
     
     def subscribe(
@@ -719,7 +719,7 @@ class SubscriptionService:
                     continue
                 events.append(item)
 
-        events.sort(key=lambda item: str(item.get("triggered_at") or ""), reverse=True)
+        events.sort(key=lambda item: self._to_utc_naive(self._parse_iso(item["triggered_at"])), reverse=True)
         return events[: max(1, safe_int(limit, 50) or 50)]
 
 

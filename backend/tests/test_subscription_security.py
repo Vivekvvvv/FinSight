@@ -368,6 +368,33 @@ def test_legacy_alert_events_are_bounded_when_loaded(monkeypatch, tmp_path):
     assert "unexpected" not in loaded
 
 
+@pytest.mark.parametrize("same_subscription", [False, True])
+def test_alert_retention_and_feed_use_time_instead_of_iso_text(monkeypatch, tmp_path, same_subscription):
+    from datetime import datetime, timedelta, timezone
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    monkeypatch.setattr(subs, "ALERT_EVENTS_PER_SUB", 1)
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL")
+    other_ticker = "AAPL" if same_subscription else "MSFT"
+    if not same_subscription:
+        assert service.subscribe(email, other_ticker)
+    now = datetime.now(timezone.utc)
+    older = (now - timedelta(hours=2)).astimezone(timezone(timedelta(hours=8)))
+    newer = now - timedelta(hours=1)
+    assert service.record_alert_event(email, "AAPL", "news", title="older", triggered_at=older.isoformat())
+    assert service.record_alert_event(email, other_ticker, "news", title="newer", triggered_at=newer.isoformat())
+
+    latest = service.list_alert_events(email, limit=1)
+
+    assert [event["title"] for event in latest] == ["newer"]
+    assert latest[0]["triggered_at"] == newer.isoformat()
+    if same_subscription:
+        assert service.get_subscriptions(email)[0]["recent_events"][0]["title"] == "newer"
+
+
 def test_subscription_instances_do_not_overwrite_new_subscribers(monkeypatch, tmp_path):
     from backend.services import subscription_service as subs
 
