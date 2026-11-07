@@ -411,7 +411,7 @@ class SubscriptionService:
         """Basic email format validation."""
         if not email or "@" not in email:
             return False
-        return bool(EMAIL_REGEX.match(email))
+        return bool(EMAIL_REGEX.fullmatch(email))
 
     @staticmethod
     def is_valid_ticker(ticker: object) -> bool:

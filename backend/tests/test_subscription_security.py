@@ -223,6 +223,28 @@ def test_subscription_service_rejects_non_positive_prices_without_using_quota(
     assert len(service.get_subscriptions(email)) == 2
 
 
+@pytest.mark.parametrize("email", ["alice@example.invalid\n", "alice@example.invalid\r\n"])
+def test_malformed_email_cannot_create_subscription_or_claim_quota(monkeypatch, tmp_path, email):
+    from backend.api import main
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setenv("DEV_MODE", "1")
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    monkeypatch.setattr(subs, "get_subscription_service", lambda: service)
+    assert service.subscribe("alice@example.invalid", "AAPL")
+    before = service.subscriptions_file.read_bytes()
+
+    assert service.is_valid_email(email) is False
+    assert service.subscribe(email, "MSFT", max_subscriptions=1) is False
+    with TestClient(main.app) as client:
+        response = client.post("/api/subscribe", json={"email": email, "ticker": "MSFT"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid email"
+    assert service.subscriptions_file.read_bytes() == before
+
+
 def test_subscription_storage_key_controls_delivery_email(monkeypatch, tmp_path):
     from backend.services import subscription_service as subs
 
