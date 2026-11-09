@@ -28,18 +28,20 @@ def _normalize_positions(positions: Any) -> List[Dict[str, Any]]:
     if not parsed:
         return []
 
-    weight_sum = sum((entry["weight"] or 0.0) for entry in parsed if entry["weight"] is not None)
+    weight_scale = max(abs(entry["weight"] or 0.0) for entry in parsed)
+    weight_sum = sum((entry["weight"] or 0.0) / weight_scale for entry in parsed) if weight_scale else 0.0
     if weight_sum > 0:
         for entry in parsed:
             raw_weight = entry["weight"] or 0.0
-            entry["weight"] = float(raw_weight / weight_sum)
+            entry["weight"] = float((raw_weight / weight_scale) / weight_sum)
         return parsed
 
-    qty_sum = sum(abs(entry["quantity"] or 0.0) for entry in parsed if entry["quantity"] is not None)
+    qty_scale = max(abs(entry["quantity"] or 0.0) for entry in parsed)
+    qty_sum = sum(abs(entry["quantity"] or 0.0) / qty_scale for entry in parsed) if qty_scale else 0.0
     if qty_sum > 0:
         for entry in parsed:
             raw_qty = abs(entry["quantity"] or 0.0)
-            entry["weight"] = float(raw_qty / qty_sum)
+            entry["weight"] = float((raw_qty / qty_scale) / qty_sum)
         return parsed
 
     equal_weight = 1.0 / float(len(parsed))
@@ -95,13 +97,13 @@ def _compute_beta(portfolio_returns: pd.Series, factor_returns: pd.Series) -> Op
         return None
     p = joined.iloc[:, 0]
     f = joined.iloc[:, 1]
-    variance = f.var()
+    variance = _safe_float_value(f.var())
     if variance is None or variance <= 1e-12:
         return None
-    covariance = p.cov(f)
+    covariance = _safe_float_value(p.cov(f))
     if covariance is None:
         return None
-    return float(covariance / variance)
+    return _safe_float_value(covariance / variance)
 
 def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, Any]:
     """Estimate simple portfolio factor beta exposures from free yfinance history."""
@@ -117,6 +119,8 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
         "market_r2": None,
         "observation_count": 0,
         "error": None,
+        "missing_tickers": [],
+        "fallback_reason": None,
     }
     if not normalized:
         result["error"] = "positions_required"
@@ -138,7 +142,7 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
         result["error"] = "historical_data_unavailable"
         return result
 
-    returns = close_df.pct_change().dropna(how="all")
+    returns = close_df.pct_change(fill_method=None).replace([float("inf"), float("-inf")], float("nan")).dropna(how="all")
     if returns.empty:
         result["error"] = "insufficient_returns_data"
         return result
@@ -150,6 +154,9 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
         sym for sym in portfolio_symbols
         if sym in returns.columns and returns[sym].notna().any()
     ]
+    result["missing_tickers"] = [symbol for symbol in portfolio_symbols if symbol not in available_symbols]
+    if result["missing_tickers"]:
+        result["fallback_reason"] = "portfolio_history_incomplete"
     if not available_symbols:
         result["error"] = "portfolio_symbols_missing_in_history"
         return result
@@ -180,17 +187,17 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
         beta = _compute_beta(portfolio_returns, returns[factor_symbol])
         factor_beta[factor_name] = round(beta, 4) if beta is not None else None
 
-    ann_vol = float(portfolio_returns.std() * (252 ** 0.5))
+    ann_vol = _safe_float_value(portfolio_returns.std() * (252 ** 0.5))
     cumulative = (1.0 + portfolio_returns).cumprod()
     drawdown_series = cumulative / cumulative.cummax() - 1.0
-    max_drawdown = float(drawdown_series.min()) if not drawdown_series.empty else None
+    max_drawdown = _safe_float_value(drawdown_series.min()) if not drawdown_series.empty else None
 
     market_symbol = factor_map["market"]
     market_r2 = None
     if market_symbol in returns.columns:
         joined = pd.concat([portfolio_returns, returns[market_symbol]], axis=1).dropna()
         if len(joined) >= 20:
-            corr = joined.iloc[:, 0].corr(joined.iloc[:, 1])
+            corr = _safe_float_value(joined.iloc[:, 0].corr(joined.iloc[:, 1]))
             # 常数收益序列 corr=NaN（0/0）——NaN is not None，直接漏进
             # payload 会让 JSON 序列化产出非法 NaN 字面量；与 _compute_beta
             # 的退化方差判空保持一致。
@@ -200,7 +207,7 @@ def get_factor_exposure(positions: Any, lookback_days: int = 252) -> Dict[str, A
     result.update(
         {
             "factor_beta": factor_beta,
-            "annualized_volatility": round(ann_vol, 4),
+            "annualized_volatility": round(ann_vol, 4) if ann_vol is not None else None,
             "max_drawdown": round(max_drawdown, 4) if max_drawdown is not None else None,
             "market_r2": round(market_r2, 4) if market_r2 is not None else None,
             "observation_count": int(len(portfolio_returns)),
@@ -275,6 +282,9 @@ def run_portfolio_stress_test(
             used_factors[factor_name] = round(beta * shock_value, 4)
             projected_return += beta * shock_value
 
+        if not used_factors:
+            continue
+
         if "volatility" in scenario_name.lower():
             projected_return -= 0.25 * annualized_vol
         elif projected_return < 0:
@@ -283,6 +293,9 @@ def run_portfolio_stress_test(
             projected_return -= 0.05 * annualized_vol
 
         projected_drawdown = min(0.0, projected_return * 1.2)
+        if (_safe_float_value(projected_return) is None or _safe_float_value(projected_drawdown) is None
+            or any(_safe_float_value(value) is None for value in used_factors.values())):
+            continue
         scenarios_out.append(
             {
                 "name": scenario_name,
