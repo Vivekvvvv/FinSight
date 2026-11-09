@@ -8,8 +8,6 @@ teardown 里抛的：带 tmp_path 的用例把该异常记成自己的 ERROR，�
 **随机顺序下无关的下一个用例**继续挂——随机顺序每次挂的用例编号都不一样，
 看着像随机 flake，实则是真实缺陷被静默跨用例传播（项目规则 2）。
 """
-import ctypes
-import os
 from pathlib import Path
 
 import pytest
@@ -17,34 +15,32 @@ import pytest
 from backend.services.memory import reset_profiles
 
 
-def _set_readonly(path: Path) -> None:
-    """把文件置为只读属性（等价于 chmod a-w 在 Windows 上的表现）。"""
-    k32 = ctypes.windll.kernel32
-    k32.SetFileAttributesW.restype = ctypes.c_int
-    attrs = k32.GetFileAttributesW(str(path))
-    assert k32.SetFileAttributesW(str(path), attrs | 0x1) != 0
+def _deny_unlink(monkeypatch, target: Path) -> None:
+    """跨平台模拟目标文件删除被拒绝，其他文件仍正常清理。"""
+    original = Path.unlink
+
+    def unlink(path, *args, **kwargs):
+        if path == target:
+            raise PermissionError(f"Cannot delete {path}")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
 
 
-def _restore_writable(path: Path) -> None:
-    k32 = ctypes.windll.kernel32
-    k32.SetFileAttributesW.restype = ctypes.c_int
-    k32.SetFileAttributesW(str(path), 0x80)
-
-
-def test_readonly_profile_cannot_be_deleted_in_place(tmp_path):
+def test_readonly_profile_cannot_be_deleted_in_place(tmp_path, monkeypatch):
     """先钉死失败模式本身：只读文件就地 unlink 抛 PermissionError 且文件仍在。"""
     reset_profiles(str(tmp_path), {"test_api_user_ro": {"user_id": "test_api_user_ro"}})
     target = tmp_path / "test_api_user_ro.json"
-    _set_readonly(target)
-    try:
+    with monkeypatch.context() as denied:
+        _deny_unlink(denied, target)
         with pytest.raises(PermissionError):
             target.unlink(missing_ok=True)
         assert target.exists()
-    finally:
-        _restore_writable(target)
+    target.unlink()
+    assert not target.exists()
 
 
-def test_memory_fixture_teardown_reports_leftover_instead_of_leaking(tmp_path):
+def test_memory_fixture_teardown_reports_leftover_instead_of_leaking(tmp_path, monkeypatch):
     """删不掉的文件必须让 teardown 明确报错，而不是把污染留给后续用例。
 
     这里直接复刻 conftest 的清理逻辑（夹具本身没法在被它清理的目录里自测），
@@ -52,8 +48,8 @@ def test_memory_fixture_teardown_reports_leftover_instead_of_leaking(tmp_path):
     """
     reset_profiles(str(tmp_path), {"test_api_user_x": {"user_id": "test_api_user_x"}})
     target = tmp_path / "test_api_user_x.json"
-    _set_readonly(target)
-    try:
+    with monkeypatch.context() as denied:
+        _deny_unlink(denied, target)
         leftovers = []
         for f in tmp_path.glob("test_api_user*.json"):
             try:
@@ -63,8 +59,6 @@ def test_memory_fixture_teardown_reports_leftover_instead_of_leaking(tmp_path):
             if f.exists():
                 leftovers.append(str(f))
         assert leftovers == [str(target)]
-    finally:
-        _restore_writable(target)
 
     # 恢复可写后同样的循环不应再报 leftover——否则夹具会持续误报。
     leftovers = []
