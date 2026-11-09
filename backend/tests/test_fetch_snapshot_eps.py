@@ -10,6 +10,47 @@ import yfinance
 from backend.dashboard import data_fetchers
 
 
+def test_failed_equity_info_fetch_cannot_be_cached_as_a_valid_empty_snapshot(monkeypatch):
+    class Ticker:
+        @property
+        def info(self):
+            raise RuntimeError("provider unavailable")
+        def history(self, **kwargs):
+            raise RuntimeError("no price")
+    monkeypatch.setattr(yfinance, "Ticker", lambda symbol: Ticker())
+    assert data_fetchers.fetch_snapshot("AAPL", "equity") is None
+
+
+def test_snapshot_rejects_nonpositive_etf_nav_and_uses_valid_history(monkeypatch):
+    import pandas as pd
+    class Ticker:
+        info = {"navPrice": -1}
+        def history(self, **kwargs):
+            return pd.DataFrame({"Close": [100.0]})
+    monkeypatch.setattr(yfinance, "Ticker", lambda symbol: Ticker())
+    assert data_fetchers.fetch_snapshot("SPY", "etf")["nav"] == 100.0
+    Ticker.info = {"navPrice": 0}
+    assert data_fetchers.fetch_snapshot("SPY", "etf")["nav"] == 100.0
+
+
+def test_snapshot_eps_uses_valid_forward_alias_when_trailing_is_invalid(monkeypatch):
+    for invalid in ("bad", float("inf"), True):
+        _patch(monkeypatch, {"trailingEps": invalid, "forwardEps": 1.5})
+        assert data_fetchers.fetch_snapshot("AAPL", "equity")["eps"] == 1.5
+
+
+def test_snapshot_company_identity_must_match_the_requested_symbol(monkeypatch):
+    for field in ("ticker", "symbol"):
+        _patch(monkeypatch, {"totalRevenue": 999, field: "MSFT"})
+        assert data_fetchers.fetch_snapshot("AAPL", "equity") is None
+
+
+def test_snapshot_failed_info_cannot_be_published_as_company_facts(monkeypatch):
+    for failure in ({"success": False}, {"status": " Failed "}, {"error": "provider"}):
+        _patch(monkeypatch, {"totalRevenue": 999, "trailingEps": 99, **failure})
+        assert data_fetchers.fetch_snapshot("AAPL", "equity") is None
+
+
 class _FakeTicker:
     def __init__(self, info):
         self.info = info

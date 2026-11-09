@@ -1,7 +1,169 @@
 from __future__ import annotations
 
+
+import pytest
+
 from backend.dashboard.data_service import fetch_news
 from backend.dashboard.news_ranking import _to_news_item, _ts_seconds
+
+
+def test_empty_news_limit_stops_before_fetching_external_sources(monkeypatch):
+    import backend.tools.news as news
+    calls = []
+    def fetch(*args):
+        calls.append(args)
+        return [{"title": "update"}]
+    monkeypatch.setattr(news, "get_company_news", fetch)
+    monkeypatch.setattr(news, "get_market_news_headlines", fetch)
+    for limit in (0, -1):
+        result = fetch_news("AAPL", limit=limit)
+        assert result["market"] == result["impact"] == result["market_raw"] == result["impact_raw"] == []
+    assert calls == []
+
+
+def test_future_news_timestamp_does_not_receive_maximum_recency():
+    from datetime import datetime, timedelta, timezone
+    from backend.dashboard.news_ranking import _calculate_time_decay
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    assert _calculate_time_decay(future) == 0.5
+
+
+@pytest.mark.parametrize("failure", [{"error": "bad"}, {"success": False}, {"status": " Failed "}])
+def test_failed_news_rows_cannot_appear_as_ranked_articles(monkeypatch, failure):
+    import backend.tools.news as news
+    monkeypatch.setattr(news, "get_company_news", lambda *args:
+                        [{"title": "Bad earnings", **failure}, {"title": "Valid update"}])
+    monkeypatch.setattr(news, "get_market_news_headlines", lambda *args: [])
+    result = fetch_news("AAPL")
+    assert [item["title"] for item in result["impact"]] == ["Valid update"]
+
+
+def test_short_real_news_headlines_are_preserved_without_separator_lines():
+    from backend.dashboard.news_ranking import _parse_news_text
+    rows = _parse_news_text("1. CPI drops\n2. 央行降息\n---")
+    assert [row["title"] for row in rows] == ["CPI drops", "央行降息"]
+
+
+def test_news_text_fields_ignore_structures_and_use_valid_aliases():
+    item = _to_news_item({"title": "AAPL update", "url": ["bad"], "link": "https://example.test/story",
+                          "source": {"wrong": True}, "publisher": "Reuters",
+                          "summary": {"earnings": True}, "snippet": "Schedule updated"})
+    assert item["url"] == "https://example.test/story"
+    assert item["source"] == "Reuters"
+    assert item["summary"] == "Schedule updated"
+
+
+def test_impact_keywords_cannot_match_inside_unrelated_words():
+    from backend.dashboard.news_ranking import _estimate_asset_relevance, _estimate_impact_score
+    assert _estimate_impact_score("Corporate cuts announced", "") == 0.45
+    assert _estimate_asset_relevance("AAPL", "market", "Corporate cuts announced", "") == 0.4
+    assert _estimate_impact_score("Rate cuts announced", "") >= 0.6
+
+
+def test_news_ranking_considers_candidates_before_applying_result_limit(monkeypatch):
+    import backend.tools.news as news
+    import backend.dashboard.news_ranking as ranking
+
+    monkeypatch.setattr(news, "get_company_news", lambda *args: [
+        {"title": "Local market update", "source": "Unknown"},
+        {"title": "Apple earnings guidance", "source": "Reuters"},
+    ])
+    monkeypatch.setattr(news, "get_market_news_headlines", lambda *args: [])
+    monkeypatch.setattr(ranking, "_calculate_time_decay", lambda *args, **kwargs: 1.0)
+
+    result = fetch_news("AAPL", limit=1)
+
+    assert [item["title"] for item in result["impact"]] == ["Apple earnings guidance"]
+    assert len(result["impact_raw"]) == 1
+
+
+@pytest.mark.parametrize("source", ["SecurityWeek", "Second Nexus", "Financial Timesheet", "notreuters"])
+def test_source_substrings_do_not_inherit_publisher_reliability(source):
+    from backend.dashboard.news_ranking import _resolve_source_reliability
+
+    assert _resolve_source_reliability(source) == 0.65
+
+
+@pytest.mark.parametrize("source, score", [("Thomson Reuters", 0.95), ("SEC Filings", 0.86), ("Yahoo Finance", 0.72)])
+def test_recognized_publisher_names_keep_reliability(source, score):
+    from backend.dashboard.news_ranking import _resolve_source_reliability
+
+    assert _resolve_source_reliability(source) == score
+
+
+@pytest.mark.parametrize("hours, expected", [(0, 1.0), (36, 0.5), (72, 0.25)])
+def test_news_recency_uses_the_advertised_half_life(monkeypatch, hours, expected):
+    from datetime import datetime, timedelta, timezone
+    import backend.dashboard.news_ranking as module
+
+    fixed = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed
+
+    monkeypatch.setattr(module, "datetime", FixedClock)
+
+    assert module._calculate_time_decay((fixed - timedelta(hours=hours)).isoformat(), half_life_hours=36) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("symbol, title", [("AAPL", "Pineapple harvest grows"), ("C", "Electric cars rise"), ("BRK-B", "BRKBETA updates")])
+def test_asset_substrings_do_not_boost_unrelated_news(symbol, title):
+    from backend.dashboard.news_ranking import _estimate_asset_relevance
+
+    assert _estimate_asset_relevance(symbol, "impact", title, "") == 0.35
+
+
+def test_actual_ticker_and_company_mentions_keep_relevance_boost():
+    from backend.dashboard.news_ranking import _estimate_asset_relevance
+
+    assert _estimate_asset_relevance("AAPL", "impact", "$AAPL Apple results", "") > 0.35
+
+
+@pytest.mark.parametrize("item", [{"title": True}, {"headline": {"value": "bad"}}, False, 7, []])
+def test_invalid_news_titles_are_not_stringified_into_articles(item):
+    assert _to_news_item(item)["title"] == ""
+
+
+def test_news_filtering_precedes_the_result_limit(monkeypatch):
+    import backend.tools.news as news
+
+    monkeypatch.setattr(news, "get_company_news", lambda *args: [
+        {"title": True}, {"headline": {}}, None,
+        {"title": {}, "headline": "Valid headline"},
+    ])
+    monkeypatch.setattr(news, "get_market_news_headlines", lambda *args: [])
+
+    result = fetch_news("AAPL", limit=2)
+
+    assert [item["title"] for item in result["impact"]] == ["Valid headline"]
+
+
+def test_all_unusable_news_rows_return_failure(monkeypatch):
+    import backend.tools.news as news
+
+    monkeypatch.setattr(news, "get_company_news", lambda *args: [{"title": True}, None])
+    monkeypatch.setattr(news, "get_market_news_headlines", lambda *args: [])
+
+    assert fetch_news("AAPL") is None
+
+
+@pytest.mark.parametrize("with_url", [False, True])
+def test_duplicate_news_does_not_displace_distinct_results(monkeypatch, with_url):
+    import backend.tools.news as news
+
+    first = {"title": "Same news", "source": "Reuters", "url": "https://example.com/one" if with_url else ""}
+    second = {**first, "title": "same NEWS", "source": "reuters"}
+    distinct = {"title": "Distinct news", "source": "Reuters", "url": "https://example.com/two"}
+    monkeypatch.setattr(news, "get_company_news", lambda *args: [first, second, distinct])
+    monkeypatch.setattr(news, "get_market_news_headlines", lambda *args: [])
+
+    result = fetch_news("AAPL", limit=2)
+
+    assert len(result["impact"]) == 2
+    assert {item["title"] for item in result["impact"]} == {"Same news", "Distinct news"}
+    assert len(result["impact_raw"]) == 2
 
 
 def test_news_timestamp_helpers_reject_booleans():

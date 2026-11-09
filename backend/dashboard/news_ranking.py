@@ -6,6 +6,7 @@ Extracted from dashboard.data_service to keep the god file shrinking.
 from __future__ import annotations
 
 import math
+import re
 import pandas as pd
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -140,15 +141,20 @@ def _resolve_source_reliability(source: str) -> float:
     if not text:
         return 0.6
     for key, score in _SOURCE_RELIABILITY_WEIGHTS.items():
-        if key in text:
+        if re.search(r"(?<![a-z0-9])" + re.escape(key) + r"(?![a-z0-9])", text):
             return score
     return 0.65
 
 
+def _keyword_hits(content: str, keywords: set[str]) -> int:
+    return sum(bool(re.search(r"(?<![a-z0-9])" + re.escape(token) + r"(?:s|es|ed|d)?(?![a-z0-9])", content))
+               for token in keywords)
+
+
 def _estimate_impact_score(title: str, summary: str) -> float:
     content = f"{title or ''} {summary or ''}".lower()
-    high_hits = sum(1 for token in _HIGH_IMPACT_KEYWORDS if token in content)
-    medium_hits = sum(1 for token in _MEDIUM_IMPACT_KEYWORDS if token in content)
+    high_hits = _keyword_hits(content, _HIGH_IMPACT_KEYWORDS)
+    medium_hits = _keyword_hits(content, _MEDIUM_IMPACT_KEYWORDS)
     score = 0.45 + min(0.35, high_hits * 0.15) + min(0.2, medium_hits * 0.06)
     return max(0.0, min(1.0, score))
 
@@ -160,10 +166,12 @@ def _calculate_time_decay(ts_iso: str, *, half_life_hours: float = 36.0) -> floa
         dt = datetime.fromisoformat(str(ts_iso).replace("Z", "+00:00"))
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        age_hours = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600)
+        age_hours = (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+        if age_hours < 0:
+            return 0.5
         parsed_half_life = safe_float(half_life_hours)
         safe_half_life = max(1.0, 36.0 if parsed_half_life is None else parsed_half_life)
-        return math.exp(-age_hours / safe_half_life)
+        return math.exp(-math.log(2.0) * age_hours / safe_half_life)
     except Exception:
         return 0.5
 
@@ -188,10 +196,12 @@ def _estimate_asset_relevance(symbol: str, mode: str, title: str, summary: str) 
         return 0.35 if mode == "impact" else 0.4
 
     tokens = _build_asset_tokens(symbol)
-    mention_hits = sum(1 for token in tokens if token in content)
+    mention_hits = sum(1 for token in tokens if re.search(
+        r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])", content,
+    ))
 
-    high_hits = sum(1 for token in _HIGH_IMPACT_KEYWORDS if token in content)
-    medium_hits = sum(1 for token in _MEDIUM_IMPACT_KEYWORDS if token in content)
+    high_hits = _keyword_hits(content, _HIGH_IMPACT_KEYWORDS)
+    medium_hits = _keyword_hits(content, _MEDIUM_IMPACT_KEYWORDS)
 
     base = 0.35 if mode == "impact" else 0.4
     mention_boost = min(0.4, mention_hits * (0.2 if mode == "impact" else 0.12))
@@ -270,6 +280,17 @@ def _score_news_item(
     return result
 
 
+def _unique_news_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, ...]] = set()
+    unique = []
+    for item in items:
+        key = ("url", item["url"]) if item["url"] else ("title", item["title"].casefold(), item["source"].casefold())
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
 def _rank_news_items(items: list[dict[str, Any]], limit: int, *, symbol: str, mode: str) -> list[dict[str, Any]]:
     source_counts: dict[str, int] = {}
     for item in items:
@@ -291,13 +312,21 @@ def _rank_news_items(items: list[dict[str, Any]], limit: int, *, symbol: str, mo
     return scored[:limit]
 
 
+def _first_text(*values: Any) -> str:
+    return next((value.strip() for value in values if isinstance(value, str) and value.strip()), "")
+
+
 def _to_news_item(item: Any) -> dict[str, Any]:
     if isinstance(item, dict):
-        title = item.get("title") or item.get("headline") or ""
-        url = item.get("url") or item.get("link") or ""
-        source = item.get("source") or item.get("publisher") or ""
+        if (item.get("error") or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return {"title": "", "url": "", "source": "", "ts": "", "summary": ""}
+        title = next((value.strip() for value in (item.get("title"), item.get("headline"))
+            if isinstance(value, str) and value.strip()), "")
+        url = _first_text(item.get("url"), item.get("link"))
+        source = _first_text(item.get("source"), item.get("publisher"))
         ts = item.get("ts") or item.get("published_at") or item.get("datetime") or ""
-        summary = item.get("summary") or item.get("snippet") or item.get("content") or ""
+        summary = _first_text(item.get("summary"), item.get("snippet"), item.get("content"))
         tags = item.get("tags")  # Phase H: pass through server-computed tags
 
         if isinstance(ts, bool):
@@ -322,7 +351,7 @@ def _to_news_item(item: Any) -> dict[str, Any]:
             result["tags"] = tags
         return result
 
-    text = str(item).strip() if item is not None else ""
+    text = item.strip() if isinstance(item, str) else ""
     return {"title": text, "url": "", "source": "", "ts": "", "summary": ""}
 
 
@@ -347,8 +376,8 @@ def _parse_news_text(text: str) -> list[dict[str, Any]]:
 
     for line in text.strip().splitlines():
         stripped = line.strip()
-        # Skip header lines and very short lines
-        if not stripped or len(stripped) < 12:
+        # Skip empty lines and separators.
+        if not stripped or not any(character.isalnum() for character in stripped):
             continue
         # Skip header-like lines (e.g. "最近48小时市场要闻(RSS):")
         if stripped.endswith(":") and ("要闻" in stripped or "热点" in stripped):

@@ -7,6 +7,8 @@ None 当失败，导致真实故障被当成"高置信度无新闻"、缓存 TTL
 """
 from __future__ import annotations
 
+import pytest
+
 
 def test_fetch_news_returns_none_when_both_sources_fail(monkeypatch):
     import backend.tools.news as news_mod
@@ -19,6 +21,32 @@ def test_fetch_news_returns_none_when_both_sources_fail(monkeypatch):
     monkeypatch.setattr(news_mod, "get_market_news_headlines", _boom)
 
     assert data_service.fetch_news("AAPL") is None
+
+
+@pytest.mark.parametrize("payload", [None, {"error": "source unavailable"}, False, 7])
+def test_non_news_provider_payloads_are_failures(monkeypatch, payload):
+    import backend.tools.news as news_mod
+    from backend.dashboard import data_fetchers
+
+    monkeypatch.setattr(news_mod, "get_company_news", lambda *args: payload)
+    monkeypatch.setattr(news_mod, "get_market_news_headlines", lambda *args: payload)
+
+    assert data_fetchers.fetch_news("AAPL") is None
+
+
+def test_news_processing_failure_is_not_a_valid_empty_payload(monkeypatch):
+    import backend.tools.news as news_mod
+    from backend.dashboard import data_fetchers
+
+    monkeypatch.setattr(news_mod, "get_company_news", lambda *args: [{"title": "valid"}])
+    monkeypatch.setattr(news_mod, "get_market_news_headlines", lambda *args: [])
+
+    def fail_ranking(*args, **kwargs):
+        raise RuntimeError("ranking unavailable")
+
+    monkeypatch.setattr(data_fetchers, "_rank_news_items", fail_ranking)
+
+    assert data_fetchers.fetch_news("AAPL") is None
 
 
 def test_fetch_news_returns_payload_when_both_sources_empty(monkeypatch):

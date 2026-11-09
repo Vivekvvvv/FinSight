@@ -156,7 +156,7 @@ def test_fetch_news_outer_error_log_is_redacted(monkeypatch, caplog):
 
     payload = data_service.fetch_news("AAPL")
 
-    assert payload == data_service._empty_news_payload()
+    assert payload is None
     assert secret not in caplog.text
     assert "[DataService]" in caplog.text
 

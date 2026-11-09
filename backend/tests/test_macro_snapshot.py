@@ -3,6 +3,36 @@
 from backend.dashboard.data_service import fetch_macro_snapshot
 
 
+def test_unemployment_values_outside_percentage_bounds_are_unavailable(monkeypatch):
+    import backend.tools.macro as tools
+    monkeypatch.setattr(tools, "get_market_sentiment", lambda: "")
+    for value in (-1, 101):
+        monkeypatch.setattr(tools, "get_fred_data", lambda: {"unemployment": value})
+        result = fetch_macro_snapshot()
+        assert result["unemployment"] is None
+        assert result["status"] == "unavailable"
+
+
+def test_out_of_range_fear_greed_values_are_unavailable_instead_of_clamped(monkeypatch):
+    import backend.tools.macro as tools
+    monkeypatch.setattr(tools, "get_fred_data", lambda: {})
+    for text in ("Fear & Greed Index: 999", "Fear & Greed Index: -5"):
+        monkeypatch.setattr(tools, "get_market_sentiment", lambda: text)
+        result = fetch_macro_snapshot()
+        assert result["fear_greed_index"] is None
+        assert result["status"] == "unavailable"
+
+
+def test_failed_fred_payload_cannot_be_presented_as_available_macro_data(monkeypatch):
+    import backend.tools.macro as tools
+    monkeypatch.setattr(tools, "get_market_sentiment", lambda: "")
+    for failure in ({"success": False}, {"error": "offline"}, {"status": " Failed "}):
+        monkeypatch.setattr(tools, "get_fred_data", lambda: {"fed_rate": 99.0, **failure})
+        result = fetch_macro_snapshot()
+        assert result["fed_rate"] is None
+        assert result["status"] == "unavailable"
+
+
 def test_fetch_macro_snapshot_parses_fear_greed_and_fred(monkeypatch):
     import backend.tools.macro as macro_tools
 

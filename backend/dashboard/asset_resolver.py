@@ -115,9 +115,10 @@ def resolve_asset(symbol: str) -> ActiveAsset:
         "crypto"
     """
     upper = symbol.upper().strip()
+    lookup_symbol = upper[:-3] + ".SS" if upper.endswith(".SH") else upper
 
     # 1. 精确匹配指数 或 以 ^ 开头
-    if upper in _INDEX_SYMBOLS or upper.startswith("^"):
+    if lookup_symbol in _INDEX_SYMBOLS or upper.startswith("^"):
         asset_type = "index"
     # 2. 精确匹配 ETF
     elif upper in _ETF_SYMBOLS:
@@ -130,7 +131,7 @@ def resolve_asset(symbol: str) -> ActiveAsset:
         asset_type = "equity"
 
     # 获取显示名称，优先使用映射表，否则使用 symbol 本身
-    display_name = _DISPLAY_NAMES.get(upper, upper)
+    display_name = _DISPLAY_NAMES.get(lookup_symbol, upper)
 
     return ActiveAsset(
         symbol=upper,

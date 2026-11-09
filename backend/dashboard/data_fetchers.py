@@ -11,6 +11,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from backend.utils.quote import safe_float
+from backend.tools._item import iter_dict_items
 
 from backend.dashboard.news_ranking import (
     _empty_news_payload,
@@ -19,13 +20,14 @@ from backend.dashboard.news_ranking import (
     _rank_news_items,
     _to_news_item,
     _ts_seconds,
+    _unique_news_items,
 )
 
 logger = logging.getLogger(__name__)
 
 
 _FEAR_GREED_PATTERN = re.compile(
-    r"(?:fear\s*&?\s*greed(?:\s*index)?|恐惧贪婪指数)[^0-9]{0,20}([0-9]{1,3}(?:\.\d+)?)",
+    r"(?:fear\s*&?\s*greed(?:\s*index)?|恐惧贪婪指数)[^0-9+-]{0,20}([+-]?[0-9]+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 
@@ -54,7 +56,7 @@ def _parse_fear_greed_value(text: str) -> Optional[float]:
         value = float(m.group(1))
     except Exception:
         return None
-    return max(0.0, min(100.0, value))
+    return value if 0 <= value <= 100 else None
 
 
 def fetch_macro_snapshot() -> dict[str, Any]:
@@ -101,9 +103,12 @@ def fetch_macro_snapshot() -> dict[str, Any]:
         from backend.tools.macro import get_fred_data
 
         fred_payload = get_fred_data()
-        if isinstance(fred_payload, dict):
+        if (isinstance(fred_payload, dict) and not fred_payload.get("error") and fred_payload.get("success") is not False
+            and str(fred_payload.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}):
             for key in ("fed_rate", "cpi", "unemployment", "gdp_growth", "treasury_10y", "yield_spread"):
                 value = safe_float(fred_payload.get(key))
+                if key == "unemployment" and value is not None and not 0 <= value <= 100:
+                    continue
                 if value is not None:
                     snapshot[key] = value
                     has_fred = True
@@ -140,8 +145,21 @@ def fetch_market_chart(symbol: str, period: str = "1y", interval: str = "1d") ->
             return None  # bad data — do not cache as valid
         output: list[dict[str, Any]] = []
         for ts_index, row in hist.iterrows():
+            if ((isinstance(row.get("error"), str) and row["error"].strip()) or row.get("success") is False
+                or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
+            if any(value is not None and not (isinstance(value, float) and pd.isna(value))
+                   and str(value).strip().upper() != symbol.strip().upper()
+                   for value in (row.get("ticker"), row.get("symbol"))):
+                continue
             ts = _parse_time_to_unix(ts_index)
             if ts is None:
+                continue
+            if any((value := safe_float(row.get(field))) is None or value <= 0
+                   for field in ("Open", "High", "Low", "Close")):
+                continue
+            if (safe_float(row.get("Low")) > min(safe_float(row.get("Open")), safe_float(row.get("Close")))
+                or safe_float(row.get("High")) < max(safe_float(row.get("Open")), safe_float(row.get("Close")))):
                 continue
             output.append(
                 {
@@ -150,10 +168,12 @@ def fetch_market_chart(symbol: str, period: str = "1y", interval: str = "1d") ->
                     "high": safe_float(row.get("High")),
                     "low": safe_float(row.get("Low")),
                     "close": safe_float(row.get("Close")),
-                    "volume": safe_float(row.get("Volume")) or 0,
+                    "volume": max(0.0, safe_float(row.get("Volume")) or 0.0),
                 }
             )
-        return output
+        output = list({item["time"]: item for item in output}.values())
+        output.sort(key=lambda item: item["time"])
+        return output if output else None
     except Exception as exc:
         logger.warning("[DataService] fetch_market_chart failed")
         return None  # exception — do not cache
@@ -169,13 +189,23 @@ def fetch_snapshot(symbol: str, asset_type: str) -> dict[str, Any] | None:
         try:
             info = getattr(ticker, "info", {}) or {}
         except Exception:
+            if asset_type == "equity":
+                return None
             info = {}
 
+        if (not isinstance(info, dict) or info.get("error") or info.get("success") is False
+            or str(info.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and str(value).strip().upper() != symbol.strip().upper()
+               for value in (info.get("ticker"), info.get("symbol"))):
+            return None
         last_close = None
         try:
             hist = ticker.history(period="5d", interval="1d")
             if hist is not None and not hist.empty:
                 last_close = safe_float(hist["Close"].iloc[-1])
+                if last_close is not None and last_close <= 0:
+                    last_close = None
         except Exception:
             last_close = None
 
@@ -186,11 +216,8 @@ def fetch_snapshot(symbol: str, asset_type: str) -> dict[str, Any] | None:
                     "revenue": safe_float(info.get("totalRevenue")),
                     # trailingEps=0.0（盈亏平衡）是真实值，裸 `or` 会把它当缺失、
                     # 用 forwardEps（预测值）顶替——显式 None 判断，只在缺失时回退。
-                    "eps": safe_float(
-                        info.get("trailingEps")
-                        if info.get("trailingEps") is not None
-                        else info.get("forwardEps")
-                    ),
+                    "eps": next((value for value in (safe_float(info.get("trailingEps")), safe_float(info.get("forwardEps")))
+                                 if value is not None), None),
                     "gross_margin": safe_float(info.get("grossMargins")),
                     "fcf": safe_float(info.get("freeCashflow")),
                 }
@@ -200,7 +227,7 @@ def fetch_snapshot(symbol: str, asset_type: str) -> dict[str, Any] | None:
                 output["index_level"] = last_close
         elif asset_type == "etf":
             nav = safe_float(info.get("navPrice"))
-            output["nav"] = nav if nav is not None else last_close
+            output["nav"] = nav if nav is not None and nav > 0 else last_close
 
         return output
     except Exception as exc:
@@ -245,7 +272,7 @@ def fetch_revenue_trend(symbol: str) -> list[dict[str, Any]] | None:
                 period = str(col)[:10]
             output.append({"period": period, "value": value, "name": period})
 
-        output.reverse()
+        output.sort(key=lambda row: row["period"])
         return output[-8:]
     except Exception as exc:
         logger.warning("[DataService] fetch_revenue_trend failed")
@@ -262,11 +289,18 @@ def fetch_segment_mix(symbol: str) -> list[dict[str, Any]] | None:
             return []
         return [
             {
-                "name": row.get("segment", "Unknown"),
-                "value": row.get("revenue", 0),
-                "weight": row.get("percentage", 0) / 100,
+                "name": row["segment"].strip(),
+                "value": revenue,
+                "weight": percentage / 100,
             }
-            for row in rows
+            for row in iter_dict_items(rows)
+            if isinstance(row.get("segment"), str) and row["segment"].strip()
+            and (revenue := safe_float(row.get("revenue"))) is not None and revenue >= 0
+            and (percentage := safe_float(row.get("percentage"))) is not None and 0 <= percentage <= 100
+            and not row.get("error") and row.get("success") is not False
+            and str(row.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+            and all(value is None or isinstance(value, str) and value.strip().upper() == symbol.strip().upper()
+                    for value in (row.get("ticker"), row.get("symbol")))
         ]
     except Exception as exc:
         logger.warning("[DataService] fetch_segment_mix failed")
@@ -274,6 +308,8 @@ def fetch_segment_mix(symbol: str) -> list[dict[str, Any]] | None:
 
 
 def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
+    if limit <= 0:
+        return _empty_news_payload()
     try:
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
         from backend.tools.news import get_company_news, get_market_news_headlines
@@ -294,21 +330,23 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
 
             try:
                 raw_impact = f_impact.result(timeout=30)
-                impact_ok = True
                 if isinstance(raw_impact, list):
                     impact_items = raw_impact
+                    impact_ok = True
                 elif isinstance(raw_impact, str):
                     impact_items = _parse_news_text(raw_impact)
+                    impact_ok = True
             except (FuturesTimeout, Exception) as exc:
                 logger.warning("[DataService] get_company_news failed")
 
             try:
                 raw_market = f_market.result(timeout=30)
-                market_ok = True
                 if isinstance(raw_market, list):
                     market_items = raw_market
+                    market_ok = True
                 elif isinstance(raw_market, str):
                     market_items = _parse_news_text(raw_market)
+                    market_ok = True
             except (FuturesTimeout, Exception) as exc:
                 logger.warning("[DataService] get_market_news_headlines failed")
         finally:
@@ -320,20 +358,23 @@ def fetch_news(symbol: str, limit: int = 20) -> dict[str, Any] | None:
         if not impact_ok and not market_ok:
             return None
 
-        market_raw = [_to_news_item(item) for item in market_items[:limit]]
-        impact_raw = [_to_news_item(item) for item in impact_items[:limit]]
+        market_raw = _unique_news_items([normalized for item in market_items if (normalized := _to_news_item(item))["title"]])
+        impact_raw = _unique_news_items([normalized for item in impact_items if (normalized := _to_news_item(item))["title"]])
+        if not market_raw and not impact_raw and (market_items or impact_items):
+            logger.warning("[DataService] news rows unusable")
+            return None
 
         result = {
             "market": _rank_news_items(market_raw, limit, symbol=symbol, mode="market"),
             "impact": _rank_news_items(impact_raw, limit, symbol=symbol, mode="impact"),
-            "market_raw": market_raw,
-            "impact_raw": impact_raw,
+            "market_raw": market_raw[:limit],
+            "impact_raw": impact_raw[:limit],
             "ranking_meta": _news_ranking_meta(),
         }
         return result
     except Exception as exc:
         logger.warning("[DataService] fetch_news failed")
-        return _empty_news_payload()
+        return None
 
 
 def fetch_sector_weights(symbol: str, asset_type: str) -> list[dict[str, Any]] | None:
@@ -347,8 +388,12 @@ def fetch_sector_weights(symbol: str, asset_type: str) -> list[dict[str, Any]] |
         if not rows:
             return []
         return [
-            {"name": row.get("sector", "Unknown"), "weight": row.get("weight", 0) / 100}
-            for row in rows
+            {"name": row["sector"].strip(), "weight": weight / 100}
+            for row in iter_dict_items(rows)
+            if isinstance(row.get("sector"), str) and row["sector"].strip()
+            and (weight := safe_float(row.get("weight"))) is not None and 0 <= weight <= 100
+            and not row.get("error") and row.get("success") is not False
+            and str(row.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
         ]
     except Exception as exc:
         logger.warning("[DataService] fetch_sector_weights failed")
@@ -357,7 +402,7 @@ def fetch_sector_weights(symbol: str, asset_type: str) -> list[dict[str, Any]] |
 
 def fetch_top_constituents(symbol: str, asset_type: str, limit: int = 10) -> list[dict[str, Any]] | None:
     """Return index constituents, or ``None`` on fetch failure (see fetch_revenue_trend)."""
-    if asset_type != "index":
+    if asset_type != "index" or limit <= 0:
         return []  # not applicable for this asset type — valid empty
     try:
         from backend.tools.fmp import get_index_constituents
@@ -367,11 +412,14 @@ def fetch_top_constituents(symbol: str, asset_type: str, limit: int = 10) -> lis
             return []
         return [
             {
-                "symbol": row.get("symbol", ""),
-                "name": row.get("name", ""),
-                "weight": row.get("weight", 0),
+                "symbol": row["symbol"].strip().upper(),
+                "name": row["name"].strip() if isinstance(row.get("name"), str) and row["name"].strip() else row["symbol"].strip().upper(),
+                "weight": weight if (weight := safe_float(row.get("weight"))) is not None and 0 <= weight <= 100 else 0.0,
             }
-            for row in rows[:limit]
+            for row in [r for r in iter_dict_items(rows)
+                        if isinstance(r.get("symbol"), str) and r["symbol"].strip()
+                        and not r.get("error") and r.get("success") is not False
+                        and str(r.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}][:limit]
         ]
     except Exception as exc:
         logger.warning("[DataService] fetch_top_constituents failed")
@@ -380,7 +428,7 @@ def fetch_top_constituents(symbol: str, asset_type: str, limit: int = 10) -> lis
 
 def fetch_holdings(symbol: str, asset_type: str, limit: int = 50) -> list[dict[str, Any]] | None:
     """Return ETF/portfolio holdings, or ``None`` on fetch failure (see fetch_revenue_trend)."""
-    if asset_type not in {"etf", "portfolio"}:
+    if asset_type not in {"etf", "portfolio"} or limit <= 0:
         return []  # not applicable for this asset type — valid empty
     try:
         from backend.tools.fmp import get_etf_holdings
@@ -390,13 +438,16 @@ def fetch_holdings(symbol: str, asset_type: str, limit: int = 50) -> list[dict[s
             return []
         return [
             {
-                "symbol": row.get("symbol", ""),
-                "name": row.get("name", ""),
-                "weight": row.get("weight", 0),
-                "shares": row.get("shares", 0),
-                "value": row.get("value", 0),
+                "symbol": row["symbol"].strip().upper(),
+                "name": row["name"].strip() if isinstance(row.get("name"), str) and row["name"].strip() else row["symbol"].strip().upper(),
+                "weight": weight if (weight := safe_float(row.get("weight"))) is not None and 0 <= weight <= 100 else 0.0,
+                "shares": safe_float(row.get("shares")) or 0.0,
+                "value": safe_float(row.get("value")) or 0.0,
             }
-            for row in rows[:limit]
+            for row in [r for r in iter_dict_items(rows)
+                        if isinstance(r.get("symbol"), str) and r["symbol"].strip()
+                        and not r.get("error") and r.get("success") is not False
+                        and str(r.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}][:limit]
         ]
     except Exception as exc:
         logger.warning("[DataService] fetch_holdings failed")
