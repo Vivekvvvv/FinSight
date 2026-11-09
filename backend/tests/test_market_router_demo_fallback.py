@@ -6,6 +6,209 @@ from fastapi.testclient import TestClient
 from backend.api.market_router import MarketRouterDeps, create_market_router
 
 
+def test_invalid_us_chart_payload_does_not_hide_valid_shared_history(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for marker in ({"success": False}, {"error": "offline"}, {"status": " Failed "}, {"symbol": "MSFT"}):
+        with _build_client(kline_payload={"kline_data": [{"close": 100}]},
+                           us_intraday=lambda ticker: {"line_data": [{"value": 200}], **marker}) as client:
+            response = client.get("/api/kline/AAPL")
+        assert response.status_code == 200
+        assert response.json()["data"].get("kline_data") == [{"close": 100}]
+
+
+def test_failed_or_unrelated_cn_kline_does_not_block_shared_history(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for marker in ({"success": False}, {"error": "offline"}, {"status": " Failed "}, {"symbol": "000858.SZ"}):
+        monkeypatch.setattr("backend.api.market_router.fetch_cn_kline",
+                            lambda ticker, **kwargs: {"values": [[100, 100, 90, 110]], **marker})
+        with _build_client(kline_payload={"kline_data": [{"close": 200}]}) as client:
+            response = client.get("/api/kline/600519.SS")
+        assert response.status_code == 200
+        assert response.json()["data"].get("kline_data") == [{"close": 200}]
+
+
+def test_direct_quotes_require_positive_prices_before_blocking_shared_fallback(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for invalid in (None, 0, -1, True, "bad"):
+        monkeypatch.setattr("backend.api.market_router.fetch_cn_quote",
+                            lambda ticker: {"currentPrice": invalid})
+        with _build_client(price_payload={"price": 100}) as client:
+            response = client.get("/api/quote/600519.SS")
+        assert response.json()["data"].get("price") == 100
+        with _build_client(price_payload={"price": 100}, us_quote=lambda ticker: {"price": invalid}) as client:
+            response = client.get("/api/quote/AAPL")
+        assert response.json()["data"]["price"] == 100
+
+
+def test_invalid_us_quote_payload_does_not_hide_valid_shared_quote(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for marker in ({"success": False}, {"error": "offline"}, {"status": " Failed "}, {"symbol": "MSFT"}):
+        with _build_client(price_payload={"price": 100}, us_quote=lambda ticker: {"price": 200, **marker}) as client:
+            response = client.get("/api/quote/AAPL")
+        assert response.status_code == 200
+        assert response.json()["data"]["price"] == 100
+
+
+def test_invalid_cn_quote_payload_does_not_hide_valid_shared_quote(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for marker in ({"success": False}, {"error": "offline"}, {"status": " Failed "}, {"ticker": "000858.SZ"}):
+        monkeypatch.setattr("backend.api.market_router.fetch_cn_quote",
+                            lambda ticker: {"currentPrice": 200, **marker})
+        with _build_client(price_payload={"price": 100}) as client:
+            response = client.get("/api/quote/600519.SS")
+        assert response.status_code == 200
+        assert response.json()["data"].get("price") == 100
+
+
+def test_live_intraday_failure_or_wrong_stock_cannot_enter_response_or_cache(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for marker in ({"success": False}, {"error": "offline"}, {"status": " Failed "}, {"ticker": "000858.SZ"}):
+        monkeypatch.setattr("backend.api.market_router.fetch_cn_intraday",
+                            lambda ticker: {"data": [{"price": 200}], **marker})
+        writes = []
+        orchestrator = _Orchestrator(None)
+        orchestrator.cache.set = lambda *args, **kwargs: writes.append(args)
+        with _build_client(orchestrator=orchestrator) as client:
+            response = client.get("/api/stock/intraday/600519.SS")
+        assert response.status_code == 502
+        assert writes == []
+
+
+def test_failed_or_unrelated_cached_intraday_uses_valid_current_source(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    current = {"ticker": "600519.SS", "data": [{"price": 100}]}
+    monkeypatch.setattr("backend.api.market_router.fetch_cn_intraday", lambda ticker: current)
+    for failure in ({"error": "offline"}, {"success": False}, {"status": " Failed "}, {"ticker": "000858.SZ"}):
+        orchestrator = _Orchestrator({"data": [{"price": 200}], **failure})
+        writes = []
+        orchestrator.cache.set = lambda *args, **kwargs: writes.append(args)
+        with _build_client(orchestrator=orchestrator) as client:
+            response = client.get("/api/stock/intraday/600519.SS")
+        assert response.status_code == 200
+        assert response.json()["data"]["data"] == [{"price": 100}]
+        assert response.json()["cached"] is False
+        assert len(writes) == 1
+
+
+def test_intraday_failures_return_502_instead_of_success_shaped_errors(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    monkeypatch.setattr("backend.api.market_router.fetch_cn_intraday", lambda ticker: None)
+    for ticker in ("AAPL", "600519.SS"):
+        with _build_client() as client:
+            response = client.get("/api/stock/intraday/" + ticker)
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Intraday data unavailable"
+
+
+def test_cached_and_live_kline_must_match_the_route_stock(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for raw in ({"ticker": "MSFT", "kline_data": [{"close": 200}]},
+                {"data": {"symbol": "MSFT", "kline_data": [{"close": 200}]}}):
+        with _build_client(kline_payload=raw) as client:
+            assert client.get("/api/kline/AAPL").status_code == 502
+        orchestrator = _Orchestrator(raw)
+        orchestrator.cache.set = lambda *args, **kwargs: None
+        with _build_client(kline_payload={"ticker": "AAPL", "kline_data": [{"close": 100}]},
+                           orchestrator=orchestrator) as client:
+            response = client.get("/api/kline/AAPL")
+        assert response.status_code == 200
+        assert response.json()["data"]["kline_data"] == [{"close": 100}]
+        assert response.json()["cached"] is False
+
+
+def test_financial_route_rejects_data_explicitly_labeled_for_another_stock(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for raw in ({"ticker": "MSFT", "data": {"revenue": 100}},
+                {"data": {"symbol": "MSFT", "revenue": 100}}):
+        with _build_client(financials_payload=raw) as client:
+            assert client.get("/api/financials/AAPL").status_code == 502
+    with _build_client(financials_payload={"ticker": " aapl ", "data": {"revenue": 100}}) as client:
+        assert client.get("/api/financials/AAPL").status_code == 200
+
+
+def test_market_payload_identity_checks_cover_every_nested_envelope():
+    from backend.api.market_router_helpers import _has_usable_payload
+    for raw in ({"symbol": "MSFT", "kline_data": [100]},
+                {"ticker": "MSFT", "data": {"ticker": "AAPL", "revenue": 100}},
+                {"data": {"symbol": "MSFT", "revenue": 100}}):
+        assert not _has_usable_payload(raw, expected_ticker="AAPL")
+    assert _has_usable_payload({"symbol": " aapl ", "data": {"ticker": "AAPL", "revenue": 100}},
+                               expected_ticker=" aapl ")
+
+
+def test_failed_cached_kline_is_replaced_by_valid_history(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for failure in ({"error": "offline"}, {"success": False}, {"status": " Failed "}):
+        orchestrator = _Orchestrator({"kline_data": [{"close": 200}], **failure})
+        writes = []
+        orchestrator.cache.set = lambda *args, **kwargs: writes.append(args)
+        with _build_client(kline_payload={"kline_data": [{"close": 100}]}, orchestrator=orchestrator) as client:
+            response = client.get("/api/kline/AAPL")
+        assert response.status_code == 200
+        assert response.json()["data"]["kline_data"] == [{"close": 100}]
+        assert response.json()["cached"] is False
+        assert len(writes) == 1
+
+
+def test_failed_kline_returns_502_without_caching_provider_errors(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for raw in ({"error": "offline"}, {"success": False, "kline_data": [{"close": 100}]},
+                {"status": " Failed ", "kline_data": [{"close": 100}]}):
+        writes = []
+        orchestrator = _Orchestrator(None)
+        orchestrator.cache.set = lambda *args, **kwargs: writes.append(args)
+        with _build_client(kline_payload=raw, orchestrator=orchestrator) as client:
+            response = client.get("/api/kline/AAPL")
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Kline data unavailable"
+        assert writes == []
+
+
+def test_cached_quote_identity_must_match_the_requested_stock(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for raw in ({"ticker": "MSFT", "price": 200},
+                {"data": {"symbol": "MSFT", "price": 200}}):
+        orchestrator = _Orchestrator(raw)
+        orchestrator.cache.set = lambda *args, **kwargs: None
+        with _build_client(price_payload={"price": 100}, orchestrator=orchestrator) as client:
+            response = client.get("/api/quote/AAPL")
+        assert response.status_code == 200
+        assert response.json()["data"]["price"] == 100
+        assert response.json().get("cached") is not True
+
+
+def test_missing_quote_returns_502_and_does_not_cache_failed_raw_payload(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    monkeypatch.setattr("backend.utils.quote.fallback_quote_yfinance", lambda ticker: None)
+    for raw in (None, {"error": "offline"}, {"status": " Failed ", "price": 200}):
+        writes = []
+        orchestrator = _Orchestrator(None)
+        orchestrator.cache.set = lambda *args, **kwargs: writes.append(args)
+        with _build_client(price_payload=raw, orchestrator=orchestrator) as client:
+            response = client.get("/api/quote/AAPL")
+        assert response.status_code == 502
+        assert response.json()["detail"] == "无法获取 AAPL 价格数据"
+        assert writes == []
+
+
+def test_failed_financials_provider_returns_502_without_success_shaped_data(monkeypatch):
+    monkeypatch.setenv("FINSIGHT_DEMO_MODE", "false")
+    for failure in ({"error": "offline"}, {"success": False}, {"status": " Failed "},
+                    {"data": {"success": False, "revenue": 100}}):
+        with _build_client(financials_payload=failure) as client:
+            response = client.get("/api/financials/AAPL")
+        assert response.status_code == 502
+        assert response.json()["detail"] == "无法获取 AAPL 财务数据"
+
+
+def test_market_payload_availability_rejects_failure_flags_in_each_envelope():
+    from backend.api.market_router_helpers import _has_usable_payload
+    for failure in ({"success": False}, {"status": " Failed "}, {"status": "UNAVAILABLE"}, {"error": "bad"}):
+        assert not _has_usable_payload({**failure, "revenue": 100})
+        assert not _has_usable_payload({"data": {"data": {**failure, "revenue": 100}}})
+    assert _has_usable_payload({"data": {"revenue": 100}})
+
+
 class _NoCache:
     cache = None
 

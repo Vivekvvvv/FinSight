@@ -82,14 +82,20 @@ def _extract_ticker_candidates(
     return candidates, fallback_reason
 
 
-def _has_usable_payload(payload: Any) -> bool:
+def _has_usable_payload(payload: Any, *, expected_ticker: str | None = None) -> bool:
     if payload is None:
         return False
     if isinstance(payload, dict):
-        if payload.get("error"):
+        if (payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return False
+        if expected_ticker is not None and any(
+            value is not None and str(value).strip().upper() != expected_ticker.strip().upper()
+            for value in (payload.get("ticker"), payload.get("symbol"))
+        ):
             return False
         data = payload.get("data")
-        if isinstance(data, dict) and data.get("error"):
+        if isinstance(data, dict) and not _has_usable_payload(data, expected_ticker=expected_ticker):
             return False
         return bool(payload)
     if isinstance(payload, list):

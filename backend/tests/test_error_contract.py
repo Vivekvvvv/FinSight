@@ -802,8 +802,8 @@ def test_kline_demo_fallback_preserved_on_exception(monkeypatch):
     assert response.json()["data"]["source"] == "demo"
 
 
-def test_kline_upstream_error_payload_passthrough_preserved(monkeypatch):
-    """守护：上游正常返回的固定 error 文案仍按 200 透传（非异常路径）。"""
+def test_kline_upstream_error_payload_returns_fixed_502(monkeypatch):
+    """守护：上游失败载荷返回固定 502，不再作为成功数据透传。"""
     monkeypatch.delenv("FINSIGHT_DEMO_MODE", raising=False)
 
     with _market_client(
@@ -811,8 +811,8 @@ def test_kline_upstream_error_payload_passthrough_preserved(monkeypatch):
     ) as client:
         response = client.get("/api/kline/AAPL")
 
-    assert response.status_code == 200
-    assert response.json()["data"]["error"] == "history unavailable"
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Kline data unavailable"}
 
 
 def test_intraday_internal_error_returns_fixed_502(monkeypatch, caplog):
@@ -838,15 +838,13 @@ def test_intraday_internal_error_returns_fixed_502(monkeypatch, caplog):
     assert "RuntimeError" in caplog.text
 
 
-def test_intraday_non_cn_business_message_preserved():
-    """守护：非A股的既有 200 固定业务文案不受影响。"""
+def test_intraday_non_cn_returns_fixed_502():
+    """守护：不支持的分时行情返回固定 502，不生成成功数据或观测时间。"""
     with _market_client() as client:
         response = client.get("/api/stock/intraday/AAPL")
 
-    assert response.status_code == 200
-    assert response.json()["data"]["error"] == "intraday data not available"
-    # 取数失败没有观测发生，不能盖上请求时刻的 as_of 冒充新鲜数据。
-    assert response.json()["data"]["as_of"] is None
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Intraday data unavailable"}
 
 
 def test_chart_detect_internal_error_reason_is_fixed(monkeypatch, caplog):

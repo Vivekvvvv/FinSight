@@ -7,6 +7,26 @@ from fastapi.testclient import TestClient
 from backend.api.market_router import MarketRouterDeps, create_market_router
 
 
+def test_failed_or_unrelated_financial_summary_returns_502():
+    for raw in (None, {"error": "offline"}, {"success": False}, {"status": " Failed "},
+                {"ticker": "MSFT", "revenue": 100}):
+        with _build_client(get_financial_statements_summary=lambda ticker: raw) as client:
+            assert client.get("/api/financials/AAPL/summary").status_code == 502
+    with _build_client(get_financial_statements_summary=lambda ticker: {"ticker": " aapl ", "revenue": 100}) as client:
+        assert client.get("/api/financials/AAPL/summary").status_code == 200
+
+
+def test_news_route_distinguishes_provider_failure_from_valid_empty_news():
+    for raw in (None, {"error": "offline"}, {"success": False, "news": []}, {"status": " Failed "},
+                {"ticker": "MSFT", "news": [{"title": "bad"}]}):
+        with _build_client(get_company_news=lambda ticker: raw) as client:
+            assert client.get("/api/stock/news/AAPL").status_code == 502
+    with _build_client(get_company_news=lambda ticker: []) as client:
+        response = client.get("/api/stock/news/AAPL")
+        assert response.status_code == 200
+        assert response.json()["data"] == []
+
+
 def _build_client(
     *,
     get_stock_price=None,

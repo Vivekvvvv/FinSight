@@ -146,7 +146,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 cached_data = orchestrator.cache.get(cache_key)
                 if cached_data is not None:
                     deps.logger.info("[API] price cache hit")
-                    normalized = parse_quote_payload(cached_data)
+                    normalized = parse_quote_payload(cached_data, expected_ticker=normalized_ticker)
                     if normalized is not None:
                         quote_data = {**cached_data, **normalized} if isinstance(cached_data, dict) else normalized
                         result = _market_payload(quote_data, "cache", cached=True)
@@ -154,7 +154,8 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
 
             if is_cn_symbol(normalized_ticker):
                 cn_quote = fetch_cn_quote(normalized_ticker)
-                if cn_quote is not None:
+                if (_has_usable_payload(cn_quote, expected_ticker=normalized_ticker)
+                    and (safe_float(cn_quote.get("currentPrice")) or 0) > 0):
                     if orchestrator:
                         from backend.services.smart_cache import get_smart_cache_ttl
                         ttl = get_smart_cache_ttl(normalized_ticker, "quote")
@@ -167,7 +168,8 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
 
             nasdaq_quote = deps.get_us_quote(normalized_ticker) if deps.get_us_quote else None
-            if nasdaq_quote is not None:
+            if (isinstance(nasdaq_quote, dict)
+                and parse_quote_payload(nasdaq_quote, expected_ticker=normalized_ticker) is not None):
                 if orchestrator:
                     from backend.services.smart_cache import get_smart_cache_ttl
                     ttl = get_smart_cache_ttl(normalized_ticker, "quote")
@@ -184,15 +186,14 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     orchestrator.cache.set(f"price:{normalized_ticker}", quote, ttl=ttl)
                 return {"ticker": normalized_ticker, "data": quote}
 
-            if orchestrator and raw_payload:
-                from backend.services.smart_cache import get_smart_cache_ttl
-                ttl = get_smart_cache_ttl(normalized_ticker, "quote")
-                orchestrator.cache.set(f"price:{normalized_ticker}", raw_payload, ttl=ttl)
+
             if is_demo_mode():
                 demo = demo_quote(normalized_ticker)
                 if demo:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
-            return {"ticker": normalized_ticker, "data": _market_payload(raw_payload or {"error": "price unavailable"}, "unknown")}
+            raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 价格数据")
+        except HTTPException:
+            raise
         except Exception as exc:
             if is_demo_mode():
                 demo = demo_quote(normalized_ticker)
@@ -211,7 +212,11 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         normalized_ticker = _validate_ticker_or_400(ticker)
         try:
             news = deps.get_company_news(normalized_ticker)
+            if news is None or isinstance(news, dict) and not _has_usable_payload(news, expected_ticker=normalized_ticker):
+                raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 新闻数据")
             return {"ticker": normalized_ticker, "data": news}
+        except HTTPException:
+            raise
         except Exception as exc:
             _log_warning("[API] get_news failed", exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 新闻数据") from exc
@@ -226,13 +231,15 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     return _financials_payload(demo, "demo")
 
             financials_data = deps.get_financial_statements(normalized_ticker)
-            if _has_usable_payload(financials_data):
+            if _has_usable_payload(financials_data, expected_ticker=normalized_ticker):
                 return _financials_payload(financials_data, "financials")
             if is_demo_mode():
                 demo = demo_financials(normalized_ticker)
                 if demo:
                     return _financials_payload(demo, "demo")
-            return _financials_payload(financials_data, "financials")
+            raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 财务数据")
+        except HTTPException:
+            raise
         except Exception as exc:
             if is_demo_mode():
                 demo = demo_financials(normalized_ticker)
@@ -246,7 +253,11 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
         normalized_ticker = _validate_ticker_or_400(ticker)
         try:
             summary = deps.get_financial_statements_summary(normalized_ticker)
+            if not _has_usable_payload(summary, expected_ticker=normalized_ticker):
+                raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 财务摘要")
             return {"ticker": normalized_ticker, "summary": summary}
+        except HTTPException:
+            raise
         except Exception as exc:
             _log_warning("[API] get_financials_summary failed", exc)
             raise HTTPException(status_code=502, detail=f"无法获取 {normalized_ticker} 财务摘要") from exc
@@ -263,13 +274,13 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             if orchestrator:
                 cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
                 cached_data = orchestrator.cache.get(cache_key)
-                if cached_data is not None:
+                if _has_usable_payload(cached_data, expected_ticker=normalized_ticker):
                     deps.logger.info("[API] kline cache hit")
                     return {"ticker": normalized_ticker, "data": _market_payload(cached_data, "cache", cached=True), "cached": True}
 
             if is_cn_symbol(normalized_ticker):
                 cn_kline = fetch_cn_kline(normalized_ticker, period=period, interval=interval)
-                if cn_kline is not None:
+                if _has_usable_payload(cn_kline, expected_ticker=normalized_ticker):
                     if orchestrator:
                         from backend.services.smart_cache import get_smart_cache_ttl
                         cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
@@ -283,7 +294,7 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
 
             nasdaq_chart = deps.get_us_intraday(normalized_ticker) if deps.get_us_intraday else None
-            if nasdaq_chart is not None:
+            if _has_usable_payload(nasdaq_chart, expected_ticker=normalized_ticker):
                 return {"ticker": normalized_ticker, "data": _market_payload(nasdaq_chart, "nasdaq_intraday"), "cached": False}
 
             kline_data = deps.get_stock_historical_data(normalized_ticker, period=period, interval=interval)
@@ -291,7 +302,9 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                 demo = demo_kline(normalized_ticker, period=period, interval=interval)
                 if demo:
                     return {"ticker": normalized_ticker, "data": _market_payload(demo, "demo"), "cached": False}
-            if "error" not in kline_data and orchestrator:
+            if not _has_usable_payload(kline_data, expected_ticker=normalized_ticker):
+                raise HTTPException(status_code=502, detail="Kline data unavailable")
+            if orchestrator:
                 from backend.services.smart_cache import get_smart_cache_ttl
                 cache_key = f"kline:{normalized_ticker}:{period}:{interval}"
                 ttl = get_smart_cache_ttl(normalized_ticker, "kline")
@@ -299,6 +312,8 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
 
             kline_source = str(kline_data.get("source") or "kline") if isinstance(kline_data, dict) else "kline"
             return {"ticker": normalized_ticker, "data": _market_payload(kline_data, kline_source), "cached": False}
+        except HTTPException:
+            raise
         except Exception as exc:
             if is_demo_mode():
                 demo = demo_kline(normalized_ticker, period=period, interval=interval)
@@ -325,13 +340,13 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
             if orchestrator:
                 cache_key = f"intraday:{normalized_ticker}"
                 cached_data = orchestrator.cache.get(cache_key)
-                if cached_data is not None:
+                if _has_usable_payload(cached_data, expected_ticker=normalized_ticker):
                     deps.logger.info("[API] intraday cache hit")
                     return {"ticker": normalized_ticker, "data": _market_payload(cached_data, "cache", cached=True), "cached": True}
 
             if is_cn_symbol(normalized_ticker):
                 cn_intraday = fetch_cn_intraday(normalized_ticker)
-                if cn_intraday is not None:
+                if _has_usable_payload(cn_intraday, expected_ticker=normalized_ticker):
                     if orchestrator:
                         from backend.services.smart_cache import get_smart_cache_ttl
                         ttl = get_smart_cache_ttl(normalized_ticker, "intraday")
@@ -339,7 +354,9 @@ def create_market_router(deps: MarketRouterDeps) -> APIRouter:
                     return {"ticker": normalized_ticker, "data": _market_payload(cn_intraday, "tencent"), "cached": False}
 
             # 非A股或腾讯失败，返回错误
-            return {"ticker": normalized_ticker, "data": _market_payload({"error": "intraday data not available"}, "unknown"), "cached": False}
+            raise HTTPException(status_code=502, detail="Intraday data unavailable")
+        except HTTPException:
+            raise
         except Exception as exc:
             _log_warning("[API] get_intraday_data failed", exc)
             raise HTTPException(status_code=502, detail="Intraday data unavailable") from exc
