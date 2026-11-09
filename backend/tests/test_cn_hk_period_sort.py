@@ -8,7 +8,50 @@ periods[0] 变成 Q3 而非 FY，最新年报被当成最旧一期；切片 [:ta
 """
 from __future__ import annotations
 
+import pytest
+
 from backend.tools import cn_hk_market
+
+
+def test_derived_free_cash_flow_does_not_overflow(monkeypatch):
+    row = {"REPORT_DATE": "2025-12-31", "REPORT_TYPE": "年报", "NETCASH_OPERATE": -1e308, "INVESTPAYCASH": 1e308}
+    monkeypatch.setattr(cn_hk_market, "_fetch_finance_rows", lambda report_name, *args: [row] if "GCASHFLOW" in report_name else [])
+    result = cn_hk_market.fetch_cn_hk_financial_statements("600519.SS")
+    assert result["free_cash_flow"] == [None]
+    assert result["operating_cash_flow"] == [-1e308]
+
+
+def test_finance_rows_exclude_other_instruments_without_dropping_valid_rows(monkeypatch):
+    good = {"SECUCODE": "600519.SH", "TOTAL_OPERATE_INCOME": 100.0}
+    wrong = {"SECUCODE": "600000.SH", "TOTAL_OPERATE_INCOME": 90.0}
+    monkeypatch.setattr(cn_hk_market, "_eastmoney_get_json", lambda *args: {"result": {"data": [wrong, good]}})
+    assert cn_hk_market._fetch_finance_rows("income", "600519.SH", 8) == [good]
+
+
+def test_duplicate_period_rows_do_not_overwrite_the_latest_report(monkeypatch):
+    latest = {"REPORT_DATE": "2025-12-31", "REPORT_TYPE": "年报", "TOTAL_OPERATE_INCOME": 100.0,
+              "TOTAL_ASSETS": 200.0, "NETCASH_OPERATE": 30.0}
+    older = {**latest, "REPORT_DATE": "2025-12-30", "TOTAL_OPERATE_INCOME": 90.0,
+             "TOTAL_ASSETS": 180.0, "NETCASH_OPERATE": 20.0}
+    monkeypatch.setattr(cn_hk_market, "_fetch_finance_rows", lambda *args: [latest, older])
+    result = cn_hk_market.fetch_cn_hk_financial_statements("600519.SS")
+    assert result["revenue"] == [100.0]
+    assert result["total_assets"] == [200.0]
+    assert result["operating_cash_flow"] == [30.0]
+
+
+@pytest.mark.parametrize("symbol", ["600519.SS", "0700.HK"])
+def test_financial_field_fallbacks_preserve_primary_zero_values(monkeypatch, symbol):
+    row = {"REPORT_DATE": "2025-12-31", "REPORT_TYPE": "年报",
+           "TOTAL_OPERATE_INCOME": 0.0, "OPERATE_INCOME": 50.0,
+           "PARENT_NETPROFIT": 0.0, "HOLDER_PROFIT": 0.0, "NETPROFIT": 50.0,
+           "NETCASH_OPERATE": 10.0, "INVESTPAYCASH": 0.0, "CONSTRUCT_LONG_ASSET": 5.0}
+    monkeypatch.setattr(cn_hk_market, "_fetch_finance_rows", lambda *args: [row])
+    result = cn_hk_market.fetch_cn_hk_financial_statements(symbol)
+    assert result["net_income"] == [0.0]
+    if symbol.endswith(".SS"):
+        assert result["revenue"] == [0.0]
+        assert result["free_cash_flow"] == [10.0]
 
 
 def _income_row(report_date: str, report_type: str, revenue: float) -> dict:
