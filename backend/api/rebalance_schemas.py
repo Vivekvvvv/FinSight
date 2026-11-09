@@ -12,7 +12,7 @@ import math
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ActionType(str, Enum):
@@ -62,13 +62,26 @@ class RebalanceConstraints(BaseModel):
 class RebalanceAction(BaseModel):
     ticker: str
     action: ActionType
-    current_weight: float
-    target_weight: float
-    delta_weight: float
+    current_weight: float = Field(ge=0, le=100, allow_inf_nan=False)
+    target_weight: float = Field(ge=0, le=100, allow_inf_nan=False)
+    delta_weight: float = Field(ge=-100, le=100, allow_inf_nan=False)
     reason: str = ""
     priority: int = Field(default=3, ge=1, le=5)
     evidence_ids: list[str] = Field(default_factory=list)
     evidence_snapshots: list[EvidenceSnapshot] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_weight_change(self) -> RebalanceAction:
+        if not math.isclose(self.delta_weight, round(self.target_weight - self.current_weight, 2), abs_tol=1e-9):
+            raise ValueError("delta_weight must agree with target_weight and current_weight")
+        if self.action == ActionType.HOLD and (
+            self.delta_weight != 0 or not math.isclose(self.target_weight, self.current_weight, abs_tol=1e-9)
+        ):
+            raise ValueError("hold actions must preserve the current weight")
+        if ((self.action in {ActionType.BUY, ActionType.INCREASE} and self.delta_weight < 0)
+                or (self.action in {ActionType.SELL, ActionType.REDUCE} and self.delta_weight > 0)):
+            raise ValueError("action direction must agree with delta_weight")
+        return self
 
     @field_validator("current_weight", "target_weight", "delta_weight", mode="before")
     @classmethod
@@ -88,7 +101,7 @@ class RebalanceAction(BaseModel):
 class ExpectedImpact(BaseModel):
     diversification_delta: str = ""
     risk_delta: str = ""
-    estimated_turnover_pct: float = 0.0
+    estimated_turnover_pct: float = Field(default=0.0, allow_inf_nan=False)
 
     @field_validator("estimated_turnover_pct", mode="before")
     @classmethod

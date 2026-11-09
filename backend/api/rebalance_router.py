@@ -30,7 +30,7 @@ from backend.services.portfolio_store import (
     save_suggestion,
 )
 from backend.services.rebalance_engine import RebalanceContext, RebalanceEngine
-from backend.utils.quote import parse_quote_payload, safe_float
+from backend.utils.quote import declared_quote_freshness, parse_quote_payload, safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +50,9 @@ class RebalanceRouterDeps:
 def _extract_sector(raw: Any) -> str | None:
     if isinstance(raw, dict):
         for key in ("sector", "finnhubIndustry", "industry"):
-            value = str(raw.get(key) or "").strip()
-            if value:
-                return value
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
         return None
     text = str(raw or "")
     if not text:
@@ -127,7 +127,9 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                 return ticker, None
             try:
                 raw_payload = await asyncio.to_thread(deps.get_stock_price, ticker)
-                parsed = parse_quote_payload(raw_payload) or {}
+                if declared_quote_freshness(raw_payload) not in (None, "live"):
+                    return ticker, None
+                parsed = parse_quote_payload(raw_payload, expected_ticker=ticker) or {}
                 price = safe_float(parsed.get("price"))
                 if price is None or price <= 0:
                     return ticker, None
@@ -144,7 +146,8 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
             ticker = str(item.get("ticker", "")).strip().upper()
             if not ticker:
                 continue
-            direct_sector = str(item.get("sector", "")).strip()
+            direct_sector = item.get("sector")
+            direct_sector = direct_sector.strip() if isinstance(direct_sector, str) else ""
             if direct_sector:
                 sector_map[ticker] = direct_sector
 
@@ -342,7 +345,9 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
                     return ticker, None
                 try:
                     raw_payload = await asyncio.to_thread(deps.get_stock_price, ticker)
-                    parsed = parse_quote_payload(raw_payload) or {}
+                    if declared_quote_freshness(raw_payload) not in (None, "live"):
+                        return ticker, None
+                    parsed = parse_quote_payload(raw_payload, expected_ticker=ticker) or {}
                     price = safe_float(parsed.get("price"))
                     return ticker, price if price and price > 0 else None
                 except Exception:
@@ -361,7 +366,8 @@ def create_rebalance_router(deps: RebalanceRouterDeps) -> APIRouter:
             sector_map: dict[str, str] = {}
             for item in portfolio:
                 ticker = str(item.get("ticker", "")).strip().upper()
-                direct_sector = str(item.get("sector", "")).strip()
+                direct_sector = item.get("sector")
+                direct_sector = direct_sector.strip() if isinstance(direct_sector, str) else ""
                 if ticker and direct_sector:
                     sector_map[ticker] = direct_sector
 

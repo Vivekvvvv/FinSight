@@ -16,10 +16,12 @@ import math
 import os
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_DOWN
 from typing import Any
 import inspect
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from backend.utils.quote import safe_float
 
 from backend.api.rebalance_schemas import (
     ActionType,
@@ -53,6 +55,13 @@ class RebalanceContext(BaseModel):
     fallback_reasons: list[str] = Field(default_factory=list)
     # optional enhancement switch (fallback to deterministic when unavailable)
     use_llm_enhancement: bool = False
+
+    @field_validator("live_prices", "sector_map", mode="before")
+    @classmethod
+    def normalize_market_keys(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {key.strip().upper() if isinstance(key, str) else key: item for key, item in value.items()}
 
 
 # ── Diagnosis result ────────────────────────────────────────
@@ -114,7 +123,30 @@ class RebalanceEngine:
 
     async def generate(self, ctx: RebalanceContext) -> RebalanceSuggestion:
         """Run the full pipeline and return a RebalanceSuggestion."""
+        missing_tickers = []
+        for position in ctx.portfolio:
+            if (position.get("error") or position.get("success") is False
+                or str(position.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
+            raw_ticker = position.get("ticker")
+            ticker = raw_ticker.strip().upper() if isinstance(raw_ticker, str) else ""
+            symbol = position.get("symbol")
+            if symbol is not None and (not isinstance(symbol, str) or symbol.strip().upper() != ticker):
+                continue
+            shares = safe_float(position.get("shares"))
+            if ticker and shares is not None and shares > 0 and _get_price(ticker, ctx.live_prices) <= 0:
+                missing_tickers.append(ticker)
+        if missing_tickers and not ctx.diagnostics_only:
+            ctx = ctx.model_copy(update={
+                "diagnostics_only": True,
+                "fallback_reasons": [*ctx.fallback_reasons, "missing_prices:" + ",".join(missing_tickers)],
+            })
         diagnosis = self._diagnose_portfolio(ctx)
+        if not diagnosis.position_values and not ctx.diagnostics_only:
+            ctx = ctx.model_copy(update={
+                "diagnostics_only": True,
+                "fallback_reasons": [*ctx.fallback_reasons, "invalid_portfolio"],
+            })
         warnings = self._collect_warnings(diagnosis, ctx)
 
         if ctx.diagnostics_only:
@@ -157,21 +189,28 @@ class RebalanceEngine:
         position_values: dict[str, float] = {}
 
         for pos in ctx.portfolio:
-            ticker = str(pos.get("ticker", "")).strip().upper()
-            if not ticker:
+            if (pos.get("error") or pos.get("success") is False
+                or str(pos.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                 continue
-            try:
-                shares = float(pos.get("shares", 0))
-            except (TypeError, ValueError, OverflowError):
+            raw_ticker = pos.get("ticker")
+            ticker = raw_ticker.strip().upper() if isinstance(raw_ticker, str) else ""
+            symbol = pos.get("symbol")
+            if not ticker or symbol is not None and (not isinstance(symbol, str) or symbol.strip().upper() != ticker):
                 continue
-            if not math.isfinite(shares) or shares <= 0:
+            shares = safe_float(pos.get("shares", 0))
+            if shares is None or shares <= 0:
                 continue
             price = _get_price(ticker, ctx.live_prices)
             if price <= 0:
                 continue
-            position_values[ticker] = shares * price
+            value = shares * price
+            if not math.isfinite(value):
+                raise ValueError("portfolio value must be finite")
+            position_values[ticker] = position_values.get(ticker, 0.0) + value
 
         total_value = sum(position_values.values())
+        if not math.isfinite(total_value):
+            raise ValueError("portfolio value must be finite")
 
         # Compute weights
         weights: dict[str, float] = {}
@@ -184,7 +223,7 @@ class RebalanceEngine:
         # Compute sector weights
         sector_weights: dict[str, float] = {}
         for ticker, weight in weights.items():
-            sector = ctx.sector_map.get(ticker, "Unknown")
+            sector = ctx.sector_map.get(ticker, "Unknown").strip() or "Unknown"
             sector_weights[sector] = round(
                 sector_weights.get(sector, 0.0) + weight, 2
             )
@@ -280,7 +319,7 @@ class RebalanceEngine:
 
             # Rule: Under-weight -> INCREASE toward equal weight
             if current_weight < equal_weight * 0.5 and num_positions >= 3:
-                target = equal_weight
+                target = min(equal_weight, ctx.constraints.max_single_position_pct)
                 delta = round(target - current_weight, 2)
                 evidence = self._build_action_evidence(
                     ticker=ticker,
@@ -352,13 +391,15 @@ class RebalanceEngine:
         sorted_candidates = sorted(candidates, key=lambda a: a.priority)
 
         accepted: list[RebalanceAction] = []
-        remaining_turnover = constraints.max_turnover_pct
+        remaining_turnover = float(Decimal(str(constraints.max_turnover_pct)).quantize(
+            Decimal("0.01"), rounding=ROUND_DOWN,
+        ))
 
         for action in sorted_candidates:
             abs_delta = abs(action.delta_weight)
 
             # Skip actions below minimum delta threshold
-            if action.action != ActionType.HOLD and abs_delta < constraints.min_action_delta_pct:
+            if action.action != ActionType.HOLD and (abs_delta == 0 or abs_delta < constraints.min_action_delta_pct):
                 continue
 
             # HOLD actions always pass through
@@ -369,7 +410,7 @@ class RebalanceEngine:
             # Check turnover budget
             if abs_delta > remaining_turnover:
                 # Partially apply if there is remaining budget
-                if remaining_turnover >= constraints.min_action_delta_pct:
+                if remaining_turnover > 0 and remaining_turnover >= constraints.min_action_delta_pct:
                     capped_delta = remaining_turnover
                     new_target = round(
                         action.current_weight + (
@@ -389,14 +430,19 @@ class RebalanceEngine:
                             reason=action.reason + " (\u53d7\u6362\u624b\u7387\u9650\u5236\u90e8\u5206\u6267\u884c)",
                             priority=action.priority,
                             evidence_ids=action.evidence_ids,
-                            evidence_snapshots=action.evidence_snapshots,
+                            evidence_snapshots=[
+                                snapshot.model_copy(update={"quote": snapshot.quote.replace(
+                                    f"target_weight={action.target_weight:.2f}%", f"target_weight={new_target:.2f}%"
+                                )}) if snapshot.source == "portfolio_diagnosis" else snapshot
+                                for snapshot in action.evidence_snapshots
+                            ],
                         )
                     )
                     remaining_turnover = 0.0
                 continue
 
             accepted.append(action)
-            remaining_turnover = round(remaining_turnover - abs_delta, 2)
+            remaining_turnover = max(0.0, remaining_turnover - abs_delta)
 
         return accepted
 
@@ -410,6 +456,8 @@ class RebalanceEngine:
     ) -> str:
         """Template-based Chinese explanation for the suggestion."""
         if not actions:
+            if diag.risk_flags:
+                return "当前约束下暂无符合条件的调整建议。已识别风险：" + "；".join(diag.risk_flags) + "。"
             return "\u5f53\u524d\u6301\u4ed3\u65e0\u9700\u8c03\u6574\u3002"
 
         parts: list[str] = []
@@ -494,11 +542,22 @@ class RebalanceEngine:
             return candidates
 
         try:
-            result = self._llm_enhancer(candidates, diag, ctx)
+            result = self._llm_enhancer(
+                [action.model_copy(deep=True) for action in candidates],
+                diag.model_copy(deep=True), ctx.model_copy(deep=True),
+            )
             if inspect.isawaitable(result):
                 result = await result
-            if isinstance(result, list) and all(isinstance(item, RebalanceAction) for item in result):
-                return result
+            if isinstance(result, list) and (result or not candidates) and all(isinstance(item, RebalanceAction) for item in result):
+                validated = [RebalanceAction.model_validate(item.model_dump()) for item in result]
+                tickers = [item.ticker.strip().upper() for item in validated]
+                if (all(tickers) and len(set(tickers)) == len(tickers)
+                    and all(ticker in diag.weights for ticker in tickers)
+                    and all(math.isclose(item.current_weight, diag.weights[ticker], abs_tol=1e-9)
+                            for ticker, item in zip(tickers, validated))
+                    and all(item.delta_weight <= 0 or item.target_weight <= ctx.constraints.max_single_position_pct
+                            for item in validated)):
+                    return validated
             logger.warning("[rebalance] enhancer returned invalid payload, fallback to deterministic")
             return candidates
         except Exception as exc:

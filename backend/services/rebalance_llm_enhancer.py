@@ -22,7 +22,7 @@ from backend.api.rebalance_schemas import (
     RebalanceAction,
 )
 from backend.utils.strict_json import json_loads_strict
-from backend.utils.quote import safe_int
+from backend.utils.quote import safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class AgentBackedEnhancer:
         if not actionable:
             return candidates
 
-        unique_tickers = list({c.ticker for c in actionable})[:6]
+        unique_tickers = list(dict.fromkeys(c.ticker for c in actionable))[:6]
         agent_context = await self._gather_agent_data(unique_tickers)
 
         # 2. Call LLM for enhanced reasoning
@@ -87,14 +87,26 @@ class AgentBackedEnhancer:
                     raw = await asyncio.to_thread(self._get_company_news, ticker, 3)
                     if isinstance(raw, list):
                         headlines = []
-                        for item in raw[:3]:
+                        for item in raw:
                             if isinstance(item, dict):
-                                title = item.get("headline") or item.get("title") or ""
+                                if (item.get("error") or item.get("success") is False
+                                    or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                                    continue
+                                if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                                       for value in (item.get("ticker"), item.get("symbol"))):
+                                    continue
+                                title = next((value.strip() for value in (item.get("headline"), item.get("title"))
+                                    if isinstance(value, str) and value.strip()), "")
                                 if title:
-                                    headlines.append(str(title).strip()[:100])
+                                    headlines.append(title[:100])
                             elif isinstance(item, str) and item.strip():
                                 headlines.append(item.strip()[:100])
-                        data["news"] = headlines
+                            if len(headlines) == 3:
+                                break
+                        if raw and not headlines:
+                            data["news_unavailable"] = True
+                        else:
+                            data["news"] = headlines
                     else:
                         # 工具用 None / {"error": ...} 表示"没取到"同样常见；当成
                         # 空列表就会在 prompt 里变成"无近期新闻"。
@@ -105,6 +117,8 @@ class AgentBackedEnhancer:
                     # （项目规则 2）。留显式标记，prompt 里如实说明不可用。
                     data["news_unavailable"] = True
                     logger.debug('[rebalance-enhancer] news fetch failed')
+            else:
+                data["news_unavailable"] = True
 
             if self._get_company_info:
                 try:
@@ -192,7 +206,13 @@ class AgentBackedEnhancer:
             return candidates
 
         # Apply enhancements to candidates
-        enhanced_map = {e["ticker"]: e for e in enhancements if isinstance(e, dict) and "ticker" in e}
+        enhanced_map = {
+            e["ticker"].strip().upper(): e
+            for e in enhancements
+            if isinstance(e, dict) and isinstance(e.get("ticker"), str) and e["ticker"].strip()
+            and not e.get("error") and e.get("success") is not False
+            and str(e.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+        }
         captured_at = datetime.now(timezone.utc).isoformat()
 
         enhanced_candidates: list[RebalanceAction] = []
@@ -200,22 +220,28 @@ class AgentBackedEnhancer:
             enh = enhanced_map.get(c.ticker)
             if enh and c.action != ActionType.HOLD:
                 new_priority = enh.get("adjusted_priority", c.priority)
-                new_reason = enh.get("enhanced_reason", c.reason)
+                new_reason = enh.get("enhanced_reason")
+                valid_reason = isinstance(new_reason, str) and bool(new_reason.strip())
 
                 # Validate priority range
                 parsed_priority = safe_int(new_priority)
-                new_priority = max(1, min(5, parsed_priority)) if parsed_priority is not None else c.priority
+                new_priority = (
+                    parsed_priority
+                    if parsed_priority is not None and 1 <= parsed_priority <= 5
+                    and safe_float(new_priority) == parsed_priority
+                    else c.priority
+                )
 
                 # Add LLM evidence
                 llm_evidence = EvidenceSnapshot(
                     evidence_id=f"rebalance:{c.ticker}:llm_enhancement",
                     source="llm_agent_analysis",
-                    quote=str(new_reason)[:200],
+                    quote=new_reason.strip()[:200] if valid_reason else "",
                     report_id="",
                     captured_at=captured_at,
                 )
-                new_evidence = list(c.evidence_snapshots or []) + [llm_evidence]
-                new_evidence_ids = list(c.evidence_ids or []) + [llm_evidence.evidence_id]
+                new_evidence = list(c.evidence_snapshots or []) + ([llm_evidence] if valid_reason else [])
+                new_evidence_ids = list(c.evidence_ids or []) + ([llm_evidence.evidence_id] if valid_reason else [])
 
                 enhanced_candidates.append(
                     RebalanceAction(
@@ -224,7 +250,7 @@ class AgentBackedEnhancer:
                         current_weight=c.current_weight,
                         target_weight=c.target_weight,
                         delta_weight=c.delta_weight,
-                        reason=str(new_reason)[:200] if isinstance(new_reason, str) and new_reason.strip() else c.reason,
+                        reason=new_reason.strip()[:200] if valid_reason else c.reason,
                         priority=new_priority,
                         evidence_ids=new_evidence_ids,
                         evidence_snapshots=new_evidence,

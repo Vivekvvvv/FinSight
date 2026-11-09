@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -97,6 +99,91 @@ def _complete_client() -> TestClient:
         get_stock_price=lambda ticker: {"price": price_map[ticker]},
         get_company_info=lambda _ticker: "- Sector: Technology",
     )
+
+
+def _suggestion_result(response, stream):
+    assert response.status_code == 200
+    if not stream:
+        return response.json()
+    for frame in response.text.split("\n\n"):
+        if frame.startswith("event: result\n"):
+            return json.loads(frame.split("data: ", 1)[1])
+    raise AssertionError(response.text)
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("sector", [None, True, {"name": "Technology"}, ["Technology"]])
+def test_invalid_sector_inputs_require_diagnostics(monkeypatch, stream, sector):
+    import backend.api.rebalance_router as module
+
+    monkeypatch.setattr(module, "save_suggestion", lambda **kwargs: None)
+    client = _build_client(
+        get_stock_price=lambda ticker: {"price": 100.0},
+        get_company_info=lambda ticker: {"sector": sector},
+    )
+    payload = _complete_payload("public:test_user:sector-invalid")
+    for position in payload["portfolio"]:
+        position["sector"] = None
+    suffix = "generate-stream" if stream else "generate"
+    data = _suggestion_result(client.post(f"/api/rebalance/suggestions/{suffix}", json=payload), stream)
+
+    assert data["degraded_mode"] is True
+    assert data["actions"] == []
+    assert "missing_sector_map:AAPL,MSFT" in data["fallback_reason"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_null_sector_uses_valid_provider_fallback(monkeypatch, stream):
+    import backend.api.rebalance_router as module
+
+    monkeypatch.setattr(module, "save_suggestion", lambda **kwargs: None)
+    payload = _complete_payload("public:test_user:sector-fallback")
+    for position in payload["portfolio"]:
+        position["sector"] = None
+    suffix = "generate-stream" if stream else "generate"
+    data = _suggestion_result(_complete_client().post(f"/api/rebalance/suggestions/{suffix}", json=payload), stream)
+
+    assert data["degraded_mode"] is False
+    assert data["actions"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("nested", [False, True])
+def test_rebalance_rejects_unrelated_quote_identity(monkeypatch, stream, nested):
+    import backend.api.rebalance_router as module
+
+    monkeypatch.setattr(module, "save_suggestion", lambda **kwargs: None)
+    quote = {"price": 100.0, "ticker": "TSLA"}
+    client = _build_client(
+        get_stock_price=lambda ticker: {"data": quote} if nested else quote,
+        get_company_info=lambda ticker: {"sector": "Technology"},
+    )
+    suffix = "generate-stream" if stream else "generate"
+    data = _suggestion_result(client.post(f"/api/rebalance/suggestions/{suffix}",
+        json=_complete_payload("public:test_user:quote-mismatch")), stream)
+
+    assert data["degraded_mode"] is True
+    assert data["actions"] == []
+    assert "missing_live_prices:AAPL,MSFT" in data["fallback_reason"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("freshness", ["cached", "stale", "demo", "unknown", "fallback", "delayed_15min"])
+def test_rebalance_non_live_quotes_require_diagnostics(monkeypatch, stream, freshness):
+    import backend.api.rebalance_router as module
+
+    monkeypatch.setattr(module, "save_suggestion", lambda **kwargs: None)
+    client = _build_client(
+        get_stock_price=lambda ticker: {"data": {"price": 100.0, "freshness_status": freshness}},
+        get_company_info=lambda ticker: {"sector": "Technology"},
+    )
+    suffix = "generate-stream" if stream else "generate"
+    data = _suggestion_result(client.post(f"/api/rebalance/suggestions/{suffix}",
+        json=_complete_payload("public:test_user:quote-freshness")), stream)
+
+    assert data["degraded_mode"] is True
+    assert data["actions"] == []
+    assert "missing_live_prices" in data["fallback_reason"]
 
 
 def test_generate_rebalance_returns_500_when_persist_fails(monkeypatch):

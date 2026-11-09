@@ -8,8 +8,73 @@ import math
 import sys
 from types import SimpleNamespace
 
-import pandas as pd
 import pytest
+
+
+def test_failed_nested_quote_cannot_fall_back_to_outer_price():
+    for failure in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        assert parse_quote_payload({"price": 100, "data": {"price": 200, **failure}}) is None
+    assert parse_quote_payload({"price": 100, "data": {"change": 2}}) is None
+
+
+def test_fallback_daily_quote_uses_unique_chronological_bars(monkeypatch):
+    history = pd.DataFrame({"Close": [120, 125, 100]},
+        index=pd.to_datetime(["2026-01-02", "2026-01-02", "2026-01-01"], utc=True))
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
+        Ticker=lambda ticker: SimpleNamespace(history=lambda **kwargs: history)))
+    result = fallback_quote_yfinance("AAPL")
+    assert result["price"] == 125
+    assert result["change"] == 25
+    assert result["change_percent"] == 25
+    assert result["as_of"].startswith("2026-01-02")
+    assert len(history) == 3
+
+
+@pytest.mark.parametrize("bad_previous", [{"error": "bad"}, {"success": False}, {"status": " Failed "},
+                                         {"ticker": "MSFT"}, {"symbol": "MSFT"}])
+def test_invalid_previous_daily_bar_cannot_supply_fallback_change_baseline(monkeypatch, bad_previous):
+    history = pd.DataFrame([{"Close": 100, **bad_previous}, {"Close": 120}], dtype=object)
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
+        Ticker=lambda ticker: SimpleNamespace(history=lambda **kwargs: history)))
+    result = fallback_quote_yfinance("AAPL")
+    assert result["price"] == 120
+    assert result["change"] is None
+    assert result["change_percent"] is None
+
+
+@pytest.mark.parametrize("identity", [{"ticker": "MSFT"}, {"symbol": "MSFT"}, {"symbol": {}}])
+def test_daily_fallback_quote_requires_latest_bar_matching_instrument(monkeypatch, identity):
+    history = pd.DataFrame([{"Close": 100}, {"Close": 120, **identity}], dtype=object)
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
+        Ticker=lambda ticker: SimpleNamespace(history=lambda **kwargs: history)))
+    assert fallback_quote_yfinance("AAPL") is None
+    for field in ("symbol", "ticker"):
+        history = pd.DataFrame([{"Close": 100, field: " aapl "}, {"Close": 120, field: "AAPL"}])
+        assert fallback_quote_yfinance("AAPL")["price"] == 120
+
+
+@pytest.mark.parametrize("failure", [{"error": "bad"}, {"success": False}, {"status": " Unavailable "}])
+def test_failed_latest_daily_bar_cannot_supply_a_fallback_quote(monkeypatch, failure):
+    history = pd.DataFrame([{"Close": 100}, {"Close": 120, **failure}], dtype=object)
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
+        Ticker=lambda ticker: SimpleNamespace(history=lambda **kwargs: history)))
+    assert fallback_quote_yfinance("AAPL") is None
+
+import pandas as pd
+
+
+@pytest.mark.parametrize("status", ["error", " Failed ", "unavailable"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_failed_status_quotes_cannot_supply_prices_or_block_fallback(monkeypatch, status, nested):
+    payload = {"status": status, "price": 200}
+    raw = {"data": payload} if nested else {**payload, "data": {"price": 200}}
+    monkeypatch.setattr("backend.utils.quote.fallback_quote_yfinance",
+                        lambda ticker: {"price": 100, "source": "yfinance_fallback"})
+    assert parse_quote_payload(raw) is None
+    quote, returned = resolve_live_quote("AAPL", lambda ticker: raw)
+    assert quote["price"] == 100
+    assert quote["source"] == "yfinance_fallback"
+    assert returned == raw
 
 from backend.utils.quote import (
     fallback_quote_yfinance,
@@ -19,7 +84,110 @@ from backend.utils.quote import (
 )
 
 
+@pytest.mark.parametrize("field", ["ticker", "symbol"])
+def test_resolver_rejects_conflicting_outer_identity_before_nested_metadata(monkeypatch, field):
+    raw = {field: "MSFT", "data": {field: "AAPL", "price": 200.0}}
+    monkeypatch.setattr("backend.utils.quote.fallback_quote_yfinance", lambda _ticker: {
+        "price": 101.0, "source": "yfinance_fallback",
+    })
+
+    quote, returned = resolve_live_quote("AAPL", lambda _ticker: raw)
+
+    assert quote["price"] == 101.0
+    assert quote["source"] == "yfinance_fallback"
+    assert returned == raw
+
+
+@pytest.mark.parametrize("percentage", [-100.01, -150.0])
+@pytest.mark.parametrize("formatted", [False, True])
+def test_quote_change_cannot_report_a_loss_beyond_one_hundred_percent(percentage, formatted):
+    payload = f"Current Price: $100 Change: -500 ({percentage}%)" if formatted else {
+        "price": 100.0, "change_percent": percentage,
+    }
+
+    result = parse_quote_payload(payload)
+
+    assert result["price"] == 100.0
+    assert result["change_percent"] is None
+
+
+def test_rounded_one_hundred_percent_loss_remains_usable():
+    assert parse_quote_payload({"price": 0.01, "change_percent": -100.0})["change_percent"] == -100.0
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "provider unavailable"}])
+@pytest.mark.parametrize("nested", [False, True])
+def test_failed_payload_prices_do_not_block_fallback(monkeypatch, failure, nested):
+    raw = {**failure, "data": {"price": 200}} if nested else {**failure, "price": 200}
+    monkeypatch.setattr("backend.utils.quote.fallback_quote_yfinance", lambda _ticker: {"price": 100, "source": "yfinance_fallback"})
+    assert parse_quote_payload(raw) is None
+    quote, returned = resolve_live_quote("AAPL", lambda _ticker: raw)
+    assert quote["price"] == 100
+    assert quote["source"] == "yfinance_fallback"
+    assert returned == raw
+
+
+@pytest.mark.parametrize("price", ["-1", "-10.25", "-1,234.50"])
+def test_signed_current_price_does_not_reuse_previous_close(price):
+    assert parse_quote_payload(f"Current Price: ${price}; Previous Close: $100") is None
+
+
+def test_explicit_positive_sign_is_a_valid_current_price():
+    assert parse_quote_payload("Current Price: $+25; Previous Close: $100")["price"] == 25
+
+
+def test_deep_quote_envelope_preserves_identity_and_freshness(monkeypatch):
+    monkeypatch.setattr("backend.utils.quote.fallback_quote_yfinance", lambda _ticker: None)
+    raw = {"data": {"data": {"price": 100, "ticker": "MSFT", "freshness_status": "cached"}}}
+    assert resolve_live_quote("AAPL", lambda _ticker: raw)[0] is None
+    raw["data"]["data"]["ticker"] = "AAPL"
+    quote, _ = resolve_live_quote("AAPL", lambda _ticker: raw)
+    assert quote["freshness_status"] == "cached"
+    assert quote["fallback_level"] == 2
+
+
+@pytest.mark.parametrize("freshness", ["cached", "stale", "unknown", "demo", "delayed_15min"])
+def test_missing_non_live_observation_time_is_not_fetch_time(freshness):
+    quote, _ = resolve_live_quote("AAPL", lambda _ticker: {"price": 100, "freshness_status": freshness})
+    assert quote["as_of"] is None
+
+
+def test_missing_non_live_observation_time_in_fallback_stays_unknown(monkeypatch):
+    monkeypatch.setattr("backend.utils.quote.fallback_quote_yfinance", lambda _ticker: {"price": 100, "source": "yfinance_fallback"})
+    quote, _ = resolve_live_quote("AAPL", lambda _ticker: None)
+    assert quote["as_of"] is None
+    assert quote["freshness_status"] == "stale"
+
+
 class TestResolveLiveQuote:
+    @pytest.mark.parametrize("field", ["ticker", "symbol"])
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_unrelated_declared_ticker_does_not_block_fallback(self, monkeypatch, field, nested):
+        calls = []
+        monkeypatch.setattr("backend.utils.quote.fallback_quote_yfinance", lambda ticker: calls.append(ticker) or {
+            "price": 101.0, "source": "yfinance_fallback", "freshness_status": "stale",
+        })
+        payload = {"price": 200, field: "MSFT"}
+        raw = {"data": payload} if nested else payload
+
+        quote, returned_raw = resolve_live_quote("AAPL", lambda _ticker: raw)
+
+        assert quote["price"] == 101.0
+        assert quote["source"] == "yfinance_fallback"
+        assert calls == ["AAPL"]
+        assert returned_raw == raw
+
+    def test_conflicting_declared_quote_symbols_do_not_supply_price(self, monkeypatch):
+        monkeypatch.setattr("backend.utils.quote.fallback_quote_yfinance", lambda _ticker: None)
+        quote, _ = resolve_live_quote("AAPL", lambda _ticker: {"price": 200, "ticker": "AAPL", "symbol": "MSFT"})
+        assert quote is None
+
+    @pytest.mark.parametrize("field", ["ticker", "symbol"])
+    def test_declared_quote_identity_accepts_case_and_spaces(self, field):
+        quote, _ = resolve_live_quote("AAPL", lambda _ticker: {"price": 100, field: " aapl "})
+        assert quote["price"] == 100.0
+        assert quote["source"] == "tools_bridge"
+
     def test_bare_payload_keeps_legacy_live_default(self):
         quote, raw = resolve_live_quote("AAPL", lambda _ticker: {"price": 100})
 
@@ -115,6 +283,28 @@ class TestSafeFloat:
 
 
 class TestParseQuotePayload:
+    @pytest.mark.parametrize("payload", [
+        {"price": 200, "ticker": "MSFT"},
+        {"ticker": "MSFT", "data": {"price": 200, "ticker": "AAPL"}},
+        {"price": 200, "data": {"price": 300, "symbol": "MSFT"}},
+    ])
+    def test_expected_identity_is_checked_in_each_envelope(self, payload):
+        assert parse_quote_payload(payload, expected_ticker="AAPL") is None
+
+    def test_expected_identity_accepts_normalized_matching_payload(self):
+        parsed = parse_quote_payload({"data": {"price": 100, "symbol": " aapl "}}, expected_ticker="AAPL")
+        assert parsed["price"] == 100
+
+    @pytest.mark.parametrize("price", [0, -1, "0", "-1"])
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_non_positive_price_is_not_a_usable_quote(self, price, nested):
+        payload = {"price": price, "change": 1}
+        assert parse_quote_payload({"data": payload} if nested else payload) is None
+
+    @pytest.mark.parametrize("payload", ["Current Price: $0", "Last traded at $0.00"])
+    def test_non_positive_text_price_is_not_a_usable_quote(self, payload):
+        assert parse_quote_payload(payload) is None
+
     def test_none_payload(self):
         assert parse_quote_payload(None) is None
 
@@ -188,6 +378,37 @@ class TestParseQuotePayload:
 
 
 class TestFallbackQuoteYfinance:
+    @pytest.mark.parametrize("previous", [1e-308, 1e-320])
+    def test_overflowing_fallback_percentage_stays_unavailable(self, monkeypatch, previous):
+        fake = SimpleNamespace(Ticker=lambda ticker: SimpleNamespace(
+            history=lambda **kwargs: pd.DataFrame({"Close": [previous, 100.0]}),
+        ))
+        monkeypatch.setitem(sys.modules, "yfinance", fake)
+
+        quote = fallback_quote_yfinance("AAPL")
+
+        assert quote["price"] == 100.0
+        assert quote["change"] == 100.0
+        assert quote["change_percent"] is None
+
+    @pytest.mark.parametrize("price", [0.0, -1.0])
+    def test_non_positive_latest_close_is_not_a_usable_quote(self, monkeypatch, price):
+        fake = SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(
+            history=lambda **_kwargs: pd.DataFrame({"Close": [100.0, price]}),
+        ))
+        monkeypatch.setitem(sys.modules, "yfinance", fake)
+        assert fallback_quote_yfinance("AAPL") is None
+
+    def test_negative_previous_close_cannot_supply_percentage(self, monkeypatch):
+        fake = SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(
+            history=lambda **_kwargs: pd.DataFrame({"Close": [-100.0, 105.0]}),
+        ))
+        monkeypatch.setitem(sys.modules, "yfinance", fake)
+        quote = fallback_quote_yfinance("AAPL")
+        assert quote["price"] == 105.0
+        assert quote["change"] is None
+        assert quote["change_percent"] is None
+
     def test_yfinance_import_error(self, monkeypatch: pytest.MonkeyPatch):
         original_import = builtins.__import__
 
