@@ -9,6 +9,7 @@ Each scorer mirrors the corresponding DashboardScorer domain logic
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 
@@ -16,7 +17,8 @@ def _safe_get(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
     """Safely traverse nested dicts."""
     current = data
     for key in keys:
-        if not isinstance(current, dict):
+        if (not isinstance(current, dict) or current.get("error") or current.get("success") is False
+            or str(current.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             return default
         current = current.get(key, default)
     return current
@@ -30,6 +32,26 @@ def _finite_number(value: Any) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _first_finite(primary: Any, fallback: Any) -> float | None:
+    number = _finite_number(primary)
+    return number if number is not None else _finite_number(fallback)
+
+
+def _finite_mean(values: list[float]) -> float:
+    scale = max((abs(value) for value in values), default=0.0)
+    return math.fsum(value / scale for value in values) / len(values) * scale if scale else 0.0
+
+
+def _rsi_number(value: Any) -> float | None:
+    number = _finite_number(value)
+    return number if number is not None and 0 <= number <= 100 else None
+
+
+def _positive_number(value: Any) -> float | None:
+    number = _finite_number(value)
+    return number if number is not None and number > 0 else None
 
 
 def clamp_score(value: float) -> float:
@@ -59,7 +81,7 @@ def score_technical(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     score = 5.0
     points: list[str] = []
 
-    rsi = _finite_number(_safe_get(data, "rsi"))
+    rsi = _rsi_number(_safe_get(data, "rsi"))
     if rsi is not None:
         if 30 < rsi < 70:
             score += 1
@@ -71,7 +93,7 @@ def score_technical(data: dict[str, Any]) -> tuple[float, str, list[str]]:
             score -= 0.5
             points.append(f"RSI ({rsi:.1f}) 处于超卖区间，可能存在反弹机会")
 
-    trend = _safe_get(data, "trend")
+    trend = str(_safe_get(data, "trend") or "").strip().lower()
     if trend in ("bullish", "uptrend"):
         score += 2
         points.append("整体趋势偏多")
@@ -79,13 +101,13 @@ def score_technical(data: dict[str, Any]) -> tuple[float, str, list[str]]:
         score -= 1
         points.append("整体趋势偏空")
 
-    ma20 = _finite_number(_safe_get(data, "ma20"))
-    ma50 = _finite_number(_safe_get(data, "ma50"))
+    ma20 = _positive_number(_safe_get(data, "ma20"))
+    ma50 = _positive_number(_safe_get(data, "ma50"))
     if ma20 is not None and ma50 is not None:
         if ma20 > ma50:
             score += 1
             points.append("MA20/MA50 金叉，短期均线多头排列")
-        else:
+        elif ma20 < ma50:
             score -= 0.5
             points.append("MA20/MA50 死叉，短期均线空头排列")
 
@@ -114,7 +136,7 @@ def score_financial(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     points: list[str] = []
 
     # Valuation data may be nested or flat
-    pe = _finite_number(_safe_get(data, "trailing_pe") or _safe_get(data, "valuation", "trailing_pe"))
+    pe = _first_finite(_safe_get(data, "trailing_pe"), _safe_get(data, "valuation", "trailing_pe"))
     if pe is not None:
         if 0 < pe < 35:
             score += 2
@@ -124,44 +146,50 @@ def score_financial(data: dict[str, Any]) -> tuple[float, str, list[str]]:
             points.append(f"市盈率 ({pe:.1f}) 偏高，估值可能较贵")
 
     # Revenue growth
-    revenue_growth = _finite_number(
-        _safe_get(data, "revenue_growth") or _safe_get(data, "financials", "revenue_growth")
+    revenue_growth = _first_finite(
+        _safe_get(data, "revenue_growth"), _safe_get(data, "financials", "revenue_growth")
     )
     if revenue_growth is not None:
         if revenue_growth > 0:
             score += 1
             points.append(f"营收同比增长 {revenue_growth:.1%}")
-        else:
+        elif revenue_growth < 0:
             score -= 0.5
             points.append(f"营收同比下降 {abs(revenue_growth):.1%}")
+        else:
+            points.append("营收同比持平")
 
     # Net income positive
-    net_income = _finite_number(
-        _safe_get(data, "net_income") or _safe_get(data, "financials", "net_income")
+    net_income = _first_finite(
+        _safe_get(data, "net_income"), _safe_get(data, "financials", "net_income")
     )
     if net_income is not None:
         if net_income > 0:
             score += 1
             points.append("最近季度净利润为正")
-        else:
+        elif net_income < 0:
             score -= 1
             points.append("最近季度净利润为负")
+        else:
+            points.append("最近季度净利润为零")
 
     # Debt to equity
-    de_ratio = _finite_number(
-        _safe_get(data, "debt_to_equity") or _safe_get(data, "financials", "debt_to_equity")
+    de_ratio = _first_finite(
+        _safe_get(data, "debt_to_equity"), _safe_get(data, "financials", "debt_to_equity")
     )
     if de_ratio is not None:
-        if de_ratio < 0.6:
+        if 0 <= de_ratio < 0.6:
             score += 1
-            points.append(f"资产负债率 ({de_ratio:.2f}) 较低，财务稳健")
+            points.append(f"债务权益比 ({de_ratio:.2f}) 较低，财务稳健")
         elif de_ratio > 1.5:
             score -= 0.5
-            points.append(f"资产负债率 ({de_ratio:.2f}) 偏高")
+            points.append(f"债务权益比 ({de_ratio:.2f}) 偏高")
+        elif de_ratio < 0:
+            points.append("债务权益比为负，需核查权益数据")
 
     # Free cash flow
-    fcf = _finite_number(
-        _safe_get(data, "free_cash_flow") or _safe_get(data, "financials", "free_cash_flow")
+    fcf = _first_finite(
+        _safe_get(data, "free_cash_flow"), _safe_get(data, "financials", "free_cash_flow")
     )
     if fcf is not None:
         if fcf > 0:
@@ -175,6 +203,52 @@ def score_financial(data: dict[str, Any]) -> tuple[float, str, list[str]]:
 # News scoring
 # ---------------------------------------------------------------------------
 
+def _news_text(item: Any) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        if (item.get("error") or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return ""
+        return " ".join(value.strip() for field in ("title", "summary")
+                        if isinstance(value := item.get(field), str) and value.strip())
+    return ""
+
+
+def _has_sentiment_keyword(text: str, keywords: set[str]) -> bool:
+    words = set(re.findall(r"[a-z]+", text))
+    for keyword in keywords:
+        if not keyword.isascii():
+            if keyword in text:
+                return True
+            continue
+        stem = keyword[:-1] if keyword.endswith("e") else keyword
+        forms = {keyword, keyword + "s", keyword + "es", stem + "ed", stem + "ing"}
+        if keyword == "drop":
+            forms.update({"dropped", "dropping"})
+        if words & forms:
+            return True
+    return False
+
+
+def _news_inputs(data: dict[str, Any]) -> tuple[list[Any], list[Any]]:
+    seen: set[tuple[str, str]] = set()
+    groups: list[list[Any]] = []
+    for field in ("impact", "market"):
+        rows = _safe_get(data, field)
+        unique: list[Any] = []
+        for item in rows if isinstance(rows, list) else []:
+            if not _news_text(item):
+                continue
+            url = item.get("url") if isinstance(item, dict) else None
+            key = ("url", url.strip()) if isinstance(url, str) and url.strip() else ("content", _news_text(item))
+            if key not in seen:
+                seen.add(key)
+                unique.append(item)
+        groups.append(unique)
+    return groups[1] + groups[0], groups[0]
+
+
 def score_news(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     """
     Deterministic news sentiment score based on article counts.
@@ -185,11 +259,7 @@ def score_news(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     score = 5.0
     points: list[str] = []
 
-    market_news = data.get("market", [])
-    impact_news = data.get("impact", [])
-    all_news = (market_news if isinstance(market_news, list) else []) + (
-        impact_news if isinstance(impact_news, list) else []
-    )
+    all_news, _ = _news_inputs(data)
     total = len(all_news)
 
     if total == 0:
@@ -202,15 +272,10 @@ def score_news(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     positive_count = 0
     negative_count = 0
     for item in all_news:
-        text = ""
-        if isinstance(item, dict):
-            text = str(item.get("title", "")) + " " + str(item.get("summary", ""))
-        elif isinstance(item, str):
-            text = item
-        text_lower = text.lower()
-        if any(kw in text_lower for kw in positive_keywords):
+        text_lower = _news_text(item).lower()
+        if _has_sentiment_keyword(text_lower, positive_keywords):
             positive_count += 1
-        if any(kw in text_lower for kw in negative_keywords):
+        if _has_sentiment_keyword(text_lower, negative_keywords):
             negative_count += 1
 
     positive_ratio = positive_count / total if total > 0 else 0
@@ -242,6 +307,42 @@ def score_news(data: dict[str, Any]) -> tuple[float, str, list[str]]:
 # Peers scoring
 # ---------------------------------------------------------------------------
 
+def _peer_inputs(data: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    company = _safe_get(data, "company")
+    company = company if (isinstance(company, dict) and not company.get("error")
+                          and company.get("success") is not False
+                          and str(company.get("status") or "").strip().lower()
+                          not in {"error", "failed", "unavailable"}) else {}
+    rows = _safe_get(data, "peers")
+    rows = [row for row in rows if isinstance(row, dict) and not row.get("error")
+            and row.get("success") is not False
+            and str(row.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+            ] if isinstance(rows, list) else []
+    subject = str(_safe_get(data, "subject_symbol") or company.get("symbol")
+                  or company.get("ticker") or "").strip().upper()
+    if subject:
+        if any(str(company.get(field) or "").strip().upper() not in {"", subject}
+               for field in ("symbol", "ticker")):
+            company = {}
+        if not company:
+            company = next(
+                (row for row in rows
+                 if str(row.get("symbol") or row.get("ticker") or "").strip().upper() == subject), {}
+            )
+        rows = [row for row in rows
+                if str(row.get("symbol") or row.get("ticker") or "").strip().upper() != subject]
+    unique_rows = []
+    seen_symbols = set()
+    for row in rows:
+        symbol = str(row.get("symbol") or row.get("ticker") or "").strip().upper()
+        if symbol and symbol in seen_symbols:
+            continue
+        if symbol:
+            seen_symbols.add(symbol)
+        unique_rows.append(row)
+    return company, unique_rows
+
+
 def score_peers(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     """
     Deterministic peer comparison score.
@@ -252,24 +353,23 @@ def score_peers(data: dict[str, Any]) -> tuple[float, str, list[str]]:
     score = 5.0
     points: list[str] = []
 
-    # Expected shape: {company: {...}, peers: [{...}]}
-    company = _safe_get(data, "company") or {}
-    peers_list = _safe_get(data, "peers") or []
+    company, peers_list = _peer_inputs(data)
 
     if not peers_list:
         return 5.0, "中性", ["暂无同行对比数据"]
 
     # Compare PE
     company_pe = _finite_number(_safe_get(company, "trailing_pe"))
-    if company_pe is not None:
+    if company_pe is not None and company_pe > 0:
         peer_pes = [
             value
             for p in peers_list
             if isinstance(p, dict)
             and (value := _finite_number(p.get("trailing_pe"))) is not None
+            and value > 0
         ]
         if peer_pes:
-            avg_pe = sum(peer_pes) / len(peer_pes)
+            avg_pe = _finite_mean(peer_pes)
             if company_pe < avg_pe * 0.85:
                 score += 1
                 points.append(f"PE ({company_pe:.1f}) 低于行业均值 ({avg_pe:.1f})，估值偏低")
@@ -287,25 +387,25 @@ def score_peers(data: dict[str, Any]) -> tuple[float, str, list[str]]:
             and (value := _finite_number(p.get("revenue_growth"))) is not None
         ]
         if peer_growths:
-            avg_growth = sum(peer_growths) / len(peer_growths)
+            avg_growth = _finite_mean(peer_growths)
             if company_growth > avg_growth:
                 score += 1
                 points.append("营收增速高于行业平均水平")
-            else:
+            elif company_growth < avg_growth:
                 score -= 0.5
                 points.append("营收增速低于行业平均水平")
 
     # Compare profit margin
-    company_margin = _finite_number(_safe_get(company, "profit_margin"))
+    company_margin = _first_finite(_safe_get(company, "profit_margin"), _safe_get(company, "net_margin"))
     if company_margin is not None:
         peer_margins = [
             value
             for p in peers_list
             if isinstance(p, dict)
-            and (value := _finite_number(p.get("profit_margin"))) is not None
+            and (value := _first_finite(p.get("profit_margin"), p.get("net_margin"))) is not None
         ]
         if peer_margins:
-            avg_margin = sum(peer_margins) / len(peer_margins)
+            avg_margin = _finite_mean(peer_margins)
             if company_margin > avg_margin:
                 score += 1
                 points.append("利润率优于行业平均水平")
@@ -382,7 +482,7 @@ def score_technical_details(
 ) -> tuple[float, str, list[str], list[dict[str, Any]]]:
     score, label, points = score_technical(data)
 
-    rsi = _finite_number(_safe_get(data, "rsi"))
+    rsi = _rsi_number(_safe_get(data, "rsi"))
     rsi_signal = 0.0
     if rsi is not None:
         if 30 < rsi < 70:
@@ -392,18 +492,18 @@ def score_technical_details(
         else:
             rsi_signal = -0.5
 
-    trend = str(_safe_get(data, "trend", default="neutral")).lower()
+    trend = str(_safe_get(data, "trend", default="neutral")).strip().lower()
     trend_signal = 1.0 if trend in {"bullish", "uptrend"} else (-1.0 if trend in {"bearish", "downtrend"} else 0.0)
 
     momentum_signal = 0.0
-    ma20 = _finite_number(_safe_get(data, "ma20"))
-    ma50 = _finite_number(_safe_get(data, "ma50"))
+    ma20 = _positive_number(_safe_get(data, "ma20"))
+    ma50 = _positive_number(_safe_get(data, "ma50"))
     macd = _finite_number(_safe_get(data, "macd"))
     macd_signal = _finite_number(_safe_get(data, "macd_signal"))
     if ma20 is not None and ma50 is not None:
-        momentum_signal += 1.0 if ma20 > ma50 else -0.5
+        momentum_signal += 1.0 if ma20 > ma50 else (-0.5 if ma20 < ma50 else 0.0)
     if macd is not None and macd_signal is not None:
-        momentum_signal += 0.5 if macd > macd_signal else -0.25
+        momentum_signal += 0.5 if macd > macd_signal else (-0.25 if macd < macd_signal else 0.0)
 
     breakdown = [
         {
@@ -439,21 +539,21 @@ def score_financial_details(
 ) -> tuple[float, str, list[str], list[dict[str, Any]]]:
     score, label, points = score_financial(data)
 
-    pe = _finite_number(_safe_get(data, "trailing_pe") or _safe_get(data, "valuation", "trailing_pe"))
-    rg = _finite_number(_safe_get(data, "revenue_growth") or _safe_get(data, "financials", "revenue_growth"))
-    de = _finite_number(_safe_get(data, "debt_to_equity") or _safe_get(data, "financials", "debt_to_equity"))
-    fcf = _finite_number(_safe_get(data, "free_cash_flow") or _safe_get(data, "financials", "free_cash_flow"))
+    pe = _first_finite(_safe_get(data, "trailing_pe"), _safe_get(data, "valuation", "trailing_pe"))
+    rg = _first_finite(_safe_get(data, "revenue_growth"), _safe_get(data, "financials", "revenue_growth"))
+    de = _first_finite(_safe_get(data, "debt_to_equity"), _safe_get(data, "financials", "debt_to_equity"))
+    fcf = _first_finite(_safe_get(data, "free_cash_flow"), _safe_get(data, "financials", "free_cash_flow"))
 
     pe_signal = 0.0
-    if pe is not None:
+    if pe is not None and pe > 0:
         pe_signal = 1.0 if pe < 25 else (-0.6 if pe > 35 else 0.3)
     growth_signal = 0.0
     if rg is not None:
-        growth_signal = 1.0 if rg > 0 else -0.8
+        growth_signal = 1.0 if rg > 0 else (-0.8 if rg < 0 else 0.0)
     leverage_signal = 0.0
-    if de is not None:
+    if de is not None and de >= 0:
         leverage_signal = 1.0 if de < 0.8 else (-0.6 if de > 1.5 else 0.1)
-    cashflow_signal = 1.0 if fcf is not None and fcf > 0 else -0.3
+    cashflow_signal = 0.0 if fcf is None else (1.0 if fcf > 0 else (-0.3 if fcf < 0 else 0.0))
 
     breakdown = [
         {
@@ -474,7 +574,7 @@ def score_financial_details(
         },
         {
             "factor_key": "balance_sheet",
-            "label": "资产负债",
+            "label": "债务权益比",
             "weight": 0.20,
             "value": de if de is not None else 0.0,
             "contribution": _clip_contribution(leverage_signal * 1.4),
@@ -497,26 +597,19 @@ def score_news_details(
 ) -> tuple[float, str, list[str], list[dict[str, Any]]]:
     score, label, points = score_news(data)
 
-    market_news = data.get("market", [])
-    impact_news = data.get("impact", [])
-    market_list = market_news if isinstance(market_news, list) else []
-    impact_list = impact_news if isinstance(impact_news, list) else []
-    total = len(market_list) + len(impact_list)
+    all_news, impact_list = _news_inputs(data)
+    total = len(all_news)
     impact_ratio = (len(impact_list) / total) if total > 0 else 0.0
 
     positive_keywords = {"surge", "beat", "record", "upgrade", "buy", "bullish", "上涨", "利好", "突破"}
     negative_keywords = {"drop", "miss", "downgrade", "sell", "bearish", "risk", "下跌", "利空", "风险"}
     positive_count = 0
     negative_count = 0
-    for item in market_list + impact_list:
-        text = ""
-        if isinstance(item, dict):
-            text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
-        else:
-            text = str(item).lower()
-        if any(word in text for word in positive_keywords):
+    for item in all_news:
+        text = _news_text(item).lower()
+        if _has_sentiment_keyword(text, positive_keywords):
             positive_count += 1
-        if any(word in text for word in negative_keywords):
+        if _has_sentiment_keyword(text, negative_keywords):
             negative_count += 1
     sentiment_signal = ((positive_count - negative_count) / total) if total > 0 else 0.0
 
@@ -554,9 +647,7 @@ def score_peers_details(
 ) -> tuple[float, str, list[str], list[dict[str, Any]]]:
     score, label, points = score_peers(data)
 
-    company = _safe_get(data, "company") or {}
-    peers_list = _safe_get(data, "peers") or []
-    peers_list = peers_list if isinstance(peers_list, list) else []
+    company, peers_list = _peer_inputs(data)
 
     company_pe = _finite_number(_safe_get(company, "trailing_pe"))
     peer_pes = [
@@ -564,8 +655,9 @@ def score_peers_details(
         for p in peers_list
         if isinstance(p, dict)
         and (value := _finite_number(p.get("trailing_pe"))) is not None
+        and value > 0
     ]
-    avg_peer_pe = (sum(peer_pes) / len(peer_pes)) if peer_pes else 0.0
+    avg_peer_pe = _finite_mean(peer_pes)
 
     company_growth = _finite_number(_safe_get(company, "revenue_growth"))
     peer_growths = [
@@ -574,14 +666,14 @@ def score_peers_details(
         if isinstance(p, dict)
         and (value := _finite_number(p.get("revenue_growth"))) is not None
     ]
-    avg_peer_growth = (sum(peer_growths) / len(peer_growths)) if peer_growths else 0.0
+    avg_peer_growth = _finite_mean(peer_growths)
 
     pe_signal = 0.0
-    if company_pe is not None and avg_peer_pe > 0:
-        pe_signal = 1.0 if company_pe < avg_peer_pe else -0.5
+    if company_pe is not None and company_pe > 0 and avg_peer_pe > 0:
+        pe_signal = 1.0 if company_pe < avg_peer_pe * 0.85 else (-0.5 if company_pe > avg_peer_pe * 1.15 else 0.0)
     growth_signal = 0.0
     if company_growth is not None and peer_growths:
-        growth_signal = 1.0 if company_growth > avg_peer_growth else -0.5
+        growth_signal = 1.0 if company_growth > avg_peer_growth else (-0.5 if company_growth < avg_peer_growth else 0.0)
 
     breakdown = [
         {
@@ -693,15 +785,17 @@ def _label(score: float) -> str:
 
 def _fmt_float(val: Any, suffix: str = "", pct: bool = False) -> str | None:
     """安全格式化浮点数为字符串，返回 None 表示无效值。"""
-    if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
+    if _finite_number(val) is None:
         return None
     if pct:
+        if _finite_number(val * 100) is None:
+            return None
         return f"{val:.2%}{suffix}"
     return f"{val:.2f}{suffix}"
 
 
 def _fmt_int(val: Any, suffix: str = "") -> str | None:
-    if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(val):
+    if _finite_number(val) is None:
         return None
     return f"{int(val):,}{suffix}"
 
@@ -710,7 +804,7 @@ def metrics_technical(data: dict[str, Any]) -> list[dict[str, str]]:
     """从技术指标数据中提取关键指标 k/v 对。"""
     result: list[dict[str, str]] = []
 
-    rsi = _fmt_float(_safe_get(data, "rsi"))
+    rsi = _fmt_float(_rsi_number(_safe_get(data, "rsi")))
     if rsi:
         result.append({"label": "RSI", "value": rsi})
 
@@ -718,11 +812,11 @@ def metrics_technical(data: dict[str, Any]) -> list[dict[str, str]]:
     if price:
         result.append({"label": "当前价格", "value": price})
 
-    ma20 = _fmt_float(_safe_get(data, "ma20"))
+    ma20 = _fmt_float(_positive_number(_safe_get(data, "ma20")))
     if ma20:
         result.append({"label": "MA20", "value": ma20})
 
-    ma50 = _fmt_float(_safe_get(data, "ma50"))
+    ma50 = _fmt_float(_positive_number(_safe_get(data, "ma50")))
     if ma50:
         result.append({"label": "MA50", "value": ma50})
 
@@ -737,35 +831,33 @@ def metrics_financial(data: dict[str, Any]) -> list[dict[str, str]]:
     """从财务数据中提取关键指标 k/v 对。"""
     result: list[dict[str, str]] = []
 
-    pe = _safe_get(data, "trailing_pe") or _safe_get(data, "valuation", "trailing_pe")
+    pe = _first_finite(_safe_get(data, "trailing_pe"), _safe_get(data, "valuation", "trailing_pe"))
     v = _fmt_float(pe)
     if v:
         result.append({"label": "市盈率", "value": v})
 
-    pb = _safe_get(data, "price_to_book") or _safe_get(data, "valuation", "price_to_book")
+    pb = _first_finite(_safe_get(data, "price_to_book"), _safe_get(data, "valuation", "price_to_book"))
     v = _fmt_float(pb)
     if v:
         result.append({"label": "市净率", "value": v})
 
-    rg = _safe_get(data, "revenue_growth") or _safe_get(data, "financials", "revenue_growth")
+    rg = _first_finite(_safe_get(data, "revenue_growth"), _safe_get(data, "financials", "revenue_growth"))
     v = _fmt_float(rg, pct=True)
     if v:
         result.append({"label": "营收增长", "value": v})
 
-    de = _safe_get(data, "debt_to_equity") or _safe_get(data, "financials", "debt_to_equity")
+    de = _first_finite(_safe_get(data, "debt_to_equity"), _safe_get(data, "financials", "debt_to_equity"))
     v = _fmt_float(de)
     if v:
-        result.append({"label": "资产负债率", "value": v})
+        result.append({"label": "债务权益比", "value": v})
 
     return result[:4]
 
 
 def metrics_news(data: dict[str, Any]) -> list[dict[str, str]]:
     """从新闻数据中提取关键指标 k/v 对。"""
-    market_news = data.get("market", [])
-    impact_news = data.get("impact", [])
-    total = len(market_news if isinstance(market_news, list) else []) + \
-            len(impact_news if isinstance(impact_news, list) else [])
+    all_news, _ = _news_inputs(data)
+    total = len(all_news)
 
     result: list[dict[str, str]] = []
     if total > 0:
@@ -776,8 +868,7 @@ def metrics_news(data: dict[str, Any]) -> list[dict[str, str]]:
 def metrics_peers(data: dict[str, Any]) -> list[dict[str, str]]:
     """从同行对比数据中提取关键指标 k/v 对。"""
     result: list[dict[str, str]] = []
-    company = _safe_get(data, "company") or {}
-    peers_list = _safe_get(data, "peers") or []
+    company, peers_list = _peer_inputs(data)
 
     pe = _safe_get(company, "trailing_pe")
     v = _fmt_float(pe)
@@ -786,12 +877,12 @@ def metrics_peers(data: dict[str, Any]) -> list[dict[str, str]]:
 
     if peers_list:
         peer_pes = [
-            p.get("trailing_pe") for p in peers_list
-            if isinstance(p.get("trailing_pe"), (int, float))
-            and math.isfinite(p["trailing_pe"])
+            value for p in peers_list
+            if isinstance(p, dict)
+            and (value := _finite_number(p.get("trailing_pe"))) is not None and value > 0
         ]
         if peer_pes:
-            avg_pe = sum(peer_pes) / len(peer_pes)
+            avg_pe = _finite_mean(peer_pes)
             result.append({"label": "行业均值PE", "value": f"{avg_pe:.1f}"})
         result.append({"label": "对比公司数", "value": str(len(peers_list))})
 

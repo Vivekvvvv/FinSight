@@ -108,7 +108,9 @@ def _label_from_score(score: float) -> str:
 def _ensure_str_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [str(item) for item in value if item]
+    return [str(item).strip() for item in value
+            if (isinstance(item, str) or isinstance(item, (int, float)) and safe_float(item) is not None)
+            and str(item).strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -192,9 +194,17 @@ class DashboardScorer(ABC):
         """Invoke LLM and return raw text response."""
         result = await llm.ainvoke(prompt)
         # LangChain ChatOpenAI returns AIMessage
-        if hasattr(result, "content"):
-            return str(result.content)
-        return str(result)
+        content = getattr(result, "content", result)
+        if isinstance(content, list):
+            return "".join(
+                block if isinstance(block, str) else block["text"]
+                for block in content
+                if isinstance(block, str) or (
+                    isinstance(block, dict) and block.get("type") in {"text", "output_text"}
+                    and isinstance(block.get("text"), str)
+                )
+            )
+        return str(content)
 
     def _parse_response(
         self, raw: str, data: dict[str, Any], now_iso: str,
@@ -215,7 +225,9 @@ class DashboardScorer(ABC):
 
         # Validate and clamp
         parsed_score = safe_float(parsed.get("score"))
-        score = clamp_score(parsed_score if parsed_score is not None else 5.0)
+        if parsed_score is None:
+            return self._make_fallback_card(data, now_iso)
+        score = clamp_score(parsed_score)
         fallback_score, fallback_label, fallback_points, fallback_breakdown = self._deterministic_fallback_details(data)
 
         # If LLM score diverges too much from deterministic, average them
@@ -226,9 +238,10 @@ class DashboardScorer(ABC):
         key_metrics: list[dict[str, str]] | None = None
         if isinstance(raw_metrics, list):
             key_metrics = [
-                {"label": str(m.get("label", "")), "value": str(m.get("value", ""))}
+                {"label": str(m.get("label", "")).strip(), "value": str(m.get("value", "")).strip()}
                 for m in raw_metrics
-                if isinstance(m, dict) and m.get("label") and m.get("value")
+                if isinstance(m, dict) and m.get("label") is not None and str(m["label"]).strip()
+                and m.get("value") is not None and str(m["value"]).strip()
             ][:4]
 
         return InsightCard(
@@ -236,7 +249,7 @@ class DashboardScorer(ABC):
             scorer_name=self._scorer_name(),
             tab=self.TAB,
             score=score,
-            score_label=str(parsed.get("score_label", fallback_label or _label_from_score(score))),
+            score_label=_label_from_score(score),
             summary=str(parsed.get("summary", ""))[:800],
             key_points=(_ensure_str_list(parsed.get("key_points", []))[:5] or fallback_points[:5]),
             risks=_ensure_str_list(parsed.get("risks", []))[:3],
@@ -361,7 +374,7 @@ class OverviewScorer(DashboardScorer):
 
     def set_sub_scores(self, sub_scores: dict[str, float]) -> None:
         """Set dimension sub-scores before calling digest()."""
-        self._sub_scores = sub_scores
+        self._sub_scores = dict(sub_scores)
 
     def _build_prompt(self, ticker: str, data: dict[str, Any]) -> str:
         return build_overview_prompt(ticker, data, sub_scores=self._sub_scores)

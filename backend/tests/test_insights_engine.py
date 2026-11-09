@@ -48,12 +48,114 @@ from backend.dashboard.insights_scorer import (
 from backend.dashboard.schemas import DashboardInsightsResponse, InsightCard
 
 
+@pytest.mark.parametrize("include_company", [False, True])
+def test_peer_target_identification_accepts_ticker_alias_without_self_comparison(include_company):
+    from backend.dashboard.insights_scorer import metrics_peers, score_peers_details
+    target = {"ticker": " aapl ", "trailing_pe": 20.0, "revenue_growth": 0.2}
+    peer = {"ticker": "MSFT", "trailing_pe": 30.0, "revenue_growth": 0.1}
+    data = {"peers": [target, peer]}
+    if include_company:
+        data["company"] = target
+    else:
+        data["subject_symbol"] = " aapl "
+    expected = {"subject_symbol": "AAPL",
+                "company": {"symbol": "AAPL", "trailing_pe": 20.0, "revenue_growth": 0.2},
+                "peers": [{"symbol": "MSFT", "trailing_pe": 30.0, "revenue_growth": 0.1}]}
+    assert score_peers_details(data) == score_peers_details(expected)
+    assert metrics_peers(data) == metrics_peers(expected)
+
+
+@pytest.mark.parametrize("field", ["symbol", "ticker"])
+def test_repeated_identified_peers_do_not_weight_comparison_or_sample_size(field):
+    from backend.dashboard.insights_scorer import metrics_peers, score_peers_details
+    company = {"symbol": "AAPL", "trailing_pe": 20.0}
+    peers = [{field: "MSFT", "trailing_pe": 10.0}, {field: "GOOG", "trailing_pe": 30.0}]
+    expected = {"company": company, "peers": peers}
+    repeated = {"company": company, "peers": [peers[0], {**peers[0], field: " msft "}, peers[1]]}
+    assert score_peers_details(repeated) == score_peers_details(expected)
+    assert metrics_peers(repeated) == metrics_peers(expected)
+
+
+@pytest.mark.parametrize("field", ["symbol", "ticker"])
+def test_company_identity_must_match_peer_comparison_subject(field):
+    from backend.dashboard.insights_scorer import metrics_peers, score_peers_details
+    target = {"symbol": " aapl ", "trailing_pe": 20.0, "revenue_growth": 0.2}
+    peer = {"symbol": "MSFT", "trailing_pe": 30.0, "revenue_growth": 0.1}
+    data = {"subject_symbol": "AAPL", "company": {field: "MSFT", "trailing_pe": 100.0,
+                                                "revenue_growth": -0.2}, "peers": [target, peer]}
+    expected = {"subject_symbol": "AAPL", "company": target, "peers": [peer]}
+    assert score_peers_details(data) == score_peers_details(expected)
+    assert metrics_peers(data) == metrics_peers(expected)
+    assert score_peers_details({"subject_symbol": " aapl ", "company": {**target, field: " aapl "},
+                               "peers": [peer]}) == score_peers_details(expected)
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_company_and_peer_rows_cannot_supply_comparison_values(failure):
+    from backend.dashboard.insights_scorer import metrics_peers, score_peers_details
+    company = {"symbol": "AAPL", "trailing_pe": 20.0, "revenue_growth": 0.2, "profit_margin": 0.2}
+    peer = {"symbol": "MSFT", "trailing_pe": 30.0, "revenue_growth": 0.1, "profit_margin": 0.1}
+    expected = {"company": company, "peers": [peer]}
+    mixed = {"company": company, "peers": [
+        {"symbol": "BAD", "trailing_pe": 1.0, "revenue_growth": 1.0, "profit_margin": 1.0, **failure},
+        peer,
+    ]}
+    assert score_peers_details(mixed) == score_peers_details(expected)
+    assert metrics_peers(mixed) == metrics_peers(expected)
+    failed_company = {"subject_symbol": "AAPL", "company": {**company, **failure}, "peers": [peer]}
+    assert score_peers_details(failed_company) == score_peers_details({"peers": [peer]})
+    assert metrics_peers(failed_company) == metrics_peers({"peers": [peer]})
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_news_cannot_change_sentiment_or_hide_valid_duplicate(failure):
+    from backend.dashboard.insights_scorer import metrics_news, score_news_details
+    valid = {"title": "shares surge", "url": "https://example.invalid/news"}
+    data = {"impact": [{"title": "shares drop", "url": valid["url"], **failure}],
+            "market": [valid]}
+    assert score_news_details(data) == score_news_details({"market": [valid]})
+    assert metrics_news(data) == [{"label": "新闻数量", "value": "1"}]
+    failed_envelope = {"market": [valid], **failure}
+    assert score_news_details(failed_envelope) == score_news_details({})
+    assert metrics_news(failed_envelope) == []
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_indicator_and_financial_payloads_cannot_supply_scores_or_metrics(failure):
+    from backend.dashboard.insights_scorer import (
+        metrics_financial, metrics_technical, score_financial_details, score_technical_details,
+    )
+    technical = {"rsi": 55.0, "trend": "bullish", "ma20": 120.0, "ma50": 100.0, **failure}
+    financial = {"trailing_pe": 10.0, "revenue_growth": 0.2, "net_income": 100.0,
+                 "debt_to_equity": 0.1, "free_cash_flow": 100.0, **failure}
+    nested = {"valuation": {"trailing_pe": 10.0, **failure},
+              "financials": {"revenue_growth": 0.2, "net_income": 100.0,
+                             "debt_to_equity": 0.1, "free_cash_flow": 100.0, **failure}}
+    assert score_technical_details(technical) == score_technical_details({})
+    assert metrics_technical(technical) == []
+    for data in (financial, nested):
+        assert score_financial_details(data) == score_financial_details({})
+        assert metrics_financial(data) == []
+    assert score_financial({"trailing_pe": 10.0, **nested})[0] == 6.0
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
 class TestHelpers:
     """Tests for module-level helper functions."""
+
+    def test_percentage_formatting_does_not_emit_infinite_metrics(self):
+        from backend.dashboard.insights_scorer import _fmt_float
+        assert _fmt_float(1e308, pct=True) is None
+        assert _fmt_float(-1e308, pct=True) is None
+        assert _fmt_float(0.125, pct=True) == "12.50%"
+
+    def test_unrepresentable_metric_numbers_do_not_crash_formatting(self):
+        from backend.dashboard.insights_scorer import _fmt_float, _fmt_int
+        assert _fmt_float(10 ** 400) is None
+        assert _fmt_int(10 ** 400) is None
 
     def test_label_from_score_strong(self):
         assert _label_from_score(9.0) == "强势"
@@ -183,6 +285,47 @@ def test_metric_formatters_reject_boolean_values():
 
 
 class TestScoreTechnical:
+    @pytest.mark.parametrize("trend, expected", [("BULLISH", 7.0), (" downtrend ", 4.0)])
+    def test_trend_score_and_factors_use_same_normalization(self, trend, expected):
+        from backend.dashboard.insights_scorer import score_technical_details
+        score, _, _, details = score_technical_details({"trend": trend})
+        assert score == expected
+        contribution = next(row for row in details if row["factor_key"] == "trend_direction")["contribution"]
+        assert (contribution > 0) == (expected > 5)
+        assert contribution != 0
+
+    def test_equal_macd_and_signal_have_no_bearish_contribution(self):
+        from backend.dashboard.insights_scorer import score_technical_details
+        score, _, _, details = score_technical_details({"macd": 0.0, "macd_signal": 0.0})
+        assert score == 5.0
+        assert next(row for row in details if row["factor_key"] == "momentum")["contribution"] == 0.0
+
+    @pytest.mark.parametrize("ma20, ma50", [(0.0, 1.0), (-1.0, -2.0)])
+    def test_nonpositive_moving_averages_are_unavailable(self, ma20, ma50):
+        from backend.dashboard.insights_scorer import metrics_technical, score_technical_details
+        data = {"ma20": ma20, "ma50": ma50}
+        score, _, points, details = score_technical_details(data)
+        assert score == 5.0
+        assert not points
+        assert next(row for row in details if row["factor_key"] == "momentum")["contribution"] == 0.0
+        assert not any(row["label"] == "MA20" for row in metrics_technical(data))
+
+    def test_equal_moving_averages_are_neutral(self):
+        from backend.dashboard.insights_scorer import score_technical_details
+        score, _, points, details = score_technical_details({"ma20": 100.0, "ma50": 100.0})
+        assert score == 5.0
+        assert not any("死叉" in point for point in points)
+        assert next(row for row in details if row["factor_key"] == "momentum")["contribution"] == 0.0
+
+    @pytest.mark.parametrize("rsi", [-1.0, 101.0])
+    def test_out_of_range_rsi_is_unavailable(self, rsi):
+        from backend.dashboard.insights_scorer import metrics_technical, score_technical_details
+        score, _, points, details = score_technical_details({"rsi": rsi})
+        assert score == 5.0
+        assert not any("RSI" in point for point in points)
+        assert next(row for row in details if row["factor_key"] == "rsi_state")["contribution"] == 0.0
+        assert not any(row["label"] == "RSI" for row in metrics_technical({"rsi": rsi}))
+
     """Tests for deterministic technical scoring."""
 
     def test_empty_data_returns_neutral(self):
@@ -227,9 +370,68 @@ class TestScoreTechnical:
 class TestScoreFinancial:
     """Tests for deterministic financial scoring."""
 
+    @pytest.mark.parametrize("field,group,nested_value", [
+        ("debt_to_equity", "financials", 2.0),
+        ("revenue_growth", "financials", 0.5),
+        ("free_cash_flow", "financials", 100.0),
+        ("net_income", "financials", 100.0),
+        ("trailing_pe", "valuation", 20.0),
+    ])
+    def test_explicit_zero_financials_are_not_replaced_by_nested_values(self, field, group, nested_value):
+        from backend.dashboard.insights_scorer import metrics_financial, score_financial_details
+
+        primary = {field: 0.0}
+        mixed = {field: 0.0, group: {field: nested_value}}
+        assert score_financial(mixed) == score_financial(primary)
+        assert score_financial_details(mixed) == score_financial_details(primary)
+        assert metrics_financial(mixed) == metrics_financial(primary)
+        if field in {"debt_to_equity", "revenue_growth", "trailing_pe"}:
+            assert metrics_financial(primary)[0]["value"] in {"0.00", "0.00%"}
+
     def test_empty_data_returns_base(self):
         score, label, points = score_financial({})
         assert score == 4.0
+
+    def test_zero_growth_profit_and_cashflow_are_not_negative_measurements(self):
+        from backend.dashboard.insights_scorer import score_financial_details
+
+        data = {"revenue_growth": 0.0, "net_income": 0.0, "free_cash_flow": 0.0}
+        score, _, points, breakdown = score_financial_details(data)
+        assert score == 4.0
+        assert not any("下降" in point or "为负" in point for point in points)
+        factors = {row["factor_key"]: row for row in breakdown}
+        assert factors["growth"]["contribution"] == 0.0
+        assert factors["cash_flow"]["contribution"] == 0.0
+
+        negative, _, negative_points = score_financial({"revenue_growth": -0.1, "net_income": -10})
+        assert negative < score
+        assert any("下降" in point or "为负" in point for point in negative_points)
+
+    @pytest.mark.parametrize("pe", [-10.0, 0.0])
+    def test_non_positive_pe_cannot_supply_a_valuation_advantage(self, pe):
+        from backend.dashboard.insights_scorer import metrics_peers, score_financial_details, score_peers_details
+
+        financial = score_financial_details({"trailing_pe": pe})
+        valuation = next(row for row in financial[3] if row["factor_key"] == "valuation")
+        assert valuation["contribution"] == 0.0
+
+        peer_data = {"company": {"trailing_pe": pe}, "peers": [{"trailing_pe": 20.0}]}
+        assert score_peers_details(peer_data)[0] == 5.0
+        comparison = {"company": {"trailing_pe": 20.0}, "peers": [{"trailing_pe": pe}, {"trailing_pe": 30.0}]}
+        assert score_peers_details(comparison)[0] == 6.0
+        average = next(row for row in metrics_peers(comparison) if row["label"] == "行业均值PE")
+        assert average["value"] == "30.0"
+
+    def test_negative_debt_to_equity_is_not_rewarded_as_financial_strength(self):
+        from backend.dashboard.insights_scorer import metrics_financial, score_financial_details
+
+        score, _, points, breakdown = score_financial_details({"debt_to_equity": -1.0})
+        assert score == 4.0
+        assert not any("财务稳健" in point for point in points)
+        leverage = next(row for row in breakdown if row["factor_key"] == "balance_sheet")
+        assert leverage["contribution"] == 0.0
+        assert metrics_financial({"debt_to_equity": -1.0})[0]["label"] == "债务权益比"
+        assert score_financial({"debt_to_equity": 0.0})[0] == 5.0
 
     def test_healthy_company(self):
         data = {
@@ -262,6 +464,36 @@ class TestScoreFinancial:
 
 class TestScoreNews:
     """Tests for deterministic news scoring."""
+
+    @pytest.mark.parametrize("title, expected", [("Stock surges", 7.0), ("Stock dropped", 3.0), ("Analyst upgraded shares", 7.0)])
+    def test_english_sentiment_still_accepts_common_word_forms(self, title, expected):
+        assert score_news({"market": [{"title": title}]})[0] == expected
+
+    @pytest.mark.parametrize("title", ["Company discloses transmission schedule", "Buyer attends meeting", "Recordkeeping policy published"])
+    def test_english_sentiment_keywords_do_not_match_unrelated_substrings(self, title):
+        from backend.dashboard.insights_scorer import score_news_details
+        score, _, _, details = score_news_details({"market": [{"title": title}]})
+        assert score == 5.0
+        assert next(row for row in details if row["factor_key"] == "sentiment_balance")["value"] == 0.0
+
+    def test_invalid_news_entries_do_not_dilute_sentiment_or_sample_size(self):
+        from backend.dashboard.insights_scorer import metrics_news, score_news_details
+        data = {"market": [{"title": "surge"}, None, 42, {"title": " "}, {"title": {"risk": True}}]}
+        score, _, points, details = score_news_details(data)
+        assert score == 7.0
+        assert "近期 1 条新闻" in points[0]
+        assert metrics_news(data) == [{"label": "新闻数量", "value": "1"}]
+        assert next(row for row in details if row["factor_key"] == "sentiment_balance")["value"] == 1.0
+
+    def test_same_article_in_market_and_impact_counts_once(self):
+        from backend.dashboard.insights_scorer import metrics_news, score_news_details
+        article = {"title": "surge", "url": "https://example.test/story"}
+        data = {"market": [article, {"title": "Company publishes schedule"}], "impact": [dict(article)]}
+        score, _, points, details = score_news_details(data)
+        assert score == 6.0
+        assert "近期 2 条新闻" in points[0]
+        assert metrics_news(data) == [{"label": "新闻数量", "value": "2"}]
+        assert next(row for row in details if row["factor_key"] == "impact_ratio")["value"] == 0.5
 
     def test_no_news(self):
         score, label, points = score_news({})
@@ -304,6 +536,56 @@ class TestScoreNews:
 
 class TestScorePeers:
     """Tests for deterministic peer scoring."""
+
+    def test_large_finite_peer_averages_do_not_overflow(self):
+        from backend.dashboard.insights_scorer import metrics_peers, score_peers_details
+        data = {"company": {"trailing_pe": 1e308, "revenue_growth": 1e308},
+                "peers": [{"trailing_pe": 1e308, "revenue_growth": 1e308}] * 2}
+        score, _, points, details = score_peers_details(data)
+        assert score == 5.0
+        assert not any("低于行业" in point for point in points)
+        assert next(row for row in details if row["factor_key"] == "peer_valuation_gap")["contribution"] == 0.0
+        assert not any("inf" in row["value"].lower() for row in metrics_peers(data))
+
+    @pytest.mark.parametrize("pe", [18.0, 20.0, 22.0])
+    def test_peer_valuation_breakdown_respects_neutral_band(self, pe):
+        from backend.dashboard.insights_scorer import score_peers_details
+        score, _, _, details = score_peers_details({"company": {"trailing_pe": pe}, "peers": [{"trailing_pe": 20.0}]})
+        assert score == 5.0
+        assert next(row for row in details if row["factor_key"] == "peer_valuation_gap")["contribution"] == 0.0
+
+    @pytest.mark.parametrize("growth", [0.0, 0.2, -0.2])
+    def test_equal_peer_growth_is_neutral(self, growth):
+        from backend.dashboard.insights_scorer import score_peers_details
+        data = {"company": {"revenue_growth": growth}, "peers": [{"revenue_growth": growth}]}
+        score, _, points, details = score_peers_details(data)
+        assert score == 5.0
+        assert not any("低于行业" in point for point in points)
+        assert next(row for row in details if row["factor_key"] == "peer_growth_gap")["contribution"] == 0.0
+
+    def test_net_margin_from_dashboard_is_used_for_profit_comparison(self):
+        data = {"subject_symbol": "AAPL", "peers": [
+            {"symbol": "AAPL", "net_margin": 0.3},
+            {"symbol": "MSFT", "net_margin": 0.1},
+        ]}
+        score, _, points = score_peers(data)
+        assert score == 6.0
+        assert "利润率优于行业平均水平" in points
+
+    @pytest.mark.asyncio
+    async def test_peer_card_uses_target_row_from_real_dashboard_payload(self):
+        data = {"subject_symbol": "AAPL", "peers": [
+            {"symbol": " aapl ", "trailing_pe": 10.0},
+            {"symbol": "MSFT", "trailing_pe": 30.0},
+        ]}
+        with patch("backend.dashboard.scorers._get_llm", return_value=None):
+            card = await PeersDigest().digest("AAPL", data)
+
+        assert card.score == 6.0
+        metrics = {row["label"]: row["value"] for row in card.key_metrics}
+        assert metrics["公司PE"] == "10.00"
+        assert metrics["行业均值PE"] == "30.0"
+        assert metrics["对比公司数"] == "1"
 
     def test_no_peers(self):
         score, label, points = score_peers({})
@@ -543,6 +825,73 @@ class TestDigestAgent:
         assert card.score != 10.0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("payload", [{}, {"score": None}, {"score": True}, {"score": "bad"}, {"score": "NaN"}])
+    async def test_invalid_model_score_uses_rule_fallback_confidence(self, payload):
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=json.dumps(payload)))
+        with patch("backend.dashboard.scorers._get_llm", return_value=mock_llm):
+            card = await TechnicalDigest().digest("AAPL", {"rsi": 55.0})
+
+        assert card.model_generated is False
+        assert card.confidence == 0.4
+        assert card.score_breakdown
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("score,label,expected", [(4.0, None, "偏空"), (7.5, "弱势", "偏多"), (10.0, "强势", "偏多")])
+    async def test_model_label_matches_the_final_adjusted_score(self, score, label, expected):
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=json.dumps({"score": score, "score_label": label})))
+        with patch("backend.dashboard.scorers._get_llm", return_value=mock_llm):
+            card = await TechnicalDigest().digest("AAPL", {})
+
+        assert card.model_generated is True
+        assert card.score_label == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("shape", ["text_blocks", "fragments", "mixed"])
+    async def test_digest_accepts_text_content_blocks(self, shape):
+        raw = json.dumps({"score": 7.5})
+        content = {
+            "text_blocks": [{"type": "text", "text": raw}],
+            "fragments": [raw[:5], raw[5:]],
+            "mixed": [{"type": "image", "text": "ignored"}, {"type": "output_text", "text": raw}],
+        }[shape]
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=content))
+        with patch("backend.dashboard.scorers._get_llm", return_value=mock_llm):
+            card = await TechnicalDigest().digest("AAPL", {})
+
+        assert card.model_generated is True
+        assert card.score == 7.5
+
+    @pytest.mark.asyncio
+    async def test_digest_keeps_zero_metrics_and_trims_empty_labels(self):
+        payload = {"score": 7.5, "key_metrics": [
+            {"label": " 净流入 ", "value": 0},
+            {"label": "增长率", "value": " 0% "},
+            {"label": "缺失", "value": None},
+            {"label": "   ", "value": "100"},
+        ]}
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=json.dumps(payload)))
+        with patch("backend.dashboard.scorers._get_llm", return_value=mock_llm):
+            card = await TechnicalDigest().digest("AAPL", {})
+
+        assert card.key_metrics == [{"label": "净流入", "value": "0"}, {"label": "增长率", "value": "0%"}]
+
+    @pytest.mark.asyncio
+    async def test_digest_does_not_display_structured_objects_as_prose(self):
+        payload = {"score": 7.5, "key_points": [{"wrong": "shape"}, ["nested"], " valid ", "   ", True],
+                   "risks": [{"wrong": "shape"}, " risk "]}
+        mock_llm = AsyncMock()
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=json.dumps(payload)))
+        with patch("backend.dashboard.scorers._get_llm", return_value=mock_llm):
+            card = await TechnicalDigest().digest("AAPL", {})
+
+        assert card.key_points == ["valid"]
+        assert card.risks == ["risk"]
+
+    @pytest.mark.asyncio
     async def test_digest_llm_returns_markdown_fenced_json(self):
         """LLM sometimes returns JSON wrapped in markdown fences."""
         agent = NewsDigest()
@@ -590,6 +939,18 @@ class TestDigestAgent:
 
 class TestOverviewDigest:
     """Tests for OverviewDigest specific behavior."""
+
+    @pytest.mark.asyncio
+    async def test_overview_sub_scores_are_detached_from_caller_mutations(self):
+        agent = OverviewDigest()
+        scores = {"technical": 7.0, "financial": 6.5, "news": 5.0, "peers": 6.0}
+        agent.set_sub_scores(scores)
+        scores["financial"] = 1.0
+
+        with patch("backend.dashboard.scorers._get_llm", return_value=None):
+            card = await agent.digest("AAPL", {})
+
+        assert card.sub_scores["financial"] == 6.5
 
     @pytest.mark.asyncio
     async def test_overview_includes_sub_scores(self):

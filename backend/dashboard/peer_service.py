@@ -42,7 +42,7 @@ _FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 def _infer_market_from_symbol(symbol: str) -> str:
     ticker = str(symbol or "").strip().upper()
-    if ticker.endswith((".SS", ".SZ", ".BJ")):
+    if ticker.endswith((".SS", ".SH", ".SZ", ".BJ")) or ticker.isdigit() and len(ticker) == 6:
         return "CN"
     if ticker.endswith(".HK"):
         return "HK"
@@ -64,7 +64,8 @@ def _finnhub_request(path: str, params: Optional[dict[str, Any]] = None) -> Any 
         if getattr(resp, "status_code", 0) != 200:
             return None
         payload = resp.json()
-        if isinstance(payload, dict) and payload.get("error"):
+        if isinstance(payload, dict) and (payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             return None
         return payload
     except Exception as exc:
@@ -81,14 +82,15 @@ def _pct_to_ratio(value: Any) -> Optional[float]:
 
 def _market_cap_to_usd(value: Any) -> Optional[float]:
     number = safe_float(value)
-    if number is None:
+    if number is None or number <= 0:
         return None
-    return number * 1_000_000.0
+    return safe_float(number * 1_000_000.0)
 
 
 def _has_peer_metrics(row: dict[str, Any]) -> bool:
     return any(
-        row.get(key) is not None
+        (value := safe_float(row.get(key))) is not None and (key != "market_cap" or value > 0)
+        and (key != "dividend_yield" or value >= 0)
         for key in (
             "trailing_pe",
             "forward_pe",
@@ -103,32 +105,47 @@ def _has_peer_metrics(row: dict[str, Any]) -> bool:
     )
 
 
+def _first_float(primary: Any, fallback: Any) -> float | None:
+    number = safe_float(primary)
+    return number if number is not None else safe_float(fallback)
+
+
 def _fetch_single_peer_metrics_from_finnhub(sym: str) -> dict[str, Any] | None:
     profile = _finnhub_request("stock/profile2", {"symbol": sym})
     metric_payload = _finnhub_request("stock/metric", {"symbol": sym, "metric": "all"})
+    for payload in (profile, metric_payload):
+        if isinstance(payload, dict) and any(
+            value is not None and str(value).strip().upper() != sym.strip().upper()
+            for value in (payload.get("symbol"), payload.get("ticker"))
+        ):
+            return None
     metric = metric_payload.get("metric") if isinstance(metric_payload, dict) else {}
-    if not isinstance(metric, dict):
+    if (not isinstance(metric, dict) or metric.get("error") or metric.get("success") is False
+        or str(metric.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
         metric = {}
 
     result = {
         "symbol": sym,
         "name": (profile or {}).get("name") if isinstance(profile, dict) else sym,
-        "trailing_pe": safe_float(metric.get("peTTM") or metric.get("peBasicExclExtraTTM")),
-        "forward_pe": safe_float(metric.get("forwardPE") or metric.get("peExclExtraAnnual")),
+        "trailing_pe": _first_float(metric.get("peTTM"), metric.get("peBasicExclExtraTTM")),
+        "forward_pe": _first_float(metric.get("forwardPE"), metric.get("peExclExtraAnnual")),
         "price_to_book": safe_float(metric.get("pbQuarterly")),
         "ev_to_ebitda": safe_float(metric.get("evEbitdaTTM")),
         "net_margin": _pct_to_ratio(metric.get("netProfitMarginTTM")),
         "roe": _pct_to_ratio(metric.get("roeTTM")),
         "revenue_growth": _pct_to_ratio(metric.get("revenueGrowthTTMYoy")),
         "dividend_yield": _pct_to_ratio(metric.get("dividendYieldIndicatedAnnual")),
-        "market_cap": _market_cap_to_usd(
-            (profile or {}).get("marketCapitalization") if isinstance(profile, dict) else metric.get("marketCapitalization")
+        "market_cap": _first_float(
+            _market_cap_to_usd(profile.get("marketCapitalization") if isinstance(profile, dict) else None),
+            _market_cap_to_usd(metric.get("marketCapitalization")),
         ),
     }
+    if result["dividend_yield"] is not None and result["dividend_yield"] < 0:
+        result["dividend_yield"] = None
     if not _has_peer_metrics(result):
         return None
-    if not result.get("name"):
-        result["name"] = sym
+    name = result.get("name")
+    result["name"] = name.strip() if isinstance(name, str) and name.strip() else sym
     return result
 
 
@@ -137,7 +154,11 @@ def _fetch_single_peer_metrics_from_cn_hk(sym: str) -> dict[str, Any] | None:
         from backend.tools.cn_hk_market import fetch_cn_hk_quote_metrics
 
         payload = fetch_cn_hk_quote_metrics(sym)
-        if not isinstance(payload, dict):
+        if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and str(value).strip().upper() != sym.strip().upper()
+               for value in (payload.get("symbol"), payload.get("ticker"))):
             return None
         result = {
             "symbol": sym,
@@ -152,6 +173,12 @@ def _fetch_single_peer_metrics_from_cn_hk(sym: str) -> dict[str, Any] | None:
             "dividend_yield": safe_float(payload.get("dividend_yield")),
             "market_cap": safe_float(payload.get("market_cap")),
         }
+        name = result.get("name")
+        result["name"] = name.strip() if isinstance(name, str) and name.strip() else sym
+        if result["dividend_yield"] is not None and result["dividend_yield"] < 0:
+            result["dividend_yield"] = None
+        if result["market_cap"] is not None and result["market_cap"] <= 0:
+            result["market_cap"] = None
         if not _has_peer_metrics(result):
             return None
         return result
@@ -173,10 +200,14 @@ def resolve_peers(symbol: str, limit: int = 6) -> list[str]:
     Returns:
         A list of peer ticker strings (may be empty).
     """
+    symbol = str(symbol or "").strip().upper()
+    if not symbol or limit <= 0:
+        return []
     market = _infer_market_from_symbol(symbol)
     if market in {"CN", "HK"}:
         defaults = _DEFAULT_PEERS_BY_MARKET.get(market, _DEFAULT_PEERS_BY_MARKET["US"])
-        return [s for s in defaults if s.upper() != symbol.upper()][:limit]
+        return [s for s in defaults if s.upper() != symbol
+                and not (symbol.isdigit() and len(symbol) == 6 and s.split(".")[0] == symbol)][:limit]
 
     industry = ""
     sector = ""
@@ -184,8 +215,15 @@ def resolve_peers(symbol: str, limit: int = 6) -> list[str]:
         import yfinance as yf
 
         info = yf.Ticker(symbol).info or {}
-        industry = info.get("industry", "") or ""
-        sector = info.get("sector", "") or ""
+        if (not isinstance(info, dict) or info.get("error") or info.get("success") is False
+            or str(info.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}
+            or any(value is not None and str(value).strip().upper() != symbol
+                   for value in (info.get("ticker"), info.get("symbol")))):
+            raise ValueError("peer classification unavailable")
+        industry = info.get("industry")
+        sector = info.get("sector")
+        industry = industry.strip() if isinstance(industry, str) else ""
+        sector = sector.strip() if isinstance(sector, str) else ""
     except Exception as exc:
                 logger.info("[PeerService] yfinance info failed")
 
@@ -208,13 +246,14 @@ def resolve_peers(symbol: str, limit: int = 6) -> list[str]:
                     # 毒条目按条跳过——非 dict 的 .get AttributeError、symbol
                     # 非 str 的 .upper() 落进外层 except 让其后合法 peer 全丢
                     # （毒条目在首位时整份动态结果丢光走静态兜底，同 R107）
-                    if not isinstance(item, dict):
+                    if (not isinstance(item, dict) or item.get("error") or item.get("success") is False
+                        or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                         continue
                     sym = item.get("symbol")
                     if not isinstance(sym, str) or not sym.strip():
                         continue
-                    sym = sym.strip()
-                    if sym.upper() != symbol.upper():
+                    sym = sym.strip().upper()
+                    if sym != symbol and sym not in peers:
                         peers.append(sym)
                     if len(peers) >= limit:
                         break
@@ -258,9 +297,16 @@ def _fetch_single_peer_metrics(sym: str) -> dict[str, Any]:
         import yfinance as yf
 
         info = yf.Ticker(sym).info or {}
+        if (not isinstance(info, dict) or info.get("error") or info.get("success") is False
+            or str(info.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            raise ValueError("peer metrics unavailable")
+        if any(value is not None and str(value).strip().upper() != sym.strip().upper()
+               for value in (info.get("symbol"), info.get("ticker"))):
+            raise ValueError("peer instrument mismatch")
         yfinance_result = {
             "symbol": sym,
-            "name": info.get("shortName") or info.get("longName") or sym,
+            "name": next((name.strip() for name in (info.get("shortName"), info.get("longName"))
+                          if isinstance(name, str) and name.strip()), sym),
             "trailing_pe": safe_float(info.get("trailingPE")),
             "forward_pe": safe_float(info.get("forwardPE")),
             "price_to_book": safe_float(info.get("priceToBook")),
@@ -271,6 +317,10 @@ def _fetch_single_peer_metrics(sym: str) -> dict[str, Any]:
             "dividend_yield": safe_float(info.get("dividendYield")),
             "market_cap": safe_float(info.get("marketCap")),
         }
+        if yfinance_result["dividend_yield"] is not None and yfinance_result["dividend_yield"] < 0:
+            yfinance_result["dividend_yield"] = None
+        if yfinance_result["market_cap"] is not None and yfinance_result["market_cap"] <= 0:
+            yfinance_result["market_cap"] = None
         if _has_peer_metrics(yfinance_result):
             return yfinance_result
     except Exception as exc:
@@ -298,10 +348,15 @@ def fetch_peer_comparison(
         on total failure.
     """
     try:
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            return None
         if peers is None:
             peers = resolve_peers(symbol, limit=6)
 
-        all_symbols = [symbol] + [p for p in peers if p.upper() != symbol.upper()]
+        all_symbols = list(dict.fromkeys([symbol] + [
+            p.strip().upper() for p in peers if isinstance(p, str) and p.strip()
+        ]))
 
         # Fetch metrics in parallel (max 3 workers for budget constraint).
         # Use a global timeout to avoid cumulative per-future waits.
@@ -318,8 +373,13 @@ def fetch_peer_comparison(
                     sym = futures[future]
                     try:
                         result = future.result()
-                        if isinstance(result, dict):
-                            results_by_symbol[sym] = result
+                        if (not isinstance(result, dict) or result.get("error") or result.get("success") is False
+                            or str(result.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                            continue
+                        if any(value is not None and str(value).strip().upper() != sym
+                               for value in (result.get("symbol"), result.get("ticker"))):
+                            continue
+                        results_by_symbol[sym] = result
                     except Exception as exc:
                         logger.info("[PeerService] peer fetch failed")
             except FuturesTimeout:
