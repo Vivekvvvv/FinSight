@@ -10,7 +10,110 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from backend.services import reports_to_review as module
+
+
+def test_future_report_data_time_requires_review(monkeypatch):
+    from datetime import timedelta
+    rows = [{"report_id": "future", "ticker": "AAPL",
+             "as_of": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()}]
+    monkeypatch.setattr(module, "get_report_index_store",
+                        lambda: type("Store", (), {"list_reports": lambda self, **kwargs: rows})())
+    result = module.get_reports_to_review("s", ["AAPL"], [])
+    assert [row["report_id"] for row in result] == ["future"]
+    assert result[0]["_review_score"] == 25
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_reports_do_not_displace_valid_review_candidates(monkeypatch, failure):
+    rows = [{"report_id": "bad", "review_status": "watch", **failure},
+            {"report_id": "valid", "review_status": "watch"}]
+    monkeypatch.setattr(module, "get_report_index_store",
+                        lambda: type("Store", (), {"list_reports": lambda self, **kwargs: rows})())
+    assert [row["report_id"] for row in module.get_reports_to_review("s", [], [], limit=1)] == ["valid"]
+
+
+@pytest.mark.parametrize("report_id", [None, "", "  ", True, [], 123])
+def test_review_candidates_require_report_identifiers(monkeypatch, report_id):
+    rows = [{"report_id": report_id, "review_status": "watch"}, {"report_id": "valid", "review_status": "watch"}]
+    monkeypatch.setattr(module, "get_report_index_store",
+                        lambda: type("Store", (), {"list_reports": lambda self, **kwargs: rows})())
+    assert [row["report_id"] for row in module.get_reports_to_review("s", [], [], limit=1)] == ["valid"]
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_empty_review_limits_stop_before_reading_reports(monkeypatch, limit):
+    calls = []
+    monkeypatch.setattr(module, "get_report_index_store", lambda: calls.append("store"))
+    assert module.get_reports_to_review("session", [], [], limit=limit) == []
+    assert calls == []
+
+
+def test_review_watched_tickers_skip_malformed_entries(monkeypatch):
+    monkeypatch.setattr(module, "get_report_index_store", lambda: type("Store", (), {
+        "list_reports": lambda self, **kwargs: [{"report_id": "r1", "ticker": "AAPL", "as_of": "2020-01-01"}],
+    })())
+    result = module.get_reports_to_review("session", [None, 123, {}, "AAPL"], [])
+    assert [report["report_id"] for report in result] == ["r1"]
+
+
+@pytest.mark.parametrize("watched, reported", [("AAPL", " aapl "), (" AAPL ", "aapl")])
+def test_review_matches_normalized_report_and_watched_symbols(monkeypatch, watched, reported):
+    monkeypatch.setattr(module, "get_report_index_store", lambda: type("Store", (), {
+        "list_reports": lambda self, **kwargs: [{"report_id": "r1", "ticker": reported, "as_of": "2020-01-01"}],
+    })())
+    result = module.get_reports_to_review("session", [watched], [])
+    assert [report["report_id"] for report in result] == ["r1"]
+
+
+def test_review_annotations_do_not_mutate_source_report_rows(monkeypatch):
+    reports = [{"report_id": "r1", "ticker": "AAPL", "review_status": "watch"}]
+    original = dict(reports[0])
+    monkeypatch.setattr(module, "get_report_index_store", lambda: type("Store", (), {
+        "list_reports": lambda self, **kwargs: reports,
+    })())
+    result = module.get_reports_to_review("session", [], [])
+    assert result[0]["_review_score"] == 50
+    assert reports[0] == original
+
+
+def test_review_list_preserves_valid_reports_after_malformed_rows(monkeypatch):
+    monkeypatch.setattr(module, "get_report_index_store", lambda: type("Store", (), {
+        "list_reports": lambda self, **kwargs: [None, "bad", {"report_id": "r1", "review_status": "watch"}],
+    })())
+    result = module.get_reports_to_review("session", [], [])
+    assert [report["report_id"] for report in result] == ["r1"]
+
+
+def test_review_flags_normalize_case_and_whitespace(monkeypatch):
+    monkeypatch.setattr(module, "get_report_index_store", lambda: type("Store", (), {
+        "list_reports": lambda self, **kwargs: [{"report_id": "r1", "review_status": " WATCH ",
+                                               "freshness_status": " LIVE ", "quality_state": " BLOCK "}],
+    })())
+    result = module.get_reports_to_review("session", [], [])
+    assert result[0]["_review_score"] == 90
+
+
+@pytest.mark.parametrize("as_of", [None, "not-a-date", 123, {"bad": "timestamp"}])
+def test_watched_report_with_unknown_data_age_requires_review(monkeypatch, as_of):
+    reports = [
+        {"report_id": "unknown", "ticker": "AAPL", "as_of": as_of, "generated_at": None,
+         "freshness_status": "live", "quality_state": "pass", "review_status": "new"},
+        {"report_id": "unwatched", "ticker": "MSFT", "generated_at": None},
+    ]
+
+    class Store:
+        def list_reports(self, **kwargs):
+            return reports
+
+    monkeypatch.setattr(module, "get_report_index_store", lambda: Store())
+
+    result = module.get_reports_to_review("session", ["AAPL"], [])
+
+    assert [report["report_id"] for report in result] == ["unknown"]
+    assert any("时间不可用" in reason for reason in result[0]["_review_reasons"])
 
 
 def test_none_ticker_report_does_not_crash(monkeypatch):

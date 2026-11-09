@@ -18,6 +18,109 @@ def clean_state():
     # 注意：实际生产中应该用独立的测试数据库
 
 
+@pytest.mark.parametrize("limit", [0, -1])
+def test_empty_timeline_limits_stop_before_collecting_events(monkeypatch, limit):
+    calls = []
+    monkeypatch.setattr(timeline_service, "_collect_report_events", lambda *args: calls.append(args) or [])
+    monkeypatch.setattr(timeline_service, "_collect_note_events", lambda *args: calls.append(args) or [])
+    assert timeline_service.get_timeline("AAPL", "session", "user", limit=limit) == []
+    assert calls == []
+
+
+@pytest.mark.parametrize("summary", [123, {"text": "bad"}, ["bad"]])
+def test_report_timeline_invalid_summary_does_not_break_event_list(monkeypatch, summary):
+    from types import SimpleNamespace
+
+    row = {"report_id": "r1", "generated_at": "2026-01-01T00:00:00Z", "summary": summary}
+    monkeypatch.setattr(timeline_service, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+    events = timeline_service.get_timeline("AAPL", "session", "user", event_type="report")
+    assert len(events) == 1
+    assert isinstance(events[0]["summary"], str)
+    assert len(events[0]["summary"]) <= 200
+
+
+@pytest.mark.parametrize("content", [123, {"text": "bad"}, ["bad"]])
+def test_note_timeline_invalid_content_preserves_event_list(monkeypatch, content):
+    row = {"note_id": "n1", "updated_at": "2026-01-01T00:00:00Z", "content": content, "tags": []}
+    monkeypatch.setattr(research_notes, "list_notes", lambda **kwargs: [row])
+    events = timeline_service.get_timeline("AAPL", "session", "user", event_type="note")
+    assert len(events) == 1
+    assert isinstance(events[0]["summary"], str)
+
+
+@pytest.mark.parametrize("tags", [None, "风险", ["风险", None, 123]])
+def test_note_timeline_tag_shapes_are_safe_and_preserve_risk_labels(monkeypatch, tags):
+    row = {"note_id": "n1", "updated_at": "2026-01-01T00:00:00Z", "tags": tags}
+    monkeypatch.setattr(research_notes, "list_notes", lambda **kwargs: [row])
+    events = timeline_service.get_timeline("AAPL", "session", "user", event_type="note")
+    assert len(events) == 1
+    assert events[0]["severity"] == ("medium" if tags is None else "high")
+
+
+@pytest.mark.parametrize("event_type", ["report", "note"])
+def test_timeline_collectors_skip_malformed_rows(monkeypatch, event_type):
+    from types import SimpleNamespace
+
+    rows = [None, "bad", {"report_id": "r1", "note_id": "n1",
+                           "generated_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}]
+    monkeypatch.setattr(timeline_service, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: rows))
+    monkeypatch.setattr(research_notes, "list_notes", lambda **kwargs: rows)
+    events = timeline_service.get_timeline("AAPL", "session", "user", event_type=event_type)
+    assert len(events) == 1
+    assert events[0]["event_type"] == event_type
+
+
+@pytest.mark.parametrize("event_type", ["report", "note"])
+@pytest.mark.parametrize("identifier", [None, "", 123])
+def test_timeline_rows_require_valid_source_identifiers(monkeypatch, event_type, identifier):
+    from types import SimpleNamespace
+
+    row = {"report_id": identifier, "note_id": identifier,
+           "generated_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}
+    monkeypatch.setattr(timeline_service, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+    monkeypatch.setattr(research_notes, "list_notes", lambda **kwargs: [row])
+    assert timeline_service.get_timeline("AAPL", "session", "user", event_type=event_type) == []
+
+
+@pytest.mark.parametrize("marker", [{"success": False}, {"error": "unavailable"}])
+def test_failed_report_records_do_not_become_timeline_events(monkeypatch, marker):
+    from types import SimpleNamespace
+
+    row = {"report_id": "r1", "generated_at": "2026-01-01T00:00:00Z", **marker}
+    monkeypatch.setattr(timeline_service, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+    assert timeline_service.get_timeline("AAPL", "session", "user", event_type="report") == []
+
+
+def test_timeline_citation_count_cannot_be_negative(monkeypatch):
+    from types import SimpleNamespace
+
+    row = {"report_id": "r1", "generated_at": "2026-01-01T00:00:00Z", "citation_count": -10}
+    monkeypatch.setattr(timeline_service, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+    event = timeline_service.get_timeline("AAPL", "session", "user", event_type="report")[0]
+    assert event["evidence"]["citation_count"] == 0
+
+
+def test_timezone_offset_order_uses_actual_instant(monkeypatch):
+    events = [
+        {"id": "older", "occurred_at": "2026-01-02T08:00:00+08:00"},
+        {"id": "newer", "occurred_at": "2026-01-02T01:00:00+00:00"},
+    ]
+    monkeypatch.setattr(timeline_service, "_collect_report_events", lambda *args: events)
+    actual = timeline_service.get_timeline("AAPL", "s", "u", event_type="report", limit=1)
+    assert [event["id"] for event in actual] == ["newer"]
+
+
+def test_persisted_confidence_is_numeric_and_finite(monkeypatch):
+    from types import SimpleNamespace
+    import json
+    for raw, expected in (("0.9", 0.9), ("nan", None), (float("inf"), None), (True, None), (2, None)):
+        row = {"report_id": "r1", "generated_at": "2026-01-01T00:00:00Z", "confidence_score": raw}
+        monkeypatch.setattr(timeline_service, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+        events = timeline_service.get_timeline("AAPL", "s", "u", event_type="report")
+        assert events[0]["evidence"]["confidence"] == expected
+        json.dumps(events, allow_nan=False)
+
+
 def test_empty_timeline(clean_state):
     """测试 1：空数据返回空列表"""
     events = timeline_service.get_timeline(

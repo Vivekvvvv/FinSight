@@ -10,7 +10,8 @@ from typing import Any, Literal, Optional
 
 from backend.services import research_notes
 from backend.services.report_index import get_report_index_store
-from backend.utils.quote import safe_int
+from backend.tools._item import iter_dict_items, text_or
+from backend.utils.quote import safe_float, safe_int
 
 
 EventType = Literal["report", "alert", "note", "risk", "evidence", "watchlist"]
@@ -58,7 +59,11 @@ def _collect_report_events(
     )
 
     events = []
-    for report in reports:
+    for report in iter_dict_items(reports):
+        if report.get("error") or report.get("success") is False:
+            continue
+        if not isinstance(report.get("report_id"), str) or not report["report_id"].strip():
+            continue
         occurred_at = _parse_iso_or_none(report.get("generated_at"))
         if not occurred_at:
             continue
@@ -71,7 +76,9 @@ def _collect_report_events(
 
         # 判断严重度
         quality_state = report.get("quality_state")
-        confidence = report.get("confidence_score")
+        confidence = safe_float(report.get("confidence_score"))
+        if confidence is not None and not 0 <= confidence <= 1:
+            confidence = None
 
         severity = "low"
         if quality_state == "block":
@@ -88,7 +95,7 @@ def _collect_report_events(
             # title/summary 列可空：.get(k, 默认) 只对缺键生效，NULL 值会拿到
             # None → None[:200] 抛 TypeError / "生成报告：None" 漏到 UI。
             "title": f"生成报告：{report.get('title') or '未命名报告'}",
-            "summary": (report.get("summary") or "")[:200],
+            "summary": text_or(report.get("summary"))[:200],
             "occurred_at": _format_iso(occurred_at),
             "severity": severity,
             "source": "report_index",
@@ -96,7 +103,7 @@ def _collect_report_events(
             "related_report_id": report["report_id"],
             "evidence": {
                 "confidence": confidence,
-                "citation_count": safe_int(report.get("citation_count"), 0) or 0,
+                "citation_count": max(0, safe_int(report.get("citation_count"), 0) or 0),
                 "freshness_status": report.get("freshness_status"),
                 "quality_state": quality_state,
             },
@@ -121,7 +128,9 @@ def _collect_note_events(
     )
 
     events = []
-    for note in notes:
+    for note in iter_dict_items(notes):
+        if not isinstance(note.get("note_id"), str) or not note["note_id"].strip():
+            continue
         # 使用 updated_at 作为事件时间
         occurred_at = _parse_iso_or_none(note.get("updated_at"))
         if not occurred_at:
@@ -138,6 +147,9 @@ def _collect_note_events(
 
         # 如果标签中包含"风险"、"警告"等关键词，提升严重度
         tags = note.get("tags", [])
+        if isinstance(tags, str):
+            tags = [tags]
+        tags = [tag for tag in tags if isinstance(tag, str)] if isinstance(tags, list) else []
         if any(keyword in " ".join(tags).lower() for keyword in ["风险", "警告", "问题", "风控"]):
             severity = "high"
 
@@ -146,7 +158,7 @@ def _collect_note_events(
             "symbol": symbol,
             "event_type": "note",
             "title": f"研究笔记：{note.get('title') or '未命名笔记'}",
-            "summary": (note.get("content") or "")[:200],
+            "summary": text_or(note.get("content"))[:200],
             "occurred_at": _format_iso(occurred_at),
             "severity": severity,
             "source": "research_notes",
@@ -180,6 +192,8 @@ def get_timeline(
     Returns:
         事件列表，按 occurred_at 倒序排序
     """
+    if limit <= 0:
+        return []
     # 解析时间范围
     from_dt = _parse_iso_or_none(from_date)
     to_dt = _parse_iso_or_none(to_date)
@@ -201,7 +215,7 @@ def get_timeline(
     #     all_events.extend(_collect_risk_events(symbol, ...))
 
     # 按 occurred_at 倒序排序
-    all_events.sort(key=lambda e: e.get("occurred_at", ""), reverse=True)
+    all_events.sort(key=lambda e: _parse_iso_or_none(e.get("occurred_at")) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
 
     # 应用 limit
     return all_events[:limit]

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from backend.services.report_index import get_report_index_store
 from backend.services import timeline_service
+from backend.tools._item import iter_dict_items
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def _collect_stale_reports(
 
     for rpt in reports:
         freshness_status = rpt.get("freshness_status")
-        if freshness_status not in ("live", None):
+        if freshness_status and freshness_status != "live":
             severity = "high" if freshness_status == "stale" else "medium"
 
             issue = {
@@ -211,7 +212,8 @@ def _collect_challenged_conclusions(
     # 按 symbol 分组
     reports_by_symbol: dict[str, list[dict[str, Any]]] = {}
     for rpt in reports:
-        ticker = rpt.get("ticker")
+        raw_ticker = rpt.get("ticker")
+        ticker = raw_ticker.strip().upper() if isinstance(raw_ticker, str) else ""
         if ticker:
             if ticker not in reports_by_symbol:
                 reports_by_symbol[ticker] = []
@@ -232,7 +234,13 @@ def _collect_challenged_conclusions(
 
             # 找 high/critical severity 事件
             high_severity_events = [
-                e for e in events if e.get("severity") in ("high", "critical")
+                {**e, "severity": str(e.get("severity") or "").strip().lower()}
+                for e in iter_dict_items(events)
+                if str(e.get("severity") or "").strip().lower() in ("high", "critical")
+                and not any(value is not None and str(value).strip().upper() != symbol
+                            for value in (e.get("ticker"), e.get("symbol")))
+                and not e.get("error") and e.get("success") is not False
+                and str(e.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
             ]
 
             if not high_severity_events:
@@ -246,7 +254,7 @@ def _collect_challenged_conclusions(
             flagged_ids: set[str] = set()
             for event in high_severity_events:
                 event_time = _parse_iso_safe(event.get("occurred_at"))
-                if not event_time:
+                if not event_time or not 0 <= (_now_utc() - event_time).total_seconds() <= 7 * 86400:
                     continue
 
                 for rpt in symbol_reports:
@@ -268,7 +276,6 @@ def _collect_challenged_conclusions(
                         issues.append(issue)
                         if rid:
                             flagged_ids.add(rid)
-                        break  # 每个事件只取第一个被挑战的报告
 
         except Exception:
             # timeline 查询失败不影响其他逻辑，但必须留痕：直接 continue 会让
@@ -355,6 +362,15 @@ def get_research_quality(
         limit=500,
         include_blocked=True,
     )
+
+    reports = [r for r in iter_dict_items(reports)
+               if isinstance(r.get("report_id"), str) and r["report_id"].strip()
+               and not r.get("error") and r.get("success") is not False
+               and str(r.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
+
+    reports = [{**r, **{key: str(r.get(key) or "").strip().lower()
+                        for key in ("freshness_status", "citation_quality", "quality_state", "review_status")}}
+               for r in reports]
 
     # 统计摘要
     total_reports = len(reports)

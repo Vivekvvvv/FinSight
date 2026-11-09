@@ -8,6 +8,7 @@ from typing import Any, Literal
 from backend.services import timeline_service, research_notes, portfolio_store
 from backend.services.report_index import get_report_index_store
 from backend.services.memory import MemoryService
+from backend.tools._item import iter_dict_items
 
 ChangeType = Literal["price", "news", "risk", "report", "alert", "evidence", "portfolio", "note"]
 Severity = Literal["low", "medium", "high", "critical"]
@@ -25,7 +26,8 @@ def _parse_iso_safe(iso_str: str | None) -> datetime | None:
     if not iso_str:
         return None
     try:
-        return datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return parsed.astimezone(timezone.utc) if parsed.tzinfo is None else parsed
     except Exception:
         return None
 
@@ -71,7 +73,7 @@ def _collect_timeline_changes(
     from_date = (_now_utc() - timedelta(hours=72)).isoformat()
 
     # 如果指定 symbol，只看这个标的
-    symbols_to_check = [symbol] if symbol else (watchlist_symbols + portfolio_symbols)
+    symbols_to_check = list(dict.fromkeys([symbol] if symbol else watchlist_symbols + portfolio_symbols))
 
     for sym in symbols_to_check[:10]:  # 最多检查 10 个标的
         events = timeline_service.get_timeline(
@@ -82,13 +84,23 @@ def _collect_timeline_changes(
             limit=20,
         )
 
-        for event in events:
-            severity = event.get("severity", "low")
+        for event in iter_dict_items(events):
+            if (event.get("error") or event.get("success") is False
+                or str(event.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
+            if any(value is not None and str(value).strip().upper() != sym
+                   for value in (event.get("symbol"), event.get("ticker"))):
+                continue
+            if not isinstance(event.get("id"), str) or not event["id"].strip():
+                continue
+            severity = str(event.get("severity") or "low").strip().lower()
             if severity not in ("high", "critical"):
                 continue  # 只关注高严重度事件
 
             occurred_at = _parse_iso_safe(event.get("occurred_at"))
             hours = _hours_ago(occurred_at)
+            if not 0 <= hours <= 72:
+                continue
 
             score = _score_severity(severity) + _score_recency(hours)
 
@@ -121,6 +133,7 @@ def _collect_report_changes(
     session_id: str,
     watchlist_symbols: list[str],
     portfolio_symbols: list[str],
+    symbol: str | None = None,
 ) -> list[dict[str, Any]]:
     """从报告质量和时效中提取变化"""
     changes = []
@@ -129,7 +142,12 @@ def _collect_report_changes(
     # 获取所有报告（包括 blocked 的，因为质量问题本身就是变化）
     reports = store.list_reports(session_id=session_id, limit=100, include_blocked=True)
 
-    for rpt in reports:
+    for rpt in iter_dict_items(reports):
+        if (rpt.get("error") or rpt.get("success") is False
+            or str(rpt.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
+        if not isinstance(rpt.get("report_id"), str) or not rpt["report_id"].strip():
+            continue
         # 存储端 upsert_report 对 ticker 只 strip 不 upper；watchlist/portfolio
         # 列表均大写，这里必须同样归一，否则小写入库的报告其变化被静默丢弃
         # （reports_to_review、task_router 读取端均已做 .upper() 归一）。
@@ -138,14 +156,16 @@ def _collect_report_changes(
             continue
 
         # 只关注 watchlist/portfolio 相关报告
-        if ticker not in watchlist_symbols and ticker not in portfolio_symbols:
+        if symbol and ticker != symbol:
+            continue
+        if not symbol and ticker not in watchlist_symbols and ticker not in portfolio_symbols:
             continue
 
         score = 0
         reasons = []
 
         # 规则 1: 质量状态恶化
-        quality_state = rpt.get("quality_state", "pass")
+        quality_state = str(rpt.get("quality_state") or "pass").strip().lower()
         if quality_state == "block":
             score += 40
             reasons.append("质量状态为 blocked")
@@ -154,13 +174,13 @@ def _collect_report_changes(
             reasons.append("质量状态为 warning")
 
         # 规则 2: 引用质量低
-        citation_quality = rpt.get("citation_quality")
+        citation_quality = str(rpt.get("citation_quality") or "").strip().lower()
         if citation_quality == "low":
             score += 20
             reasons.append("引用质量低")
 
         # 规则 3: 数据时效性
-        freshness_status = rpt.get("freshness_status")
+        freshness_status = str(rpt.get("freshness_status") or "").strip().lower()
         if freshness_status == "stale":
             score += 25
             reasons.append("数据已过期")
@@ -169,7 +189,7 @@ def _collect_report_changes(
             reasons.append("数据正在老化")
 
         # 规则 4: review_status
-        review_status = rpt.get("review_status")
+        review_status = str(rpt.get("review_status") or "").strip().lower()
         if review_status == "watch":
             score += 15
             reasons.append("标记为需复查")
@@ -210,6 +230,7 @@ def _collect_note_changes(
     user_id: str,
     watchlist_symbols: list[str],
     portfolio_symbols: list[str],
+    symbol: str | None = None,
 ) -> list[dict[str, Any]]:
     """从研究笔记中提取变化"""
     changes = []
@@ -217,7 +238,7 @@ def _collect_note_changes(
     # 获取最近 24 小时的笔记
     from_date = (_now_utc() - timedelta(hours=24)).isoformat()
 
-    for sym in (watchlist_symbols + portfolio_symbols)[:10]:
+    for sym in list(dict.fromkeys([symbol] if symbol else watchlist_symbols + portfolio_symbols))[:10]:
         events = timeline_service.get_timeline(
             symbol=sym,
             session_id=session_id,
@@ -227,11 +248,19 @@ def _collect_note_changes(
             limit=5,
         )
 
-        for event in events:
+        for event in iter_dict_items(events):
+            if (event.get("error") or event.get("success") is False
+                or str(event.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
+            if any(value is not None and str(value).strip().upper() != sym
+                   for value in (event.get("symbol"), event.get("ticker"))):
+                continue
+            if not isinstance(event.get("related_note_id"), str) or not event["related_note_id"].strip():
+                continue
             occurred_at = _parse_iso_safe(event.get("occurred_at"))
             hours = _hours_ago(occurred_at)
 
-            if hours > 24:
+            if not 0 <= hours <= 24:
                 continue
 
             score = 20 + _score_recency(hours)
@@ -288,17 +317,23 @@ def get_what_changed(
     Returns:
         按重要性排序的变化列表
     """
+    if limit <= 0:
+        return []
+    symbol = symbol.strip().upper() if symbol else None
+
     # 获取 watchlist 和 portfolio
     watchlist = _memory_service.list_watchlist_items(user_id)
-    watchlist_symbols = [item["ticker"] for item in watchlist if item.get("ticker")]
+    watchlist_symbols = list(dict.fromkeys(
+        item["ticker"].strip().upper() for item in iter_dict_items(watchlist)
+        if isinstance(item.get("ticker"), str) and item["ticker"].strip()
+    ))
 
     # 持仓标的：原来是 TODO 空列表，导致只在持仓、不在自选的标的，其
     # 报告/timeline/笔记变化永远不进 What Changed。
-    portfolio_symbols = [
-        str(p.get("ticker") or "").strip().upper()
-        for p in portfolio_store.get_positions(session_id)
-        if str(p.get("ticker") or "").strip()
-    ]
+    portfolio_symbols = list(dict.fromkeys(
+        p["ticker"].strip().upper() for p in iter_dict_items(portfolio_store.get_positions(session_id))
+        if isinstance(p.get("ticker"), str) and p["ticker"].strip()
+    ))
 
     # 收集候选变化
     all_changes: list[dict[str, Any]] = []
@@ -311,14 +346,13 @@ def get_what_changed(
     )
 
     # 2. 报告质量变化
-    if not symbol:  # 报告变化是全局的
-        all_changes.extend(
-            _collect_report_changes(session_id, watchlist_symbols, portfolio_symbols)
-        )
+    all_changes.extend(
+        _collect_report_changes(session_id, watchlist_symbols, portfolio_symbols, symbol)
+    )
 
     # 3. 研究笔记变化
     all_changes.extend(
-        _collect_note_changes(session_id, user_id, watchlist_symbols, portfolio_symbols)
+        _collect_note_changes(session_id, user_id, watchlist_symbols, portfolio_symbols, symbol)
     )
 
     # 去重

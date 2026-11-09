@@ -9,6 +9,143 @@ from backend.services import research_quality
 from backend.services.report_index import get_report_index_store
 
 
+@pytest.mark.parametrize("field", ["symbol", "ticker"])
+def test_challenging_evidence_must_match_the_queried_stock(monkeypatch, field):
+    now = datetime.now(timezone.utc)
+    report = {"report_id": "r1", "ticker": "AAPL", "generated_at": (now - timedelta(days=2)).isoformat()}
+    event = {"severity": "high", "occurred_at": (now - timedelta(minutes=1)).isoformat(), "title": "update"}
+    events = [{**event, field: "MSFT"}]
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: events)
+    assert research_quality._collect_challenged_conclusions([report], "s", "u") == []
+    events[:] = [{**event, field: " aapl "}]
+    assert len(research_quality._collect_challenged_conclusions([report], "s", "u")) == 1
+    events[:] = [event]
+    assert len(research_quality._collect_challenged_conclusions([report], "s", "u")) == 1
+
+
+@pytest.mark.parametrize("severity", [" HIGH ", "Critical", " critical "])
+def test_challenging_evidence_severity_is_normalized_for_selection_and_reason(monkeypatch, severity):
+    now = datetime.now(timezone.utc)
+    report = {"report_id": "r1", "ticker": "AAPL", "generated_at": (now - timedelta(days=2)).isoformat()}
+    event = {"severity": severity, "occurred_at": (now - timedelta(minutes=1)).isoformat(), "title": "update"}
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [event])
+    issues = research_quality._collect_challenged_conclusions([report], "s", "u")
+    assert len(issues) == 1
+    assert severity.strip().lower() + " 级别事件" in issues[0]["reason"]
+    assert event["severity"] == severity
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"status": " Failed "}, {"error": "not evidence"}])
+def test_failed_timeline_events_cannot_challenge_research(monkeypatch, failure):
+    now = datetime.now(timezone.utc)
+    report = {"report_id": "r1", "ticker": "AAPL", "generated_at": (now - timedelta(days=2)).isoformat()}
+    event = {"severity": "high", "occurred_at": now.isoformat(), "title": "update", **failure}
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [event])
+    assert research_quality._collect_challenged_conclusions([report], "s", "u") == []
+
+
+@pytest.mark.parametrize("offset", [-8, 1])
+def test_evidence_outside_the_last_seven_elapsed_days_cannot_challenge_reports(monkeypatch, offset):
+    now = datetime.now(timezone.utc)
+    report = {"report_id": "r1", "ticker": "AAPL", "generated_at": (now - timedelta(days=30)).isoformat()}
+    event = {"severity": "high", "occurred_at": (now + timedelta(days=offset)).isoformat(), "title": "update"}
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [event])
+    assert research_quality._collect_challenged_conclusions([report], "s", "u") == []
+
+
+def test_malformed_timeline_rows_do_not_hide_valid_challenging_evidence(monkeypatch):
+    now = datetime.now(timezone.utc)
+    report = {"report_id": "r1", "ticker": "AAPL", "generated_at": (now - timedelta(days=2)).isoformat()}
+    event = {"severity": "high", "occurred_at": now.isoformat(), "title": "update"}
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [None, "bad", event])
+    unqueried = []
+    issues = research_quality._collect_challenged_conclusions([report], "s", "u", unqueried)
+    assert len(issues) == 1
+    assert unqueried == []
+
+
+def test_report_tickers_are_normalized_before_challenged_evidence_queries(monkeypatch):
+    now = datetime.now(timezone.utc)
+    calls = []
+    def timeline(**kwargs):
+        calls.append(kwargs["symbol"])
+        return [{"severity": "high", "occurred_at": now.isoformat(), "title": "update"}]
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", timeline)
+    reports = [{"report_id": "a", "ticker": " aapl ", "generated_at": (now - timedelta(days=2)).isoformat()},
+               {"report_id": "b", "ticker": "AAPL", "generated_at": (now - timedelta(days=3)).isoformat()},
+               {"report_id": "bad", "ticker": [], "generated_at": now.isoformat()}]
+    issues = research_quality._collect_challenged_conclusions(reports, "s", "u")
+    assert calls == ["AAPL"]
+    assert {i["related_symbol"] for i in issues} == {"AAPL"}
+
+
+@pytest.mark.parametrize("failure", [{"error": "bad"}, {"success": False}, {"status": " Failed "}])
+def test_failed_reports_cannot_count_as_healthy_research(monkeypatch, failure):
+    from types import SimpleNamespace
+    row = {"report_id": "bad", "ticker": "AAPL", "review_status": "reviewed", **failure}
+    monkeypatch.setattr(research_quality, "get_report_index_store",
+                        lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [])
+    result = research_quality.get_research_quality(session_id="s", user_id="u")
+    assert result["summary"]["total_reports"] == 0
+    assert result["top_issues"] == []
+
+
+def test_quality_flags_have_consistent_normalized_counts_and_issues(monkeypatch):
+    from types import SimpleNamespace
+    row = {"report_id": "r1", "ticker": "AAPL", "freshness_status": " Stale ",
+           "citation_quality": " LOW ", "quality_state": "Block", "review_status": " Reviewed "}
+    monkeypatch.setattr(research_quality, "get_report_index_store",
+                        lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [])
+    result = research_quality.get_research_quality(session_id="s", user_id="u")
+    assert result["summary"]["stale_reports"] == 1
+    assert result["summary"]["blocked_reports"] == 1
+    assert result["summary"]["low_quality_reports"] == 1
+    assert result["summary"]["reviewed_rate"] == 1.0
+    assert {i["issue_type"] for i in result["top_issues"]} >= {"stale_report", "blocked_report", "low_citation"}
+    assert row["freshness_status"] == " Stale "
+
+
+@pytest.mark.parametrize("report_id", [None, "", "  ", [], 123])
+def test_reports_without_valid_ids_cannot_create_broken_issue_routes(monkeypatch, report_id):
+    from types import SimpleNamespace
+    rows = [{"report_id": report_id, "ticker": "AAPL", "freshness_status": "stale"},
+            {"report_id": "valid", "ticker": "AAPL", "freshness_status": "stale"}]
+    monkeypatch.setattr(research_quality, "get_report_index_store",
+                        lambda: SimpleNamespace(list_reports=lambda **kwargs: rows))
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [])
+    result = research_quality.get_research_quality(session_id="s", user_id="u")
+    assert result["summary"]["total_reports"] == 1
+    assert all(issue.get("related_report_id") in (None, "valid") for issue in result["top_issues"])
+
+
+def test_malformed_report_rows_preserve_valid_quality_issues(monkeypatch):
+    from types import SimpleNamespace
+    rows = [None, "bad", {"report_id": "r1", "ticker": "AAPL", "freshness_status": "stale"}]
+    monkeypatch.setattr(research_quality, "get_report_index_store",
+                        lambda: SimpleNamespace(list_reports=lambda **kwargs: rows))
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [])
+    result = research_quality.get_research_quality(session_id="s", user_id="u")
+    assert result["summary"]["total_reports"] == 1
+    assert any(issue["issue_type"] == "stale_report" for issue in result["top_issues"])
+
+
+def test_one_new_event_challenges_every_older_report_once(monkeypatch):
+    now = datetime.now(timezone.utc)
+    reports = [
+        {"report_id": "older-a", "ticker": "AAPL", "generated_at": (now - timedelta(days=5)).isoformat()},
+        {"report_id": "older-b", "ticker": "AAPL", "generated_at": (now - timedelta(days=3)).isoformat()},
+        {"report_id": "newer", "ticker": "AAPL", "generated_at": now.isoformat()},
+    ]
+    event = {"severity": "high", "occurred_at": (now - timedelta(days=1)).isoformat(), "title": "Material update"}
+    monkeypatch.setattr(research_quality.timeline_service, "get_timeline", lambda **kwargs: [event])
+
+    issues = research_quality._collect_challenged_conclusions(reports, "session", "user")
+
+    assert [issue["related_report_id"] for issue in issues] == ["older-a", "older-b"]
+
+
 @pytest.fixture
 def clean_state():
     """清理测试状态"""

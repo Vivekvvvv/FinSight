@@ -13,10 +13,213 @@ from backend.services.memory import MemoryService
 _memory_service = MemoryService()
 
 
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_reports_do_not_create_report_changes(monkeypatch, failure):
+    from types import SimpleNamespace
+    row = {"report_id": "bad", "ticker": "AAPL", "freshness_status": "stale", **failure}
+    monkeypatch.setattr(what_changed, "get_report_index_store",
+                        lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+    assert what_changed._collect_report_changes("s", ["AAPL"], []) == []
+
+
+@pytest.mark.parametrize("collector", ["timeline", "note"])
+def test_changes_exclude_events_for_a_different_instrument(monkeypatch, collector):
+    base = {"id": "wrong", "related_note_id": "wrong", "severity": "high",
+            "occurred_at": datetime.now(timezone.utc).isoformat(), "symbol": "MSFT"}
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline", lambda **kwargs: [base])
+    changes = (what_changed._collect_timeline_changes("s", "u", None, ["AAPL"], [])
+               if collector == "timeline" else what_changed._collect_note_changes("s", "u", ["AAPL"], []))
+    assert changes == []
+
+
+@pytest.mark.parametrize("severity", [" HIGH ", "Critical"])
+def test_timeline_change_severity_is_normalized(monkeypatch, severity):
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline", lambda **kwargs:
+                        [{"id": "valid", "severity": severity, "occurred_at": datetime.now(timezone.utc).isoformat()}])
+    changes = what_changed._collect_timeline_changes("s", "u", None, ["AAPL"], [])
+    assert len(changes) == 1
+    assert changes[0]["severity"] == severity.strip().lower()
+
+
+@pytest.mark.parametrize("collector", ["timeline", "note"])
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "failed"}, {"status": " Failed "}])
+def test_failed_events_do_not_generate_actionable_changes(monkeypatch, collector, failure):
+    base = {"id": "bad", "related_note_id": "bad", "severity": "high",
+            "occurred_at": datetime.now(timezone.utc).isoformat()}
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline", lambda **kwargs: [{**base, **failure}])
+    changes = (what_changed._collect_timeline_changes("s", "u", None, ["AAPL"], [])
+               if collector == "timeline" else what_changed._collect_note_changes("s", "u", ["AAPL"], []))
+    assert changes == []
+
+
+@pytest.mark.parametrize("note_id", [None, "", "  ", True, [], 123])
+def test_note_changes_require_usable_note_ids(monkeypatch, note_id):
+    base = {"occurred_at": datetime.now(timezone.utc).isoformat()}
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline",
+                        lambda **kwargs: [{**base, "related_note_id": note_id}, {**base, "related_note_id": "valid"}])
+    changes = what_changed._collect_note_changes("s", "u", ["AAPL"], [])
+    assert [item["id"] for item in changes] == ["note_valid"]
+
+
+@pytest.mark.parametrize("event_id", [None, "", "  ", True, [], 123])
+def test_timeline_changes_require_usable_event_ids(monkeypatch, event_id):
+    base = {"severity": "high", "occurred_at": datetime.now(timezone.utc).isoformat()}
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline",
+                        lambda **kwargs: [{**base, "id": event_id}, {**base, "id": "valid"}])
+    changes = what_changed._collect_timeline_changes("s", "u", None, ["AAPL"], [])
+    assert [item["id"] for item in changes] == ["timeline_valid"]
+
+
+@pytest.mark.parametrize("collector", ["timeline", "note"])
+def test_change_collectors_preserve_valid_events_beside_malformed_rows(monkeypatch, collector):
+    event = {"id": "valid", "related_note_id": "valid", "severity": "high",
+             "occurred_at": datetime.now(timezone.utc).isoformat()}
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline", lambda **kwargs: [None, "bad", event])
+    changes = (what_changed._collect_timeline_changes("s", "u", None, ["AAPL"], [])
+               if collector == "timeline" else what_changed._collect_note_changes("s", "u", ["AAPL"], []))
+    assert [change["id"] for change in changes] == [f"{collector}_valid"]
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_empty_change_request_stops_before_data_collection(monkeypatch, limit):
+    def unexpected_read(*args, **kwargs):
+        pytest.fail("empty change request must not load persistent data")
+
+    monkeypatch.setattr(what_changed._memory_service, "list_watchlist_items", unexpected_read)
+
+    assert what_changed.get_what_changed(session_id="empty", user_id="empty", limit=limit) == []
+
+
+def test_change_instrument_lists_filter_malformed_rows_and_normalize_identities(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(what_changed._memory_service, "list_watchlist_items", lambda _uid: [
+        None, "bad", {"ticker": []}, {"ticker": " aapl "}, {"ticker": "AAPL"},
+    ])
+    monkeypatch.setattr(what_changed.portfolio_store, "get_positions", lambda _sid: [
+        None, {"ticker": {}}, {"ticker": " msft "}, {"ticker": "MSFT"},
+    ])
+    monkeypatch.setattr(what_changed, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: [
+        {"ticker": "AAPL", "report_id": "a", "freshness_status": "stale"},
+        {"ticker": "MSFT", "report_id": "m", "freshness_status": "stale"},
+    ]))
+    calls = []
+    def timeline(**kwargs):
+        calls.append(kwargs["symbol"])
+        return []
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline", timeline)
+
+    changes = what_changed.get_what_changed(session_id="session", user_id="user")
+
+    assert [change["symbol"] for change in changes] == ["MSFT", "AAPL"]
+    assert changes[0]["severity"] == "high"
+    assert calls == ["AAPL", "MSFT", "AAPL", "MSFT"]
+
+
+def test_malformed_report_change_rows_preserve_valid_report_alerts(monkeypatch):
+    from types import SimpleNamespace
+
+    reports = [None, "bad", {}, {"ticker": "AAPL", "freshness_status": "stale"},
+               {"ticker": "AAPL", "report_id": None, "freshness_status": "stale"},
+               {"ticker": "AAPL", "report_id": "r1", "freshness_status": "stale"}]
+    monkeypatch.setattr(what_changed, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: reports))
+
+    changes = what_changed._collect_report_changes("session", ["AAPL"], [])
+
+    assert [change["report_id"] for change in changes] == ["r1"]
+    assert changes[0]["target_route"] == "/reports?highlight=r1"
+
+
+@pytest.mark.parametrize("field, raw, expected", [
+    ("quality_state", " BLOCK ", "critical"), ("quality_state", "Warn", "high"),
+    ("citation_quality", " LOW ", "high"), ("freshness_status", " Stale ", "medium"),
+    ("review_status", " WATCH ", "medium"),
+])
+def test_report_change_flags_ignore_case_and_whitespace(monkeypatch, field, raw, expected):
+    from types import SimpleNamespace
+
+    row = {"ticker": "AAPL", "report_id": "r1", "freshness_status": "aging", field: raw}
+    monkeypatch.setattr(what_changed, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: [row]))
+
+    changes = what_changed._collect_report_changes("session", ["AAPL"], [])
+
+    assert len(changes) == 1
+    assert changes[0]["severity"] == expected
+    assert row[field] == raw
+
+
+@pytest.mark.parametrize("collector", ["timeline", "note"])
+def test_future_events_are_excluded_from_recent_changes(monkeypatch, collector):
+    now = datetime.now(timezone.utc)
+    events = [
+        {"id": "future", "related_note_id": "future", "severity": "high", "occurred_at": (now + timedelta(hours=1)).isoformat()},
+        {"id": "current", "related_note_id": "current", "severity": "high", "occurred_at": now.isoformat()},
+    ]
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline", lambda **kwargs: events)
+
+    changes = (what_changed._collect_timeline_changes("session", "user", None, ["AAPL"], [])
+               if collector == "timeline" else what_changed._collect_note_changes("session", "user", ["AAPL"], []))
+
+    assert [change["id"] for change in changes] == [f"{collector}_current"]
+
+
+@pytest.mark.parametrize("collector", ["timeline", "note"])
+def test_repeated_watchlist_and_portfolio_symbols_do_not_consume_query_limit(monkeypatch, collector):
+    watchlist = ["AAPL", "MSFT", "TSLA", "NVDA", "AMZN"]
+    portfolio = watchlist + ["GOOGL"]
+    calls = []
+
+    def timeline(**kwargs):
+        calls.append(kwargs["symbol"])
+        return [{"id": "late-event", "related_note_id": "late-note", "severity": "high",
+                 "occurred_at": datetime.now(timezone.utc).isoformat()}] if kwargs["symbol"] == "GOOGL" else []
+
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline", timeline)
+
+    if collector == "timeline":
+        changes = what_changed._collect_timeline_changes("session", "user", None, watchlist, portfolio)
+    else:
+        changes = what_changed._collect_note_changes("session", "user", watchlist, portfolio)
+
+    assert [change["symbol"] for change in changes] == ["GOOGL"]
+    assert calls == watchlist + ["GOOGL"]
+
+
+def test_symbol_filter_applies_to_reports_and_notes(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(what_changed._memory_service, "list_watchlist_items", lambda _uid: [{"ticker": "MSFT"}])
+    monkeypatch.setattr(what_changed.portfolio_store, "get_positions", lambda _sid: [{"ticker": "NVDA"}])
+    reports = [
+        {"report_id": "r-aapl", "ticker": "AAPL", "freshness_status": "stale"},
+        {"report_id": "r-nvda", "ticker": "NVDA", "freshness_status": "stale"},
+    ]
+    monkeypatch.setattr(what_changed, "get_report_index_store", lambda: SimpleNamespace(list_reports=lambda **kwargs: reports))
+
+    def timeline(**kwargs):
+        if kwargs.get("event_type") != "note":
+            return []
+        return [{"related_note_id": kwargs["symbol"], "occurred_at": datetime.now(timezone.utc).isoformat()}]
+
+    monkeypatch.setattr(what_changed.timeline_service, "get_timeline", timeline)
+
+    changes = what_changed.get_what_changed(session_id="scoped", user_id="scoped", symbol="aapl")
+
+    assert {change["symbol"] for change in changes} == {"AAPL"}
+    assert {change["change_type"] for change in changes} == {"report", "note"}
+
+
 @pytest.fixture
 def clean_state():
     """清理测试状态"""
     yield
+
+
+def test_naive_timestamp_recency_is_scored_in_local_timezone():
+    raw = (datetime.now() - timedelta(hours=3)).isoformat()
+    parsed = what_changed._parse_iso_safe(raw)
+    assert what_changed._hours_ago(parsed) == pytest.approx(3, abs=0.01)
+    assert parsed.tzinfo is not None
 
 
 def test_empty_data_returns_empty_list(clean_state):
