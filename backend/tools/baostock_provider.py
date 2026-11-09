@@ -16,6 +16,8 @@ def is_cn_symbol(symbol: str) -> bool:
 
 def to_baostock_code(symbol: str) -> str | None:
     text = str(symbol or "").strip().upper()
+    if len(text) != 9 or not text[:-3].isascii() or not text[:-3].isdigit():
+        return None
     if text.endswith(".SS"):
         return f"sh.{text[:-3]}"
     if text.endswith(".SZ"):
@@ -48,7 +50,7 @@ def _history_rows(symbol: str, *, days: int = 90) -> list[dict[str, Any]]:
     logged_in = False
     try:
         login = bs.login()
-        logged_in = getattr(login, "error_code", "0") == "0"
+        logged_in = getattr(login, "error_code", None) == "0"
         if not logged_in:
             logger.info("[BaoStock] login failed")
             return []
@@ -64,8 +66,20 @@ def _history_rows(symbol: str, *, days: int = 90) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         while result.error_code == "0" and result.next():
             raw = dict(zip(result.fields, result.get_row_data()))
+            if raw.get("code") != code:
+                continue
+            try:
+                raw["date"] = datetime.fromisoformat(raw.get("date")).date().isoformat()
+            except (TypeError, ValueError, OverflowError):
+                continue
             close = safe_float(raw.get("close"))
-            if close is None:
+            if close is None or close <= 0:
+                continue
+            if any(value is None or value <= 0 for value in
+                   (safe_float(raw.get(field)) for field in ("open", "high", "low"))):
+                continue
+            if (safe_float(raw["high"]) < max(safe_float(raw["open"]), close)
+                or safe_float(raw["low"]) > min(safe_float(raw["open"]), close)):
                 continue
             rows.append(
                 {
@@ -74,12 +88,16 @@ def _history_rows(symbol: str, *, days: int = 90) -> list[dict[str, Any]]:
                     "high": safe_float(raw.get("high")),
                     "low": safe_float(raw.get("low")),
                     "close": close,
-                    "volume": safe_float(raw.get("volume")),
-                    "amount": safe_float(raw.get("amount")),
+                    "previousClose": previous_close if (previous_close := safe_float(raw.get("preclose"))) is not None and previous_close > 0 else None,
+                    "volume": volume if (volume := safe_float(raw.get("volume"))) is not None and volume >= 0 else None,
+                    "amount": amount if (amount := safe_float(raw.get("amount"))) is not None and amount >= 0 else None,
                     "pctChg": safe_float(raw.get("pctChg")),
                 }
             )
-        return rows
+        if result.error_code != "0":
+            logger.info("[BaoStock] history query failed")
+            return []
+        return sorted({row["time"]: row for row in rows}.values(), key=lambda row: row["time"])
     except Exception as exc:
         logger.info('[BaoStock] history failed')
         return []
@@ -98,15 +116,15 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
     latest = rows[-1]
     previous = rows[-2] if len(rows) >= 2 else None
     price = safe_float(latest.get("close"))
-    prev_close = safe_float(previous.get("close")) if previous else None
+    prev_close = safe_float(latest.get("previousClose")) or (safe_float(previous.get("close")) if previous else None)
     if price is None:
         return None
 
     change = price - prev_close if prev_close not in (None, 0) else None
-    change_percent = (change / prev_close * 100) if change is not None and prev_close else latest.get("pctChg")
+    change_percent = safe_float((change / prev_close * 100) if change is not None and prev_close else latest.get("pctChg"))
     as_of = str(latest.get("time") or datetime.now(timezone.utc).date().isoformat())
     return {
-        "symbol": symbol.upper(),
+        "symbol": symbol.strip().upper(),
         "currentPrice": price,
         "regularMarketPrice": price,
         "price": price,
@@ -125,6 +143,8 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
 
 
 def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") -> dict[str, Any] | None:
+    if interval != "1d":
+        return None
     days_by_period = {
         "5d": 10,
         "1mo": 45,

@@ -4,6 +4,66 @@ from types import SimpleNamespace
 from backend.tools import price
 from backend.tools import price_history_providers as php
 from backend.tools import price_providers
+
+
+def test_yahoo_quote_metadata_must_match_requested_stock(monkeypatch):
+    for marker in ({"symbol": "MSFT"}, {"ticker": "MSFT"}, {"symbol": {}}):
+        meta = {"regularMarketPrice": 100, "previousClose": 99, **marker}
+        monkeypatch.setattr(price_providers, "_http_get", lambda *a, **kw: SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: {"chart": {"result": [{"meta": meta}]}}))
+        assert price_providers._fetch_yahoo_api_v8("AAPL") is None
+    meta["symbol"] = " aapl "
+    assert "Current Price: $100.00" in price_providers._fetch_yahoo_api_v8("AAPL")
+
+
+def test_yahoo_chart_error_cannot_supply_old_quote_results(monkeypatch):
+    payload = {"chart": {"error": {"description": "bad"}, "result": [{"meta": {
+        "regularMarketPrice": 100, "previousClose": 99}}]}}
+    monkeypatch.setattr(price_providers, "_http_get", lambda *a, **kw: SimpleNamespace(
+        raise_for_status=lambda: None, json=lambda: payload))
+    assert price_providers._fetch_yahoo_api_v8("AAPL") is None
+
+
+def test_twelve_data_metadata_identity_cannot_be_relabelled(monkeypatch):
+    monkeypatch.setattr(price_providers, "TWELVE_DATA_API_KEY", "test-key")
+    for symbol in ("MSFT", {}, 123):
+        payload = {"status": "ok", "meta": {"symbol": symbol}, "values": [{"close": "100"}, {"close": "99"}]}
+        monkeypatch.setattr(price_providers, "_http_get", lambda *a, **kw: SimpleNamespace(status_code=200, json=lambda: payload))
+        assert price_providers._fetch_with_twelve_data_price("AAPL") is None
+
+
+def test_finnhub_quote_identity_is_checked_before_price_text(monkeypatch):
+    for marker in ({"symbol": "MSFT"}, {"ticker": "MSFT"}, {"symbol": {}}):
+        quote = {"c": 100, "d": 1, "dp": 1, **marker}
+        monkeypatch.setattr(price_providers, "finnhub_client", SimpleNamespace(quote=lambda ticker: quote))
+        assert price_providers._fetch_with_finnhub("AAPL") is None
+
+
+def test_finnhub_failed_quote_cannot_supply_formatted_price(monkeypatch):
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        quote = {"c": 100, "d": 1, "dp": 1, **marker}
+        monkeypatch.setattr(price_providers, "finnhub_client", SimpleNamespace(quote=lambda ticker: quote))
+        assert price_providers._fetch_with_finnhub("AAPL") is None
+
+
+def test_alpha_vantage_failed_payloads_cannot_supply_quote_text(monkeypatch):
+    quote = {"05. price": "100", "09. change": "1", "10. change percent": "1%"}
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        for nested in (False, True):
+            payload = {"Global Quote": {**quote, **marker}} if nested else {"Global Quote": quote, **marker}
+            monkeypatch.setattr(price_providers, "_http_get", lambda *a, **kw: SimpleNamespace(
+                raise_for_status=lambda: None, json=lambda: payload))
+            assert price_providers._fetch_with_alpha_vantage("AAPL") is None
+
+
+def test_alpha_vantage_quote_identity_cannot_be_relabelled(monkeypatch):
+    for symbol in ("MSFT", {}, 123):
+        quote = {"01. symbol": symbol, "05. price": "100", "09. change": "1", "10. change percent": "1%"}
+        monkeypatch.setattr(price_providers, "_http_get", lambda *a, **kw: SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: {"Global Quote": quote}))
+        assert price_providers._fetch_with_alpha_vantage("AAPL") is None
+    quote["01. symbol"] = " aapl "
+    assert "Current Price: $100.00" in price_providers._fetch_with_alpha_vantage("AAPL")
 from backend.tools import price_history_vendor_providers as phv
 
 
@@ -1004,7 +1064,9 @@ def test_alpha_vantage_historical_skips_poison_daily_rows(monkeypatch):
             return SimpleNamespace(empty=True)
 
     def _day(open_, close):
-        return {"1. open": open_, "2. high": open_, "3. low": open_,
+        return {"1. open": open_,
+                "2. high": str(max(float(open_), float(close))),
+                "3. low": str(min(float(open_), float(close))),
                 "4. close": close, "5. volume": "1000"}
 
     response = SimpleNamespace(json=lambda: {"Time Series (Daily)": {

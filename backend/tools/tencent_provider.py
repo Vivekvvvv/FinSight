@@ -68,7 +68,7 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
 
         # 解析响应：v_sh600519="51~贵州茅台~600519~2086.00~2080.00~..."
         text = resp.text.strip()
-        if not text or "~" not in text:
+        if not text or "~" not in text or not text.startswith(f"v_{code}="):
             monitor.record_failure("tencent", "empty or invalid response")
             return None
 
@@ -82,16 +82,17 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
         # 3=现价, 4=昨收, 5=开盘, 6=成交量(手), 7=外盘, 8=内盘
         # 9=买一, 10=买一量, ..., 30=日期, 31=时间
         # 39=市盈率PE, 43=振幅, 44=流通市值(亿), 45=总市值(亿), 46=市净率PB, 52=换手率
+        if parts[2].strip() != code[2:]:
+            return None
         price = safe_float(parts[3])
         prev_close = safe_float(parts[4])
-        if price is None or prev_close is None or prev_close == 0:
+        if price is None or price <= 0 or prev_close is None or prev_close <= 0:
             return None
 
         change = price - prev_close
-        change_percent = (change / prev_close) * 100
+        change_percent = safe_float((change / prev_close) * 100)
         volume = safe_float(parts[6])  # 成交量(手)
-        if volume:
-            volume = volume * 100  # 转换为股
+        volume = safe_float(volume * 100) if volume is not None and volume >= 0 else None  # 转换为股
 
         # 基本面数据（字段39-52）
         pe_ratio = safe_float(parts[39]) if len(parts) > 39 else None  # 市盈率
@@ -99,30 +100,38 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
         market_cap = safe_float(parts[45]) if len(parts) > 45 else None  # 总市值(亿)
         circulating_cap = safe_float(parts[44]) if len(parts) > 44 else None  # 流通市值(亿)
         turnover_rate = safe_float(parts[52]) if len(parts) > 52 else None  # 换手率(%)
+        if turnover_rate is not None and turnover_rate < 0:
+            turnover_rate = None
 
         # 转换市值单位：亿 → 元
-        if market_cap:
-            market_cap = market_cap * 100_000_000
-        if circulating_cap:
-            circulating_cap = circulating_cap * 100_000_000
+        market_cap = safe_float(market_cap * 100_000_000) if market_cap is not None and market_cap > 0 else None
+        circulating_cap = safe_float(circulating_cap * 100_000_000) if circulating_cap is not None and circulating_cap > 0 else None
 
         # 拼接时间戳
         date_str = parts[30] if len(parts) > 30 else ""  # 20260614
         time_str = parts[31] if len(parts) > 31 else ""  # 150000
-        as_of = datetime.now(timezone.utc).isoformat()
+        as_of = None
         if date_str and len(date_str) == 8:
             try:
-                as_of = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
                 if time_str and len(time_str) == 6:
-                    as_of += f"T{time_str[:2]}:{time_str[2:4]}:{time_str[4:6]}+08:00"
-            except Exception:
-                pass
+                    as_of = datetime.strptime(date_str + time_str, "%Y%m%d%H%M%S").isoformat() + "+08:00"
+                else:
+                    as_of = datetime.strptime(date_str, "%Y%m%d").date().isoformat()
+            except ValueError:
+                as_of = None
+
+        if len(date_str) == 14 and date_str.isdigit():
+            try:
+                observed = datetime.strptime(date_str, "%Y%m%d%H%M%S")
+                as_of = observed.isoformat() + "+08:00"
+            except ValueError:
+                as_of = None
 
         # 记录成功
         monitor.record_success("tencent", response_time_ms)
 
         return {
-            "symbol": symbol.upper(),
+            "symbol": symbol.strip().upper(),
             "currentPrice": price,
             "regularMarketPrice": price,
             "price": price,
@@ -146,7 +155,7 @@ def fetch_cn_quote(symbol: str) -> dict[str, Any] | None:
             # 元数据
             "source": "tencent",
             "as_of": as_of,
-            "freshness_status": "live",
+            "freshness_status": "live" if as_of is not None else "unknown",
             "fallback_level": 1,
             "modelGenerated": False,
         }
@@ -191,7 +200,9 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
         "1wk": "week",
         "1mo": "month",
     }
-    kline_type = interval_map.get(interval, "day")
+    kline_type = interval_map.get(interval)
+    if kline_type is None:
+        return None
 
     # 腾讯接口参数: param=代码,类型,开始日期,结束日期,数量,复权方式
     # qfq=前复权, hfq=后复权, 空=不复权
@@ -204,14 +215,21 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
             return None
 
         data = resp.json()
-        if data.get("code") != 0:
+        if (data.get("code") != 0 or data.get("error") or data.get("success") is False
+            or str(data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             logger.info("[Tencent] K线返回错误")
             return None
 
         # 解析K线数据
         stock_data = data.get("data", {}).get(code, {})
+        if (stock_data.get("error") or stock_data.get("success") is False
+            or str(stock_data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and (not isinstance(value, str) or value.strip().upper() != symbol.strip().upper())
+               for value in (stock_data.get("ticker"), stock_data.get("symbol"))):
+            return None
         kline_key = f"qfq{kline_type}"  # qfqday / qfqweek / qfqmonth
-        raw_lines = stock_data.get(kline_key, [])
+        raw_lines = stock_data.get(kline_key) or stock_data.get(kline_type) or []
 
         if not raw_lines:
             logger.info("[Tencent] K线数据为空")
@@ -228,19 +246,24 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
             if not isinstance(line, list) or len(line) < 6:
                 continue
 
-            date_str = str(line[0])  # 2026-04-29
+            try:
+                date_str = datetime.fromisoformat(line[0]).date().isoformat()  # 2026-04-29
+            except (TypeError, ValueError, OverflowError):
+                continue
             open_price = safe_float(line[1])
             close_price = safe_float(line[2])
             high_price = safe_float(line[3])
             low_price = safe_float(line[4])
             volume = safe_float(line[5])
 
-            if close_price is None:
+            if any(price is None or price <= 0 for price in (open_price, close_price, high_price, low_price)):
+                continue
+
+            if high_price < max(open_price, close_price) or low_price > min(open_price, close_price):
                 continue
 
             # 成交量从手转为股
-            if volume:
-                volume = volume * 100
+            volume = safe_float(volume * 100) if volume is not None and volume >= 0 else None
 
             kline_data.append({
                 "time": date_str,
@@ -256,6 +279,9 @@ def fetch_cn_kline(symbol: str, *, period: str = "1mo", interval: str = "1d") ->
 
         if not kline_data:
             return None
+        kline_data = sorted({row["time"]: row for row in kline_data}.values(), key=lambda row: row["time"])
+        dates = [row["time"] for row in kline_data]
+        values = [[row["open"], row["close"], row["low"], row["high"]] for row in kline_data]
 
         return {
             "kline_data": kline_data,
@@ -295,12 +321,19 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
             return None
 
         data = resp.json()
-        if data.get("code") != 0:
+        if (data.get("code") != 0 or data.get("error") or data.get("success") is False
+            or str(data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             logger.info("[Tencent] 分时返回错误")
             return None
 
         # 解析分时数据
         stock_data = data.get("data", {}).get(code, {})
+        if (stock_data.get("error") or stock_data.get("success") is False
+            or str(stock_data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and (not isinstance(value, str) or value.strip().upper() != symbol.strip().upper())
+               for value in (stock_data.get("ticker"), stock_data.get("symbol"))):
+            return None
         minute_container = stock_data.get("data", {})
 
         # 分时数据在 minute_container['data'] 中
@@ -308,8 +341,21 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
             logger.info("[Tencent] 分时数据格式错误")
             return None
 
+        if (minute_container.get("error") or minute_container.get("success") is False
+            or str(minute_container.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and (not isinstance(value, str) or value.strip().upper() != symbol.strip().upper())
+               for value in (minute_container.get("ticker"), minute_container.get("symbol"))):
+            return None
         raw_lines = minute_container.get("data", [])
         date_str = minute_container.get("date", "")
+        if date_str not in (None, ""):
+            try:
+                if not isinstance(date_str, str):
+                    return None
+                datetime.fromisoformat(f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}" if len(date_str) == 8 else date_str)
+            except (TypeError, ValueError, OverflowError):
+                return None
 
         if not raw_lines:
             logger.info("[Tencent] 分时数据为空")
@@ -328,11 +374,19 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
                 continue
 
             time_str = parts[0]  # 0930
+            try:
+                if len(time_str) != 4 or not time_str.isdigit():
+                    continue
+                datetime.strptime(time_str, "%H%M")
+            except ValueError:
+                continue
             price = safe_float(parts[1])
             cum_volume = safe_float(parts[2])  # 累计成交量(手)
             cum_amount = safe_float(parts[3])  # 累计成交额
+            if cum_amount is not None and cum_amount < 0:
+                cum_amount = None
 
-            if price is None:
+            if price is None or price <= 0:
                 continue
 
             # 转换为标准时间格式
@@ -342,7 +396,7 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
                 formatted_time = time_str
 
             # 成交量从手转为股
-            volume_shares = cum_volume * 100 if cum_volume else None
+            volume_shares = safe_float(cum_volume * 100) if cum_volume is not None and cum_volume >= 0 else None
 
             intraday_data.append({
                 "time": formatted_time,
@@ -358,6 +412,10 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
 
         if not intraday_data:
             return None
+        intraday_data = sorted({point["time"]: point for point in intraday_data}.values(), key=lambda point: point["time"])
+        times = [point["time"] for point in intraday_data]
+        prices = [point["price"] for point in intraday_data]
+        volumes = [point["volume"] for point in intraday_data]
 
         # as_of 必须是最后一条分时点的时间；取数时刻在盘后会让昨天的旧图
         # 看起来是刚更新的（同 us_market 分时的口径）。腾讯日期常为 20261017。
@@ -378,7 +436,7 @@ def fetch_cn_intraday(symbol: str) -> dict[str, Any] | None:
             "date": date_str,
             "source": "tencent",
             "as_of": as_of,
-            "freshness_status": "live",
+            "freshness_status": "live" if day else "unknown",
             "fallback_level": 1,
         }
     except Exception as exc:

@@ -38,6 +38,14 @@ def _fetch_with_alpha_vantage(ticker: str):
         
         if 'Global Quote' in data and data['Global Quote']:
             quote = data['Global Quote']
+            if any(payload.get("error") or payload.get("success") is False
+                   or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}
+                   for payload in (data, quote)):
+                return None
+            if quote.get("01. symbol") is not None and (
+                not isinstance(quote["01. symbol"], str) or quote["01. symbol"].strip().upper() != ticker.strip().upper()
+            ):
+                return None
             price = _safe_float_value(quote.get('05. price'))
             change = _safe_float_value(quote.get('09. change'))
             change_percent_str = quote.get('10. change percent', '0%').replace('%', '')
@@ -64,6 +72,12 @@ def _fetch_with_finnhub(ticker: str):
     try:
         quote = finnhub_client.quote(ticker)
         if quote:
+            if (quote.get("error") or quote.get("success") is False
+                or str(quote.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                return None
+            if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                   for value in (quote.get("ticker"), quote.get("symbol"))):
+                return None
             price = _safe_float_value(quote.get('c'))
             change = _safe_float_value(quote.get('d')) or 0.0
             change_percent = _safe_float_value(quote.get('dp')) or 0.0
@@ -120,6 +134,12 @@ def _fetch_with_twelve_data_price(ticker: str):
             # Twelve Data 返回 {"status": "error", "message": "..."} 时也走兜底
             return None
 
+        meta = data.get("meta")
+        if isinstance(meta, dict) and any(
+            value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+            for value in (meta.get("ticker"), meta.get("symbol"))
+        ):
+            return None
         values = data.get("values", [])
         latest = values[0] if values else None
         if not latest:
@@ -159,11 +179,18 @@ def _fetch_yahoo_api_v8(ticker: str):
         response.raise_for_status()
         data = response.json()
 
-        result = data.get('chart', {}).get('result', [])
+        chart = data.get("chart")
+        if (not isinstance(chart, dict) or chart.get("error") or chart.get("success") is False
+            or str(chart.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        result = chart.get('result', [])
         if not result:
             return None
 
         meta = result[0].get('meta', {})
+        if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+               for value in (meta.get("ticker"), meta.get("symbol"))):
+            return None
         price = _safe_float_value(meta.get('regularMarketPrice'))
         prev_close = _safe_float_value(meta.get('previousClose') or meta.get('chartPreviousClose'))
 
