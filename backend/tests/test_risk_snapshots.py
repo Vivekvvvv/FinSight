@@ -13,6 +13,65 @@ from backend.services.risk_snapshots import (
 )
 
 
+def test_history_returns_summary_without_the_full_archived_payload(tmp_path):
+    path = tmp_path / "risk.db"
+    data = {"risk_score": 5, "sector_exposure": [{"sector": "Technology", "weight": 100}]}
+    save_risk_snapshot("s", "u", data, snapshot_date="2026-01-01", db_path=path)
+    history = get_risk_snapshots_history("s", "u", db_path=path)
+    assert "full_data" not in history[0]
+    assert history[0]["risk_score"] == 5
+    assert get_latest_snapshot("s", "u", db_path=path)["data"] == data
+
+
+@pytest.mark.parametrize("invalid_date", ["bad", "2026-02-30", "2026-1-01", ""])
+def test_invalid_snapshot_dates_cannot_displace_valid_history(tmp_path, invalid_date):
+    path = tmp_path / "risk.db"
+    save_risk_snapshot("s", "u", {"risk_score": 5}, snapshot_date="2026-01-01", db_path=path)
+    with pytest.raises(ValueError):
+        save_risk_snapshot("s", "u", {"risk_score": 9}, snapshot_date=invalid_date, db_path=path)
+    assert [row["snapshot_date"] for row in get_risk_snapshots_history("s", "u", db_path=path)] == ["2026-01-01"]
+
+
+def test_nonpositive_history_limit_does_not_return_all_snapshots(tmp_path):
+    path = tmp_path / "risk.db"
+    save_risk_snapshot("s", "u", {"risk_score": 5}, snapshot_date="2026-01-01", db_path=path)
+    assert get_risk_snapshots_history("s", "u", days=-1, db_path=path) == []
+    assert get_risk_snapshots_history("s", "u", days=0, db_path=path) == []
+
+
+@pytest.mark.parametrize("operation", ["save", "history", "latest"])
+def test_snapshot_operations_close_connections_when_cursor_creation_fails(monkeypatch, tmp_path, operation):
+    from unittest.mock import MagicMock
+    from backend.services import risk_snapshots
+    connection = MagicMock()
+    connection.cursor.side_effect = RuntimeError("cursor failed")
+    monkeypatch.setattr(risk_snapshots, "_connect", lambda *args: connection)
+    monkeypatch.setattr(risk_snapshots, "_ensure_snapshots_table", lambda *args: None)
+    with pytest.raises(RuntimeError, match="cursor failed"):
+        if operation == "save":
+            risk_snapshots.save_risk_snapshot("s", "u", {"risk_score": 5}, db_path=tmp_path / "unused.db")
+        elif operation == "history":
+            risk_snapshots.get_risk_snapshots_history("s", "u", db_path=tmp_path / "unused.db")
+        else:
+            risk_snapshots.get_latest_snapshot("s", "u", db_path=tmp_path / "unused.db")
+    connection.close.assert_called_once()
+
+
+@pytest.mark.parametrize("failed_statement", ["journal_mode", "busy_timeout"])
+def test_connection_is_closed_when_pragma_setup_fails(monkeypatch, failed_statement):
+    from unittest.mock import MagicMock
+    from backend.services import risk_snapshots
+    connection = MagicMock()
+    def execute(statement):
+        if failed_statement in statement:
+            raise RuntimeError("pragma failed")
+    connection.execute.side_effect = execute
+    monkeypatch.setattr(risk_snapshots.sqlite3, "connect", lambda *args, **kwargs: connection)
+    with pytest.raises(RuntimeError, match="pragma failed"):
+        risk_snapshots._connect("unused.db")
+    connection.close.assert_called_once()
+
+
 def test_save_and_retrieve_snapshot():
     """测试保存和检索快照"""
     with tempfile.TemporaryDirectory() as tmpdir:

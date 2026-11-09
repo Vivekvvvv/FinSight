@@ -50,6 +50,42 @@ def _pin_positions(monkeypatch, invalid=None) -> None:
     monkeypatch.setattr(portfolio_store, "get_positions", _get_positions)
 
 
+def test_risk_lens_overflowing_quote_valuation_uses_degraded_cost_fallback(monkeypatch):
+    from backend.services import portfolio_store, report_index
+
+    monkeypatch.setattr(portfolio_store, "get_positions", lambda *args, **kwargs: [{
+        "ticker": "AAPL", "shares": 1e308, "avg_cost": 0.01,
+    }])
+    _pin_quote(monkeypatch, 1e308)
+    monkeypatch.setattr(report_index, "get_report_index_store", lambda: type("Store", (), {
+        "list_reports": lambda self, **kwargs: [],
+    })())
+    with _client(monkeypatch) as client:
+        response = client.get("/api/portfolio/risk-lens", params={"session_id": _SESSION})
+    assert response.status_code == 200
+    assert response.json()["degraded"] is True
+    assert response.json()["priced_count"] == 0
+    assert response.json()["total_value"] == 1e306
+
+
+def test_risk_lens_cached_valuation_marks_degraded_coverage(monkeypatch):
+    from backend.api import portfolio_router
+    from backend.services import report_index
+
+    _pin_positions(monkeypatch)
+    async def quote(_ticker):
+        return {"price": 100.0, "freshness_status": "cached"}, None
+    monkeypatch.setattr(portfolio_router, "_resolve_quote_for_portfolio", quote)
+    monkeypatch.setattr(report_index, "get_report_index_store", lambda: type("Store", (), {
+        "list_reports": lambda self, **kwargs: [],
+    })())
+    with _client(monkeypatch) as client:
+        response = client.get("/api/portfolio/risk-lens", params={"session_id": _SESSION})
+    assert response.status_code == 200
+    assert response.json()["total_value"] == 1000.0
+    assert response.json()["degraded"] is True
+
+
 def test_risk_lens_returns_real_lens_for_user_with_positions(monkeypatch):
     """有持仓时必须返回真实风险透镜，而非异常压成的 success=False 空壳。"""
     import backend.services.report_index as report_index

@@ -9,6 +9,90 @@ import numpy as np
 import pytest
 
 
+def test_flat_market_returns_do_not_claim_a_measured_beta(monkeypatch):
+    from backend.services import risk_attribution as module
+    monkeypatch.setattr(module, "_fetch_returns", lambda ticker, *args:
+                        [0.0] * 40 if ticker == "000300.SS" else [0.01, -0.01] * 20)
+    result = module.calculate_risk_attribution([{"ticker": "AAPL", "market_value": 1000}])
+    assert result["positions"][0]["beta_estimated"] is False
+    assert result["beta_unavailable_tickers"] == ["AAPL"]
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_positions_do_not_distort_risk_attribution_weights(monkeypatch, failure):
+    from backend.services import risk_attribution as module
+    monkeypatch.setattr(module, "_fetch_returns", lambda *args: None)
+    result = module.calculate_risk_attribution([
+        {"ticker": "BAD", "market_value": 9000, **failure},
+        {"ticker": "AAPL", "market_value": 1000}])
+    assert [row["ticker"] for row in result["positions"]] == ["AAPL"]
+    assert result["positions"][0]["weight"] == 1.0
+
+
+@pytest.mark.parametrize("field", ["ticker", "symbol"])
+def test_unrelated_daily_bars_cannot_supply_attribution_returns(monkeypatch, field):
+    from backend.services import risk_attribution as module
+    import backend.tools as tools_module
+    rows = [{"close": 100 + i, field: "MSFT"} for i in range(40)]
+    monkeypatch.setattr(tools_module, "get_stock_historical_data", lambda *args, **kwargs: {"kline_data": rows})
+    assert module._fetch_returns("AAPL") is None
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_daily_bars_cannot_supply_measured_attribution_returns(monkeypatch, failure):
+    from backend.services import risk_attribution as module
+    import backend.tools as tools_module
+    rows = [{"close": 100 + i, **failure} for i in range(40)]
+    monkeypatch.setattr(tools_module, "get_stock_historical_data", lambda *args, **kwargs: {"kline_data": rows})
+    assert module._fetch_returns("AAPL") is None
+
+
+def test_unavailable_history_status_cannot_supply_attribution_returns(monkeypatch):
+    from backend.services import risk_attribution as module
+    import backend.tools as tools_module
+    monkeypatch.setattr(tools_module, "get_stock_historical_data", lambda *args, **kwargs:
+                        {"status": " Unavailable ", "kline_data": [{"close": 100 + i} for i in range(40)]})
+    assert module._fetch_returns("AAPL") is None
+
+
+def test_empty_attribution_does_not_claim_measured_zero_risk():
+    from backend.services import risk_attribution as module
+
+    result = module.calculate_risk_attribution([])
+    assert result["market_risk_pct"] is None
+    assert result["idiosyncratic_risk_pct"] is None
+    assert result["method"] == "no_data"
+
+
+def test_attribution_sector_names_ignore_surrounding_whitespace(monkeypatch):
+    from backend.services import risk_attribution as module
+
+    monkeypatch.setattr(module, "_fetch_returns", lambda *args: None)
+    result = module.calculate_risk_attribution([
+        {"ticker": "AAPL", "market_value": 500, "sector": " Tech "},
+        {"ticker": "MSFT", "market_value": 500, "sector": "Tech"},
+    ])
+    assert result["sector_attribution"] == [{"sector": "Tech", "weight": 1.0, "risk_contribution": 0.0}]
+
+
+def test_attribution_outputs_normalized_ticker_identity(monkeypatch):
+    from backend.services import risk_attribution as module
+
+    monkeypatch.setattr(module, "_fetch_returns", lambda *args: None)
+    result = module.calculate_risk_attribution([{"ticker": " aapl ", "market_value": 1000}])
+    assert result["positions"][0]["ticker"] == "AAPL"
+    assert result["beta_unavailable_tickers"] == ["AAPL"]
+
+
+def test_malformed_attribution_positions_do_not_discard_valid_holdings(monkeypatch):
+    from backend.services import risk_attribution as module
+
+    monkeypatch.setattr(module, "_fetch_returns", lambda *args: None)
+    result = module.calculate_risk_attribution([None, "bad", {}, {"ticker": "AAPL", "market_value": 1000}])
+    assert [position["ticker"] for position in result["positions"]] == ["AAPL"]
+    assert result["positions"][0]["weight"] == 1.0
+
+
 # ── _ols_beta 测试 ────────────────────────────────────────────────────────────
 
 def test_ols_beta_perfect_correlation():
@@ -58,6 +142,20 @@ def test_fetch_returns_filters_non_finite_closes():
     assert all(np.isfinite(value) for value in returns)
 
 
+@pytest.mark.parametrize("gap", [None, {"close": None}, {"close": "inf"}])
+def test_missing_close_does_not_create_a_return_across_the_gap(gap):
+    from backend.services.risk_attribution import _fetch_returns
+
+    rows = [{"close": 100 + index} for index in range(31)] + [gap, {"close": 1000}, {"close": 1100}]
+    with patch("backend.tools.get_stock_historical_data", return_value={"kline_data": rows}):
+        returns = _fetch_returns("AAPL")
+
+    assert returns is not None
+    assert len(returns) == 31
+    assert returns[-1] == pytest.approx(0.1)
+    assert max(returns) <= 0.1
+
+
 def test_fetch_returns_rejects_oversized_ticker_before_provider():
     from backend.services.risk_attribution import _fetch_returns
 
@@ -65,6 +163,26 @@ def test_fetch_returns_rejects_oversized_ticker_before_provider():
         assert _fetch_returns("A" * 33) is None
 
     provider.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "offline"}, {"status": " ERROR "}, {"status": "failed"}])
+def test_failed_history_payload_cannot_supply_measured_risk_returns(failure):
+    from backend.services.risk_attribution import _fetch_returns
+
+    payload = {"kline_data": [{"close": 100 + index} for index in range(40)], **failure}
+    with patch("backend.tools.get_stock_historical_data", return_value=payload):
+        assert _fetch_returns("AAPL") is None
+
+
+@pytest.mark.parametrize("identity", [{"ticker": "MSFT"}, {"symbol": "MSFT"}, {"ticker": "AAPL", "symbol": "MSFT"}])
+def test_unrelated_history_identity_cannot_supply_risk_returns(identity):
+    from backend.services.risk_attribution import _fetch_returns
+
+    rows = [{"close": 100 + index} for index in range(40)]
+    with patch("backend.tools.get_stock_historical_data", return_value={"kline_data": rows, **identity}):
+        assert _fetch_returns("AAPL") is None
+    with patch("backend.tools.get_stock_historical_data", return_value={"kline_data": rows, "symbol": " aapl "}):
+        assert _fetch_returns("AAPL") is not None
 
 
 def test_fetch_returns_filters_derived_non_finite_returns():
@@ -144,6 +262,19 @@ def test_risk_attribution_zero_market_value():
     assert result["method"] == "no_data"
 
 
+def test_large_finite_holdings_keep_normalized_risk_weights():
+    from backend.services.risk_attribution import calculate_risk_attribution
+
+    with patch("backend.services.risk_attribution._fetch_returns", return_value=None):
+        result = calculate_risk_attribution([
+            {"ticker": "AAPL", "market_value": 1e308},
+            {"ticker": "MSFT", "market_value": 1e308},
+        ])
+
+    assert result["method"] == "simplified"
+    assert [row["weight"] for row in result["positions"]] == [0.5, 0.5]
+
+
 def test_risk_attribution_handles_invalid_and_non_finite_market_values():
     from backend.services.risk_attribution import calculate_risk_attribution
 
@@ -219,8 +350,7 @@ def test_risk_attribution_does_not_invent_fifty_fifty_without_data():
 
 
 def test_risk_attribution_zero_variance_series_is_not_a_measurement():
-    """收益率序列存在但零波动（beta 估出来了、风险贡献恒 0）：占比同样是
-    "没测出来"，不能因为 beta_estimated=True 就回 50/50。"""
+    """零波动基准不能估算 beta，风险占比也不得伪装成 50/50。"""
     from backend.services.risk_attribution import calculate_risk_attribution
     positions = [{"ticker": "AAPL", "market_value": 50000}]
     with patch(
@@ -229,7 +359,7 @@ def test_risk_attribution_zero_variance_series_is_not_a_measurement():
     ):
         result = calculate_risk_attribution(positions)
 
-    assert result["positions"][0]["beta_estimated"] is True
+    assert result["positions"][0]["beta_estimated"] is False
     assert result["total_portfolio_vol"] == 0.0
     assert result["market_risk_pct"] is None
     assert result["idiosyncratic_risk_pct"] is None
@@ -389,3 +519,18 @@ def test_successful_beta_estimation_leaves_no_fallback_marker():
     assert result["fallback_reason"] is None
     assert result["beta_unavailable_tickers"] == []
     assert result["positions"][0]["beta_estimated"] is True
+
+
+def test_zero_weight_position_does_not_degrade_measured_portfolio_coverage():
+    from backend.services.risk_attribution import calculate_risk_attribution
+
+    returns = [0.01, -0.01] * 30
+    with patch("backend.services.risk_attribution._fetch_returns", side_effect=lambda ticker, period: None if ticker == "ZERO" else returns) as fetch:
+        result = calculate_risk_attribution([
+            {"ticker": "AAPL", "market_value": 1000},
+            {"ticker": "ZERO", "market_value": 0},
+        ])
+
+    assert result["fallback_reason"] is None
+    assert result["beta_unavailable_tickers"] == []
+    assert [call.args[0] for call in fetch.call_args_list] == ["000300.SS", "AAPL"]

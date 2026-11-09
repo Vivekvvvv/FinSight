@@ -2,8 +2,201 @@
 """测试 Portfolio Risk Lens 规则引擎"""
 from datetime import datetime, timedelta, timezone
 import math
+import pytest
 
 from backend.services.portfolio_risk_lens import calculate_portfolio_risk_lens, RISK_RULES
+
+
+def test_latest_generated_report_controls_staleness_and_quality_even_if_input_is_unsorted():
+    now = datetime.now(timezone.utc)
+    reports = [{"ticker": "AAPL", "generated_at": (now - timedelta(days=60)).isoformat(),
+                "as_of": (now - timedelta(days=60)).isoformat(), "quality_state": "block"},
+               {"ticker": " aapl ", "generated_at": now.isoformat(), "as_of": now.isoformat(), "quality_state": "pass"}]
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], reports)
+    assert result["stale_research"] == []
+    assert all(risk["type"] != "quality" for risk in result["concentration_risk"])
+    assert result["missing_coverage"] == []
+
+
+@pytest.mark.parametrize("symbol", ["MSFT", True, {}, ["AAPL"]])
+def test_conflicting_report_symbols_cannot_claim_research_coverage(symbol):
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], [{
+        "ticker": "AAPL", "symbol": symbol, "quality_state": "pass",
+        "as_of": datetime.now(timezone.utc).isoformat()}])
+    assert [risk["related_symbol"] for risk in result["missing_coverage"]] == ["AAPL"]
+
+
+@pytest.mark.parametrize("symbol", ["MSFT", True, {}, ["AAPL"]])
+def test_conflicting_position_symbols_cannot_distort_risk_exposure(symbol):
+    result = calculate_portfolio_risk_lens([
+        {"ticker": "AAPL", "symbol": symbol, "market_value": 9000},
+        {"ticker": "MSFT", "symbol": " msft ", "market_value": 1000}], [])
+    assert result["total_value"] == 1000
+    assert {risk["related_symbol"] for risk in result["missing_coverage"]} == {"MSFT"}
+
+
+@pytest.mark.parametrize("ticker", ["600519", "000001", "832000"])
+def test_plain_six_digit_mainland_tickers_have_cn_market_exposure(ticker):
+    result = calculate_portfolio_risk_lens([{"ticker": ticker, "market_value": 1000}], [])
+    assert result["market_exposure"] == [{"market": "CN", "value": 1000, "percentage": 1.0}]
+
+
+def test_split_positions_are_aggregated_before_single_stock_concentration():
+    positions = [{"ticker": "AAPL", "market_value": 200, "cost_basis": 250, "unrealized_pnl": -50},
+                 {"ticker": " aapl ", "market_value": 200, "cost_basis": 250, "unrealized_pnl": -50},
+                 {"ticker": "MSFT", "market_value": 600, "cost_basis": 600}]
+    result = calculate_portfolio_risk_lens(positions, [])
+    risks = [item for item in result["concentration_risk"] if item["type"] == "concentration"]
+    assert next(item["metric_value"] for item in risks if item["related_symbol"] == "AAPL") == 0.4
+    assert [item["related_symbol"] for item in result["loss_positions"]] == ["AAPL"]
+    assert result["total_value"] == 1000
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_position_rows_cannot_distort_portfolio_exposure(failure):
+    result = calculate_portfolio_risk_lens([
+        {"ticker": "BAD", "market_value": 9000, **failure},
+        {"ticker": "AAPL", "market_value": 1000}], [])
+    assert result["total_value"] == 1000
+    assert all(item.get("related_symbol") != "BAD" for key in ("concentration_risk", "missing_coverage")
+               for item in result[key])
+
+
+@pytest.mark.parametrize("quality", [" WARN ", "Block"])
+def test_portfolio_report_quality_flags_are_normalized(quality):
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}],
+                                           [{"ticker": "AAPL", "quality_state": quality}])
+    assert any(item["type"] == "quality" for item in result["concentration_risk"])
+
+
+@pytest.mark.parametrize("status", ["error", " Failed ", "UNAVAILABLE"])
+def test_failed_status_reports_cannot_claim_portfolio_coverage(status):
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}],
+                                           [{"ticker": "AAPL", "status": status}])
+    assert [item["related_symbol"] for item in result["missing_coverage"]] == ["AAPL"]
+
+
+@pytest.mark.parametrize("label", [[], {"name": "Tech"}, True, 42])
+def test_malformed_exposure_labels_do_not_discard_valid_positions(label):
+    result = calculate_portfolio_risk_lens([{
+        "ticker": "AAPL", "market_value": 1000, "sector": label, "currency": label,
+    }], [])
+    assert result["total_value"] == 1000.0
+    assert result["sector_exposure"][0]["sector"] == "Unknown"
+    assert result["currency_exposure"][0]["currency"] == "Unknown"
+
+
+def test_exposure_labels_normalize_spaces_and_currency_case():
+    result = calculate_portfolio_risk_lens([
+        {"ticker": "AAPL", "market_value": 500, "sector": " Tech ", "currency": " usd "},
+        {"ticker": "MSFT", "market_value": 500, "sector": "Tech", "currency": "USD"},
+    ], [])
+    assert result["sector_exposure"] == [{"sector": "Tech", "value": 1000.0, "percentage": 1.0}]
+    assert result["currency_exposure"] == [{"currency": "USD", "value": 1000.0, "percentage": 1.0}]
+
+
+@pytest.mark.parametrize("field", ["market_value", "cost_basis"])
+def test_overflowing_portfolio_totals_are_rejected_explicitly(field):
+    positions = [{"ticker": symbol, field: 1e308} for symbol in ("AAPL", "MSFT")]
+    with pytest.raises(ValueError, match="portfolio totals"):
+        calculate_portfolio_risk_lens(positions, [])
+
+
+@pytest.mark.parametrize("cost", [1e-320, 1.0])
+def test_overflowing_loss_ratios_cannot_leak_infinite_risk_metrics(cost):
+    import json
+
+    result = calculate_portfolio_risk_lens([{
+        "ticker": "AAPL", "market_value": 1000, "cost_basis": cost, "unrealized_pnl": -1e308,
+    }], [])
+    assert result["loss_positions"] == []
+    json.dumps(result, allow_nan=False)
+
+
+@pytest.mark.parametrize("as_of", [123, {"date": "2026-01-01"}, ["2026-01-01"]])
+def test_invalid_report_timestamp_shapes_do_not_break_other_risks(as_of):
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], [
+        {"ticker": "AAPL", "as_of": as_of},
+    ])
+    assert result["success"] is True
+    assert result["concentration_risk"]
+
+
+def test_report_generation_time_detects_staleness_without_data_as_of():
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], [{
+        "ticker": "AAPL", "as_of": None,
+        "generated_at": (datetime.now(timezone.utc) - timedelta(days=40)).isoformat(),
+    }])
+    assert len(result["stale_research"]) == 1
+    assert result["stale_research"][0]["severity"] == "high"
+
+
+@pytest.mark.parametrize("days, severity", [(7, "medium"), (30, "high")])
+def test_report_staleness_uses_elapsed_time_without_truncating_days(days, severity):
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], [{
+        "ticker": "AAPL", "as_of": (datetime.now(timezone.utc) - timedelta(days=days, hours=1)).isoformat(),
+    }])
+    assert len(result["stale_research"]) == 1
+    assert result["stale_research"][0]["severity"] == severity
+
+
+def test_unrelated_reports_do_not_distort_portfolio_research_quality():
+    reports = [{"ticker": "MSFT", "quality_state": "block"}] * 10
+    reports.append({"ticker": "AAPL", "quality_state": "pass"})
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], reports)
+    assert all(risk["type"] != "quality" for risk in result["concentration_risk"])
+
+
+@pytest.mark.parametrize("marker", [{"success": False}, {"error": "unavailable"}])
+def test_failed_reports_cannot_claim_research_coverage(marker):
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], [
+        {"ticker": "AAPL", **marker},
+    ])
+    assert [risk["related_symbol"] for risk in result["missing_coverage"]] == ["AAPL"]
+
+
+def test_zero_value_holding_reports_do_not_inflate_active_portfolio_risk():
+    result = calculate_portfolio_risk_lens([
+        {"ticker": "AAPL", "market_value": 1000}, {"ticker": "CLOSED", "market_value": 0},
+    ], [
+        {"ticker": "AAPL", "quality_state": "pass", "as_of": datetime.now(timezone.utc).isoformat()},
+        {"ticker": "CLOSED", "quality_state": "block", "as_of": "2020-01-01"},
+    ])
+    assert result["stale_research"] == []
+    assert all(risk["type"] != "quality" for risk in result["concentration_risk"])
+
+
+def test_current_research_quality_is_not_penalized_by_old_report_versions():
+    reports = [{"ticker": "AAPL", "quality_state": "pass"}]
+    reports.extend([{"ticker": "AAPL", "quality_state": "block"}] * 5)
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], reports)
+    assert all(risk["type"] != "quality" for risk in result["concentration_risk"])
+
+
+def test_shanghai_sh_suffix_has_mainland_market_exposure():
+    result = calculate_portfolio_risk_lens([{"ticker": "600519.SH", "market_value": 1000}], [])
+    assert result["market_exposure"] == [{"market": "CN", "value": 1000, "percentage": 1.0}]
+
+
+def test_overflowing_derived_position_values_do_not_poison_other_positions():
+    import json
+    result = calculate_portfolio_risk_lens([
+        {"ticker": "BAD", "shares": 1e308, "avg_cost": 1e308},
+        {"ticker": "AAPL", "shares": 10, "avg_cost": 100},
+    ], [])
+    assert result["total_value"] == result["total_cost"] == 1000
+    json.dumps(result, allow_nan=False)
+
+
+def test_newest_report_for_staleness_is_not_replaced_by_older_report():
+    now = datetime.now(timezone.utc)
+    reports = [
+        {"ticker": "AAPL", "as_of": now.isoformat()},
+        {"ticker": "aapl", "as_of": (now - timedelta(days=60)).isoformat()},
+    ]
+    result = calculate_portfolio_risk_lens([{"ticker": "AAPL", "market_value": 1000}], reports)
+    assert result["stale_research"] == []
+    assert result["missing_coverage"] == []
 
 
 def test_empty_portfolio():

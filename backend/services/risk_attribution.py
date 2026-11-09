@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from backend.utils.quote import safe_float
+from backend.tools._item import iter_dict_items
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,21 @@ def _fetch_returns(ticker: str, period: str = "1y") -> list[float] | None:
         payload = get_stock_historical_data(ticker, period=period, interval="1d")
         if not isinstance(payload, dict):
             return None
+        if any(value is not None and str(value).strip().upper() != ticker
+               for value in (payload.get("ticker"), payload.get("symbol"))):
+            return None
+        if (payload.get("success") is False or payload.get("error")
+                or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
         kline: list = payload.get("kline_data") or []
         closes = []
         for point in kline:
-            close = safe_float(point.get("close")) if isinstance(point, dict) else None
-            if close is not None and close > 0:
-                closes.append(close)
+            valid = (isinstance(point, dict) and not point.get("error") and point.get("success") is not False
+                     and str(point.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"})
+            valid = valid and not any(value is not None and str(value).strip().upper() != ticker
+                                      for value in (point.get("ticker"), point.get("symbol")))
+            close = safe_float(point.get("close")) if valid else None
+            closes.append(close if close is not None and close > 0 else None)
         if len(closes) < 30:
             return None
         # 导出收益率也要过有限护栏：close 只保证有限且 >0，c0 为极小有限值
@@ -61,6 +71,7 @@ def _fetch_returns(ticker: str, period: str = "1y") -> list[float] | None:
             r for r in (
                 (closes[i] - closes[i - 1]) / closes[i - 1]
                 for i in range(1, len(closes))
+                if closes[i] is not None and closes[i - 1] is not None
             )
             if math.isfinite(r)
         ]
@@ -106,12 +117,18 @@ def calculate_risk_attribution(
           method: "ols" | "simplified"
         }
     """
+    positions = [position for position in iter_dict_items(positions)
+                 if isinstance(position.get("ticker"), str) and position["ticker"].strip()
+                 and not position.get("error") and position.get("success") is not False
+                 and str(position.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
     if not positions:
         return _empty_result()
 
-    total_val = sum(_market_value(p) for p in positions)
-    # total_val 可溢出 inf（shares*avg_cost 乘积超上限）——inf/inf 产生
-    # nan 权重直出 positions[].weight。
+    # 先缩放再求和，避免多条有限大额市值求和溢出而丢掉整个组合。
+    value_scale = max(_market_value(p) for p in positions)
+    if value_scale <= 0:
+        return _empty_result()
+    total_val = sum(_market_value(p) / value_scale for p in positions)
     if not math.isfinite(total_val) or total_val <= 0:
         return _empty_result()
 
@@ -132,10 +149,10 @@ def calculate_risk_attribution(
     beta_unavailable: list[str] = []
 
     for p in positions:
-        ticker = str(p.get("ticker") or "").upper()
+        ticker = str(p.get("ticker") or "").strip().upper()
         mv = _market_value(p)
-        weight = mv / total_val if total_val > 0 else 0.0
-        sector = str(p.get("sector") or "其他")
+        weight = (mv / value_scale) / total_val if total_val > 0 else 0.0
+        sector = str(p.get("sector") or "其他").strip() or "其他"
 
         sector_map[sector] = sector_map.get(sector, 0.0) + weight
 
@@ -143,14 +160,14 @@ def calculate_risk_attribution(
         beta = 1.0
         idio_vol = 0.0
         beta_estimated = False
-        if market_rets and ticker:
+        if market_rets and sigma_market > 0 and ticker and weight > 0:
             stock_rets = _fetch_returns(ticker, period)
             if stock_rets and len(stock_rets) >= 30:
                 rm_arr = np.array(market_rets, dtype=float)
                 rs_arr = np.array(stock_rets, dtype=float)
                 beta, idio_vol = _ols_beta(rs_arr, rm_arr)
                 beta_estimated = True
-        if not beta_estimated:
+        if not beta_estimated and weight > 0:
             beta_unavailable.append(ticker or "?")
 
         market_risk_contrib = weight * abs(beta) * sigma_market * np.sqrt(252)
@@ -192,7 +209,7 @@ def calculate_risk_attribution(
         sec_risk = sum(
             p["market_risk_contrib"] + p["idio_risk_contrib"]
             for idx, p in enumerate(pos_details)
-            if str(positions[idx].get("sector") or "其他") == sec
+            if (str(positions[idx].get("sector") or "其他").strip() or "其他") == sec
         )
         sector_attr.append({
             "sector": sec,
@@ -223,8 +240,8 @@ def calculate_risk_attribution(
 def _empty_result() -> dict[str, Any]:
     return {
         "total_portfolio_vol": 0.0,
-        "market_risk_pct": 0.0,
-        "idiosyncratic_risk_pct": 0.0,
+        "market_risk_pct": None,
+        "idiosyncratic_risk_pct": None,
         "positions": [],
         "sector_attribution": [],
         "method": "no_data",

@@ -30,9 +30,13 @@ _DB_PATH = _DB_DIR / "portfolio.db"
 def _get_conn() -> sqlite3.Connection:
     _DB_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(_DB_PATH), timeout=30, isolation_level=None)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=30000")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=30000")
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 
@@ -199,9 +203,10 @@ def sync_positions(session_id: str, positions: list[dict[str, Any]]) -> int:
         db.execute("DELETE FROM portfolio_positions WHERE session_id = ?", (session_id,))
         count = 0
         for pos in positions:
-            ticker = str(pos.get("ticker", "")).strip().upper()
-            if not ticker:
-                continue
+            raw_ticker = pos.get("ticker")
+            if not isinstance(raw_ticker, str) or not raw_ticker.strip():
+                raise ValueError("portfolio ticker is required")
+            ticker = raw_ticker.strip().upper()
             shares = _finite_number(pos.get("shares", 0), field="shares")
             avg_cost = _finite_number(pos.get("avg_cost"), field="avg_cost", allow_none=True)
             name = str(pos.get("name") or "").strip() or None
@@ -261,7 +266,7 @@ def update_position(
             # 永不为 NULL，ON CONFLICT 的 COALESCE(excluded.currency, existing)
             # 恒选 excluded——不传 currency 的更新会把已存币种静默改回 USD。
             # 新行的 NULL 由 get_positions 的 `or "USD"` 读取兜底。
-            (session_id, ticker.upper(), shares, avg_cost, now, name, tags_json, note, sector, currency, opened_at),
+            (session_id, ticker.strip().upper(), shares, avg_cost, now, name, tags_json, note, sector, currency, opened_at),
         )
         db.commit()
 
@@ -270,7 +275,7 @@ def remove_position(session_id: str, ticker: str) -> None:
         db.execute("BEGIN IMMEDIATE")
         db.execute(
             "DELETE FROM portfolio_positions WHERE session_id = ? AND ticker = ?",
-            (session_id, ticker.upper()),
+            (session_id, ticker.strip().upper()),
         )
         db.commit()
 
@@ -281,6 +286,12 @@ def save_suggestion(suggestion_id: str, session_id: str, data: dict[str, Any]) -
     now = datetime.now(timezone.utc).isoformat()
     with _db_lock, _connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        owner = db.execute(
+            "SELECT session_id FROM rebalance_suggestions WHERE suggestion_id = ?",
+            (suggestion_id,),
+        ).fetchone()
+        if owner is not None and owner[0] != session_id:
+            raise ValueError("suggestion id belongs to another session")
         db.execute(
             """INSERT INTO rebalance_suggestions (suggestion_id, session_id, data, status, created_at, updated_at)
                VALUES (?, ?, ?, 'draft', ?, ?)
@@ -326,7 +337,7 @@ def patch_suggestion(suggestion_id: str, status: str, session_id: str | None = N
     with _db_lock, _connect() as db:
         db.execute("BEGIN IMMEDIATE")
         # 传入 session_id 时追加属主过滤，防止仅凭 suggestion_id 改他人建议状态。
-        if session_id:
+        if session_id is not None:
             cursor = db.execute(
                 "UPDATE rebalance_suggestions SET status = ?, updated_at = ? "
                 "WHERE suggestion_id = ? AND session_id = ?",

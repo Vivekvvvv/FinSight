@@ -48,6 +48,9 @@ def calculate_portfolio_risk_lens(
     reports = list(iter_dict_items(reports or []))
     normalized_positions = []
     for position in iter_dict_items(positions):
+        if (position.get("error") or position.get("success") is False
+            or str(position.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
         item = dict(position)
         ticker = item.get("ticker")
         if not isinstance(ticker, str):
@@ -55,7 +58,16 @@ def calculate_portfolio_risk_lens(
         ticker = ticker.strip().upper()
         if not _TICKER_PATTERN.fullmatch(ticker):
             continue
+        symbol = item.get("symbol")
+        if symbol is not None and (not isinstance(symbol, str) or symbol.strip().upper() != ticker):
+            continue
         item["ticker"] = ticker
+        for field in ("sector", "currency"):
+            value = item.get(field)
+            if value is not None and not isinstance(value, str):
+                item[field] = "Unknown"
+            elif isinstance(value, str):
+                item[field] = value.strip().upper() if field == "currency" else value.strip()
         market_value = safe_float(item.get("market_value"))
         cost_basis = safe_float(item.get("cost_basis"))
         # portfolio_store.get_positions 只提供 shares/avg_cost，没有 market_value/
@@ -66,7 +78,7 @@ def calculate_portfolio_risk_lens(
             shares = safe_float(item.get("shares"))
             avg_cost = safe_float(item.get("avg_cost"))
             if shares is not None and shares > 0 and avg_cost is not None and avg_cost > 0:
-                derived = shares * avg_cost
+                derived = safe_float(shares * avg_cost)
                 if market_value is None:
                     market_value = derived
                 if cost_basis is None:
@@ -78,13 +90,35 @@ def calculate_portfolio_risk_lens(
             unrealized_pnl = item["market_value"] - item["cost_basis"]
         item["unrealized_pnl"] = unrealized_pnl
         normalized_positions.append(item)
-    positions = normalized_positions
+    aggregated_positions = {}
+    for item in normalized_positions:
+        ticker = item["ticker"]
+        if ticker not in aggregated_positions:
+            aggregated_positions[ticker] = item
+            continue
+        existing = aggregated_positions[ticker]
+        for field in ("market_value", "cost_basis"):
+            existing[field] += item[field]
+        if existing["unrealized_pnl"] is not None and item["unrealized_pnl"] is not None:
+            existing["unrealized_pnl"] += item["unrealized_pnl"]
+        else:
+            existing["unrealized_pnl"] = None
+    positions = list(aggregated_positions.values())
     if not positions:
         return _empty_risk_lens()
+    position_tickers = {position["ticker"] for position in positions if position["market_value"] > 0}
+    reports = [report for report in reports if isinstance(report.get("ticker"), str)
+               and report["ticker"].strip().upper() in position_tickers
+               and not report.get("error") and report.get("success") is not False
+               and str(report.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+               and (report.get("symbol") is None or isinstance(report["symbol"], str)
+                    and report["symbol"].strip().upper() == report["ticker"].strip().upper())]
 
     # 计算总市值和成本
     total_value = sum(p.get("market_value") or 0 for p in positions)
     total_cost = sum(p.get("cost_basis") or 0 for p in positions)
+    if safe_float(total_value) is None or safe_float(total_cost) is None:
+        raise ValueError("portfolio totals exceed finite numeric range")
 
     # 初始化风险项列表
     concentration_risks = []
@@ -142,7 +176,7 @@ def calculate_portfolio_risk_lens(
         market = "US"  # 默认美股
         if ticker.endswith(".HK"):
             market = "HK"
-        elif ticker.endswith((".SS", ".SZ", ".BJ")):
+        elif ticker.endswith((".SS", ".SH", ".SZ", ".BJ")) or ticker.isdigit() and len(ticker) == 6:
             # .BJ 北交所与 .SS/.SZ 同族（data_fetchers/peer_service/policy_gate/
             # cn_hk_market 等 10+ 模块一致按 CN 计）——漏掉会把北交所持仓计入 US。
             market = "CN"
@@ -154,6 +188,8 @@ def calculate_portfolio_risk_lens(
         cost_basis = pos.get("cost_basis")
         if unrealized_pnl is not None and cost_basis and cost_basis > 0:
             pnl_pct = unrealized_pnl / cost_basis
+            if safe_float(pnl_pct * 100) is None:
+                continue
             if pnl_pct < RISK_RULES["loss_medium_threshold"]:
                 severity = "high" if pnl_pct < RISK_RULES["loss_high_threshold"] else "medium"
                 loss_positions.append({
@@ -171,18 +207,31 @@ def calculate_portfolio_risk_lens(
     # report_index 存储端对 ticker 只 strip 不 upper（库内大小写不定，
     # list_reports 以 NOCASE 命中后原样返回存储大小写）——key 不归一大写，
     # 'aapl' 报告对 'AAPL' 持仓匹配失败：stale 静默跳过 + 误报缺少研究覆盖。
-    report_dict = {
-        str(r.get("ticker")).strip().upper(): r
-        for r in reports if r.get("ticker")
-    }
+    report_dict = {}
+    report_times = {}
     now = datetime.now(timezone.utc)
+    for report in reports:
+        ticker = report["ticker"].strip().upper()
+        report_time = None
+        try:
+            raw_time = report.get("generated_at") or report.get("as_of")
+            report_time = datetime.fromisoformat(raw_time.replace("Z", "+00:00")).astimezone(timezone.utc)
+            if report_time > now:
+                report_time = None
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            pass
+        if ticker not in report_dict or report_time is not None and (
+            report_times[ticker] is None or report_time > report_times[ticker]
+        ):
+            report_dict[ticker] = report
+            report_times[ticker] = report_time
 
     for pos in positions:
         ticker = pos["ticker"]
         report = report_dict.get(ticker)
         if report:
-            as_of = report.get("as_of")
-            if as_of:
+            as_of = report.get("as_of") or report.get("generated_at")
+            if isinstance(as_of, str) and as_of.strip():
                 try:
                     as_of_dt = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
                     if as_of_dt.tzinfo is None:
@@ -191,10 +240,11 @@ def calculate_portfolio_risk_lens(
                         # 先按本机时区还原再归一 UTC。直接 replace(tzinfo=utc) 会把
                         # 本机时间错当 UTC 后移 +8h，临界过期报告 days_old 减一天漏报。
                         as_of_dt = as_of_dt.astimezone(timezone.utc)
-                    days_old = (now - as_of_dt).days
+                    age = now - as_of_dt
+                    days_old = age.days
 
-                    if days_old > RISK_RULES["stale_days_warning"]:
-                        severity = "high" if days_old > RISK_RULES["stale_days_critical"] else "medium"
+                    if age > timedelta(days=RISK_RULES["stale_days_warning"]):
+                        severity = "high" if age > timedelta(days=RISK_RULES["stale_days_critical"]) else "medium"
                         stale_research.append({
                             "id": f"stale_{ticker}",
                             "type": "stale_research",
@@ -209,7 +259,8 @@ def calculate_portfolio_risk_lens(
                     pass
 
     # 规则 7: 低质量报告覆盖风险
-    low_quality_count = sum(1 for r in reports if r.get("quality_state") in ["warn", "block"])
+    reports = list(report_dict.values())
+    low_quality_count = sum(1 for r in reports if str(r.get("quality_state") or "").strip().lower() in {"warn", "block"})
     if reports and low_quality_count / len(reports) > RISK_RULES["low_quality_rate_threshold"]:
         concentration_risks.append({
             "id": "low_quality_coverage",

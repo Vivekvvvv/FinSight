@@ -96,18 +96,23 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
             from backend.utils.quote import safe_float
 
             priced_count = 0
+            degraded_quotes = False
 
             async def _attach_live_valuation(position: dict[str, Any]) -> None:
-                nonlocal priced_count
+                nonlocal priced_count, degraded_quotes
                 ticker = str(position.get("ticker") or "").strip().upper()
                 if not ticker:
                     return
                 quote, _ = await _resolve_quote_for_portfolio(ticker)
+                if quote and quote.get("freshness_status", "live") != "live":
+                    degraded_quotes = True
                 price = safe_float((quote or {}).get("price"))
                 shares = safe_float(position.get("shares"))
                 if price is None or price <= 0 or shares is None:
                     return
                 avg_cost = safe_float(position.get("avg_cost"))
+                if safe_float(shares * price) is None:
+                    return
                 position["market_value"] = shares * price
                 position["cost_basis"] = shares * (avg_cost or 0.0)
                 if avg_cost is not None:
@@ -136,7 +141,7 @@ def create_risk_lens_router(deps: RiskLensRouterDeps) -> APIRouter:
                 risk_lens["priced_count"] = priced_count
                 # 没拿到实时报价的持仓会退回成本价估值；不标记的话
                 # total_value 仍会被当成当前市值（项目规则 2）。
-                risk_lens["degraded"] = priced_count < len(positions) or bool(invalid_positions)
+                risk_lens["degraded"] = priced_count < len(positions) or bool(invalid_positions) or degraded_quotes
                 if invalid_positions:
                     # 解析不出的存量行被跳过，集中度/行业暴露在剩余仓位上重新
                     # 归一——不标注就成了一份"完整组合"的风险结论（项目规则 2）。

@@ -10,6 +10,22 @@ from pathlib import Path
 
 import pytest
 
+
+@pytest.mark.parametrize("statement", ["journal_mode", "foreign_keys", "busy_timeout"])
+def test_portfolio_connection_closes_when_pragma_setup_fails(monkeypatch, tmp_path, statement):
+    from unittest.mock import MagicMock
+    from backend.services import portfolio_store
+    connection = MagicMock()
+    def execute(sql):
+        if statement in sql:
+            raise RuntimeError("pragma failed")
+    connection.execute.side_effect = execute
+    monkeypatch.setattr(portfolio_store, "_DB_DIR", tmp_path)
+    monkeypatch.setattr(portfolio_store.sqlite3, "connect", lambda *args, **kwargs: connection)
+    with pytest.raises(RuntimeError, match="pragma failed"):
+        portfolio_store._get_conn()
+    connection.close.assert_called_once()
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -111,6 +127,20 @@ def test_sync_positions_rolls_back_on_invalid_numeric_value(tmp_path, monkeypatc
     assert [(item["ticker"], item["shares"]) for item in positions] == [("AAPL", 1.0)]
 
 
+@pytest.mark.parametrize("ticker", [None, "", "   ", 123])
+def test_sync_positions_rejects_missing_identity_without_replacing_holdings(tmp_path, monkeypatch, ticker):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    store.update_position("session", "AAPL", 1, avg_cost=100)
+
+    with pytest.raises(ValueError):
+        store.sync_positions("session", [
+            {"ticker": "MSFT", "shares": 2},
+            {"ticker": ticker, "shares": 3},
+        ])
+
+    assert [(row["ticker"], row["shares"]) for row in store.get_positions("session")] == [("AAPL", 1)]
+
+
 @pytest.mark.parametrize("column", ["shares", "avg_cost"])
 def test_get_positions_skips_legacy_non_finite_numeric_values(
     tmp_path, monkeypatch, caplog, column
@@ -139,6 +169,28 @@ def test_save_suggestion_rejects_non_finite_json(tmp_path, monkeypatch, value):
         store.save_suggestion("suggestion", "session", {"weight": value})
 
     assert store.list_suggestions("session") == []
+
+
+def test_suggestion_id_collision_cannot_overwrite_another_session(tmp_path, monkeypatch):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    store.save_suggestion("shared-id", "owner", {"ticker": "AAPL"})
+
+    with pytest.raises(ValueError):
+        store.save_suggestion("shared-id", "other", {"ticker": "MSFT"})
+
+    assert store.list_suggestions("owner")[0]["data"] == {"ticker": "AAPL"}
+    assert store.list_suggestions("other") == []
+    store.save_suggestion("shared-id", "owner", {"ticker": "NVDA"})
+    assert store.list_suggestions("owner")[0]["data"] == {"ticker": "NVDA"}
+
+
+def test_explicit_empty_session_cannot_bypass_suggestion_ownership(tmp_path, monkeypatch):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    store.save_suggestion("suggestion", "owner", {"ticker": "AAPL"})
+
+    assert store.patch_suggestion("suggestion", "accepted", session_id="") is False
+    assert store.list_suggestions("owner")[0]["status"] == "draft"
+    assert store.patch_suggestion("suggestion", "accepted", session_id="owner") is True
 
 
 def test_list_suggestions_sanitizes_legacy_non_finite_json(tmp_path, monkeypatch, caplog):
@@ -176,6 +228,17 @@ def test_update_position_partial_keeps_existing_metadata(tmp_path, monkeypatch):
     assert rows[0]["name"] == "Tesla"
     assert rows[0]["tags"] == ["ev"]
     assert rows[0]["note"] == "quarterly review"
+
+
+def test_position_update_and_removal_use_the_same_normalized_ticker(tmp_path, monkeypatch):
+    store = _setup_tmp_db(tmp_path, monkeypatch)
+    store.update_position("session", "AAPL", 1, name="Apple")
+    store.update_position("session", " aapl ", 2)
+
+    rows = store.get_positions("session")
+    assert [(row["ticker"], row["shares"], row["name"]) for row in rows] == [("AAPL", 2, "Apple")]
+    store.remove_position("session", " aapl ")
+    assert store.get_positions("session") == []
 
 
 def test_sync_positions_preserves_sector_currency_opened_at(tmp_path, monkeypatch):

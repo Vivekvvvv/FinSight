@@ -11,7 +11,7 @@ import logging
 import math
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -45,8 +45,12 @@ def _synchronized(func):
 
 def _connect(db_path: Path | str) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path), timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 
@@ -107,15 +111,14 @@ def save_risk_snapshot(
         snapshot_date: 快照日期（YYYY-MM-DD），默认今天
         db_path: 数据库路径
     """
-    _ensure_snapshots_table(db_path)
-
     if snapshot_date is None:
         snapshot_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    snapshot_date = date.fromisoformat(snapshot_date).isoformat()
+    _ensure_snapshots_table(db_path)
 
     conn = _connect(db_path)
-    cursor = conn.cursor()
-
     try:
+        cursor = conn.cursor()
         cursor.execute("""
             INSERT OR REPLACE INTO risk_snapshots (
                 session_id, user_id, snapshot_date,
@@ -161,13 +164,14 @@ def get_risk_snapshots_history(
     Returns:
         快照列表，按日期升序排列
     """
+    if days <= 0:
+        return []
     _ensure_snapshots_table(db_path)
 
     conn = _connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
     try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
         cursor.execute("""
             SELECT
                 snapshot_date,
@@ -205,6 +209,7 @@ def get_risk_snapshots_history(
             # 会把缺数据的 0 当成"风险确实为 0"（项目规则 2）。这里只透出
             # full_data 里记的降级原因，让"0 分"和"没算出来"可区分。
             item["degraded_reason"] = _degraded_reason(row["full_data"])
+            item.pop("full_data", None)
             result.append(item)
         return result
     finally:
@@ -250,10 +255,9 @@ def get_latest_snapshot(
     _ensure_snapshots_table(db_path)
 
     conn = _connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
     try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
         cursor.execute("""
             SELECT full_data, snapshot_date
             FROM risk_snapshots
