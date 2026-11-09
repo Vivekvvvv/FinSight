@@ -185,13 +185,13 @@ def _calc_pivot_points(
     c = safe_float(close.iloc[-1])
     if h is None or l_val is None or c is None:
         return [], []
-    pivot = (h + l_val + c) / 3
-    s1 = 2 * pivot - h
+    pivot = h / 3 + l_val / 3 + c / 3
+    s1 = pivot + (pivot - h)
     s2 = pivot - (h - l_val)
-    r1 = 2 * pivot - l_val
+    r1 = pivot + (pivot - l_val)
     r2 = pivot + (h - l_val)
-    supports = [round(s1, 4), round(s2, 4)]
-    resistances = [round(r1, 4), round(r2, 4)]
+    supports = [round(value, 4) for value in (s1, s2) if safe_float(value) is not None and value > 0]
+    resistances = [round(value, 4) for value in (r1, r2) if safe_float(value) is not None and value > 0]
     return supports, resistances
 
 
@@ -217,10 +217,21 @@ def compute_technical_indicators(df: pd.DataFrame) -> dict[str, Any]:
     if not required.issubset(set(df.columns)):
         return {}
 
+    df = df.copy()
+    for column in required:
+        df[column] = df[column].map(safe_float)
+    df = df.dropna(subset=list(required))
+    df = df[(df[list(required)] > 0).all(axis=1)]
+    df = df[(df["High"] >= df[["Open", "Close", "Low"]].max(axis=1))
+            & (df["Low"] <= df[["Open", "Close", "High"]].min(axis=1))]
+    df = df[~df.index.duplicated(keep="last")].sort_index()
+    if len(df) < _MIN_POINTS:
+        return {}
     close = df["Close"].astype(float)
     high = df["High"].astype(float)
     low = df["Low"].astype(float)
-    volume = df["Volume"].astype(float) if "Volume" in df.columns else pd.Series(dtype=float)
+    volume = df["Volume"].map(safe_float).astype(float) if "Volume" in df.columns else pd.Series(dtype=float)
+    volume = volume.where(volume >= 0)
 
     last_close = safe_float(close.iloc[-1])
     if last_close is None:
@@ -284,7 +295,7 @@ def compute_technical_indicators(df: pd.DataFrame) -> dict[str, Any]:
     if macd_val is not None and macd_signal is not None:
         if macd_val > macd_signal:
             momentum = "bullish"
-        else:
+        elif macd_val < macd_signal:
             momentum = "bearish"
 
     return {
@@ -337,12 +348,21 @@ def compute_indicator_series(df: pd.DataFrame, n_days: int = 120) -> dict[str, A
     if df is None or len(df) < _MIN_POINTS:
         return {}
 
+    if n_days <= 0:
+        return {}
     col_map = {c: c.title() for c in df.columns}
     df = df.rename(columns=col_map)
 
     if "Close" not in df.columns:
         return {}
 
+    df = df.copy()
+    df["Close"] = df["Close"].map(safe_float)
+    df = df.dropna(subset=["Close"])
+    df = df[df["Close"] > 0]
+    df = df[~df.index.duplicated(keep="last")].sort_index()
+    if len(df) < _MIN_POINTS:
+        return {}
     close = df["Close"].astype(float)
 
     # --- RSI series ---
@@ -353,6 +373,9 @@ def compute_indicator_series(df: pd.DataFrame, n_days: int = 120) -> dict[str, A
     avg_loss = losses.rolling(window=14, min_periods=14).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi_series = 100.0 - (100.0 / (1.0 + rs))
+    rsi_series = rsi_series.mask((avg_loss == 0) & (avg_gain > 0), 100.0)
+    rsi_series = rsi_series.mask((avg_loss == 0) & (avg_gain == 0), 50.0)
+    rsi_series.iloc[:14] = np.nan
 
     # --- MACD series ---
     ema_fast = close.ewm(span=12, adjust=False).mean()

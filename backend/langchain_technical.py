@@ -16,9 +16,13 @@ def compute_technical_snapshot(ticker: str) -> str:
     """
     try:
         data = _get_stock_historical_data(ticker, period="6mo", interval="1d")
-        if not isinstance(data, dict):
+        if (not isinstance(data, dict) or data.get("error") or data.get("success") is False
+            or str(data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             return json.dumps({"ticker": ticker, "error": "invalid_kline_payload"}, ensure_ascii=False)
 
+        if any(value is not None and str(value).strip().upper() != str(ticker).strip().upper()
+               for value in (data.get("symbol"), data.get("ticker"))):
+            return json.dumps({"ticker": ticker, "error": "instrument_mismatch"}, ensure_ascii=False)
         kline = data.get("kline_data") or []
         if not isinstance(kline, list) or not kline:
             return json.dumps(
@@ -30,9 +34,15 @@ def compute_technical_snapshot(ticker: str) -> str:
         closes = []
         last_time = None
         for item in iter_dict_items(kline):
+            if (item.get("error") or item.get("success") is False
+                or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
+            if any(value is not None and str(value).strip().upper() != str(ticker).strip().upper()
+                   for value in (item.get("symbol"), item.get("ticker"))):
+                continue
             close = item.get("close")
             parsed_close = safe_float(close)
-            if parsed_close is None:
+            if parsed_close is None or parsed_close <= 0:
                 continue
             closes.append(parsed_close)
             last_time = item.get("time") or item.get("datetime") or item.get("ts") or last_time
@@ -106,7 +116,7 @@ def compute_technical_snapshot(ticker: str) -> str:
 
         momentum = None
         if macd is not None and signal is not None:
-            momentum = "bullish" if macd > signal else "bearish"
+            momentum = "bullish" if macd > signal else "bearish" if macd < signal else "neutral"
 
         payload = {
             "ticker": str(ticker).upper(),
