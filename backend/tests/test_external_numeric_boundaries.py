@@ -23,10 +23,10 @@ NUMERIC_BOUNDARY_ROUNDS = [
     ("R324", "backend/tools/financial.py", "row[col] = safe_float(value)"),
     ("R325", "backend/tools/financial.py", "item[str(column)] = safe_float(value)"),
     ("R326", "backend/tools/financial.py", "result[key_text] = safe_float(value)"),
-    ("R327", "backend/tools/financial.py", "up_7 = safe_float(row.get(\"upLast7days\"))"),
-    ("R328", "backend/tools/financial.py", "up_30 = safe_float(row.get(\"upLast30days\"))"),
-    ("R329", "backend/tools/financial.py", "down_7 = safe_float(row.get(\"downLast7days\"))"),
-    ("R330", "backend/tools/financial.py", "down_30 = safe_float(row.get(\"downLast30days\"))"),
+    ("R327", "backend/tools/financial.py", "up_7 = count(\"upLast7days\")"),
+    ("R328", "backend/tools/financial.py", "up_30 = count(\"upLast30days\")"),
+    ("R329", "backend/tools/financial.py", "down_7 = count(\"downLast7days\")"),
+    ("R330", "backend/tools/financial.py", "down_30 = count(\"downLast30days\")"),
     ("R331", "backend/tools/macro.py", "score = safe_float(data['fear_and_greed']['score'])"),
     ("R332", "backend/tools/macro.py", "score = safe_float(match.group(1))"),
     ("R333", "backend/tools/macro.py", '"cpi": "CPIAUCSL"'),
@@ -35,16 +35,16 @@ NUMERIC_BOUNDARY_ROUNDS = [
     ("R336", "backend/tools/macro.py", '"unemployment": "UNRATE"'),
     ("R337", "backend/tools/macro.py", '"treasury_10y": "DGS10"'),
     ("R338", "backend/tools/macro.py", '"yield_spread": "T10Y2Y"'),
-    ("R339", "backend/dashboard/insights_scorer.py", '_finite_number(_safe_get(data, "ma20"))'),
-    ("R340", "backend/dashboard/insights_scorer.py", '_finite_number(_safe_get(data, "ma50"))'),
+    ("R339", "backend/dashboard/insights_scorer.py", '_positive_number(_safe_get(data, "ma20"))'),
+    ("R340", "backend/dashboard/insights_scorer.py", '_positive_number(_safe_get(data, "ma50"))'),
     ("R341", "backend/dashboard/insights_scorer.py", '_finite_number(_safe_get(data, "macd"))'),
     ("R342", "backend/dashboard/insights_scorer.py", '_finite_number(_safe_get(data, "macd_signal"))'),
     ("R343", "backend/dashboard/insights_scorer.py", '_safe_get(data, "net_income")'),
     ("R344", "backend/dashboard/insights_scorer.py", '_safe_get(data, "free_cash_flow")'),
     ("R345", "backend/dashboard/insights_scorer.py", '_finite_number(_safe_get(company, "revenue_growth"))'),
     ("R346", "backend/dashboard/insights_scorer.py", '_finite_number(p.get("revenue_growth"))'),
-    ("R347", "backend/dashboard/insights_scorer.py", '_finite_number(_safe_get(company, "profit_margin"))'),
-    ("R348", "backend/dashboard/insights_scorer.py", '_finite_number(p.get("profit_margin"))'),
+    ("R347", "backend/dashboard/insights_scorer.py", '_first_finite(_safe_get(company, "profit_margin"), _safe_get(company, "net_margin"))'),
+    ("R348", "backend/dashboard/insights_scorer.py", '_first_finite(p.get("profit_margin"), p.get("net_margin"))'),
     ("R349", "backend/dashboard/insights_scorer.py", "tech_score = _finite_number(tech_score)"),
     ("R350", "backend/dashboard/insights_scorer.py", "fin_score = _finite_number(fin_score)"),
     ("R351", "backend/dashboard/insights_scorer.py", "news_score = _finite_number(news_score)"),
@@ -66,23 +66,23 @@ NUMERIC_BOUNDARY_ROUNDS = [
     ("R367", "backend/tools/price_portfolio.py", 'weight = _safe_float_value(item.get("weight"))'),
     ("R368", "backend/tools/price_portfolio.py", 'quantity = _safe_float_value(item.get("quantity"))'),
     ("R369", "backend/tools/price.py", 'value = _safe_float_value(subset.loc[idx, "impliedVolatility"])'),
-    ("R370", "backend/tools/price_history_vendor_providers.py", "return _safe_float_value(close)"),
+    ("R370", "backend/tools/price_history_vendor_providers.py", 'price := _safe_float_value(row.get("close"))'),
     ("R371", "backend/tools/price_history_vendor_providers.py", 'val = _safe_float_value(token.replace(",", ""))'),
     ("R372", "backend/tools/price_history_vendor_providers.py", '"open": _safe_float_value(item.get(\'open\'))'),
     ("R373", "backend/tools/price_history_vendor_providers.py", '"high": _safe_float_value(item.get(\'high\'))'),
     ("R374", "backend/tools/price_history_vendor_providers.py", '"low": _safe_float_value(item.get(\'low\'))'),
     ("R375", "backend/tools/price_history_vendor_providers.py", '"close": _safe_float_value(item.get(\'close\'))'),
-    ("R376", "backend/tools/price_history_vendor_providers.py", '"volume": _safe_float_value(item.get(\'volume\'))'),
+    ("R376", "backend/tools/price_history_vendor_providers.py", 'volume := _safe_float_value(item.get(\'volume\'))'),
     ("R377", "backend/tools/price_history_providers.py", '"open": _safe_float_value(day_data["1. open"])'),
     ("R378", "backend/tools/price_history_providers.py", '"high": _safe_float_value(day_data["2. high"])'),
     ("R379", "backend/tools/price_history_providers.py", '"low": _safe_float_value(day_data["3. low"])'),
     ("R380", "backend/tools/price_history_providers.py", '"close": _safe_float_value(day_data["4. close"])'),
-    ("R381", "backend/tools/price_history_providers.py", '"volume": _safe_float_value(day_data.get("5. volume"))'),
+    ("R381", "backend/tools/price_history_providers.py", 'volume := _safe_float_value(day_data.get("5. volume"))'),
     ("R382", "backend/tools/price_history_vendor_providers.py", "close_val = _safe_float_value(row[close_key])"),
     ("R383", "backend/tools/price_history_vendor_providers.py", '"open": _safe_float_value(row[open_key])'),
     ("R384", "backend/tools/price_history_vendor_providers.py", '"high": _safe_float_value(row[high_key])'),
     ("R385", "backend/tools/price_history_vendor_providers.py", '"low": _safe_float_value(row[low_key])'),
-    ("R386", "backend/tools/price_history_vendor_providers.py", '"volume": _safe_float_value(row.get(volume_key))'),
+    ("R386", "backend/tools/price_history_vendor_providers.py", 'volume := _safe_float_value(row.get(volume_key))'),
     ("R387", "backend/dashboard/data_fetchers.py", "parsed = safe_float(value)"),
     ("R388", "backend/dashboard/news_ranking.py", "parsed_half_life = safe_float(half_life_hours)"),
     ("R389", "backend/api/market_router.py", "confidence = safe_float(confidence_raw) or 0.0"),
@@ -111,26 +111,26 @@ NUMERIC_BOUNDARY_ROUNDS_401_500 = [
     ("R407", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"high": _safe_float_value(row[\'High\'])', 1),
     ("R408", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"low": _safe_float_value(row[\'Low\'])', 1),
     ("R409", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"close": _safe_float_value(row[\'Close\'])', 1),
-    ("R410", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", '"volume": _safe_float_value(row.get(\'Volume\'))', 1),
+    ("R410", "backend/tools/price_history_vendor_providers.py", "_fetch_with_yahoo_scrape_historical", 'volume := _safe_float_value(row.get(\'Volume\'))', 1),
     ("R411", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", '"open": _safe_float_value(item.get(\'open\'))', 1),
     ("R412", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", '"high": _safe_float_value(item.get(\'high\'))', 1),
     ("R413", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", '"low": _safe_float_value(item.get(\'low\'))', 1),
-    ("R414", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
+    ("R414", "backend/tools/price_history_vendor_providers.py", "_fetch_with_tiingo", 'volume := _safe_float_value(item.get(\'volume\'))', 1),
     ("R415", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"open": _safe_float_value(item.get("open"))', 1),
     ("R416", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"high": _safe_float_value(item.get("high"))', 1),
     ("R417", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"low": _safe_float_value(item.get("low"))', 1),
     ("R418", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"close": _safe_float_value(item.get("close"))', 1),
-    ("R419", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", '"volume": _safe_float_value(item.get("volume"))', 1),
+    ("R419", "backend/tools/price_history_vendor_providers.py", "_fetch_with_twelve_data", 'volume := _safe_float_value(item.get("volume"))', 1),
     ("R420", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"open": _safe_float_value(item.get(\'open\'))', 1),
     ("R421", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"high": _safe_float_value(item.get(\'high\'))', 1),
     ("R422", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"low": _safe_float_value(item.get(\'low\'))', 1),
     ("R423", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"close": _safe_float_value(item.get(\'close\'))', 1),
-    ("R424", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", '"volume": _safe_float_value(item.get(\'volume\'))', 1),
+    ("R424", "backend/tools/price_history_vendor_providers.py", "_fetch_with_marketstack", 'volume := _safe_float_value(item.get(\'volume\'))', 1),
     ("R425", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"open": _safe_float_value(item.get(\'o\'))', 1),
     ("R426", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"high": _safe_float_value(item.get(\'h\'))', 1),
     ("R427", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"low": _safe_float_value(item.get(\'l\'))', 1),
     ("R428", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"close": _safe_float_value(item.get(\'c\'))', 1),
-    ("R429", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", '"volume": _safe_float_value(item.get(\'v\'))', 1),
+    ("R429", "backend/tools/price_history_vendor_providers.py", "_fetch_with_massive_io", 'volume := _safe_float_value(item.get(\'v\'))', 1),
     ("R430", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"open": _safe_float_value(row[\'Open\'])', 1),
     ("R431", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"high": _safe_float_value(row[\'High\'])', 1),
     ("R432", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"low": _safe_float_value(row[\'Low\'])', 1),
@@ -140,7 +140,7 @@ NUMERIC_BOUNDARY_ROUNDS_401_500 = [
     ("R436", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"high": _safe_float_value(res[\'h\'][i])', 1),
     ("R437", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"low": _safe_float_value(res[\'l\'][i])', 1),
     ("R438", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"close": _safe_float_value(res[\'c\'][i])', 1),
-    ("R439", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"volume": _safe_float_value(res.get(\'v\'', 1),
+    ("R439", "backend/tools/price_history_providers.py", "get_stock_historical_data", 'volume_value = _safe_float_value(res.get(\'v\'', 1),
     ("R440", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"open": _safe_float_value(row[\'Open\'])', 2),
     ("R441", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"high": _safe_float_value(row[\'High\'])', 2),
     ("R442", "backend/tools/price_history_providers.py", "get_stock_historical_data", '"low": _safe_float_value(row[\'Low\'])', 2),
@@ -1878,15 +1878,18 @@ def test_performance_comparison_rejects_non_finite_prices(monkeypatch, source, r
 
 
 @pytest.mark.parametrize("value", ["invalid", None])
-def test_dashboard_scorer_invalid_score_preserves_llm_content(value):
+def test_dashboard_scorer_invalid_score_uses_rule_fallback(value):
     from backend.dashboard.scorers import TechnicalScorer
 
     raw = json.dumps({"score": value, "summary": "preserved summary", "key_points": ["kept"]})
-    card = TechnicalScorer()._parse_response(raw, {}, "2026-07-31T00:00:00+00:00")
+    card = TechnicalScorer()._parse_response(raw, {"rsi": 55.0, "trend": "bullish"}, "2026-07-31T00:00:00+00:00")
 
     assert math.isfinite(card.score)
-    assert card.summary == "preserved summary"
-    assert card.key_points == ["kept"]
+    assert card.score == 8.0
+    assert card.summary == ""
+    assert card.key_points == ["RSI (55.0) 处于正常区间", "整体趋势偏多"]
+    assert card.confidence == 0.4
+    assert card.model_generated is False
 
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "1e309", "invalid"])
