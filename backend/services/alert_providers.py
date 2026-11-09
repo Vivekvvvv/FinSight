@@ -110,15 +110,22 @@ def _parse_pub_datetime(raw: Any) -> Optional[datetime]:
         return None
 
 
-def fetch_news_articles(ticker: str) -> List[Dict]:
+def fetch_news_articles(ticker: str, *, lookback_hours: int = 48) -> List[Dict]:
     """
-    Fetch recent news for ticker. Uses yfinance news; filters to last 48h and attaches related tickers if provided.
+    Fetch recent news for ticker, defaulting to the last 48h, with related tickers if provided.
     """
     articles: List[Dict] = []
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=48)
-    ticker_up = ticker.upper()
+    if lookback_hours <= 0:
+        return articles
+    ticker = ticker.strip().upper()
+    if not ticker:
+        return articles
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=lookback_hours)
+    ticker_up = ticker
 
     def _add_article(title: str, url: str, source: str, published_at: datetime, related: List[str] | None = None):
+        if not isinstance(title, str) or not title.strip():
+            return
         if (
             not isinstance(published_at, datetime) or published_at < cutoff
             or published_at > datetime.now(timezone.utc).replace(tzinfo=None)
@@ -151,12 +158,16 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
         t = yf.Ticker(ticker)
         news = getattr(t, "news", []) or []
         for item in news:
-            if not isinstance(item, dict):
+            if (not isinstance(item, dict) or item.get("error") or item.get("success") is False
+                or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                 continue
             # yfinance >=0.2.5x 返回 Yahoo ncp 流结构：title/pubDate/url 嵌在
             # item["content"] 下，顶层旧字段全部为空 → 旧解析逐条丢弃、主路径
             # 静默失效。兼容新旧两种结构。
             content = item.get("content") if isinstance(item.get("content"), dict) else {}
+            if (content.get("error") or content.get("success") is False
+                or str(content.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
             canonical_url = content.get("canonicalUrl") if isinstance(content.get("canonicalUrl"), dict) else {}
             click_url = content.get("clickThroughUrl") if isinstance(content.get("clickThroughUrl"), dict) else {}
             provider = content.get("provider") if isinstance(content.get("provider"), dict) else {}
@@ -205,7 +216,8 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                 resp = requests.get(url, params=params, timeout=8)
                 if resp.status_code == 200:
                     for item in resp.json() or []:
-                        if not isinstance(item, dict):
+                        if (not isinstance(item, dict) or item.get("error") or item.get("success") is False
+                            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                             continue
                         title = item.get("headline", "")
                         link = item.get("url", "")
@@ -227,10 +239,16 @@ def fetch_news_articles(ticker: str) -> List[Dict]:
                 url = "https://www.alphavantage.co/query"
                 params = {"function": "NEWS_SENTIMENT", "tickers": ticker_up, "limit": 10, "apikey": key}
                 resp = requests.get(url, params=params, timeout=8)
+                if resp.status_code != 200:
+                    return articles
                 data = resp.json()
+                if (not isinstance(data, dict) or data.get("error") or data.get("success") is False
+                    or str(data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                    return articles
                 feed = data.get("feed") or []
                 for item in feed:
-                    if not isinstance(item, dict):
+                    if (not isinstance(item, dict) or item.get("error") or item.get("success") is False
+                        or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                         continue
                     title = item.get("title", "")
                     link = item.get("url") or item.get("link", "")
@@ -260,8 +278,14 @@ def _fetch_with_yfinance(ticker: str) -> Optional[PriceSnapshot]:
 
         t = yf.Ticker(ticker)
         info = getattr(t, "fast_info", {}) or {}
+        if (info.get("error") or info.get("success") is False
+            or str(info.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and str(value).strip().upper() != ticker.strip().upper()
+               for value in (info.get("ticker"), info.get("symbol"))):
+            return None
         price = _first_positive_finite(
-            info.get("last_price"), info.get("last_close"), info.get("lastClose")
+            info.get("last_price"), info.get("lastPrice"), info.get("last_close"), info.get("lastClose")
         )
         if price is None:
             return None
@@ -291,11 +315,18 @@ def _fetch_with_yahoo_quote(ticker: str) -> Optional[PriceSnapshot]:
         resp = requests.get(url, timeout=8, headers=headers)
         if resp.status_code != 200:
             return None
-        data = resp.json().get("quoteResponse", {}).get("result", [])
+        quote_response = resp.json().get("quoteResponse", {})
+        if (not isinstance(quote_response, dict) or quote_response.get("error")
+            or quote_response.get("success") is False
+            or str(quote_response.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        data = quote_response.get("result", [])
         if not data:
             return None
         item = next((
             entry for entry in data if isinstance(entry, dict)
+            and not entry.get("error") and entry.get("success") is not False
+            and str(entry.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
             and str(entry.get("symbol") or "").strip().upper() == ticker.strip().upper()
         ), None)
         if item is None:
@@ -332,10 +363,17 @@ def _fetch_with_stooq(ticker: str) -> Optional[PriceSnapshot]:
         resp = requests.get(url, timeout=8)
         if resp.status_code != 200:
             return None
-        data = (resp.json() or {}).get("symbols") or []
+        payload = resp.json() or {}
+        if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        data = payload.get("symbols") or []
         if not data:
             return None
         item = data[0]
+        if (item.get("error") or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
         if str(item.get("symbol") or "").strip().lower() != symbol:
             return None
         close = item.get("close")
@@ -391,7 +429,13 @@ def _fetch_with_yahoo_chart(ticker: str) -> Optional[PriceSnapshot]:
         if resp.status_code != 200:
             return None
         chart = resp.json().get("chart", {})
+        if (chart.get("error") or chart.get("success") is False
+            or str(chart.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
         result = (chart.get("result") or [None])[0] or {}
+        if (result.get("error") or result.get("success") is False
+            or str(result.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
         if str((result.get("meta") or {}).get("symbol") or "").strip().upper() != ticker.strip().upper():
             return None
         closes = (result.get("indicators", {}).get("quote") or [{}])[0].get("close") or []

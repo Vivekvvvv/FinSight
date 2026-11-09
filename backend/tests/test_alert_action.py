@@ -119,6 +119,100 @@ def _alert_state(ticker="TSLA", *, user_id="alice", role="user"):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("condition", ["is not at $220", "isn't at 220", "is not trading at 220", "is never at 220"])
+@pytest.mark.parametrize("existing_disabled", [False, True])
+async def test_graph_negated_price_equality_cannot_write_with_valid_quote(alert_storage, monkeypatch, condition, existing_disabled):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    quote_calls = []
+    monkeypatch.setattr(alert_action_module, "fetch_price_snapshot", lambda ticker: quote_calls.append(ticker) or PriceSnapshot(ticker, 100.0, 0.0))
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("MSFT", "NVDA"):
+        assert svc.subscribe(email, ticker)
+    if existing_disabled:
+        assert svc.subscribe(email, "AAPL", alert_types=["news", "risk"], risk_threshold="critical")
+        assert svc.toggle_subscription(email, "AAPL", enabled=False)
+    before = svc.subscriptions_file.read_bytes()
+    runner = GraphRunner.create()
+    ui_context = {"user_email": email, "_authenticated_user": {"user_id": "alice", "role": "user"}}
+
+    result = await runner.ainvoke(
+        thread_id="private:alice:default", query=f"Notify me when AAPL {condition}",
+        ui_context=ui_context, confirmation_mode="skip",
+    )
+
+    assert result["alert_valid"] is False
+    assert result["clarify"]["reason"] == "alert_unsupported_price_condition"
+    assert svc.subscriptions_file.read_bytes() == before
+    assert quote_calls == []
+    if not existing_disabled:
+        valid = await runner.ainvoke(
+            thread_id="private:alice:default", query="AAPL 涨到220元时提醒我",
+            ui_context=ui_context, confirmation_mode="skip",
+        )
+        assert valid["alert_valid"] is True
+        assert len(svc.get_subscriptions(email)) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("email", [
+    "alice..smith@example.com", ".alice@example.com", "alice.@example.com",
+    "alice@example..com", "alice@-example.com", "alice@example-.com",
+])
+async def test_chat_malformed_email_cannot_write_or_consume_quota(alert_storage, email):
+    plans, svc = alert_storage
+    plans.set_plan("alice", "free")
+    for ticker in ("AAPL", "MSFT"):
+        assert svc.subscribe("alice@example.invalid", ticker, price_threshold=3.0)
+    before = svc.subscriptions_file.read_bytes()
+    state = _alert_state("TSLA")
+    state["user_email"] = email
+
+    result = await alert_action_module.alert_action(state)
+
+    assert result["alert_valid"] is False
+    assert svc.subscriptions_file.read_bytes() == before
+    valid = await alert_action_module.alert_action(_alert_state("NVDA"))
+    assert valid["alert_valid"] is True
+    assert len(svc.get_subscriptions("alice@example.invalid")) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", [
+    "Notify me when AAPL goes above 220 USD or 220 USD",
+    "Notify me when AAPL goes above 220 or 220 USD or 220.0 USD",
+])
+async def test_equivalent_additional_currency_units_can_update_at_quota(alert_storage, monkeypatch, query):
+    from backend.graph.runner import GraphRunner
+
+    initial_state = importlib.import_module("backend.graph.nodes.build_initial_state")
+    monkeypatch.setattr(initial_state, "load_memory_context", lambda **_kwargs: {})
+    plans, service = alert_storage
+    plans.set_plan("alice", "free")
+    email = "alice@example.invalid"
+    for ticker in ("AAPL", "MSFT", "NVDA"):
+        assert service.subscribe(email, ticker, alert_types=["news", "risk"], risk_threshold="critical")
+
+    result = await GraphRunner.create().ainvoke(
+        thread_id="private:alice:default", query=query,
+        ui_context={"user_email": email, "_authenticated_user": {"user_id": "alice", "role": "user"}},
+        confirmation_mode="skip",
+    )
+
+    assert result["alert_valid"] is True
+    subscriptions = service.get_subscriptions(email)
+    assert {item["ticker"] for item in subscriptions} == {"AAPL", "MSFT", "NVDA"}
+    saved = next(item for item in subscriptions if item["ticker"] == "AAPL")
+    assert saved["price_target"] == 220.0
+    assert set(saved["alert_types"]) == {"news", "risk", "price_change"}
+    assert saved["risk_threshold"] == "critical"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("ticker", ["BAD TICKER", ".AAPL", "A" * 21])
 async def test_chat_invalid_ticker_cannot_consume_remaining_quota(alert_storage, ticker):
     plans, svc = alert_storage
@@ -572,6 +666,9 @@ async def test_graph_multiple_tickers_cannot_partially_write_subscriptions(alert
     "Notify me if TSLA isn't moving over 3%",
     "Notify me if TSLA is not rising over 3%",
     "Notify me if TSLA isn't falling over 3%",
+    "Notify me if TSLA does not change by more than 3%",
+    "Notify me if TSLA doesn't move by over .5%",
+    "Notify me if TSLA is not falling by more than 3%",
     "Notify me if TSLA moves 3% to 5%",
     "TSLA 涨跌超过3％～5％时提醒我",
     "Notify me when TSLA goes above 220 USD to 230 USD",
@@ -790,6 +887,19 @@ async def test_graph_scientific_target_cannot_write_subscriptions(alert_storage,
     "Notify me if TSLA moves 3% or rises 3-5%",
     "Notify me if TSLA rises 3-5% or moves 3%",
     "TSLA 涨跌超过3%或涨跌超过3至5%时提醒我",
+    "Notify me when TSLA goes above 220 or 220 cents",
+    "Notify me when TSLA goes above 220 and 220k",
+    "Notify me when TSLA goes above $220 or $220 to $230",
+    "Notify me when TSLA goes above .5 or .5-.75",
+    "Notify me when TSLA goes above 220 or 220 percent",
+    "Notify me when TSLA goes above 220 or 220e2",
+    "Notify me when TSLA goes above 220 or 220.0.5",
+    "Notify me when TSLA goes above 220 or 220,00",
+    "TSLA 涨到220元或220分时提醒我",
+    "TSLA 涨到220元和220万元时提醒我",
+    "TSLA 涨到220元及220元至230元时提醒我",
+    "Notify me when TSLA goes above 220 or $220 and 50 cents",
+    "Notify me when TSLA goes above 220 or $220 or 220k",
 ])
 async def test_graph_conflicting_thresholds_cannot_write_subscriptions(alert_storage, monkeypatch, query, existing_subscription):
     from backend.graph.runner import GraphRunner
@@ -1000,6 +1110,12 @@ async def test_graph_background_direction_without_quote_cannot_consume_quota(ale
     ("Set a reminder when AAPL drops below 90", 90.0, "below"),
     ("Create a notification when AAPL goes above 120", 120.0, "above"),
     ("Keep reminding me when AAPL goes above 120", 120.0, "above"),
+    ("Notify me when AAPL is never above 90", 90.0, "below"),
+    ("Notify me when AAPL is never below 120", 120.0, "above"),
+    ("Notify me when AAPL is never going above 90", 90.0, "below"),
+    ("Notify me when AAPL is never going under 120", 120.0, "above"),
+    ("Notify me when AAPL is never >=90", 90.0, "below"),
+    ("Notify me when AAPL is never <=120", 120.0, "above"),
 ])
 async def test_graph_missing_quote_requires_explicit_direction_before_subscribing(alert_storage, monkeypatch, query, target, expected_direction):
     from backend.graph.runner import GraphRunner

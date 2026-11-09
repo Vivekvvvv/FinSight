@@ -8,6 +8,160 @@ from backend.services import alert_providers as providers
 from backend.services.alert_scheduler import PriceChangeScheduler
 
 
+def test_yfinance_fast_info_public_last_price_key_supplies_alert_snapshot(monkeypatch):
+    from yfinance.scrapers.quote import FastInfo
+    fast_info = FastInfo(SimpleNamespace())
+    fast_info._last_price = 120
+    fast_info._prev_close = 100
+    fast_info._reg_prev_close = 100
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
+        Ticker=lambda ticker: SimpleNamespace(fast_info=fast_info)))
+    snapshot = providers._fetch_with_yfinance("AAPL")
+    assert snapshot is not None
+    assert snapshot.price == 120
+    assert snapshot.change_percent == pytest.approx(20)
+
+
+def test_news_request_normalizes_ticker_before_fetch_and_related_matching(monkeypatch):
+    from datetime import datetime, timezone
+    calls = []
+    published = datetime.now(timezone.utc).timestamp() - 60
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda ticker:
+        calls.append(ticker) or SimpleNamespace(news=[
+            {"title": "matching", "providerPublishTime": published, "relatedTickers": ["AAPL"]}
+        ])))
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    assert [row["title"] for row in providers.fetch_news_articles(" aapl ")] == ["matching"]
+    assert calls == ["AAPL"]
+    assert providers.fetch_news_articles("   ") == []
+    assert calls == ["AAPL"]
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_stooq_failed_envelope_cannot_supply_retained_prices(monkeypatch, failure):
+    _mock_response(monkeypatch, {"symbols": [{"symbol": "AAPL.US", "close": 120}], **failure})
+    assert providers._fetch_with_stooq("AAPL") is None
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_yahoo_quote_failed_envelope_cannot_supply_retained_prices(monkeypatch, failure):
+    _mock_response(monkeypatch, {"quoteResponse": {"result": [
+        {"symbol": "AAPL", "regularMarketPrice": 120, "regularMarketPreviousClose": 100}
+    ], **failure}})
+    assert providers._fetch_with_yahoo_quote("AAPL") is None
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_alpha_vantage_failed_envelope_cannot_supply_retained_news(monkeypatch, failure):
+    from datetime import datetime, timezone, timedelta
+    published = (datetime.now(timezone.utc) - timedelta(minutes=1)).strftime("%Y%m%dT%H%M%S")
+    _mock_alpha_vantage_news(monkeypatch, [])
+    _mock_response(monkeypatch, {"feed": [{"title": "retained", "time_published": published}], **failure})
+    assert providers.fetch_news_articles("AAPL") == []
+
+
+@pytest.mark.parametrize("hours", [0, -1])
+def test_empty_news_windows_stop_before_provider_io(monkeypatch, hours):
+    calls = []
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda ticker: calls.append(ticker)))
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    assert providers.fetch_news_articles("AAPL", lookback_hours=hours) == []
+    assert calls == []
+
+
+@pytest.mark.parametrize("status_code", [429, 500])
+def test_alpha_vantage_http_failures_cannot_supply_retained_news(monkeypatch, status_code):
+    from datetime import datetime, timezone, timedelta
+    published = (datetime.now(timezone.utc) - timedelta(minutes=1)).strftime("%Y%m%dT%H%M%S")
+    _mock_alpha_vantage_news(monkeypatch, [])
+    response = SimpleNamespace(status_code=status_code, json=lambda:
+                               {"feed": [{"title": "bad", "time_published": published}]})
+    monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(get=lambda *args, **kwargs: response))
+    assert providers.fetch_news_articles("AAPL") == []
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_nested_yfinance_news_content_cannot_generate_alerts(monkeypatch, failure):
+    from datetime import datetime, timezone, timedelta
+    published = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda ticker: SimpleNamespace(news=[
+        {"content": {"title": "bad", "pubDate": published, **failure}},
+        {"content": {"title": "valid", "pubDate": published}}])))
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    assert [row["title"] for row in providers.fetch_news_articles("AAPL")] == ["valid"]
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_alpha_vantage_news_records_cannot_generate_alerts(monkeypatch, failure):
+    from datetime import datetime, timezone, timedelta
+    published = (datetime.now(timezone.utc) - timedelta(minutes=1)).strftime("%Y%m%dT%H%M%S")
+    _mock_alpha_vantage_news(monkeypatch, [{"title": "bad", "time_published": published, **failure},
+                                         {"title": "valid", "time_published": published}])
+    assert [row["title"] for row in providers.fetch_news_articles("AAPL")] == ["valid"]
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_finnhub_news_records_cannot_generate_news_alerts(monkeypatch, failure):
+    from datetime import datetime, timezone
+    published = datetime.now(timezone.utc).timestamp() - 60
+    _mock_finnhub_news(monkeypatch, [{"headline": "bad", "datetime": published, **failure},
+                                   {"headline": "valid", "datetime": published}])
+    assert [row["title"] for row in providers.fetch_news_articles("AAPL")] == ["valid"]
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_yfinance_news_does_not_block_valid_fallback(monkeypatch, failure):
+    from datetime import datetime, timezone
+    published = datetime.now(timezone.utc).timestamp() - 60
+    _mock_finnhub_news(monkeypatch, [{"headline": "valid", "datetime": published}])
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda ticker:
+                        SimpleNamespace(news=[{"title": "bad", "providerPublishTime": published, **failure}])))
+    assert [row["title"] for row in providers.fetch_news_articles("AAPL")] == ["valid"]
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_chart_result_cannot_supply_alert_prices(monkeypatch, failure):
+    _mock_response(monkeypatch, {"chart": {"result": [{
+        "meta": {"symbol": "AAPL"}, "indicators": {"quote": [{"close": [100, 120]}]}, **failure}]}})
+    assert providers._fetch_with_yahoo_chart("AAPL") is None
+
+
+def test_yahoo_chart_error_envelope_cannot_supply_alert_prices(monkeypatch):
+    _mock_response(monkeypatch, {"chart": {"error": {"code": "Not Found"}, "result": [{
+        "meta": {"symbol": "AAPL"}, "indicators": {"quote": [{"close": [100, 120]}]}}]}})
+    assert providers._fetch_with_yahoo_chart("AAPL") is None
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_stooq_failed_quote_records_cannot_supply_alert_prices(monkeypatch, failure):
+    _mock_response(monkeypatch, {"symbols": [{"symbol": "AAPL.US", "close": 120, **failure}]})
+    assert providers._fetch_with_stooq("AAPL") is None
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_failed_yahoo_quote_records_do_not_supply_alert_prices(monkeypatch, failure):
+    _mock_response(monkeypatch, {"quoteResponse": {"result": [
+        {"symbol": "AAPL", "regularMarketPrice": 120, "regularMarketPreviousClose": 100, **failure}]}})
+    assert providers._fetch_with_yahoo_quote("AAPL") is None
+
+
+@pytest.mark.parametrize("field", ["ticker", "symbol"])
+def test_yfinance_quote_requires_matching_explicit_instrument(monkeypatch, field):
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda ticker:
+                        SimpleNamespace(fast_info={"last_price": 120, "previous_close": 100, field: "MSFT"})))
+    assert providers._fetch_with_yfinance("AAPL") is None
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"error": "bad"}, {"status": " Failed "}])
+def test_yfinance_quote_business_failures_cannot_supply_alert_prices(monkeypatch, failure):
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda ticker:
+                        SimpleNamespace(fast_info={"last_price": 120, "previous_close": 100, **failure})))
+    assert providers._fetch_with_yfinance("AAPL") is None
+
+
 def _mock_response(monkeypatch, payload):
     response = SimpleNamespace(status_code=200, json=lambda: payload)
     monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(get=lambda *_args, **_kwargs: response))
@@ -603,3 +757,116 @@ def test_string_related_ticker_can_deliver_news_without_symbol_in_title(monkeypa
     assert len(scheduler.run_once()) == 1
     assert len(sends) == 1
     assert "Earnings exceed expectations" in sends[0]["message"]
+
+
+@pytest.mark.parametrize("source", ["yfinance", "finnhub", "alpha_vantage"])
+@pytest.mark.parametrize("title", [None, "", " \t\n", 123, {"title": "bad"}])
+def test_unusable_news_title_does_not_drop_following_headline(monkeypatch, source, title):
+    from datetime import datetime, timedelta, timezone
+
+    published = datetime.now(timezone.utc) - timedelta(hours=1)
+    if source == "alpha_vantage":
+        _mock_alpha_vantage_news(monkeypatch, [
+            {"title": title, "time_published": published.strftime("%Y%m%dT%H%M%S")},
+            {"title": "Actual earnings release", "time_published": published.strftime("%Y%m%dT%H%M%S")},
+        ])
+    elif source == "finnhub":
+        _mock_finnhub_news(monkeypatch, [
+            {"headline": title, "datetime": published.timestamp()},
+            {"headline": "Actual earnings release", "datetime": published.timestamp()},
+        ])
+    else:
+        monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+        monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+        news = [
+            {"title": title, "providerPublishTime": published.timestamp()},
+            {"title": "Actual earnings release", "providerPublishTime": published.timestamp()},
+        ]
+        monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=news)))
+
+    assert [article["title"] for article in providers.fetch_news_articles("AAPL")] == ["Actual earnings release"]
+
+
+@pytest.mark.parametrize("primary", ["yfinance", "finnhub"])
+@pytest.mark.parametrize("title", ["", " \t\n"])
+def test_empty_primary_news_title_allows_valid_fallback(monkeypatch, primary, title):
+    from datetime import datetime, timedelta, timezone
+
+    published = datetime.now(timezone.utc) - timedelta(hours=1)
+    fallback = SimpleNamespace(status_code=200, json=lambda: {"feed": [{
+        "title": "Actual earnings release", "time_published": published.strftime("%Y%m%dT%H%M%S"),
+        "ticker_sentiment": [{"ticker": "AAPL"}],
+    }]})
+    empty_finnhub = SimpleNamespace(status_code=200, json=lambda: [{
+        "headline": title, "datetime": published.timestamp(), "related": "AAPL",
+    }])
+    monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(
+        get=lambda url, **_kwargs: empty_finnhub if "finnhub.io" in url else fallback,
+    ))
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "test-key")
+    if primary == "finnhub":
+        monkeypatch.setenv("FINNHUB_API_KEY", "test-key")
+        news = []
+    else:
+        monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+        news = [{"title": title, "providerPublishTime": published.timestamp(), "relatedTickers": ["AAPL"]}]
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=news)))
+
+    assert [article["title"] for article in providers.fetch_news_articles("AAPL")] == ["Actual earnings release"]
+
+
+@pytest.mark.parametrize("primary", ["yfinance", "finnhub"])
+def test_news_cycle_uses_fallback_when_primary_articles_are_outside_alert_window(monkeypatch, primary):
+    from datetime import datetime, timedelta, timezone
+    from backend.services import alert_scheduler, email_service, subscription_service
+
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(hours=36)
+    recent = now - timedelta(hours=1)
+    fallback = SimpleNamespace(status_code=200, json=lambda: {"feed": [{
+        "title": "Actual earnings release", "time_published": recent.strftime("%Y%m%dT%H%M%S"),
+        "ticker_sentiment": [{"ticker": "AAPL"}],
+    }]})
+    old_finnhub = SimpleNamespace(status_code=200, json=lambda: [{
+        "headline": "Old earnings release", "datetime": old.timestamp(), "related": "AAPL",
+    }])
+    monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(
+        get=lambda url, **_kwargs: old_finnhub if "finnhub.io" in url else fallback,
+    ))
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "test-key")
+    if primary == "finnhub":
+        monkeypatch.setenv("FINNHUB_API_KEY", "test-key")
+        news = []
+    else:
+        monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+        news = [{"title": "Old earnings release", "providerPublishTime": old.timestamp(), "relatedTickers": ["AAPL"]}]
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=news)))
+    sends = []
+    svc = SimpleNamespace(
+        get_subscriptions=lambda **_kwargs: [{"email": "alice@example.invalid", "ticker": "AAPL", "alert_types": ["news"]}],
+        is_valid_email=lambda _email: True,
+        record_alert_attempt=lambda *args, **kwargs: None,
+        update_last_news=lambda *args, **kwargs: None,
+        record_alert_event=lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(subscription_service, "get_subscription_service", lambda: svc)
+    monkeypatch.setattr(email_service, "get_email_service", lambda: SimpleNamespace(
+        send_stock_alert=lambda **kwargs: sends.append(kwargs) or True,
+    ))
+
+    assert len(alert_scheduler.run_news_alert_cycle()) == 1
+    assert len(sends) == 1
+    assert "Actual earnings release" in sends[0]["message"]
+    assert "Old earnings release" not in sends[0]["message"]
+
+
+def test_default_news_provider_keeps_48_hour_window(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    old = datetime.now(timezone.utc) - timedelta(hours=36)
+    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    news = [{"title": "Old earnings release", "providerPublishTime": old.timestamp(), "relatedTickers": ["AAPL"]}]
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _ticker: SimpleNamespace(news=news)))
+
+    assert [article["title"] for article in providers.fetch_news_articles("AAPL")] == ["Old earnings release"]

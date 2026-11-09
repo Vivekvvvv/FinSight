@@ -404,7 +404,11 @@ def test_invalid_alert_types_cannot_overwrite_subscription_or_claim_quota(
     assert len(service.get_subscriptions(email)) == 2
 
 
-@pytest.mark.parametrize("email", ["alice@example.invalid\n", "alice@example.invalid\r\n"])
+@pytest.mark.parametrize("email", [
+    "alice@example.invalid\n", "alice@example.invalid\r\n",
+    "alice..smith@example.com", ".alice@example.com", "alice.@example.com",
+    "alice@example..com", "alice@-example.com", "alice@example-.com",
+])
 def test_malformed_email_cannot_create_subscription_or_claim_quota(monkeypatch, tmp_path, email):
     from backend.api import main
     from backend.services import subscription_service as subs
@@ -424,6 +428,31 @@ def test_malformed_email_cannot_create_subscription_or_claim_quota(monkeypatch, 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid email"
     assert service.subscriptions_file.read_bytes() == before
+
+
+@pytest.mark.parametrize("email", ["first.last+alerts@sub-domain.example.com", "ALICE@EXAMPLE.COM", "a@x.co", "user_name@example.invalid"])
+def test_valid_email_labels_and_local_parts_still_allow_subscription(monkeypatch, tmp_path, email):
+    from backend.services import subscription_service as subs
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+
+    assert service.is_valid_email(email) is True
+    assert service.subscribe(email, "AAPL", price_threshold=3.0, max_subscriptions=1) is True
+    assert len(service.get_subscriptions(email)) == 1
+
+
+@pytest.mark.parametrize("email", [None, True, 123, {"email": "alice@example.com"}])
+def test_non_string_email_is_rejected_without_writing_subscription(monkeypatch, tmp_path, email):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+
+    assert service.is_valid_email(email) is False
+    assert service.subscribe(email, "AAPL", price_threshold=3.0) is False
+    assert not storage_path.exists()
 
 
 def test_subscription_storage_key_controls_delivery_email(monkeypatch, tmp_path):
@@ -892,3 +921,61 @@ def test_read_subscription_snapshot_cannot_modify_persisted_user_settings(monkey
     assert saved["disabled"] is False
     assert saved["alert_types"] == ["news", "risk"]
     assert saved["recent_events"][0]["metadata"]["nested"]["levels"] == ["high"]
+
+
+@pytest.mark.parametrize("timestamp", ["0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-14:00"])
+def test_overflowing_stored_event_is_backed_up_without_losing_subscriptions(monkeypatch, tmp_path, caplog, timestamp):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    for ticker in ("AAPL", "MSFT"):
+        assert service.subscribe(email, ticker, price_threshold=3.0)
+        assert service.record_alert_event(email, ticker, "news", title=f"{ticker} valid event")
+    payload = json.loads(storage_path.read_text(encoding="utf-8"))
+    payload[email][0]["recent_events"].insert(0, {"triggered_at": timestamp, "title": "PRIVATE damaged event"})
+    storage_path.write_text(json.dumps(payload), encoding="utf-8")
+    before = storage_path.read_bytes()
+
+    with caplog.at_level(logging.WARNING, logger="backend.services.subscription_service"):
+        reloaded = subs.SubscriptionService()
+
+    assert {sub["ticker"] for sub in reloaded.get_subscriptions(email)} == {"AAPL", "MSFT"}
+    assert {event["title"] for event in reloaded.list_alert_events(email)} == {"AAPL valid event", "MSFT valid event"}
+    backups = list(tmp_path.glob("subscriptions.json.*.corrupt"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == before
+    assert "Invalid UTC alert event backed up" in caplog.text
+    assert "PRIVATE" not in caplog.text
+    with pytest.raises(subs.SubscriptionLimitExceeded):
+        reloaded.subscribe(email, "TSLA", price_threshold=3.0, max_subscriptions=2)
+    assert len(list(tmp_path.glob("*.corrupt"))) == 1
+
+
+def test_overflowing_event_backup_failure_does_not_overwrite_storage(monkeypatch, tmp_path):
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL", price_threshold=3.0)
+    payload = json.loads(storage_path.read_text(encoding="utf-8"))
+    payload[email][0]["recent_events"] = [{"triggered_at": "9999-12-31T23:59:59-14:00"}]
+    storage_path.write_text(json.dumps(payload), encoding="utf-8")
+    before = storage_path.read_bytes()
+    replace = subs.os.replace
+
+    def fail_backup(source, target):
+        if str(target).endswith(".corrupt"):
+            raise OSError("backup unavailable")
+        return replace(source, target)
+
+    monkeypatch.setattr(subs.os, "replace", fail_backup)
+    with pytest.raises(OSError, match="backup unavailable"):
+        subs.SubscriptionService()
+
+    assert storage_path.read_bytes() == before
+    assert list(tmp_path.glob("*.corrupt")) == []

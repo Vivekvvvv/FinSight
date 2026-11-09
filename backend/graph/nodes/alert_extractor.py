@@ -11,13 +11,13 @@ _PRICE_TARGET_RE = re.compile(
     # Chinese patterns
     r"(?:不|没(?:有)?|未)\s*(?:高于|大于|低于|小于)|"
     r"涨到|跌到|涨至|跌至|跌破|低于|小于|突破|高于|大于|到达|到|达到|至|"
-    r"(?:(?:不|(?<![a-z0-9_])(?:not|no|isn['’]t|doesn['’]t|don['’]t))\s*)?(?<![<>=!])(?:[<>]=?|[≤≥])|"
+    r"(?:(?:不|(?<![a-z0-9_])(?:not|no|never|isn['’]t|doesn['’]t|don['’]t))\s*)?(?<![<>=!])(?:[<>]=?|[≤≥])|"
     # English patterns - price target
     r"(?<![a-z0-9_])(?:price\s+(?:of|at|to)|target\s+price|reaches?|hits?|"
     # English patterns - directional
     r"(?:drops?|falls?|goes?|dips?)\s+(?:below|under|to)\s*|"
     r"(?:rises?|climbs?|goes?)\s+(?:above|over|to)\s*|"
-    r"(?:not|no|isn['’]t|doesn['’]t|don['’]t)\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:(?:less|lower|greater|higher)\s+than|above|below|over|under)\s*|"
+    r"(?:not|no|never|isn['’]t|doesn['’]t|don['’]t)\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:(?:less|lower|greater|higher)\s+than|above|below|over|under)\s*|"
     r"(?:less|lower|greater|higher)\s+than\s*|"
     r"(?:above|below|over|under|at)\s*)"
     r")\s*(?:(?P<currency_prefix>[$€£])\s*)?"
@@ -41,8 +41,11 @@ _COMPOUND_PRICE_RE = re.compile(
 _ADDITIONAL_PRICE_RE = re.compile(
     r"\s*(?:(?:and|or)(?![a-z_])|[与或及和])\s*(?:(?P<currency_prefix>[$€£])\s*)?"
     r"(?P<price>[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))"
-    r"(?!\d|[.,，]\d|e[+-]?\d)\s*"
-    r"(?P<currency>元|块|美元|dollars?|usd|\$|欧元|英镑|日元|港元|港币|加元|澳元|€|£|(?:eur|gbp|euros?|pounds?|jpy|hkd|yen|cad|aud|(?:canadian|australian)\s+dollars?)(?![a-z_]))?",
+    r"(?!\d)\s*"
+    r"(?P<currency>元|块|美元|dollars?|usd|\$|欧元|英镑|日元|港元|港币|加元|澳元|€|£|(?:eur|gbp|euros?|pounds?|jpy|hkd|yen|cad|aud|(?:canadian|australian)\s+dollars?)(?![a-z_]))?"
+    r"(?P<unsupported_suffix>[.,，]\d+|e[+-]?\d+|"
+    r"\s*(?:[-–—~～/至]|to(?![a-z_]))\s*(?:[$€£]\s*)?[+-]?(?:\d|\.\d)|"
+    r"\s*(?:[%％]|percent|per\s+cent|个点|pct|美分|[分角千万亿]|(?:[kmb]|thousands?|millions?|billions?|(?:euro|(?:us|u\.s\.)\s+)?cents?|pence|penn(?:y|ies))(?![a-z_])))?",
     re.IGNORECASE,
 )
 
@@ -72,7 +75,7 @@ _ADDITIONAL_PCT_RE = re.compile(
 
 _NEGATED_PCT_CONDITION_RE = re.compile(
     r"(?:(?:不|没(?:有)?|未)\s*|\b(?:not|no|never|isn['’]t|doesn['’]t|don['’]t)\s+)"
-    r"(?:(?:rises?|rising|drops?|dropping|falls?|falling|moves?|moving|changes?|changing|fluctuates?|fluctuating)\s+)?"
+    r"(?:(?:rises?|rising|drops?|dropping|falls?|falling|moves?|moving|changes?|changing|fluctuates?|fluctuating)\s+(?:by\s+)?)?"
     + _PCT_THRESHOLD_RE.pattern,
     re.IGNORECASE,
 )
@@ -80,7 +83,7 @@ _NEGATED_PCT_CONDITION_RE = re.compile(
 _NEGATED_PRICE_MOVEMENT_RE = re.compile(
     r"(?:(?:不|没(?:有)?|未)\s*(?:上|下)?(?:涨到|跌到|涨至|跌至|跌破|突破|到达|达到|到|至)"
     r"|\b(?:not|no|never|isn['’]t|doesn['’]t|don['’]t)\s+"
-    r"(?:reach(?:es)?|hits?|(?:go(?:es)?|rises?|climbs?|drops?|falls?|dips?)\s+to))"
+    r"(?:reach(?:es)?|hits?|(?:trading\s+)?at|(?:go(?:es)?|rises?|climbs?|drops?|falls?|dips?)\s+to))"
     r"\s*(?:[$€£]\s*)?[+-]?(?:\d|\.\d)",
     re.IGNORECASE,
 )
@@ -145,9 +148,9 @@ def _extract_direction(query: str) -> str | None:
         return "below"
     if re.search(r"(?:不|没(?:有)?|未)\s*(?:低于|小于|<=?|≤)", lowered):
         return "above"
-    if re.search(r"(?<![a-z_])(?:not|no|isn['’]t|doesn['’]t|don['’]t)(?:\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:above|over|(?:higher|greater)\s+than)(?![a-z_])|\s*(?:>=?|≥))", lowered):
+    if re.search(r"(?<![a-z_])(?:not|no|never|isn['’]t|doesn['’]t|don['’]t)(?:\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:above|over|(?:higher|greater)\s+than)(?![a-z_])|\s*(?:>=?|≥))", lowered):
         return "below"
-    if re.search(r"(?<![a-z_])(?:not|no|isn['’]t|doesn['’]t|don['’]t)(?:\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:below|under|(?:lower|less)\s+than)(?![a-z_])|\s*(?:<=?|≤))", lowered):
+    if re.search(r"(?<![a-z_])(?:not|no|never|isn['’]t|doesn['’]t|don['’]t)(?:\s+(?:(?:go(?:es|ing)?|rises?|rising|climbs?|climbing|drops?|dropping|falls?|falling|dips?|dipping)\s+)?(?:below|under|(?:lower|less)\s+than)(?![a-z_])|\s*(?:<=?|≤))", lowered):
         return "above"
 
     if (
@@ -203,7 +206,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
         }
 
     if _NEGATED_PRICE_MOVEMENT_RE.search(query):
-        draft = "当前到价提醒无法按未达到或未突破条件触发。未创建或修改提醒，请明确提供上涨到或下跌到的目标价。"
+        draft = "当前到价提醒无法按未达到、未突破或不等于目标价条件触发。未创建或修改提醒，请明确提供上涨到或下跌到的目标价。"
         return {
             "alert_valid": False,
             "skip_session_context": True,
@@ -236,7 +239,10 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
     subject = state.get("subject") or {}
     tickers = subject.get("tickers") if isinstance(subject, dict) else None
     alert_tickers = {str(item or "").strip().upper() for item in tickers if str(item or "").strip()} if isinstance(tickers, list) else set()
-    if not re.search(r"\bUSD\b", _PRICE_TARGET_RE.sub("", query), re.IGNORECASE):
+    query_without_prices = query
+    for match in sorted(price_matches, key=lambda item: item.start(), reverse=True):
+        query_without_prices = query_without_prices[:match.start()] + query_without_prices[match.end():]
+    if not re.search(r"\bUSD\b", query_without_prices, re.IGNORECASE):
         alert_tickers.discard("USD")
         if ticker == "USD":
             ticker = _pick_ticker({"ui_context": state.get("ui_context")})
@@ -273,6 +279,7 @@ def alert_extractor(state: GraphState) -> dict[str, Any]:
     price_directions = {_extract_direction(match.group(0)) for match in _PRICE_TARGET_RE.finditer(query)}
     if (
         len(price_targets) > 1 or len(pct_thresholds) > 1 or {"above", "below"} <= price_directions
+        or any(match.groupdict().get("unsupported_suffix") for match in price_matches)
         or (price_target_match is not None and pct_match is not None)
         or any(match.group("pct_end") is not None for match in _PCT_THRESHOLD_RE.finditer(query))
         or additional_pct_range

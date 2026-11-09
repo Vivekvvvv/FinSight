@@ -420,7 +420,7 @@ class NewsAlertScheduler:
                 # 提醒邮件。单字母代码（A/I 与冠词同形）跳过标题匹配，仅靠
                 # related_tickers 精确命中；尾随 "." 不算边界（句尾标点）。
                 title_hit = len(ticker_upper) >= 2 and re.search(
-                    rf"(?<![A-Z0-9.]){re.escape(ticker_upper)}(?![A-Z0-9])",
+                    rf"(?<![A-Za-z0-9.]){re.escape(ticker_upper)}(?![A-Za-z0-9])",
                     title,
                 ) is not None
                 if ticker_upper in rel or (not rel and title_hit):
@@ -762,7 +762,7 @@ def run_news_alert_cycle() -> List[Dict]:
     scheduler = NewsAlertScheduler(
         subscription_service=get_subscription_service(),
         email_service=get_email_service(),
-        news_fetcher=fetch_news_articles,
+        news_fetcher=lambda ticker: fetch_news_articles(ticker, lookback_hours=24),
     )
     res = scheduler.run_once()
     return res

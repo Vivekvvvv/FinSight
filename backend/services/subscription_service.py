@@ -33,7 +33,9 @@ SUBSCRIPTIONS_FILE = Path(__file__).parent.parent.parent / "data" / "subscriptio
 ALERT_FAILURE_LIMIT = env_int("ALERT_FAILURE_LIMIT", 3, minimum=1)
 ALERT_EVENTS_PER_SUB = env_int("ALERT_EVENTS_PER_SUB", 30, minimum=1)
 ALERT_EVENTS_TTL_DAYS = env_int("ALERT_EVENTS_TTL_DAYS", 7, minimum=1)
-EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+EMAIL_REGEX = re.compile(
+    r"^[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$"
+)
 RISK_THRESHOLD_ALLOWED = {"low", "medium", "high", "critical"}
 ALERT_MODE_ALLOWED = {"price_change_pct", "price_target"}
 DIRECTION_ALLOWED = {"above", "below"}
@@ -171,7 +173,20 @@ class SubscriptionService:
                     sub["recent_events"] = []
                     changed = True
                 else:
-                    pruned = self._prune_recent_events(sub.get("recent_events") or [])
+                    valid_events = []
+                    for event in iter_dict_items(sub.get("recent_events") or []):
+                        try:
+                            self._to_utc_naive(self._parse_iso(str(event.get("triggered_at") or "")))
+                        except (ValueError, OverflowError):
+                            if self.subscriptions_file.exists():
+                                backup_path = self.subscriptions_file.with_name(
+                                    f"{self.subscriptions_file.name}.{uuid4().hex}.corrupt"
+                                )
+                                os.replace(self.subscriptions_file, backup_path)
+                            logger.warning("Invalid UTC alert event backed up before pruning")
+                            continue
+                        valid_events.append(event)
+                    pruned = self._prune_recent_events(valid_events)
                     if pruned != sub.get("recent_events"):
                         sub["recent_events"] = pruned
                         changed = True
@@ -431,9 +446,10 @@ class SubscriptionService:
 
     def is_valid_email(self, email: str) -> bool:
         """Basic email format validation."""
-        if not email or "@" not in email:
+        if not isinstance(email, str) or EMAIL_REGEX.fullmatch(email) is None:
             return False
-        return bool(EMAIL_REGEX.fullmatch(email))
+        local_part = email.split("@", 1)[0]
+        return not (local_part.startswith(".") or local_part.endswith(".") or ".." in local_part)
 
     @staticmethod
     def is_valid_ticker(ticker: object) -> bool:

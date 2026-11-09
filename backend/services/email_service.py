@@ -69,10 +69,17 @@ class EmailService:
                 msg.attach(MIMEText(text_content, "plain", "utf-8"))
             msg.attach(MIMEText(html_content, "html", "utf-8"))
 
-            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+            accepted = False
+            try:
+                with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10) as server:
+                    server.starttls()
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.send_message(msg)
+                    accepted = True
+            except Exception:
+                if not accepted:
+                    raise
+                logger.warning('[EmailService] SMTP cleanup failed after delivery acceptance')
 
             logger.info("[EmailService] Email sent")
             return True, "none", None

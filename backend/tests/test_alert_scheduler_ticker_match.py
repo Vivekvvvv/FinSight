@@ -101,6 +101,22 @@ def test_real_ticker_uppercase_token_still_matches():
     assert len(email.sent) == 1
 
 
+@pytest.mark.parametrize("ticker,title", [
+    ("AAPL", "myAAPL holdings update"),
+    ("AAPL", "AAPLatest quarterly outlook"),
+    ("AAPL", "myAAPLatest product release"),
+    ("ON", "pONder the next rate decision"),
+    ("ALL", "ALLiance announces a merger"),
+])
+def test_mixed_case_words_do_not_match_news_ticker_tokens(ticker, title):
+    assert _run(ticker, [_article(title)]).sent == []
+
+
+@pytest.mark.parametrize("title", ["[AAPL] earnings release", "AAPL's earnings beat estimates", "苹果AAPL上涨"])
+def test_news_ticker_token_keeps_punctuation_and_chinese_boundaries(title):
+    assert len(_run("AAPL", [_article(title)]).sent) == 1
+
+
 def test_single_letter_ticker_related_tickers_path_still_works():
     # 单字母 ticker 不能靠标题匹配，但 related_tickers 精确命中仍应发送。
     email = _run("T", [_article("Telecom giants slide after open", related=["T"])])

@@ -237,3 +237,90 @@ def test_smtp_configuration_rejection_does_not_disable_user_alerts(monkeypatch, 
     assert saved["last_news_at"] is None
     assert saved["last_risk_at"] is None
     assert saved["last_alert_error"] == "transient_delivery_error"
+
+
+def _install_smtp_cleanup_failure(monkeypatch, error_kind, accepted, *, reject_data=False):
+    class CleanupSMTP(email_module.smtplib.SMTP):
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def starttls(self):
+            return 220, b"Ready"
+
+        def login(self, *_args):
+            return 235, b"Authenticated"
+
+        def send_message(self, msg):
+            if reject_data:
+                raise email_module.smtplib.SMTPDataError(550, b"PRIVATE rejected data")
+            accepted.append(msg)
+            return {}
+
+        def docmd(self, command):
+            assert command == "QUIT"
+            if error_kind == "timeout":
+                raise TimeoutError("PRIVATE SMTP timeout")
+            return (500, b"PRIVATE bad QUIT") if error_kind == "quit_reply" else (221, b"Bye")
+
+        def close(self):
+            if error_kind == "close":
+                raise ConnectionError("PRIVATE close failure")
+
+    monkeypatch.setattr(email_module.smtplib, "SMTP", CleanupSMTP)
+
+
+@pytest.mark.parametrize("error_kind", ["quit_reply", "timeout", "close"])
+def test_accepted_email_remains_successful_after_smtp_cleanup_error(monkeypatch, caplog, error_kind):
+    accepted = []
+    _install_smtp_cleanup_failure(monkeypatch, error_kind, accepted)
+
+    assert _configured_service().send_email("user@example.com", "subject", "<p>body</p>") == (True, "none", None)
+    assert len(accepted) == 1
+    assert "SMTP cleanup failed after delivery acceptance" in caplog.text
+    assert "PRIVATE" not in caplog.text
+
+
+def test_unaccepted_email_does_not_report_success(monkeypatch):
+    accepted = []
+    _install_smtp_cleanup_failure(monkeypatch, "none", accepted, reject_data=True)
+
+    assert _configured_service().send_email("user@example.com", "subject", "<p>body</p>") == (
+        False, "permanent", "Email delivery rejected",
+    )
+    assert accepted == []
+
+
+@pytest.mark.parametrize("mode", ["price_change_pct", "price_target", "news", "risk"])
+def test_smtp_cleanup_error_does_not_repeat_delivered_alert(monkeypatch, tmp_path, mode):
+    from datetime import datetime, timedelta, timezone
+    from backend.services import subscription_service as subs
+    from backend.services.alert_scheduler import NewsAlertScheduler, PriceChangeScheduler, PriceSnapshot, RiskAlertScheduler
+
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", tmp_path / "subscriptions.json")
+    service = subs.SubscriptionService()
+    assert service.subscribe(
+        "user@example.com", "AAPL", alert_types=[mode] if mode in {"news", "risk"} else ["price_change"],
+        alert_mode="price_target" if mode == "price_target" else "price_change_pct",
+        price_threshold=3.0, price_target=110.0, direction="above",
+    )
+    accepted = []
+    _install_smtp_cleanup_failure(monkeypatch, "quit_reply", accepted)
+    email = _configured_service()
+    quote = lambda ticker: PriceSnapshot(ticker, 120.0, -9.0)
+    if mode == "news":
+        articles = [{
+            "title": "Earnings release", "related_tickers": ["AAPL"],
+            "published_at": datetime.now(timezone.utc) - timedelta(hours=1),
+        }]
+        scheduler = NewsAlertScheduler(service, email, lambda _ticker: articles)
+    elif mode == "risk":
+        scheduler = RiskAlertScheduler(service, email, quote)
+    else:
+        scheduler = PriceChangeScheduler(service, email, quote)
+
+    assert len(scheduler.run_once()) == 1
+    assert scheduler.run_once() == []
+    assert len(accepted) == 1
+    saved = service.get_subscriptions("user@example.com")[0]
+    assert saved["alert_failures"] == 0
+    assert len(saved["recent_events"]) == 1
