@@ -72,7 +72,7 @@ def _fetch_with_yahoo_scrape_historical(ticker: str, period: str = "1y") -> dict
                 
                 response = _http_get(url, params=params, headers=headers, timeout=20, allow_redirects=True)
                 
-                if response.status_code == 200 and len(response.text) > 100:  # 确保有实际数据
+                if response.status_code == 200 and response.text:
                     # 解析 CSV 数据
                     import io
                     import csv
@@ -85,19 +85,29 @@ def _fetch_with_yahoo_scrape_historical(ticker: str, period: str = "1y") -> dict
                             # 跳过无效行
                             if not row.get('Date') or not row.get('Close'):
                                 continue
+                            row['Date'] = datetime.fromisoformat(row['Date']).date().isoformat()
+                            prices = [_safe_float_value(row.get(field)) for field in ("Open", "High", "Low", "Close")]
+                            if all(value is not None for value in prices) and (
+                                prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+                            ):
+                                continue
+                            if any(value is not None and value <= 0 for value in
+                                   (_safe_float_value(row.get(field)) for field in ("Open", "High", "Low", "Close"))):
+                                continue
                             kline_data.append({
                                 "time": row['Date'],
                                 "open": _safe_float_value(row['Open']),
                                 "high": _safe_float_value(row['High']),
                                 "low": _safe_float_value(row['Low']),
                                 "close": _safe_float_value(row['Close']),
-                                "volume": _safe_float_value(row.get('Volume')) or 0.0,
+                                "volume": (volume or 0.0) if (volume := _safe_float_value(row.get('Volume'))) is None or volume >= 0 else None,
                             })
                         except (ValueError, KeyError) as e:
                             continue  # 跳过无效行
                     
                     if kline_data:
                         logger.info("[get_stock_historical_data] Yahoo Finance 网页抓取成功")
+                        kline_data = sorted({row["time"]: row for row in kline_data}.values(), key=lambda row: row["time"])
                         return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "yahoo_scrape"}
             except Exception as e:
                 logger.info(
@@ -168,20 +178,39 @@ def _fetch_with_iex_cloud(ticker: str, period: str = "1y") -> dict:
                 for item in iter_dict_items(data):
                     # 非 dict 毒行由 iter_dict_items 按条跳过——否则 .get
                     # AttributeError 落进函数级 except，该 provider 整批返回 None（同 R107）
+                    if (item.get("error") or item.get("success") is False
+                        or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                        continue
                     time_str = str(item.get('date') or item.get('label') or '')
+                    prices = [_safe_float_value(item.get(field)) for field in ("open", "high", "low", "close")]
+                    if all(value is not None for value in prices) and (
+                        prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+                    ):
+                        continue
+                    if any(value is not None and value <= 0 for value in
+                           (_safe_float_value(item.get(field)) for field in ("open", "high", "low", "close"))):
+                        continue
+                    if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                           for value in (item.get("ticker"), item.get("symbol"))):
+                        continue
                     if not time_str:
                         continue  # 无日期K线柱无意义，丢弃
+                    try:
+                        time_str = datetime.fromisoformat(time_str).date().isoformat()
+                    except (ValueError, OverflowError):
+                        continue
                     kline_data.append({
                         "time": time_str,
                         "open": _safe_float_value(item.get('open')),
                         "high": _safe_float_value(item.get('high')),
                         "low": _safe_float_value(item.get('low')),
                         "close": _safe_float_value(item.get('close')),
-                        "volume": _safe_float_value(item.get('volume')),
+                        "volume": volume if (volume := _safe_float_value(item.get('volume'))) is not None and volume >= 0 else None,
                     })
 
                 if kline_data:
                     logger.info("[get_stock_historical_data] IEX Cloud 成功获取数据")
+                    kline_data = sorted({row["time"]: row for row in kline_data}.values(), key=lambda row: row["time"])
                     return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "iex_cloud"}
         
         return None
@@ -237,7 +266,25 @@ def _fetch_with_tiingo(ticker: str, period: str = "1y") -> dict:
                 kline_data = []
                 for item in iter_dict_items(data):
                     # 毒行按条跳过（同 R107）；date present-None 也跳过切片
+                    prices = [_safe_float_value(item.get(field)) for field in ("open", "high", "low", "close")]
+                    if all(value is not None for value in prices) and (
+                        prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+                    ):
+                        continue
+                    if any(value is not None and value <= 0 for value in
+                           (_safe_float_value(item.get(field)) for field in ("open", "high", "low", "close"))):
+                        continue
+                    if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                           for value in (item.get("ticker"), item.get("symbol"))):
+                        continue
+                    if (item.get("error") or item.get("success") is False
+                        or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                        continue
                     time_str = str(item.get('date') or '')[:10]
+                    try:
+                        time_str = datetime.fromisoformat(time_str).date().isoformat()
+                    except (ValueError, OverflowError):
+                        continue
                     if not time_str:
                         continue  # 无日期K线柱无意义，丢弃
                     kline_data.append({
@@ -246,11 +293,12 @@ def _fetch_with_tiingo(ticker: str, period: str = "1y") -> dict:
                         "high": _safe_float_value(item.get('high')),
                         "low": _safe_float_value(item.get('low')),
                         "close": _safe_float_value(item.get('close')),
-                        "volume": _safe_float_value(item.get('volume')),
+                        "volume": volume if (volume := _safe_float_value(item.get('volume'))) is not None and volume >= 0 else None,
                     })
 
                 if kline_data:
                     logger.info("[get_stock_historical_data] Tiingo 成功获取数据")
+                    kline_data = sorted({row["time"]: row for row in kline_data}.values(), key=lambda row: row["time"])
                     return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "tiingo"}
         elif response.status_code == 404:
             # Tiingo 可能不支持该ticker（如指数），返回None让其他数据源处理
@@ -299,7 +347,7 @@ def _fetch_with_twelve_data(ticker: str, period: str = "1y") -> dict:
             return None
 
         data = response.json()
-        if data.get("status") != "ok":
+        if data.get("status") != "ok" or data.get("error") or data.get("success") is False:
             # status != ok 时通常返回 message
             message = data.get("message") or data.get("error")
             if message:
@@ -307,13 +355,37 @@ def _fetch_with_twelve_data(ticker: str, period: str = "1y") -> dict:
             return None
 
         values = data.get("values") or []
+        meta = data.get("meta")
+        if isinstance(meta, dict) and any(
+            value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+            for value in (meta.get("ticker"), meta.get("symbol"))
+        ):
+            return None
         if not values:
             return None
 
         kline_data = []
         for item in iter_dict_items(values):
+            prices = [_safe_float_value(item.get(field)) for field in ("open", "high", "low", "close")]
+            if all(value is not None for value in prices) and (
+                prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+            ):
+                continue
+            if any(value is not None and value <= 0 for value in
+                   (_safe_float_value(item.get(field)) for field in ("open", "high", "low", "close"))):
+                continue
+            if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                   for value in (item.get("ticker"), item.get("symbol"))):
+                continue
+            if (item.get("error") or item.get("success") is False
+                or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
             # 毒行按条跳过（同 R107）
             time_str = str(item.get("datetime") or "")[:10]
+            try:
+                time_str = datetime.fromisoformat(time_str).date().isoformat()
+            except (ValueError, OverflowError):
+                continue
             if not time_str:
                 continue  # 无日期K线柱无意义，丢弃
             kline_data.append({
@@ -322,13 +394,13 @@ def _fetch_with_twelve_data(ticker: str, period: str = "1y") -> dict:
                 "high": _safe_float_value(item.get("high")),
                 "low": _safe_float_value(item.get("low")),
                 "close": _safe_float_value(item.get("close")),
-                "volume": _safe_float_value(item.get("volume")),
+                "volume": volume if (volume := _safe_float_value(item.get("volume"))) is not None and volume >= 0 else None,
             })
 
         if kline_data:
-            # Twelve Data 默认倒序，翻转为时间正序
-            kline_data = list(reversed(kline_data))
-            as_of = str(values[0].get("datetime") or "")[:19] if isinstance(values[0], dict) else ""
+            # 按观测日期排序并保留同日最新记录。
+            kline_data = sorted({row["time"]: row for row in kline_data}.values(), key=lambda row: row["time"])
+            as_of = kline_data[-1]["time"]
             logger.info("[get_stock_historical_data] Twelve Data 成功获取数据")
             return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "twelve_data", "as_of": as_of}
 
@@ -351,7 +423,7 @@ def _fetch_with_marketstack(ticker: str, period: str = "1y") -> dict:
         logger.info("[get_stock_historical_data] 尝试使用 Marketstack...")
         
         # Marketstack API 端点
-        url = "http://api.marketstack.com/v1/eod"
+        url = "https://api.marketstack.com/v1/eod"
         
         # Marketstack 不支持指数代码（如 ^IXIC），需要特殊处理
         # 如果ticker以^开头，跳过Marketstack（因为Marketstack不支持指数）
@@ -380,15 +452,34 @@ def _fetch_with_marketstack(ticker: str, period: str = "1y") -> dict:
         
         if response.status_code == 200:
             data = response.json()
-            if "error" in data:
+            if ("error" in data or data.get("success") is False
+                or str(data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                 logger.info("[get_stock_historical_data] Marketstack 返回错误")
                 return None
             
             if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
                 kline_data = []
                 for item in iter_dict_items(data["data"]):
+                    prices = [_safe_float_value(item.get(field)) for field in ("open", "high", "low", "close")]
+                    if all(value is not None for value in prices) and (
+                        prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+                    ):
+                        continue
+                    if any(value is not None and value <= 0 for value in
+                           (_safe_float_value(item.get(field)) for field in ("open", "high", "low", "close"))):
+                        continue
+                    if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                           for value in (item.get("ticker"), item.get("symbol"))):
+                        continue
+                    if (item.get("error") or item.get("success") is False
+                        or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                        continue
                     # 毒行按条跳过（同 R107）
                     time_str = str(item.get('date') or '')[:10]
+                    try:
+                        time_str = datetime.fromisoformat(time_str).date().isoformat()
+                    except (ValueError, OverflowError):
+                        continue
                     if not time_str:
                         continue  # 无日期K线柱无意义，丢弃
                     kline_data.append({
@@ -397,11 +488,12 @@ def _fetch_with_marketstack(ticker: str, period: str = "1y") -> dict:
                         "high": _safe_float_value(item.get('high')),
                         "low": _safe_float_value(item.get('low')),
                         "close": _safe_float_value(item.get('close')),
-                        "volume": _safe_float_value(item.get('volume')),
+                        "volume": volume if (volume := _safe_float_value(item.get('volume'))) is not None and volume >= 0 else None,
                     })
                 
                 if kline_data:
                     logger.info("[get_stock_historical_data] Marketstack 成功获取数据")
+                    kline_data = sorted({row["time"]: row for row in kline_data}.values(), key=lambda row: row["time"])
                     return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "marketstack"}
         
         return None
@@ -455,31 +547,52 @@ def _fetch_with_massive_io(ticker: str, period: str = "1y") -> dict:
         
         if response.status_code == 200:
             data = response.json()
+            if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                   for value in (data.get("ticker"), data.get("symbol"))):
+                return None
             # Massive.com API 可能返回 'OK' 或 'DELAYED' 状态，只要 results 有数据就可以使用
             # DELAYED 状态表示数据有延迟，但仍然可以使用
-            if data.get('status') in ('OK', 'DELAYED') and 'results' in data:
+            if data.get('status') in ('OK', 'DELAYED') and 'results' in data and not data.get("error") and data.get("success") is not False:
                 results = data.get('results', [])
                 if len(results) > 0:
                     kline_data = []
                     for item in iter_dict_items(results):
+                        prices = [_safe_float_value(item.get(field)) for field in ("o", "h", "l", "c")]
+                        if all(value is not None for value in prices) and (
+                            prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+                        ):
+                            continue
+                        if any(value is not None and value <= 0 for value in
+                               (_safe_float_value(item.get(field)) for field in ("o", "h", "l", "c"))):
+                            continue
+                        if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                               for value in (item.get("ticker"), item.get("symbol"))):
+                            continue
+                        if (item.get("error") or item.get("success") is False
+                            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                            continue
                         # 毒行按条跳过；item['t'] 裸索引 KeyError/TypeError
                         # 会让整个 provider 返回 None（同 R107）
                         ts = _safe_float_value(item.get('t'))
                         if ts is None:
                             continue
                         timestamp = ts / 1000  # 转换为秒
-                        date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
+                        try:
+                            date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
+                        except (ValueError, OverflowError, OSError):
+                            continue
                         kline_data.append({
                             "time": date_str,
                             "open": _safe_float_value(item.get('o')),
                             "high": _safe_float_value(item.get('h')),
                             "low": _safe_float_value(item.get('l')),
                             "close": _safe_float_value(item.get('c')),
-                            "volume": _safe_float_value(item.get('v')),
+                            "volume": volume if (volume := _safe_float_value(item.get('v'))) is not None and volume >= 0 else None,
                         })
                     
                     if kline_data:
                         logger.info("[get_stock_historical_data] Massive.com 成功获取数据")
+                        kline_data = sorted({row["time"]: row for row in kline_data}.values(), key=lambda row: row["time"])
                         return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "massive"}
             else:
                 logger.info("[get_stock_historical_data] Massive.com 返回空数据或错误")
@@ -498,7 +611,9 @@ def _map_to_stooq_symbol(ticker: str) -> Optional[str]:
     将 ticker 映射到 Stooq 格式。
     注意：Stooq 不支持加密货币和 A 股，返回 None 跳过。
     """
-    upper = ticker.upper()
+    upper = ticker.strip().upper()
+    if not upper:
+        return None
 
     # 不支持的 ticker 类型 - 返回 None 跳过
     # 加密货币：必须是「crypto 代码 + USD/USDT/-/结尾」形态（BTC-USD、SOLUSD）。
@@ -507,7 +622,7 @@ def _map_to_stooq_symbol(ticker: str) -> Optional[str]:
     if re.match(r"^(?:BTC|ETH|USDT|BNB|XRP|SOL|DOGE|ADA)(?:USD|USDT|-|$)", upper):
         return None
     # A 股指数和股票
-    if upper.endswith('.SS') or upper.endswith('.SZ') or upper.startswith('000') or upper.startswith('600') or upper.startswith('300'):
+    if upper.endswith(('.SS', '.SZ', '.BJ')) or upper.startswith('000') or upper.startswith('600') or upper.startswith('300'):
         return None
     # 商品期货（Stooq 格式不同）
     if '=' in upper:
@@ -525,6 +640,8 @@ def _map_to_stooq_symbol(ticker: str) -> Optional[str]:
         return mapping[upper]
     if upper.startswith("^"):
         return upper.lower()
+    if upper.endswith(".US"):
+        return f"{upper[:-3]}.us"
     return f"{upper}.us"
 
 
@@ -538,6 +655,8 @@ def _fetch_with_stooq_history(ticker: str, period: str = "1y", interval: str = "
         import csv
         from datetime import date, timedelta
 
+        if interval.endswith(("h", "m")):
+            return None
         symbol = _map_to_stooq_symbol(ticker)
         if not symbol:
             return None
@@ -567,6 +686,15 @@ def _fetch_with_stooq_history(ticker: str, period: str = "1y", interval: str = "
                 volume_key = "Volume" if "Volume" in row else ("Wolumen" if "Wolumen" in row else None)
                 if not all([date_key, open_key, high_key, low_key, close_key]):
                     continue
+                row[date_key] = datetime.fromisoformat(row[date_key]).date().isoformat()
+                prices = [_safe_float_value(row.get(field)) for field in (open_key, high_key, low_key, close_key)]
+                if all(value is not None for value in prices) and (
+                    prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+                ):
+                    continue
+                if any(value is not None and value <= 0 for value in
+                       (_safe_float_value(row.get(field)) for field in (open_key, high_key, low_key))):
+                    continue
                 close_val = _safe_float_value(row[close_key])
                 if close_val is None or close_val <= 0 or close_val > 1e8:
                     continue
@@ -577,7 +705,7 @@ def _fetch_with_stooq_history(ticker: str, period: str = "1y", interval: str = "
                         "high": _safe_float_value(row[high_key]),
                         "low": _safe_float_value(row[low_key]),
                         "close": close_val,
-                        "volume": _safe_float_value(row.get(volume_key)) or 0.0,
+                        "volume": (volume or 0.0) if (volume := _safe_float_value(row.get(volume_key))) is None or volume >= 0 else None,
                     }
                 )
             except Exception:
@@ -585,6 +713,7 @@ def _fetch_with_stooq_history(ticker: str, period: str = "1y", interval: str = "
 
         if data:
             logger.info("[get_stock_historical_data] Stooq 成功获取数据")
+            data = sorted({row["time"]: row for row in data}.values(), key=lambda row: row["time"])
             if interval.endswith("h"):
                 # stooq 只有日线。此前用最近 10 日收盘伪造 OHLC 全等的"小时"平线
                 # 冒充 1h 数据，下游波动率/振幅/量能指标会得到静默错误结果；
@@ -608,11 +737,23 @@ def _fallback_price_value(ticker: str) -> Optional[float]:
             url = f"https://stooq.pl/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=json"
             resp = _http_get(url, timeout=6)
             if resp.status_code == 200:
-                data = resp.json().get("symbols") or []
-                if data:
-                    close = data[0].get("close")
-                    if close not in (None, "N/D"):
-                        return _safe_float_value(close)
+                payload = resp.json()
+                data = payload.get("symbols") or []
+                if (payload.get("error") or payload.get("success") is False
+                    or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                    data = []
+                for row in iter_dict_items(data):
+                    if (row.get("error") or row.get("success") is False
+                        or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                        continue
+                    if any(
+                        value is not None and (not isinstance(value, str)
+                        or value.strip().upper() not in {symbol.upper(), ticker.strip().upper()})
+                        for value in (row.get("ticker"), row.get("symbol"))
+                    ):
+                        continue
+                    if (price := _safe_float_value(row.get("close"))) is not None and price > 0:
+                        return price
     except Exception as exc:
         logger.debug("historical stooq price fallback failed: %s", type(exc).__name__)
 

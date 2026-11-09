@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import yfinance as yf
 
@@ -140,6 +140,9 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
             }
             response = _http_get(url, params=params, timeout=15)
             data = response.json()
+            if (data.get("error") or data.get("success") is False
+                or str(data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                raise ValueError("Alpha Vantage historical data unavailable")
             
             # 检查是否有错误信息
             if "Error Message" in data:
@@ -157,6 +160,11 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                     logger.info("[get_stock_historical_data] Alpha Vantage 返回提示")
                     raise Exception(f"Alpha Vantage note: {note}")
             
+            metadata = data.get("Meta Data")
+            if isinstance(metadata, dict) and metadata.get("2. Symbol") is not None and (
+                not isinstance(metadata["2. Symbol"], str) or metadata["2. Symbol"].strip().upper() != ticker.strip().upper()
+            ):
+                raise ValueError("Alpha Vantage historical identity mismatch")
             if "Time Series (Daily)" in data:
                 time_series = data["Time Series (Daily)"]
                 # 根据 period 确定需要的数据量
@@ -166,14 +174,31 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                 }
                 max_days = period_days.get(period, 252)
                 
-                sorted_dates = sorted(time_series.keys(), reverse=True)[:max_days]
+                sorted_dates = sorted(time_series.keys(), reverse=True)
                 
                 kline_data = []
                 for date_str in sorted_dates:
                     day_data = time_series[date_str]
+                    try:
+                        date_str = date.fromisoformat(date_str).isoformat()
+                    except (TypeError, ValueError, OverflowError):
+                        continue
                     # 毒行按条跳过——非 dict 的 day_data["1. open"] TypeError
                     # 落进函数级 except 让整段 AV 日线被弃走下游兜底（同 R107-R118）
                     if not isinstance(day_data, dict):
+                        continue
+                    prices = [_safe_float_value(day_data.get(field)) for field in ("1. open", "2. high", "3. low", "4. close")]
+                    if all(value is not None for value in prices) and (
+                        prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+                    ):
+                        continue
+                    if not all(key in day_data for key in ("1. open", "2. high", "3. low", "4. close")):
+                        continue
+                    if any(value is not None and value <= 0 for value in
+                           (_safe_float_value(day_data[field]) for field in ("1. open", "2. high", "3. low", "4. close"))):
+                        continue
+                    if (day_data.get("error") or day_data.get("success") is False
+                        or str(day_data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                         continue
                     kline_data.append({
                         "time": date_str,
@@ -181,13 +206,16 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
                         "high": _safe_float_value(day_data["2. high"]),
                         "low": _safe_float_value(day_data["3. low"]),
                         "close": _safe_float_value(day_data["4. close"]),
-                        "volume": _safe_float_value(day_data.get("5. volume")) or 0.0,
+                        "volume": (volume or 0.0) if (volume := _safe_float_value(day_data.get("5. volume"))) is None or volume >= 0 else None,
                     })
                 
+                if not kline_data:
+                    raise ValueError("Alpha Vantage historical series empty")
                 # 按时间正序排列
                 kline_data.reverse()
+                kline_data = kline_data[-max_days:]
                 logger.info("[get_stock_historical_data] Alpha Vantage 成功获取数据")
-                return {"kline_data": kline_data, "period": period, "interval": interval}
+                return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "alpha_vantage"}
         except Exception as e:
             logger.info("[get_stock_historical_data] Alpha Vantage 失败: %s，尝试 yfinance...", type(e).__name__)
     
@@ -278,22 +306,45 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
             start_date = int((datetime.now() - timedelta(days=days)).timestamp())
             
             res = finnhub_client.stock_candles(ticker, 'D', start_date, end_date)
+            if any(value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                   for value in (res.get("ticker"), res.get("symbol"))):
+                raise ValueError("Finnhub historical identity mismatch")
             
+            if (res.get("error") or res.get("success") is False
+                or str(res.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                raise ValueError("Finnhub historical data unavailable")
             if res['s'] == 'ok' and len(res['c']) > 0:
                 kline_data = []
                 for i in range(len(res['t'])):
-                    timestamp = res['t'][i]
-                    date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
+                    prices = [_safe_float_value(res[field][i]) for field in ("o", "h", "l", "c")]
+                    if all(value is not None for value in prices) and (
+                        prices[1] < max(prices[0], prices[3]) or prices[2] > min(prices[0], prices[3])
+                    ):
+                        continue
+                    if any(value is not None and value <= 0 for value in
+                           (_safe_float_value(res[field][i]) for field in ("o", "h", "l", "c"))):
+                        continue
+                    timestamp = _safe_float_value(res['t'][i])
+                    if timestamp is None:
+                        continue
+                    try:
+                        date_str = datetime.fromtimestamp(timestamp, tz=UTC).strftime('%Y-%m-%d')  # UTC 取日，防本地时区偏一天
+                    except (ValueError, OverflowError, OSError):
+                        continue
+                    volume_value = _safe_float_value(res.get('v', [0] * len(res['t']))[i]) if isinstance(res.get('v'), (list, tuple)) and i < len(res['v']) else None
                     kline_data.append({
                         "time": date_str,
                         "open": _safe_float_value(res['o'][i]),
                         "high": _safe_float_value(res['h'][i]),
                         "low": _safe_float_value(res['l'][i]),
                         "close": _safe_float_value(res['c'][i]),
-                        "volume": _safe_float_value(res.get('v', [0] * len(res['t']))[i]) if 'v' in res else 0.0,
+                        "volume": volume_value if volume_value is not None and volume_value >= 0 else None,
                     })
+                if not kline_data:
+                    raise ValueError("Finnhub historical series empty")
+                kline_data = sorted({row["time"]: row for row in kline_data}.values(), key=lambda row: row["time"])
                 logger.info("[get_stock_historical_data] Finnhub 成功获取数据")
-                return {"kline_data": kline_data, "period": period, "interval": interval}
+                return {"kline_data": kline_data, "period": period, "interval": "1d", "source": "finnhub"}
         except Exception as e2:
             logger.info("[get_stock_historical_data] Finnhub 也失败: %s", type(e2).__name__)
     
@@ -412,6 +463,7 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
         # 使用 yfinance.download 直接下载
         hist = yf.download(
             ticker,
+            interval=interval,
             start=start_date.strftime('%Y-%m-%d'),
             end=end_date.strftime('%Y-%m-%d'),
             progress=False,
@@ -443,7 +495,7 @@ def get_stock_historical_data(ticker: str, period: str = "1y", interval: str = "
             
             if data:
                 logger.info("[get_stock_historical_data] yfinance 备用方法成功获取数据")
-                return {"kline_data": data, "period": period, "interval": interval}
+                return {"kline_data": data, "period": period, "interval": interval, "source": "yfinance"}
     except Exception as e5:
         logger.info("[get_stock_historical_data] yfinance 备用方法失败: %s", type(e5).__name__)
     
