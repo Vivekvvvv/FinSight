@@ -452,15 +452,32 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
         try:
             payload = get_stock_historical_data(t, period="2y", interval="1d")
             kline: list = []
+            if not isinstance(payload, dict):
+                fetch_failed.append(t)
+                continue
             if isinstance(payload, dict):
-                if payload.get("error"):
+                if (payload.get("error") or payload.get("success") is False
+                    or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                     logger.warning("获取历史数据失败")
                     fetch_failed.append(t)
                     continue
-                kline = payload.get("kline_data") or []
+                if any(value is not None and str(value).strip().upper() != t
+                       for value in (payload.get("ticker"), payload.get("symbol"))):
+                    fetch_failed.append(t)
+                    continue
+                kline = payload.get("kline_data")
+                if not isinstance(kline, list):
+                    fetch_failed.append(t)
+                    continue
             closes = []
             for point in kline:
-                close = safe_float(point.get("close")) if isinstance(point, dict) else None
+                if (not isinstance(point, dict) or point.get("error") or point.get("success") is False
+                    or str(point.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                    continue
+                if any(value is not None and str(value).strip().upper() != t
+                       for value in (point.get("ticker"), point.get("symbol"))):
+                    continue
+                close = safe_float(point.get("close"))
                 if close is not None and close > 0:
                     closes.append(close)
             # optimizer 要求 >=20 个日收益率（shape[1]>=20）＝>=21 个收盘价；
@@ -495,6 +512,8 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
         t for t in tickers if t not in failed and t not in fetch_failed
     ]
     if len(valid_tickers) < 2:
+        if fetch_failed:
+            raise HTTPException(status_code=502, detail=f"Historical data unavailable: {fetch_failed}")
         raise HTTPException(status_code=422, detail=f"有效股票不足2只，失败: {failed}")
 
     # 对齐数据长度
@@ -513,6 +532,8 @@ def optimize_portfolio_endpoint(request: PortfolioOptimizeRequest):
         if warnings:
             result["warnings"] = warnings
         return result
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         logger.error("组合优化失败")
         raise HTTPException(status_code=500, detail="Internal server error") from e

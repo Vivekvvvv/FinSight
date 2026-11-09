@@ -5,13 +5,22 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 import numpy as np
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
 _TRADING_DAYS = 252
+
+
+def _sharpe_ratio(expected_return: float, volatility: float, risk_free_rate: float) -> float:
+    ratio = (expected_return - risk_free_rate) / volatility if volatility > 0 else 0.0
+    if not math.isfinite(ratio):
+        raise ValueError("夏普比率计算溢出")
+    return ratio
 
 
 def _correlation_matrix(arr: np.ndarray) -> list[list[float]]:
@@ -39,8 +48,24 @@ def optimize_portfolio(
     Returns:
         efficient_frontier, max_sharpe_portfolio, min_vol_portfolio
     """
+    if isinstance(n_simulations, bool) or not isinstance(n_simulations, int) or n_simulations <= 0:
+        raise ValueError("模拟次数必须为正整数")
+    if any(not isinstance(ticker, str) or not ticker.strip() for ticker in tickers):
+        raise ValueError("股票代码必须为非空字符串")
+    tickers = [ticker.strip().upper() for ticker in tickers]
+    if len(set(tickers)) != len(tickers):
+        raise ValueError("股票代码不能重复")
+    for row in returns_matrix:
+        if isinstance(row, (list, tuple, np.ndarray)) and any(isinstance(value, (bool, np.bool_)) for value in row):
+            raise ValueError("收益率不能为布尔值")
     arr = np.array(returns_matrix, dtype=float)  # (n, T)
+    risk_free_rate = safe_float(risk_free_rate)
+    if risk_free_rate is None:
+        raise ValueError("无风险利率必须是有限数值")
     n = len(tickers)
+
+    if arr.ndim != 2 or n < 2 or arr.shape[0] != n:
+        raise ValueError("收益率矩阵必须包含至少两只股票且与代码数量一致")
 
     if arr.shape[0] != n or arr.shape[1] < 20:
         raise ValueError(f"数据不足：需要至少20天历史数据，当前 {arr.shape[1]} 天")
@@ -52,6 +77,8 @@ def optimize_portfolio(
 
     mean_returns = arr.mean(axis=1) * _TRADING_DAYS           # 年化期望收益
     cov_matrix   = np.cov(arr) * _TRADING_DAYS                # 年化协方差矩阵
+    if not np.isfinite(mean_returns * 100).all() or not np.isfinite(cov_matrix).all():
+        raise ValueError("收益率或协方差计算溢出")
 
     # 蒙特卡洛模拟
     frontier: list[dict[str, Any]] = []
@@ -63,7 +90,7 @@ def optimize_portfolio(
         # 透传响应 JSON 成裸 NaN 字面量 → 前端 JSON.parse 崩（同入口处
         # np.isfinite 与 correlation NaN 修复类）。负数纯浮点噪声，钳 0。
         vol = float(np.sqrt(max(w @ cov_matrix @ w, 0.0)))
-        sharpe = (ret - risk_free_rate) / vol if vol > 0 else 0.0
+        sharpe = _sharpe_ratio(ret, vol, risk_free_rate)
         frontier.append({"weights": w.tolist(), "return": ret, "volatility": vol, "sharpe": sharpe})
 
     # 最大夏普组合
@@ -87,7 +114,7 @@ def optimize_portfolio(
 
     # 压缩有效前沿点（取300个代表点）
     frontier_pts = sorted(frontier, key=lambda x: x["volatility"])
-    step = max(1, len(frontier_pts) // 300)
+    step = max(1, (len(frontier_pts) + 299) // 300)
     compact = frontier_pts[::step]
 
     return {
@@ -102,7 +129,7 @@ def optimize_portfolio(
             "label": "等权基准",
             "expected_annual_return": round(eq_ret * 100, 2),
             "annual_volatility": round(eq_vol * 100, 2),
-            "sharpe_ratio": round((eq_ret - risk_free_rate) / eq_vol, 3) if eq_vol > 0 else 0,
+            "sharpe_ratio": round(_sharpe_ratio(eq_ret, eq_vol, risk_free_rate), 3),
         },
         "correlation_matrix": {
             "tickers": tickers,

@@ -4,12 +4,168 @@ from __future__ import annotations
 
 import json
 import math
+import pytest
 
 from backend.services.portfolio_optimizer import optimize_portfolio
 
 
+def test_optimizer_validation_failure_is_returned_as_422_not_500(monkeypatch):
+    import backend.tools as tools
+    from backend.services import portfolio_optimizer
+    from fastapi import HTTPException
+    from backend.api.portfolio_router import PortfolioOptimizeRequest, optimize_portfolio_endpoint
+    monkeypatch.setattr(tools, "get_stock_historical_data",
+                        lambda *args, **kwargs: {"kline_data": [{"close": 100 + i} for i in range(40)]})
+    def invalid(**kwargs):
+        raise ValueError("收益率或协方差计算溢出")
+    monkeypatch.setattr(portfolio_optimizer, "optimize_portfolio", invalid)
+    with pytest.raises(HTTPException) as caught:
+        optimize_portfolio_endpoint(PortfolioOptimizeRequest(tickers=["A", "B"], n_simulations=100))
+    assert caught.value.status_code == 422
+
+
+def test_total_historical_provider_failure_returns_502_instead_of_input_error(monkeypatch):
+    import backend.tools as tools
+    from fastapi import HTTPException
+    from backend.api.portfolio_router import PortfolioOptimizeRequest, optimize_portfolio_endpoint
+    monkeypatch.setattr(tools, "get_stock_historical_data", lambda *args, **kwargs: {"error": "offline"})
+    with pytest.raises(HTTPException) as caught:
+        optimize_portfolio_endpoint(PortfolioOptimizeRequest(tickers=["A", "B"], n_simulations=100))
+    assert caught.value.status_code == 502
+
+
+@pytest.mark.parametrize("field", ["ticker", "symbol"])
+def test_optimizer_excludes_price_rows_from_unrelated_instruments(monkeypatch, field):
+    import backend.tools as tools
+    from backend.api.portfolio_router import PortfolioOptimizeRequest, optimize_portfolio_endpoint
+    def fetch(ticker, **kwargs):
+        rows = [{"close": 100 + i} for i in range(21 if ticker == "BAD" else 40)]
+        if ticker == "BAD":
+            rows[5][field] = "OTHER"
+        return {"kline_data": rows}
+    monkeypatch.setattr(tools, "get_stock_historical_data", fetch)
+    result = optimize_portfolio_endpoint(PortfolioOptimizeRequest(tickers=["BAD", "A", "B"], n_simulations=100))
+    assert result["tickers"] == ["A", "B"]
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"status": " Failed "}, {"error": "row"}])
+def test_optimizer_excludes_failed_price_rows_before_counting_history(monkeypatch, failure):
+    import backend.tools as tools
+    from backend.api.portfolio_router import PortfolioOptimizeRequest, optimize_portfolio_endpoint
+    def fetch(ticker, **kwargs):
+        rows = [{"close": 100 + i} for i in range(21 if ticker == "BAD" else 40)]
+        if ticker == "BAD":
+            rows[5].update(failure)
+        return {"kline_data": rows}
+    monkeypatch.setattr(tools, "get_stock_historical_data", fetch)
+    result = optimize_portfolio_endpoint(PortfolioOptimizeRequest(tickers=["BAD", "A", "B"], n_simulations=100))
+    assert result["tickers"] == ["A", "B"]
+
+
+@pytest.mark.parametrize("field", ["ticker", "symbol"])
+def test_optimizer_cannot_accept_history_declared_for_another_stock(monkeypatch, field):
+    import backend.tools as tools
+    from backend.api.portfolio_router import PortfolioOptimizeRequest, optimize_portfolio_endpoint
+    rows = [{"close": 100 + i} for i in range(40)]
+    monkeypatch.setattr(tools, "get_stock_historical_data",
+                        lambda ticker, **kwargs: {"kline_data": rows, **({field: "OTHER"} if ticker == "BAD" else {})})
+    result = optimize_portfolio_endpoint(PortfolioOptimizeRequest(tickers=["BAD", "A", "B"], n_simulations=100))
+    assert result["tickers"] == ["A", "B"]
+    assert any("BAD" in warning and "取数失败" in warning for warning in result["warnings"])
+
+
+@pytest.mark.parametrize("invalid", [{"row": {"close": 100}}, "bad", 0])
+def test_optimizer_endpoint_marks_invalid_kline_containers_as_fetch_failures(monkeypatch, invalid):
+    import backend.tools as tools
+    from backend.api.portfolio_router import PortfolioOptimizeRequest, optimize_portfolio_endpoint
+    rows = [{"close": 100 + i} for i in range(40)]
+    monkeypatch.setattr(tools, "get_stock_historical_data",
+                        lambda ticker, **kwargs: {"kline_data": invalid if ticker == "BAD" else rows})
+    result = optimize_portfolio_endpoint(PortfolioOptimizeRequest(tickers=["BAD", "A", "B"], n_simulations=100))
+    assert result["tickers"] == ["A", "B"]
+    assert any("BAD" in warning and "取数失败" in warning for warning in result["warnings"])
+
+
+@pytest.mark.parametrize("invalid", [None, [], "offline"])
+def test_optimizer_endpoint_marks_invalid_provider_shapes_as_fetch_failures(monkeypatch, invalid):
+    import backend.tools as tools
+    from backend.api.portfolio_router import PortfolioOptimizeRequest, optimize_portfolio_endpoint
+    rows = [{"close": 100 + i} for i in range(40)]
+    monkeypatch.setattr(tools, "get_stock_historical_data",
+                        lambda ticker, **kwargs: invalid if ticker == "BAD" else {"kline_data": rows})
+    result = optimize_portfolio_endpoint(PortfolioOptimizeRequest(tickers=["BAD", "A", "B"], n_simulations=100))
+    assert result["tickers"] == ["A", "B"]
+    assert any("BAD" in warning and "取数失败" in warning for warning in result["warnings"])
+
+
+@pytest.mark.parametrize("failure", [{"success": False}, {"status": " Failed "}, {"status": "unavailable"}])
+def test_optimizer_endpoint_rejects_failed_history_envelopes(monkeypatch, failure):
+    import backend.tools as tools
+    from backend.api.portfolio_router import PortfolioOptimizeRequest, optimize_portfolio_endpoint
+    rows = [{"close": 100 + i} for i in range(40)]
+    monkeypatch.setattr(tools, "get_stock_historical_data",
+                        lambda ticker, **kwargs: {"kline_data": rows, **(failure if ticker == "BAD" else {})})
+    result = optimize_portfolio_endpoint(PortfolioOptimizeRequest(tickers=["BAD", "A", "B"], n_simulations=100))
+    assert result["tickers"] == ["A", "B"]
+    assert any("BAD" in warning and "取数失败" in warning for warning in result["warnings"])
+
+
+def test_boolean_returns_are_not_converted_to_one_hundred_percent_moves():
+    with pytest.raises(ValueError, match="收益率"):
+        optimize_portfolio([[True] * 30, _moving_returns()], ["A", "B"], n_simulations=10)
+
+
+def test_derived_sharpe_overflow_is_rejected_before_returning_json():
+    with pytest.raises(ValueError, match="夏普"):
+        optimize_portfolio([_moving_returns(), _moving_returns()], ["A", "B"], risk_free_rate=1e308, n_simulations=10)
+
+
+@pytest.mark.parametrize("tickers", [["AAPL", "AAPL"], [" aapl ", "AAPL"], ["", "MSFT"]])
+def test_optimizer_rejects_duplicate_or_empty_ticker_identities(tickers):
+    with pytest.raises(ValueError, match="代码"):
+        optimize_portfolio([_moving_returns(), _moving_returns()], tickers, n_simulations=10)
+
+
+def test_optimizer_uses_normalized_ticker_keys():
+    result = optimize_portfolio([_moving_returns(), _moving_returns()], [" aapl ", "msft"], n_simulations=10)
+    assert result["tickers"] == ["AAPL", "MSFT"]
+    assert set(result["max_sharpe_portfolio"]["weights"]) == {"AAPL", "MSFT"}
+
+
+@pytest.mark.parametrize("count", [0, -1, True, 1.5])
+def test_simulation_count_must_be_a_positive_integer(count):
+    with pytest.raises(ValueError, match="模拟"):
+        optimize_portfolio([_moving_returns(), _moving_returns()], ["A", "B"], n_simulations=count)
+
+
 def _moving_returns(n: int = 30) -> list[float]:
     return [0.01 if i % 2 == 0 else -0.02 for i in range(n)]
+
+
+def test_invalid_matrix_shape_is_a_validation_error():
+    import pytest
+    for matrix, tickers in (([], []), ([0.01] * 30, ["A"]), ([[0.01] * 30], ["A"])):
+        with pytest.raises(ValueError):
+            optimize_portfolio(matrix, tickers, n_simulations=10)
+
+
+def test_invalid_risk_free_rate_cannot_leak_into_sharpe_ratios():
+    import pytest
+    for rate in (float("nan"), float("inf"), True, "bad"):
+        with pytest.raises(ValueError, match="无风险利率"):
+            optimize_portfolio([_moving_returns(), _moving_returns()], ["A", "B"], risk_free_rate=rate, n_simulations=10)
+
+
+def test_overflowing_statistics_fail_before_invalid_json_is_returned():
+    import pytest
+    huge = [1e160, -1e160] * 15
+    with pytest.raises(ValueError, match="溢出"):
+        optimize_portfolio([huge, huge], ["A", "B"], n_simulations=10)
+
+
+def test_frontier_point_limit_holds_between_sampling_multiples():
+    result = optimize_portfolio([_moving_returns(), _moving_returns()], ["A", "B"], n_simulations=599)
+    assert 0 < len(result["efficient_frontier"]) <= 300
 
 
 def test_flat_series_does_not_leak_nan_into_correlation():
