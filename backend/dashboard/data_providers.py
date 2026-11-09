@@ -32,7 +32,8 @@ def _finnhub_request(path: str, params: Optional[dict[str, Any]] = None) -> Any 
         if getattr(resp, "status_code", 0) != 200:
             return None
         payload = resp.json()
-        if isinstance(payload, dict) and payload.get("error"):
+        if isinstance(payload, dict) and (payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             return None
         return payload
     except Exception as exc:
@@ -51,25 +52,38 @@ def _finnhub_percent_to_ratio(value: Any) -> Optional[float]:
 def _finnhub_market_cap_to_usd(value: Any) -> Optional[float]:
     """Finnhub marketCapitalization is in millions of USD."""
     number = safe_float(value)
-    if number is None:
+    if number is None or number <= 0:
         return None
-    return number * 1_000_000.0
+    return safe_float(number * 1_000_000.0)
 
 
 def _fetch_valuation_from_finnhub(symbol: str) -> dict[str, Any] | None:
     """Fallback valuation fetcher using Finnhub free endpoints."""
     profile = _finnhub_request("stock/profile2", {"symbol": symbol})
     metric_payload = _finnhub_request("stock/metric", {"symbol": symbol, "metric": "all"})
+    if any(value is not None and str(value).strip().upper() != symbol.strip().upper()
+           for payload in (profile, metric_payload) if isinstance(payload, dict)
+           for value in (payload.get("ticker"), payload.get("symbol"))):
+        return None
     metric = metric_payload.get("metric") if isinstance(metric_payload, dict) else {}
-    if not isinstance(metric, dict):
+    if (not isinstance(metric, dict) or metric.get("error") or metric.get("success") is False
+        or str(metric.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
         metric = {}
 
+    trailing_pe = safe_float(metric.get("peTTM"))
+    if trailing_pe is None:
+        trailing_pe = safe_float(metric.get("peBasicExclExtraTTM"))
+    forward_pe = safe_float(metric.get("forwardPE"))
+    if forward_pe is None:
+        forward_pe = safe_float(metric.get("peExclExtraAnnual"))
+    market_cap = _finnhub_market_cap_to_usd(profile.get("marketCapitalization")) if isinstance(profile, dict) else None
+    if market_cap is None:
+        market_cap = _finnhub_market_cap_to_usd(metric.get("marketCapitalization"))
+
     result = {
-        "market_cap": _finnhub_market_cap_to_usd(
-            (profile or {}).get("marketCapitalization") if isinstance(profile, dict) else metric.get("marketCapitalization")
-        ),
-        "trailing_pe": safe_float(metric.get("peTTM") or metric.get("peBasicExclExtraTTM")),
-        "forward_pe": safe_float(metric.get("forwardPE") or metric.get("peExclExtraAnnual")),
+        "market_cap": market_cap,
+        "trailing_pe": trailing_pe,
+        "forward_pe": forward_pe,
         "price_to_book": safe_float(metric.get("pbQuarterly")),
         "price_to_sales": safe_float(metric.get("psTTM")),
         "ev_to_ebitda": safe_float(metric.get("evEbitdaTTM")),
@@ -78,6 +92,14 @@ def _fetch_valuation_from_finnhub(symbol: str) -> dict[str, Any] | None:
         "week52_high": safe_float(metric.get("52WeekHigh")),
         "week52_low": safe_float(metric.get("52WeekLow")),
     }
+    if result["dividend_yield"] is not None and result["dividend_yield"] < 0:
+        result["dividend_yield"] = None
+    for key in ("market_cap", "week52_high", "week52_low"):
+        if result[key] is not None and result[key] <= 0:
+            result[key] = None
+    if (result["week52_high"] is not None and result["week52_low"] is not None
+        and result["week52_high"] < result["week52_low"]):
+        result["week52_high"] = result["week52_low"] = None
     if all(v is None for v in result.values()):
         return None
     return result
@@ -88,7 +110,11 @@ def _fetch_valuation_from_cn_hk_market(symbol: str) -> dict[str, Any] | None:
         from backend.tools.cn_hk_market import fetch_cn_hk_quote_metrics
 
         payload = fetch_cn_hk_quote_metrics(symbol)
-        if not isinstance(payload, dict):
+        if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and str(value).strip().upper() != symbol.strip().upper()
+               for value in (payload.get("ticker"), payload.get("symbol"))):
             return None
         result = {
             "market_cap": safe_float(payload.get("market_cap")),
@@ -102,6 +128,14 @@ def _fetch_valuation_from_cn_hk_market(symbol: str) -> dict[str, Any] | None:
             "week52_high": safe_float(payload.get("week52_high")),
             "week52_low": safe_float(payload.get("week52_low")),
         }
+        if result["dividend_yield"] is not None and result["dividend_yield"] < 0:
+            result["dividend_yield"] = None
+        for key in ("market_cap", "week52_high", "week52_low"):
+            if result[key] is not None and result[key] <= 0:
+                result[key] = None
+        if (result["week52_high"] is not None and result["week52_low"] is not None
+            and result["week52_high"] < result["week52_low"]):
+            result["week52_high"] = result["week52_low"] = None
         if all(v is None for v in result.values()):
             return None
         return result
@@ -116,6 +150,13 @@ def _match_report_value(
     label_terms: tuple[str, ...] = (),
     concept_terms: tuple[str, ...] = (),
 ) -> Optional[float]:
+    rows = [row for row in iter_dict_items(rows) if not row.get("error") and row.get("success") is not False
+            and str(row.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
+    for row in iter_dict_items(rows):
+        concept = str(row.get("concept") or "").strip().lower()
+        value = safe_float(row.get("value"))
+        if value is not None and concept_terms and concept.rsplit("_", 1)[-1] in concept_terms:
+            return value
     # 第一遍：标签子串 或 规范化 concept 全等（剥掉 us-gaap_/ifrs-full_ 等
     # 命名空间）。完整匹配必须优先于子串——"assets" 子串会命中 AssetsCurrent
     # 等分项概念，而 bs 行按报表顺序分项恒在合计之前 → 合计字段拿到分项值。
@@ -143,14 +184,25 @@ def _match_report_value(
 
 
 def _fetch_financial_statements_from_sec_companyfacts(symbol: str, periods: int = 8) -> dict[str, Any] | None:
+    if periods <= 0:
+        return None
     try:
         from backend.tools.sec import get_sec_company_facts_quarterly
 
         payload = get_sec_company_facts_quarterly(symbol, limit=periods)
-        if not isinstance(payload, dict) or payload.get("error"):
+        if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             return None
+        if any(value is not None and str(value).strip().upper() != symbol.strip().upper()
+               for value in (payload.get("ticker"), payload.get("symbol"))):
+            return None
+        period_labels = payload.get("periods")
+        if (not isinstance(period_labels, list) or not period_labels
+            or any(not isinstance(label, str) or not label.strip() for label in period_labels)):
+            return None
+        period_labels = period_labels[:periods]
         result = {
-            "periods": payload.get("periods") or [],
+            "periods": period_labels,
             "revenue": payload.get("revenue") or [],
             "gross_profit": payload.get("gross_profit") or [],
             "operating_income": payload.get("operating_income") or [],
@@ -172,6 +224,10 @@ def _fetch_financial_statements_from_sec_companyfacts(symbol: str, periods: int 
             "operating_cash_flow",
             "free_cash_flow",
         ]
+        for field in metric_fields:
+            values = result[field]
+            values = [safe_float(value) for value in values] if isinstance(values, list) else []
+            result[field] = (values + [None] * len(period_labels))[:len(period_labels)]
         has_any_value = any(
             any(value is not None for value in (result.get(field) or []))
             for field in metric_fields
@@ -183,14 +239,25 @@ def _fetch_financial_statements_from_sec_companyfacts(symbol: str, periods: int 
 
 
 def _fetch_financial_statements_from_cn_hk_market(symbol: str, periods: int = 8) -> dict[str, Any] | None:
+    if periods <= 0:
+        return None
     try:
         from backend.tools.cn_hk_market import fetch_cn_hk_financial_statements
 
         payload = fetch_cn_hk_financial_statements(symbol, periods=periods)
-        if not isinstance(payload, dict):
+        if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             return None
+        if any(value is not None and str(value).strip().upper() != symbol.strip().upper()
+               for value in (payload.get("ticker"), payload.get("symbol"))):
+            return None
+        period_labels = payload.get("periods")
+        if (not isinstance(period_labels, list) or not period_labels
+            or any(not isinstance(label, str) or not label.strip() for label in period_labels)):
+            return None
+        period_labels = period_labels[:periods]
         result = {
-            "periods": payload.get("periods") or [],
+            "periods": period_labels,
             "revenue": payload.get("revenue") or [],
             "gross_profit": payload.get("gross_profit") or [],
             "operating_income": payload.get("operating_income") or [],
@@ -212,6 +279,10 @@ def _fetch_financial_statements_from_cn_hk_market(symbol: str, periods: int = 8)
             "operating_cash_flow",
             "free_cash_flow",
         ]
+        for field in metric_fields:
+            values = result[field]
+            values = [safe_float(value) for value in values] if isinstance(values, list) else []
+            result[field] = (values + [None] * len(period_labels))[:len(period_labels)]
         has_any_value = any(
             any(value is not None for value in (result.get(field) or []))
             for field in metric_fields
@@ -224,19 +295,35 @@ def _fetch_financial_statements_from_cn_hk_market(symbol: str, periods: int = 8)
 
 def _fetch_financial_statements_from_finnhub(symbol: str, periods: int = 8) -> dict[str, Any] | None:
     """Fallback quarterly statements fetch using Finnhub financial reports."""
+    if periods <= 0:
+        return None
     payload = _finnhub_request("stock/financials-reported", {"symbol": symbol})
+    if isinstance(payload, dict) and any(
+        value is not None and str(value).strip().upper() != symbol.strip().upper()
+        for value in (payload.get("ticker"), payload.get("symbol"))
+    ):
+        return None
     rows = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(rows, list) or not rows:
         return None
 
     parsed: list[dict[str, Any]] = []
     for item in iter_dict_items(rows):
+        if (item.get("error") or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
+        if any(value is not None and str(value).strip().upper() != symbol.strip().upper()
+               for value in (item.get("ticker"), item.get("symbol"))):
+            continue
         report = item.get("report")
-        if not isinstance(report, dict):
+        if (not isinstance(report, dict) or report.get("error") or report.get("success") is False
+            or str(report.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             continue
         year = safe_int(item.get("year"), 0) or 0
         quarter = safe_int(item.get("quarter"), 0) or 0
-        if year <= 0:
+        if (not 1 <= year <= 9999 or quarter not in {0, 1, 2, 3, 4}
+            or safe_float(item.get("year")) != year
+            or item.get("quarter") is not None and safe_float(item.get("quarter")) != quarter):
             continue
         label = f"{year}Q{quarter}" if quarter > 0 else f"{year}FY"
         parsed.append(
@@ -375,7 +462,7 @@ def _fetch_financial_statements_from_finnhub(symbol: str, periods: int = 8) -> d
                 ),
             )
             if ocf_value is not None and capex is not None:
-                fcf_value = ocf_value + capex if capex < 0 else ocf_value - capex
+                fcf_value = safe_float(ocf_value + capex if capex < 0 else ocf_value - capex)
         free_cash_flow.append(fcf_value)
 
     result: dict[str, Any] = {

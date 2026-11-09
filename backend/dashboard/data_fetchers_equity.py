@@ -40,19 +40,30 @@ logger = logging.getLogger(__name__)
 
 def _infer_equity_market(symbol: str) -> str:
     ticker = str(symbol or "").strip().upper()
-    if ticker.endswith((".SS", ".SZ", ".BJ")):
+    if ticker.endswith((".SS", ".SH", ".SZ", ".BJ")) or ticker.isdigit() and len(ticker) == 6:
         return "CN"
     if ticker.endswith(".HK"):
         return "HK"
     return "US"
 
 
-def _build_ohlcv_frame_from_rows(rows: list[dict[str, Any]]) -> Optional[pd.DataFrame]:
+def _build_ohlcv_frame_from_rows(rows: list[dict[str, Any]], symbol: str | None = None) -> Optional[pd.DataFrame]:
     records: list[dict[str, Any]] = []
     for row in iter_dict_items(rows):
-        dt = pd.to_datetime(row.get("time"), errors="coerce")
+        error = row.get("error")
+        if (error and not (isinstance(error, float) and pd.isna(error)) or row.get("success") is False
+            or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
+        if symbol and any(value is not None and not (isinstance(value, float) and pd.isna(value))
+                          and str(value).strip().upper() != symbol.strip().upper()
+                          for value in (row.get("ticker"), row.get("symbol"))):
+            continue
+        if not isinstance(row.get("time"), (str, pd.Timestamp)):
+            continue
+        dt = pd.to_datetime(row.get("time"), errors="coerce", utc=True)
         if pd.isna(dt):
             continue
+        dt = dt.tz_convert(None)
         records.append(
             {
                 "Date": dt,
@@ -60,16 +71,19 @@ def _build_ohlcv_frame_from_rows(rows: list[dict[str, Any]]) -> Optional[pd.Data
                 "High": safe_float(row.get("high")),
                 "Low": safe_float(row.get("low")),
                 "Close": safe_float(row.get("close")),
-                "Volume": safe_float(row.get("volume")) or 0.0,
+                "Volume": max(0.0, safe_float(row.get("volume")) or 0.0),
             }
         )
     if not records:
         return None
     frame = pd.DataFrame.from_records(records)
     frame = frame.dropna(subset=["Date", "Open", "High", "Low", "Close"])
+    frame = frame[(frame[["Open", "High", "Low", "Close"]] > 0).all(axis=1)
+                  & (frame["Low"] <= frame[["Open", "Close"]].min(axis=1))
+                  & (frame["High"] >= frame[["Open", "Close"]].max(axis=1))]
     if frame.empty:
         return None
-    return frame.sort_values("Date").set_index("Date")
+    return frame.drop_duplicates(subset=["Date"], keep="last").sort_values("Date").set_index("Date")
 
 
 def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> Optional[pd.DataFrame]:
@@ -85,7 +99,7 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
             if kline_params is not None:
                 klt, limit = kline_params
                 cn_hk_rows = fetch_cn_hk_kline(symbol, limit=limit, klt=klt)
-                frame = _build_ohlcv_frame_from_rows(cn_hk_rows)
+                frame = _build_ohlcv_frame_from_rows(cn_hk_rows, symbol)
                 if frame is not None and not frame.empty:
                     return frame
         except Exception as exc:
@@ -95,8 +109,12 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
         import yfinance as yf
 
         hist = yf.Ticker(symbol).history(period=period, interval=interval)
-        if hist is not None and not hist.empty:
-            return hist
+        if isinstance(hist, pd.DataFrame) and not hist.empty:
+            rows = [{**row.to_dict(), "time": index, **{field.lower(): row.get(field)
+                     for field in ("Open", "High", "Low", "Close", "Volume")}} for index, row in hist.iterrows()]
+            frame = _build_ohlcv_frame_from_rows(rows, symbol)
+            if frame is not None and not frame.empty:
+                return frame
     except Exception as exc:
         logger.warning("[DataService] yfinance OHLCV failed")
 
@@ -106,9 +124,12 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
         from backend.tools.price import _fetch_with_stooq_history
 
         payload = _fetch_with_stooq_history(symbol, period=period, interval=interval)
-        if isinstance(payload, dict):
+        if (isinstance(payload, dict) and not payload.get("error") and payload.get("success") is not False
+            and str(payload.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+            and all(value is None or str(value).strip().upper() == symbol.strip().upper()
+                    for value in (payload.get("ticker"), payload.get("symbol")))):
             rows = payload.get("kline_data") or []
-            frame = _build_ohlcv_frame_from_rows(rows)
+            frame = _build_ohlcv_frame_from_rows(rows, symbol)
             if frame is not None and not frame.empty:
                 logger.info("[DataService] OHLCV fallback hit via Stooq")
                 return frame
@@ -119,13 +140,17 @@ def _load_ohlcv_frame(symbol: str, period: str = "1y", interval: str = "1d") -> 
         from backend.tools.price import get_stock_historical_data
 
         payload = get_stock_historical_data(symbol, period=period, interval=interval)
-        if not isinstance(payload, dict):
+        if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and str(value).strip().upper() != symbol.strip().upper()
+               for value in (payload.get("ticker"), payload.get("symbol"))):
             return None
         rows = payload.get("kline_data") or []
         if not isinstance(rows, list) or not rows:
             return None
 
-        frame = _build_ohlcv_frame_from_rows(rows)
+        frame = _build_ohlcv_frame_from_rows(rows, symbol)
         if frame is None or frame.empty:
             return None
         logger.info("[DataService] OHLCV fallback hit via price pipeline")
@@ -152,6 +177,12 @@ def fetch_valuation(symbol: str) -> dict[str, Any] | None:
         import yfinance as yf
 
         info = yf.Ticker(symbol).info or {}
+        if (info.get("error") or info.get("success") is False
+            or str(info.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            info = {}
+        if any(value is not None and str(value).strip().upper() != symbol.strip().upper()
+               for value in (info.get("ticker"), info.get("symbol"))):
+            info = {}
         result = {
             "market_cap": safe_float(info.get("marketCap")),
             "trailing_pe": safe_float(info.get("trailingPE")),
@@ -164,6 +195,14 @@ def fetch_valuation(symbol: str) -> dict[str, Any] | None:
             "week52_high": safe_float(info.get("fiftyTwoWeekHigh")),
             "week52_low": safe_float(info.get("fiftyTwoWeekLow")),
         }
+        if result["dividend_yield"] is not None and result["dividend_yield"] < 0:
+            result["dividend_yield"] = None
+        for key in ("market_cap", "week52_high", "week52_low"):
+            if result[key] is not None and result[key] <= 0:
+                result[key] = None
+        if (result["week52_high"] is not None and result["week52_low"] is not None
+            and result["week52_high"] < result["week52_low"]):
+            result["week52_high"] = result["week52_low"] = None
         if any(v is not None for v in result.values()):
             return result
     except Exception as exc:
@@ -188,6 +227,8 @@ def fetch_financial_statements(symbol: str, periods: int = 8) -> dict[str, Any] 
     Returns a dict matching the FinancialStatement schema, or None on
     failure.
     """
+    if periods <= 0:
+        return None
     market = _infer_equity_market(symbol)
     if market in {"CN", "HK"}:
         cn_hk_payload = _fetch_financial_statements_from_cn_hk_market(symbol, periods=periods)
@@ -260,7 +301,7 @@ def fetch_financial_statements(symbol: str, periods: int = 8) -> dict[str, Any] 
                 if label not in label_candidates:
                     label_candidates.append(label)
 
-        period_labels = label_candidates[:periods]
+        period_labels = sorted(label_candidates, reverse=True)[:periods]
         if not period_labels:
             sec_fallback = _fetch_financial_statements_from_sec_companyfacts(symbol, periods=periods)
             if sec_fallback:
@@ -355,6 +396,8 @@ def fetch_technical_indicators(symbol: str) -> dict[str, Any] | None:
 
 def fetch_indicator_series(symbol: str, n_days: int = 120) -> dict[str, Any] | None:
     """Compute RSI/MACD/BB time series for *symbol* (Phase G2)."""
+    if n_days <= 0:
+        return None
     try:
         from backend.tools.technical import compute_indicator_series
 
@@ -385,6 +428,13 @@ def fetch_earnings_history(symbol: str) -> list[dict[str, Any]] | None:
         if isinstance(eh, pd.DataFrame):
             entries: list[dict[str, Any]] = []
             for idx, row in eh.iterrows():
+                if ((isinstance(row.get("error"), str) and row["error"].strip()) or row.get("success") is False
+                    or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                    continue
+                if any(value is not None and not (isinstance(value, float) and pd.isna(value))
+                       and (not isinstance(value, str) or value.strip().upper() != symbol.strip().upper())
+                       for value in (row.get("ticker"), row.get("symbol"))):
+                    continue
                 quarter_str = str(idx) if idx is not None else ""
                 if hasattr(idx, "strftime"):
                     quarter_str = idx.strftime("%Y-%m-%d")
@@ -417,6 +467,12 @@ def fetch_analyst_targets(symbol: str) -> dict[str, Any] | None:
             if targets.empty:
                 return None
             row = targets.iloc[0] if len(targets) > 0 else {}
+            if ((isinstance(row.get("error"), str) and row["error"].strip()) or row.get("success") is False
+                or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                return None
+            if any(value is not None and (not isinstance(value, str) or value.strip().upper() != symbol.strip().upper())
+                   for value in (row.get("ticker"), row.get("symbol"))):
+                return None
             result = {
                 "low": safe_float(row.get("low")),
                 "current": safe_float(row.get("current")),
@@ -425,6 +481,12 @@ def fetch_analyst_targets(symbol: str) -> dict[str, Any] | None:
                 "high": safe_float(row.get("high")),
             }
         elif isinstance(targets, dict):
+            if (targets.get("error") or targets.get("success") is False
+                or str(targets.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                return None
+            if any(value is not None and (not isinstance(value, str) or value.strip().upper() != symbol.strip().upper())
+                   for value in (targets.get("ticker"), targets.get("symbol"))):
+                return None
             result = {
                 "low": safe_float(targets.get("low")),
                 "current": safe_float(targets.get("current")),
@@ -435,6 +497,12 @@ def fetch_analyst_targets(symbol: str) -> dict[str, Any] | None:
         else:
             return None
 
+        result = {key: value if value is not None and value > 0 else None for key, value in result.items()}
+        low, high = result["low"], result["high"]
+        if ((low is not None and high is not None and low > high)
+            or any(value is not None and ((low is not None and value < low) or (high is not None and value > high))
+                   for value in (result["mean"], result["median"]))):
+            return None
         if all(v is None for v in result.values()):
             return None
         return result
@@ -460,12 +528,22 @@ def fetch_recommendations(symbol: str) -> dict[str, Any] | None:
             # 整块 None → 一个桶 NaN 就丢掉整个分析师评级组件。safe_float 把
             # NaN/None 归一为 None，该桶降级为 0 不牵连其余（R60）。
             row = rec.iloc[0]
+            if ((isinstance(row.get("error"), str) and row["error"].strip()) or row.get("success") is False
+                or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                return None
+            if any(value is not None and (not isinstance(value, str) or value.strip().upper() != symbol.strip().upper())
+                   for value in (row.get("ticker"), row.get("symbol"))):
+                return None
+            def _count(value: Any) -> int:
+                number = safe_float(value)
+                return int(number) if number is not None and number >= 0 and number.is_integer() else 0
+
             result = {
-                "strong_buy": int(safe_float(row.get("strongBuy", 0)) or 0),
-                "buy": int(safe_float(row.get("buy", 0)) or 0),
-                "hold": int(safe_float(row.get("hold", 0)) or 0),
-                "sell": int(safe_float(row.get("sell", 0)) or 0),
-                "strong_sell": int(safe_float(row.get("strongSell", 0)) or 0),
+                "strong_buy": _count(row.get("strongBuy", 0)),
+                "buy": _count(row.get("buy", 0)),
+                "hold": _count(row.get("hold", 0)),
+                "sell": _count(row.get("sell", 0)),
+                "strong_sell": _count(row.get("strongSell", 0)),
             }
             if sum(result.values()) == 0:
                 return None

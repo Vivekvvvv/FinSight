@@ -14,6 +14,30 @@ from __future__ import annotations
 
 from backend.dashboard import data_providers
 
+
+def test_failed_nested_finnhub_report_does_not_claim_valid_financials(monkeypatch):
+    item = _payload()["data"][0]
+    for failure in ({"success": False}, {"error": "bad"}, {"status": " Failed "}):
+        monkeypatch.setattr(data_providers, "_finnhub_request", lambda *args, **kwargs:
+                            {"data": [{**item, "report": {**item["report"], **failure}}]})
+        assert data_providers._fetch_financial_statements_from_finnhub("AAPL") is None
+
+
+def test_failed_finnhub_reports_do_not_consume_period_limits(monkeypatch):
+    good = _payload()["data"][0]
+    for failure in ({"success": False}, {"error": "bad"}, {"status": " Failed "}):
+        monkeypatch.setattr(data_providers, "_finnhub_request", lambda *args, **kwargs:
+                            {"data": [{**good, "year": 2026, **failure}, good]})
+        result = data_providers._fetch_financial_statements_from_finnhub("AAPL", periods=1)
+        assert result["periods"] == ["2025Q3"]
+
+
+def test_failed_financial_metric_rows_do_not_override_valid_totals():
+    for failure in ({"success": False}, {"error": "bad"}, {"status": " Failed "}):
+        rows = [{"concept": "us-gaap_Assets", "value": 999, **failure},
+                {"concept": "us-gaap_Assets", "value": 100}]
+        assert data_providers._match_report_value(rows, concept_terms=("assets",)) == 100
+
 # 按真实分类资产负债表呈现顺序：分项在前、合计在后
 _BS_ROWS = [
     {"concept": "us-gaap_CashAndCashEquivalentsAtCarryingValue", "label": "Cash and cash equivalents", "value": 30.0},
