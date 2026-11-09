@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from importlib import metadata
 from pathlib import Path
+
+from packaging.requirements import Requirement
+from packaging.version import Version
+import pytest
 
 from scripts.check_requirements_lock import _requirements, _strip_inline_comment
 
@@ -40,3 +45,22 @@ def test_inline_comment_parser_preserves_url_fragment():
     requirement = "https://example.test/package.whl#sha256=abc123"
 
     assert _strip_inline_comment(requirement) == requirement
+
+
+@pytest.mark.parametrize("filename", ["requirements.in", "requirements.txt"])
+@pytest.mark.parametrize(
+    "package", ["langgraph", "langgraph-checkpoint-sqlite", "langgraph-checkpoint-postgres"]
+)
+def test_langgraph_packages_accept_pinned_runtime_dependencies(filename, package):
+    root = Path(__file__).resolve().parents[2]
+    pins = _requirements(root / filename)
+    assert metadata.version(package) == pins[package]
+    for raw in metadata.requires(package) or []:
+        requirement = Requirement(raw)
+        if requirement.name in pins and (
+            requirement.marker is None or requirement.marker.evaluate()
+        ):
+            version = Version(pins[requirement.name])
+            assert version in requirement.specifier, (
+                f"{filename}: {requirement.name}=={version} conflicts with {requirement}"
+            )
