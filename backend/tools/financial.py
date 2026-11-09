@@ -67,17 +67,25 @@ def _build_table_payload(columns: List[str], row_series: List[tuple[str, List[An
 def _convert_sec_companyfacts_payload(payload: Dict[str, Any]) -> dict | None:
     if not isinstance(payload, dict):
         return None
-    if payload.get("error"):
+    if (payload.get("error") or payload.get("success") is False
+        or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
         return None
 
     raw_periods = payload.get("periods")
     if not isinstance(raw_periods, list) or not raw_periods:
         return None
 
-    columns = [(_quarter_label_to_date(period) or str(period)) for period in raw_periods]
-    columns = [col for col in columns if col]
+    period_indices = {date: index for index, period in enumerate(raw_periods)
+                      if (date := _quarter_label_to_date(period)) is not None}
+    columns = sorted(period_indices, reverse=True)
     if not columns:
         return None
+    payload = dict(payload)
+    for field in ("revenue", "gross_profit", "operating_income", "net_income", "eps",
+                  "total_assets", "total_liabilities", "operating_cash_flow", "free_cash_flow"):
+        values = payload.get(field)
+        payload[field] = [safe_float(values[period_indices[col]]) if isinstance(values, list)
+                          and period_indices[col] < len(values) else None for col in columns]
 
     income_table = _build_table_payload(
         columns,
@@ -108,7 +116,7 @@ def _convert_sec_companyfacts_payload(payload: Dict[str, Any]) -> dict | None:
         return None
 
     return {
-        "ticker": str(payload.get("ticker") or "").upper(),
+        "ticker": payload["ticker"].strip().upper() if isinstance(payload.get("ticker"), str) else "",
         "timestamp": datetime.now().isoformat(),
         "financials": income_table,
         "balance_sheet": balance_table,
@@ -124,6 +132,11 @@ def _fetch_financials_from_sec_companyfacts(ticker: str) -> dict | None:
         from .sec import get_sec_company_facts_quarterly
 
         sec_payload = get_sec_company_facts_quarterly(ticker, limit=8)
+        if isinstance(sec_payload, dict) and any(
+            value is not None and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+            for value in (sec_payload.get("ticker"), sec_payload.get("symbol"))
+        ):
+            return None
         converted = _convert_sec_companyfacts_payload(sec_payload if isinstance(sec_payload, dict) else {})
         if converted:
             logger.info("[Financials] SEC companyfacts fallback hit")
@@ -389,7 +402,7 @@ def get_company_info(ticker: str) -> str:
 
 
 def _serialize_table_records(table: Any, *, max_rows: int = 8) -> List[Dict[str, Any]]:
-    if table is None:
+    if table is None or max_rows <= 0:
         return []
     try:
         if getattr(table, "empty", True):
@@ -405,7 +418,11 @@ def _serialize_table_records(table: Any, *, max_rows: int = 8) -> List[Dict[str,
     frame = frame.rename(columns={first_col: "period"})
 
     records: List[Dict[str, Any]] = []
-    for _, row in frame.head(max_rows).iterrows():
+    for _, row in frame.iterrows():
+        error = row.get("error")
+        if (error and not (isinstance(error, float) and error != error) or row.get("success") is False
+            or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
         item: Dict[str, Any] = {}
         for column in frame.columns:
             value = row[column]
@@ -426,6 +443,8 @@ def _serialize_table_records(table: Any, *, max_rows: int = 8) -> List[Dict[str,
             except Exception:
                 item[str(column)] = str(value)
         records.append(item)
+        if len(records) >= max_rows:
+            break
     return records
 
 
@@ -471,12 +490,18 @@ def _infer_revision_signal(eps_revisions: List[Dict[str, Any]]) -> str:
 
     score = 0.0
     for row in iter_dict_items(eps_revisions):
-        up_7 = safe_float(row.get("upLast7days")) or 0.0
-        up_30 = safe_float(row.get("upLast30days")) or 0.0
+        if (row.get("error") or row.get("success") is False
+            or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
+        def count(field: str) -> float:
+            value = safe_float(row.get(field))
+            return value if value is not None and value >= 0 and value.is_integer() else 0.0
+        up_7 = count("upLast7days")
+        up_30 = count("upLast30days")
         # yfinance 列名是 downLast7days（全小写 days）——旧代码读
         # "downLast7Days"（大写 D）永远 miss，近7日下调被静默记 0。
-        down_7 = safe_float(row.get("downLast7days")) or 0.0
-        down_30 = safe_float(row.get("downLast30days")) or 0.0
+        down_7 = count("downLast7days")
+        down_30 = count("downLast30days")
         score += up_7 + up_30 - down_7 - down_30
 
     if score >= 6:
@@ -490,8 +515,9 @@ def get_earnings_estimates(ticker: str) -> Dict[str, Any]:
     """
     Get forward earnings estimates and EPS revision trends from free yfinance.
     """
+    ticker = ticker.strip().upper() if isinstance(ticker, str) else ""
     result: Dict[str, Any] = {
-        "ticker": str(ticker or "").upper(),
+        "ticker": ticker,
         "source": "yfinance",
         "as_of": datetime.now().isoformat(),
         "earnings_estimate": [],
@@ -551,8 +577,9 @@ def get_eps_revisions(ticker: str) -> Dict[str, Any]:
 
 def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
     """Resolve a company name to tickers using OpenFIGI/Finnhub/EODHD/search."""
-    if not company:
+    if not isinstance(company, str) or not company.strip() or limit <= 0:
         return {"query": company, "source": "none", "matches": []}
+    company = company.strip()
 
     matches: List[Dict[str, Any]] = []
     sources: List[str] = []
@@ -565,9 +592,12 @@ def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
             sources.append(source)
         for item in iter_dict_items(items):
             symbol = item.get("symbol")
-            if not symbol or symbol in seen:
+            if not isinstance(symbol, str) or not symbol.strip():
                 continue
-            matches.append(item)
+            symbol = symbol.strip().upper()
+            if symbol in seen:
+                continue
+            matches.append({**item, "symbol": symbol})
             seen.add(symbol)
             if len(matches) >= limit:
                 return
@@ -581,9 +611,14 @@ def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
     if len(matches) < limit and finnhub_client:
         try:
             lookup = finnhub_client.symbol_lookup(company)
-            results = lookup.get("result", []) if isinstance(lookup, dict) else []
+            results = lookup.get("result", []) if (isinstance(lookup, dict) and not lookup.get("error")
+                and lookup.get("success") is not False
+                and str(lookup.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}) else []
             finnhub_matches = []
             for item in iter_dict_items(results):
+                if (item.get("error") or item.get("success") is False
+                    or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                    continue
                 # 非 dict 毒条目按条跳过——.get AttributeError 落进源级
                 # except，该源已收集 matches 整体丢弃退到 search（同 R107）
                 symbol = item.get("displaySymbol") or item.get("symbol")
@@ -628,7 +663,7 @@ def resolve_company_ticker(company: str, limit: int = 5) -> Dict[str, Any]:
 
 
 def _openfigi_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]]:
-    if not OPENFIGI_API_KEY:
+    if not OPENFIGI_API_KEY or limit <= 0:
         return []
     url = "https://api.openfigi.com/v3/search"
     headers = {"X-OPENFIGI-APIKEY": OPENFIGI_API_KEY}
@@ -636,12 +671,19 @@ def _openfigi_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]
     resp = _http_post(url, headers=headers, json=payload, timeout=10)
     resp.raise_for_status()
     data = resp.json()
-    results = data.get("data", []) if isinstance(data, dict) else []
+    results = data.get("data", []) if (isinstance(data, dict) and not data.get("error")
+        and data.get("success") is not False
+        and str(data.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}) else []
     matches: List[Dict[str, Any]] = []
     for item in iter_dict_items(results):
         # 非 dict 毒条目按条跳过（同 R107）
         symbol = item.get("ticker")
-        if not symbol:
+        if (not isinstance(symbol, str) or not symbol.strip() or item.get("error")
+            or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
+        symbol = symbol.strip().upper()
+        if symbol in {match["symbol"] for match in matches}:
             continue
         exchange = item.get("exchCode") or item.get("mic") or ""
         desc = item.get("name") or item.get("securityDescription") or ""
@@ -652,12 +694,14 @@ def _openfigi_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]
             "primaryExchange": exchange,
             "source": "openfigi",
         })
+        if len(matches) >= limit:
+            break
     return matches
 
 
 
 def _eodhd_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]]:
-    if not EODHD_API_KEY:
+    if not EODHD_API_KEY or limit <= 0:
         return []
     url = f"https://eodhd.com/api/search/{quote(company)}"
     params = {"api_token": EODHD_API_KEY, "fmt": "json"}
@@ -667,13 +711,19 @@ def _eodhd_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]]:
     if not isinstance(data, list):
         return []
     matches: List[Dict[str, Any]] = []
-    for item in iter_dict_items(data[: max(limit, 5)]):
+    for item in iter_dict_items(data):
         # 非 dict 毒条目按条跳过（同 R107）
         symbol = item.get("Code") or item.get("code")
+        if (not isinstance(symbol, str) or not symbol.strip() or item.get("error")
+            or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
+        symbol = symbol.strip().upper()
         exchange = item.get("Exchange") or item.get("exchange") or ""
+        exchange = exchange.strip().upper() if isinstance(exchange, str) else ""
         if symbol and exchange and "." not in symbol:
             symbol = f"{symbol}.{exchange}"
-        if not symbol:
+        if symbol in {match["symbol"] for match in matches}:
             continue
         matches.append({
             "symbol": symbol,
@@ -682,4 +732,6 @@ def _eodhd_symbol_lookup(company: str, limit: int = 5) -> List[Dict[str, Any]]:
             "primaryExchange": exchange,
             "source": "eodhd",
         })
+        if len(matches) >= limit:
+            break
     return matches

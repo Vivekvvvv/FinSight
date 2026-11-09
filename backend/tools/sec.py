@@ -112,13 +112,21 @@ def _load_ticker_map(headers: dict[str, str]) -> dict[str, dict[str, Any]]:
     if getattr(resp, "status_code", 0) != 200:
         raise RuntimeError(f"ticker_map_http_{getattr(resp, 'status_code', 'unknown')}")
     payload = resp.json()
+    if isinstance(payload, dict) and (payload.get("error") or payload.get("success") is False
+        or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+        raise RuntimeError("ticker_map_invalid_payload")
     rows = payload.values() if isinstance(payload, dict) else payload
 
     mapping: dict[str, dict[str, Any]] = {}
     for item in iter_dict_items(rows):
-        ticker = str(item.get("ticker") or "").strip().upper()
+        if (item.get("error") or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
+        ticker = item["ticker"].strip().upper() if isinstance(item.get("ticker"), str) else ""
         cik_value = item.get("cik_str")
-        if not ticker or cik_value is None:
+        cik_number = safe_float(cik_value)
+        if (not ticker or cik_number is None or not cik_number.is_integer()
+            or not 0 < cik_number < 10_000_000_000):
             continue
         try:
             cik = f"{int(cik_value):010d}"
@@ -141,8 +149,11 @@ def _fetch_submissions(cik: str, headers: dict[str, str]) -> dict[str, Any]:
     if getattr(resp, "status_code", 0) != 200:
         raise RuntimeError(f"submissions_http_{getattr(resp, 'status_code', 'unknown')}")
     payload = resp.json()
-    if not isinstance(payload, dict):
+    if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+        or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
         raise RuntimeError("submissions_invalid_payload")
+    if payload.get("cik") is not None and safe_float(payload["cik"]) != safe_float(cik):
+        raise RuntimeError("submissions_company_mismatch")
     return payload
 
 
@@ -152,8 +163,11 @@ def _fetch_companyfacts(cik: str, headers: dict[str, str]) -> dict[str, Any]:
     if getattr(resp, "status_code", 0) != 200:
         raise RuntimeError(f"companyfacts_http_{getattr(resp, 'status_code', 'unknown')}")
     payload = resp.json()
-    if not isinstance(payload, dict):
+    if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+        or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
         raise RuntimeError("companyfacts_invalid_payload")
+    if payload.get("cik") is not None and safe_float(payload["cik"]) != safe_float(cik):
+        raise RuntimeError("companyfacts_company_mismatch")
     return payload
 
 
@@ -218,13 +232,17 @@ def _extract_companyfacts_metric(
     concepts: tuple[str, ...],
     unit_candidates: tuple[str, ...],
 ) -> dict[str, float]:
+    if (payload.get("error") or payload.get("success") is False
+        or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+        return {}
     facts = payload.get("facts") if isinstance(payload.get("facts"), dict) else {}
     gaap = facts.get("us-gaap") if isinstance(facts.get("us-gaap"), dict) else {}
     rows_by_period: dict[str, tuple[str, float, bool]] = {}
 
     for concept in concepts:
         fact_obj = gaap.get(concept)
-        if not isinstance(fact_obj, dict):
+        if (not isinstance(fact_obj, dict) or fact_obj.get("error") or fact_obj.get("success") is False
+            or str(fact_obj.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             continue
         units = fact_obj.get("units") if isinstance(fact_obj.get("units"), dict) else {}
         if not isinstance(units, dict):
@@ -234,6 +252,9 @@ def _extract_companyfacts_metric(
             if not isinstance(entries, list):
                 continue
             for entry in iter_dict_items(entries):
+                if (entry.get("error") or entry.get("success") is False
+                    or str(entry.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                    continue
                 if not _is_quarterly_companyfacts_entry(entry):
                     continue
                 period = _parse_companyfacts_period(entry)
@@ -243,7 +264,11 @@ def _extract_companyfacts_metric(
                 number = safe_float(val)
                 if number is None:
                     continue
-                filed = str(entry.get("filed") or "")
+                filed = entry.get("filed")
+                try:
+                    filed = datetime.fromisoformat(filed).date().isoformat()
+                except (TypeError, ValueError, OverflowError):
+                    filed = ""
                 # flow concept 的 Q2/Q3 同一 period 会同时含 3-month 与 YTD
                 # (6/9-month) context，end/fp/filed 都相同；仅按 filed tiebreak
                 # 时由数组顺序决定，可能选中 YTD 累计值 → Q2/Q3 虚高 2-3 倍。
@@ -263,9 +288,13 @@ def _extract_companyfacts_metric(
 
 
 def _build_filing_url(cik: str, accession_number: str, primary_doc: str) -> str:
-    accession_no_dash = str(accession_number or "").replace("-", "")
+    if (not isinstance(accession_number, str) or not re.fullmatch(r"\d{10}-\d{2}-\d{6}", accession_number)
+        or (cik_value := safe_float(cik)) is None or not cik_value.is_integer() or not 0 < cik_value < 10_000_000_000):
+        return ""
+    accession_no_dash = accession_number.replace("-", "")
     document = str(primary_doc or "").lstrip("/")
-    if not accession_no_dash or not document:
+    if (not accession_no_dash or not document or "\\" in document
+        or any(part in {".", ".."} for part in document.split("/")) or any(char in document for char in "?#")):
         return ""
     return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_no_dash}/{document}"
 
@@ -277,6 +306,8 @@ def _recent_filings(
     limit: int,
     cik: str,
 ) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
     filings = submissions.get("filings")
     recent = filings.get("recent") if isinstance(filings, dict) else None
     if not isinstance(recent, dict):
@@ -310,12 +341,19 @@ def _recent_filings(
             continue
         if forms_filter and form not in forms_filter:
             continue
+        try:
+            filing_date = datetime.fromisoformat(filing_dates[idx]).date().isoformat()
+        except (IndexError, TypeError, ValueError, OverflowError):
+            continue
         accession_number = str(accession_numbers[idx] if idx < len(accession_numbers) else "").strip()
         primary_doc = str(primary_docs[idx] if idx < len(primary_docs) else "").strip()
+        filing_url = _build_filing_url(cik, accession_number, primary_doc)
+        if not filing_url:
+            continue
         rows.append(
             {
                 "form": form,
-                "filing_date": filing_dates[idx] if idx < len(filing_dates) else None,
+                "filing_date": filing_date,
                 "report_date": report_dates[idx] if idx < len(report_dates) else None,
                 "acceptance_datetime": acceptance[idx] if idx < len(acceptance) else None,
                 "accession_number": accession_number,
@@ -323,12 +361,12 @@ def _recent_filings(
                 "primary_doc_description": (
                     primary_descriptions[idx] if idx < len(primary_descriptions) else None
                 ),
-                "filing_url": _build_filing_url(cik, accession_number, primary_doc),
+                "filing_url": filing_url,
             }
         )
-        if len(rows) >= max(1, min(limit, 50)):
-            break
-    return rows
+    rows = list({row["accession_number"]: row for row in rows}.values())
+    rows.sort(key=lambda row: row["filing_date"] if isinstance(row["filing_date"], str) else "", reverse=True)
+    return rows[:max(1, min(limit, 50))]
 
 
 def _strip_html(raw: str) -> str:
@@ -366,6 +404,8 @@ def get_sec_filings(
     limit: int = 12,
 ) -> Dict[str, Any]:
     normalized_ticker = str(ticker or "").strip().upper()
+    if limit <= 0:
+        return {"ticker": normalized_ticker, "source": "sec_edgar", "filings": [], "error": None}
     if not normalized_ticker:
         return _error_payload(
             normalized_ticker,
@@ -539,6 +579,8 @@ _COMPANYFACTS_METRIC_MAP: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 
 def get_sec_company_facts_quarterly(ticker: str, limit: int = 8) -> Dict[str, Any]:
     normalized_ticker = str(ticker or "").strip().upper()
+    if limit <= 0:
+        return {"ticker": normalized_ticker, "source": "sec_companyfacts", "periods": [], "error": None}
     if not normalized_ticker:
         return _error_payload(
             normalized_ticker,
@@ -628,7 +670,7 @@ def get_sec_company_facts_quarterly(ticker: str, limit: int = 8) -> Dict[str, An
             capex = metric_maps["capital_expenditures"].get(period)
             fcf = None
             if ocf is not None and capex is not None:
-                fcf = ocf + capex if capex < 0 else ocf - capex
+                fcf = safe_float(ocf + capex if capex < 0 else ocf - capex)
             result["free_cash_flow"].append(fcf)
 
         has_any = any(

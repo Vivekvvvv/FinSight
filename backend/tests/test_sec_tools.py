@@ -2,6 +2,181 @@
 import backend.tools.sec as sec
 
 
+def test_recent_filings_duplicate_accessions_do_not_consume_limit():
+    submissions = {"filings": {"recent": {"form": ["10-Q"] * 3,
+        "filingDate": ["2025-08-01", "2025-08-01", "2025-05-01"],
+        "accessionNumber": ["0000320193-25-000002", "0000320193-25-000002", "0000320193-25-000001"],
+        "primaryDocument": ["new.htm", "new.htm", "old.htm"]}}}
+    rows = sec._recent_filings(submissions, forms_filter=["10-Q"], limit=2, cik="0000320193")
+    assert [row["primary_document"] for row in rows] == ["new.htm", "old.htm"]
+
+
+def test_recent_filings_invalid_date_does_not_displace_a_valid_record():
+    submissions = {"filings": {"recent": {"form": ["10-Q", "10-Q"],
+        "filingDate": ["9999-99-99", "2025-08-01"],
+        "accessionNumber": ["0000320193-25-000001", "0000320193-25-000002"],
+        "primaryDocument": ["bad.htm", "good.htm"]}}}
+    rows = sec._recent_filings(submissions, forms_filter=["10-Q"], limit=1, cik="0000320193")
+    assert rows[0]["primary_document"] == "good.htm"
+
+
+def test_recent_filings_selects_newest_records_before_limiting():
+    submissions = {"filings": {"recent": {"form": ["10-Q", "10-Q"],
+        "filingDate": ["2025-05-01", "2025-08-01"],
+        "accessionNumber": ["0000320193-25-000001", "0000320193-25-000002"],
+        "primaryDocument": ["old.htm", "new.htm"]}}}
+    rows = sec._recent_filings(submissions, forms_filter=["10-Q"], limit=1, cik="0000320193")
+    assert rows[0]["primary_document"] == "new.htm"
+
+
+def test_recent_filings_bad_documents_do_not_consume_the_result_budget():
+    submissions = {"filings": {"recent": {"form": ["10-Q", "10-Q", "10-Q"],
+        "filingDate": ["2025-08-03", "2025-08-02", "2025-08-01"],
+        "accessionNumber": ["0000320193-25-000003", {}, "0000320193-25-000001"],
+        "primaryDocument": ["../other.htm", "bad.htm", "a10q.htm"]}}}
+    rows = sec._recent_filings(submissions, forms_filter=["10-Q"], limit=1, cik="0000320193")
+    assert len(rows) == 1
+    assert rows[0]["primary_document"] == "a10q.htm"
+
+
+def test_filing_url_requires_valid_accession_and_company_identifiers():
+    for accession in (123, {}, "../other", "0000320193/25/000001"):
+        assert sec._build_filing_url("0000320193", accession, "annual.htm") == ""
+    for cik in (0, -1, True, "invalid"):
+        assert sec._build_filing_url(cik, "0000320193-25-000001", "annual.htm") == ""
+
+
+def test_filing_url_rejects_document_path_traversal():
+    for document in ("../other.htm", "folder/../../other.htm", "folder\\..\\other.htm", "file.htm?next=other"):
+        assert sec._build_filing_url("0000320193", "0000320193-25-000001", document) == ""
+    assert sec._build_filing_url("0000320193", "0000320193-25-000001", "annual.htm").endswith("/annual.htm")
+
+
+def test_zero_sec_filings_limit_avoids_company_map_fetch(monkeypatch):
+    calls = []
+    monkeypatch.setenv("SEC_USER_AGENT", "FinSight admin@finsight.app")
+    monkeypatch.setattr(sec, "_load_ticker_map", lambda h: calls.append(h) or {})
+    for limit in (0, -1):
+        result = sec.get_sec_filings("AAPL", limit=limit)
+        assert result.get("filings") == []
+        assert result.get("error") is None
+    assert calls == []
+
+
+def test_recent_filings_nonpositive_limit_returns_no_records():
+    submissions = {"filings": {"recent": {"form": ["10-Q"], "filingDate": ["2025-08-01"],
+        "accessionNumber": ["0000320193-25-000001"], "primaryDocument": ["a10q.htm"]}}}
+    for limit in (0, -1):
+        assert sec._recent_filings(submissions, forms_filter=[], limit=limit, cik="0000320193") == []
+
+
+def test_zero_companyfacts_limit_avoids_network_and_returns_no_periods(monkeypatch):
+    calls = []
+    monkeypatch.setenv("SEC_USER_AGENT", "FinSight admin@finsight.app")
+    monkeypatch.setattr(sec, "_load_ticker_map", lambda h: calls.append(h) or {"AAPL": {"cik": "0000320193"}})
+    monkeypatch.setattr(sec, "_fetch_companyfacts", lambda *a: {"facts": {"us-gaap": {"Assets": {"units": {"USD": [
+        {"end": "2025-06-30", "val": 100, "form": "10-Q"}]}}}}})
+    for limit in (0, -1):
+        assert sec.get_sec_company_facts_quarterly("AAPL", limit=limit)["periods"] == []
+    assert calls == []
+
+
+def test_sec_free_cash_flow_overflow_is_unavailable(monkeypatch):
+    import json
+    monkeypatch.setenv("SEC_USER_AGENT", "FinSight admin@finsight.app")
+    monkeypatch.setattr(sec, "_load_ticker_map", lambda headers: {"AAPL": {"cik": "0000320193"}})
+    entries = lambda value: {"units": {"USD": [{"end": "2025-06-30", "val": value, "form": "10-Q"}]}}
+    facts = {"facts": {"us-gaap": {
+        "NetCashProvidedByUsedInOperatingActivities": entries(-1.7e308),
+        "PaymentsToAcquirePropertyPlantAndEquipment": entries(1.7e308)}}}
+    monkeypatch.setattr(sec, "_fetch_companyfacts", lambda *a: facts)
+    result = sec.get_sec_company_facts_quarterly("AAPL")
+    assert result["operating_cash_flow"] == [-1.7e308]
+    assert result["free_cash_flow"] == [None]
+    json.dumps(result, allow_nan=False)
+
+
+def test_sec_companyfacts_cik_must_match_requested_company(monkeypatch):
+    import pytest
+    for cik in (789019, "0000789019", {}, True):
+        monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {"cik": cik, "facts": {}}))
+        with pytest.raises(RuntimeError, match="companyfacts_company_mismatch"):
+            sec._fetch_companyfacts("0000320193", {})
+    monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {"cik": 320193, "facts": {}}))
+    assert sec._fetch_companyfacts("0000320193", {})["cik"] == 320193
+
+
+def test_sec_submissions_cik_must_match_requested_company(monkeypatch):
+    import pytest
+    for cik in (789019, "0000789019", {}, True):
+        monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {"cik": cik, "filings": {}}))
+        with pytest.raises(RuntimeError, match="submissions_company_mismatch"):
+            sec._fetch_submissions("0000320193", {})
+    monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {"cik": 320193, "filings": {}}))
+    assert sec._fetch_submissions("0000320193", {})["cik"] == 320193
+
+
+def test_failed_companyfacts_response_cannot_supply_financial_metrics(monkeypatch):
+    import pytest
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {"facts": {}, **marker}))
+        with pytest.raises(RuntimeError, match="companyfacts_invalid_payload"):
+            sec._fetch_companyfacts("0000320193", {})
+
+
+def test_invalid_submissions_status_is_not_returned_as_success(monkeypatch):
+    import pytest
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {"filings": {}, **marker}))
+        with pytest.raises(RuntimeError, match="submissions_invalid_payload"):
+            sec._fetch_submissions("0000320193", {})
+
+
+def test_ticker_map_requires_positive_integral_ten_digit_ciks(monkeypatch):
+    bad = [True, False, 0, -1, 1.5, 10000000000, float("inf")]
+    monkeypatch.setattr(sec, "_ticker_cache", {})
+    monkeypatch.setattr(sec, "_ticker_cache_expire_at", 0.0)
+    rows = {str(i): {"ticker": f"BAD{i}", "cik_str": cik} for i, cik in enumerate(bad)}
+    rows["good"] = {"ticker": "AAPL", "cik_str": "320193"}
+    monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, rows))
+    mapping = sec._load_ticker_map({})
+    assert list(mapping) == ["AAPL"]
+    assert mapping["AAPL"]["cik"] == "0000320193"
+
+
+def test_ticker_map_cannot_stringify_nontext_stock_identifiers(monkeypatch):
+    monkeypatch.setattr(sec, "_ticker_cache", {})
+    monkeypatch.setattr(sec, "_ticker_cache_expire_at", 0.0)
+    monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {
+        "0": {"ticker": 123, "cik_str": 1}, "1": {"ticker": {"symbol": "AAPL"}, "cik_str": 2},
+        "2": {"ticker": " aapl ", "cik_str": 320193}}))
+    assert list(sec._load_ticker_map({})) == ["AAPL"]
+
+
+def test_failed_ticker_map_rows_do_not_resolve_companies(monkeypatch):
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        monkeypatch.setattr(sec, "_ticker_cache", {})
+        monkeypatch.setattr(sec, "_ticker_cache_expire_at", 0.0)
+        monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {
+            "0": {"ticker": "AAPL", "cik_str": 320193, **marker},
+            "1": {"ticker": "MSFT", "cik_str": 789019}}))
+        mapping = sec._load_ticker_map({})
+        assert list(mapping) == ["MSFT"]
+
+
+def test_failed_ticker_map_envelope_preserves_existing_cache(monkeypatch):
+    import pytest
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        old = {"OLD": {"ticker": "OLD", "cik": "0000000001"}}
+        monkeypatch.setattr(sec, "_ticker_cache", old)
+        monkeypatch.setattr(sec, "_ticker_cache_expire_at", 0.0)
+        monkeypatch.setattr(sec, "_http_get", lambda *a, **kw: _FakeResponse(200, {
+            "0": {"ticker": "AAPL", "cik_str": 320193}, **marker}))
+        with pytest.raises(RuntimeError, match="ticker_map_invalid_payload"):
+            sec._load_ticker_map({})
+        assert sec._ticker_cache is old
+
+
 class _FakeResponse:
     def __init__(self, status_code: int, json_payload=None, text: str = ""):
         self.status_code = status_code

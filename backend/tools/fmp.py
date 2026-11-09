@@ -114,6 +114,9 @@ def get_revenue_product_segmentation(symbol: str) -> list[dict]:
         return []
 
     # 获取最新年份的数据
+    data = [row for row in iter_dict_items(data) if not row.get("error") and row.get("success") is not False
+            and str(row.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
+    data.sort(key=lambda row: row.get("date") if isinstance(row.get("date"), str) else "", reverse=True)
     latest = data[0] if data else {}
     segments_raw = latest.get(symbol, {}) if isinstance(latest, dict) else {}
 
@@ -121,7 +124,7 @@ def get_revenue_product_segmentation(symbol: str) -> list[dict]:
         # 尝试其他格式
         for item in iter_dict_items(data):
             for key, value in item.items():
-                if key != "date" and isinstance(value, dict):
+                if isinstance(key, str) and key.strip().upper() == symbol.strip().upper() and isinstance(value, dict):
                     segments_raw = value
                     break
             if segments_raw:
@@ -133,11 +136,15 @@ def get_revenue_product_segmentation(symbol: str) -> list[dict]:
     # 转换为标准格式
     segments = []
     normalized_segments = {
-        name: parsed
+        name.strip(): parsed
         for name, raw in segments_raw.items()
+        if isinstance(name, str) and name.strip()
         if (parsed := safe_float(raw)) is not None and parsed > 0
     }
-    total_revenue = sum(normalized_segments.values())
+    total_revenue = safe_float(sum(normalized_segments.values()))
+    if total_revenue is None:
+        logger.warning("[FMP] product revenue total exceeds finite range")
+        return []
 
     for seg_name, revenue in normalized_segments.items():
         percentage = (revenue / total_revenue * 100) if total_revenue > 0 else 0
@@ -185,13 +192,16 @@ def get_revenue_geographic_segmentation(symbol: str) -> list[dict]:
         return []
 
     # 获取最新年份的数据
+    data = [row for row in iter_dict_items(data) if not row.get("error") and row.get("success") is not False
+            and str(row.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
+    data.sort(key=lambda row: row.get("date") if isinstance(row.get("date"), str) else "", reverse=True)
     latest = data[0] if data else {}
     regions_raw = latest.get(symbol, {}) if isinstance(latest, dict) else {}
 
     if not regions_raw:
         for item in iter_dict_items(data):
             for key, value in item.items():
-                if key != "date" and isinstance(value, dict):
+                if isinstance(key, str) and key.strip().upper() == symbol.strip().upper() and isinstance(value, dict):
                     regions_raw = value
                     break
             if regions_raw:
@@ -203,11 +213,15 @@ def get_revenue_geographic_segmentation(symbol: str) -> list[dict]:
     # 转换为标准格式
     regions = []
     normalized_regions = {
-        name: parsed
+        name.strip(): parsed
         for name, raw in regions_raw.items()
+        if isinstance(name, str) and name.strip()
         if (parsed := safe_float(raw)) is not None and parsed > 0
     }
-    total_revenue = sum(normalized_regions.values())
+    total_revenue = safe_float(sum(normalized_regions.values()))
+    if total_revenue is None:
+        logger.warning("[FMP] geographic revenue total exceeds finite range")
+        return []
 
     for region_name, revenue in normalized_regions.items():
         percentage = (revenue / total_revenue * 100) if total_revenue > 0 else 0
@@ -251,13 +265,19 @@ def get_etf_sector_weights(symbol: str) -> list[dict]:
 
     sectors = []
     for item in iter_dict_items(data):
+        if (item.get("error") or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
         sector = item.get("sector", "")
+        if not isinstance(sector, str) or not sector.strip():
+            continue
+        sector = sector.strip()
         weight_str = item.get("weightPercentage", "0%")
 
         # 解析权重百分比（去掉 % 符号）
         weight = safe_float(str(weight_str).replace("%", "").strip()) or 0.0
 
-        if sector and weight > 0:
+        if sector and 0 < weight <= 100:
             sectors.append({
                 "sector": sector,
                 "weight": weight,
@@ -289,6 +309,9 @@ def get_etf_holdings(symbol: str, limit: int = 50) -> list[dict]:
                 "value": 12345678900
             }, ...]
     """
+    result_limit = max(0, safe_int(limit, 50))
+    if result_limit <= 0:
+        return []
     data = _fmp_request(f"/v3/etf-holder/{symbol}")
 
     if not data or not isinstance(data, list):
@@ -296,15 +319,23 @@ def get_etf_holdings(symbol: str, limit: int = 50) -> list[dict]:
 
     holdings = []
     for item in iter_dict_items(data):
+        if (item.get("error") or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
         asset = item.get("asset", "")
+        if not isinstance(asset, str) or not asset.strip():
+            continue
+        asset = asset.strip().upper()
         name = item.get("name", "")
         weight_str = item.get("weightPercentage", "0")
-        shares = item.get("sharesNumber", 0)
-        value = item.get("marketValue", 0)
+        shares = safe_float(item.get("sharesNumber")) or 0.0
+        value = safe_float(item.get("marketValue")) or 0.0
 
         # 解析权重
         weight = safe_float(str(weight_str).replace("%", "").strip()) or 0.0
 
+        if not 0 <= weight <= 100:
+            weight = 0.0
         if asset:
             holdings.append({
                 "symbol": asset,
@@ -316,7 +347,6 @@ def get_etf_holdings(symbol: str, limit: int = 50) -> list[dict]:
 
     holdings.sort(key=lambda x: x["weight"], reverse=True)
 
-    result_limit = max(0, safe_int(limit, 50))
     logger.info("[FMP] etf_holdings OK: %s holdings", len(holdings[:result_limit]))
     return holdings[:result_limit]
 
@@ -358,6 +388,9 @@ def get_index_constituents(symbol: str, limit: int = 10) -> list[dict]:
                 "weight": 7.2
             }, ...]
     """
+    result_limit = max(0, safe_int(limit, 10))
+    if result_limit <= 0:
+        return []
     endpoint = INDEX_CONSTITUENTS_MAP.get(symbol)
     if not endpoint:
         logger.debug("[FMP] Unknown index symbol")
@@ -370,7 +403,13 @@ def get_index_constituents(symbol: str, limit: int = 10) -> list[dict]:
 
     constituents = []
     for item in iter_dict_items(data):
+        if (item.get("error") or item.get("success") is False
+            or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
         sym = item.get("symbol", "")
+        if not isinstance(sym, str) or not sym.strip():
+            continue
+        sym = sym.strip().upper()
         name = item.get("name", "")
         sector = item.get("sector", "")
         sub_sector = item.get("subSector", "")
@@ -386,7 +425,6 @@ def get_index_constituents(symbol: str, limit: int = 10) -> list[dict]:
     # 按符号排序（没有权重信息）
     constituents.sort(key=lambda x: x["symbol"])
 
-    result_limit = max(0, safe_int(limit, 10))
     logger.info("[FMP] index_constituents OK: %s constituents", len(constituents[:result_limit]))
     return constituents[:result_limit]
 
@@ -422,8 +460,12 @@ def get_company_profile(symbol: str) -> Optional[dict]:
     if not data or not isinstance(data, list) or len(data) == 0:
         return None
 
-    profile = data[0]
-    if not isinstance(profile, dict):
+    profile = next((row for row in iter_dict_items(data)
+                    if not row.get("error") and row.get("success") is not False
+                    and str(row.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+                    and all(value is None or isinstance(value, str) and value.strip().upper() == symbol.strip().upper()
+                            for value in (row.get("ticker"), row.get("symbol")))), None)
+    if profile is None:
         return None
 
     logger.info("[FMP] company_profile OK")

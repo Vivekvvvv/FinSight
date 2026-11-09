@@ -11,6 +11,33 @@ from __future__ import annotations
 import backend.tools.sec as sec
 
 
+def test_invalid_filing_date_cannot_shadow_dated_companyfacts():
+    good = {"end": "2025-06-30", "val": 100, "form": "10-Q", "filed": "2025-08-01"}
+    for filed in ("zzz", "2025-99-99", {"bad": True}):
+        payload = _payload("Assets", "USD", [{**good, "val": 999, "filed": filed}, good])
+        assert sec._extract_companyfacts_metric(payload, concepts=("Assets",), unit_candidates=("USD",)) == {"2025Q2": 100}
+
+
+def test_failed_companyfacts_entries_do_not_shadow_valid_quarters():
+    good = {"end": "2025-06-30", "val": 100, "form": "10-Q", "filed": "2025-08-01"}
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        payload = _payload("Assets", "USD", [{**good, "val": 999, "filed": "2025-09-01", **marker}, good])
+        assert sec._extract_companyfacts_metric(payload, concepts=("Assets",), unit_candidates=("USD",)) == {"2025Q2": 100}
+
+
+def test_failed_companyfacts_concept_cannot_supply_metrics():
+    good = _payload("Assets", "USD", [{"end": "2025-06-30", "val": 100, "form": "10-Q"}])
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        good["facts"]["us-gaap"]["Assets"] = {**good["facts"]["us-gaap"]["Assets"], **marker}
+        assert sec._extract_companyfacts_metric(good, concepts=("Assets",), unit_candidates=("USD",)) == {}
+
+
+def test_failed_companyfacts_envelope_cannot_be_extracted_directly():
+    good = _payload("Assets", "USD", [{"end": "2025-06-30", "val": 100, "form": "10-Q"}])
+    for marker in ({"error": "bad"}, {"success": False}, {"status": " Failed "}):
+        assert sec._extract_companyfacts_metric({**good, **marker}, concepts=("Assets",), unit_candidates=("USD",)) == {}
+
+
 def _payload(concept: str, unit: str, entries: list[dict]) -> dict:
     return {"facts": {"us-gaap": {concept: {"units": {unit: entries}}}}}
 
