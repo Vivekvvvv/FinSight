@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List
 
 from backend.utils.strict_json import json_loads_strict
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,14 @@ async def analyze_news_sentiment(
     # 即便进兜底，dict(n) 也会对同一毒列表再崩一次（双重崩）。
     # request.news 的 Pydantic 校验只验 dict 形状、不验值类型；
     # get_company_news 等工具产出则完全无校验（同 R107-R121 缺陷类）
-    news_list = [n for n in news_list if isinstance(n, dict)]
+    news_list = [n for n in news_list if isinstance(n, dict) and not n.get("error")
+                 and n.get("success") is not False
+                 and str(n.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+                 and (not ticker or all(value is None or isinstance(value, str)
+                      and value.strip().upper() == ticker.strip().upper()
+                      for value in (n.get("ticker"), n.get("symbol"))))
+                 and any(isinstance(n.get(field), str) and n[field].strip()
+                         for field in ("title", "summary", "content"))]
     if not news_list:
         return []
 
@@ -77,7 +85,9 @@ async def analyze_news_sentiment(
     # summary/content 值类型不受校验——int/dict 真值的 [:200] TypeError
     # 同样在 try 之外逃逸，先归 str 再截断
     slim_news = [
-        {"index": i, "title": n.get("title", ""), "summary": str(n.get("summary") or n.get("content") or "")[:200]}
+        {"index": i, "title": n["title"].strip() if isinstance(n.get("title"), str) else "",
+         "summary": next((n[field].strip()[:200] for field in ("summary", "content")
+                          if isinstance(n.get(field), str) and n[field].strip()), "")}
         for i, n in enumerate(news_list[:15])  # 最多分析15条
     ]
 
@@ -104,13 +114,40 @@ async def analyze_news_sentiment(
         # 顶层非 list 按空数组、元素非 dict 按条降级。
         if not isinstance(sentiments, list):
             sentiments = []
+        sentiments = sentiments[:len(slim_news)]
 
         # 合并回原新闻
         result = []
         for i, news in enumerate(news_list):
             enriched = dict(news)
+            for key in ("sentiment", "sentiment_cn", "confidence", "key_event", "impact_level", "analysis_status"):
+                enriched.pop(key, None)
             sentiment = sentiments[i] if i < len(sentiments) else None
-            enriched.update(sentiment if isinstance(sentiment, dict) else _neutral_sentiment())
+            if (isinstance(sentiment, dict) and isinstance(sentiment.get("sentiment"), str)
+                and not sentiment.get("error") and sentiment.get("success") is not False
+                and (not ticker or all(value is None or isinstance(value, str)
+                     and value.strip().upper() == ticker.strip().upper()
+                     for value in (sentiment.get("ticker"), sentiment.get("symbol"))))
+                and all(str(sentiment.get(key) or "").strip().lower() not in {"error", "failed", "unavailable"}
+                        for key in ("status", "analysis_status"))
+                and sentiment["sentiment"].strip().lower() in ("positive", "neutral", "negative")):
+                sentiment = dict(sentiment)
+                sentiment["sentiment"] = sentiment["sentiment"].strip().lower()
+                sentiment["sentiment_cn"] = {"positive": "利好", "neutral": "中性", "negative": "利空"}[sentiment["sentiment"]]
+                event = sentiment.get("key_event")
+                sentiment["key_event"] = event.strip()[:30] if isinstance(event, str) else ""
+                impact = sentiment.get("impact_level")
+                impact = impact.strip().lower() if isinstance(impact, str) else "low"
+                sentiment["impact_level"] = impact if impact in {"high", "medium", "low"} else "low"
+                confidence = safe_float(sentiment.get("confidence"))
+                sentiment["confidence"] = confidence if confidence is not None and 0 <= confidence <= 1 else None
+                enriched["analysis_status"] = "success"
+            else:
+                sentiment = None
+            enriched.update(
+                {key: sentiment[key] for key in ("sentiment", "sentiment_cn", "confidence", "key_event", "impact_level") if key in sentiment}
+                if isinstance(sentiment, dict) else _neutral_sentiment()
+            )
             result.append(enriched)
         return result
 
@@ -128,7 +165,8 @@ def _neutral_sentiment() -> Dict[str, Any]:
     return {
         "sentiment": "neutral",
         "sentiment_cn": "中性",
-        "confidence": 0.5,
+        "confidence": 0.0,
+        "analysis_status": "unavailable",
         "key_event": "暂无分析",
         "impact_level": "low",
     }
@@ -152,12 +190,15 @@ def aggregate_sentiment(enriched_news: List[Dict[str, Any]]) -> Dict[str, Any]:
     for n in enriched_news:
         # sentiments[i] 是 LLM 裸 JSON——{"sentiment": {...}} / {"impact_level": [...]}
         # 的 unhashable 值会让 counts.get/weight_map.get TypeError；非 str 归默认
-        if not isinstance(n, dict):
+        if (not isinstance(n, dict) or n.get("error") or n.get("success") is False
+            or any(str(n.get(key) or "").strip().lower() in {"error", "failed", "unavailable"}
+                   for key in ("status", "analysis_status"))):
             continue
         s = n.get("sentiment")
-        if not isinstance(s, str):
-            s = "neutral"
-        w = weight_map.get(n.get("impact_level"), 1) if isinstance(n.get("impact_level"), str) else 1
+        if not isinstance(s, str) or s.strip().lower() not in counts:
+            continue
+        s = s.strip().lower()
+        w = weight_map.get(n["impact_level"].strip().lower(), 1) if isinstance(n.get("impact_level"), str) else 1
         counts[s] = counts.get(s, 0) + 1
         weighted_score += score_map.get(s, 0) * w
 
