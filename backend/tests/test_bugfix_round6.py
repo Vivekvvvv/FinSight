@@ -71,8 +71,8 @@ def test_r93_cn_weekend_check_uses_market_local_date(monkeypatch):
     assert sc.TradingHoursCache.get_smart_ttl("cn", "quote") == 1800
     assert sc.TradingHoursCache.get_smart_ttl("hk", "quote") == 1800
 
-    # 美股不受影响：UTC 周日 = 美东周六/日，仍是周末 → 86400s
-    assert sc.TradingHoursCache.get_smart_ttl("us", "quote") == 86400
+    # 美股仍按周末缓存，但不能跨过周一 09:30 ET（14:30 UTC）的开盘。
+    assert sc.TradingHoursCache.get_smart_ttl("us", "quote") == 66600
 
 
 def test_r93_cn_true_weekend_still_gets_long_ttl(monkeypatch):

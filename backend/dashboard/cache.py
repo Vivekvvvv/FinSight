@@ -8,6 +8,8 @@ TTL 策略：
 - charts: 300秒（图表数据相对稳定）
 - news: 30秒（新闻需要较高时效性）
 """
+from copy import deepcopy
+
 import time
 import logging
 import math
@@ -79,7 +81,7 @@ class DashboardCache:
         Returns:
             str: 标准化的缓存键
         """
-        return f"dashboard:{symbol.upper()}:{data_type}"
+        return f"dashboard:{symbol.strip().upper()}:{data_type}"
 
     def get(self, symbol: str, data_type: str) -> Optional[Any]:
         """
@@ -102,13 +104,13 @@ class DashboardCache:
             expires_at, value = entry
 
             # 检查是否过期
-            if time.time() > expires_at:
+            if time.monotonic() >= expires_at:
                 del self._store[key]
                 logger.debug("Cache expired")
                 return None
 
         logger.debug("Cache hit")
-        return value
+        return deepcopy(value)
 
     def get_with_stale(
         self,
@@ -137,19 +139,19 @@ class DashboardCache:
                 return None, False
 
             expires_at, value = entry
-            now = time.time()
+            now = time.monotonic()
 
-            if now <= expires_at:
+            if now < expires_at:
                 # Fresh
                 logger.debug("Cache hit (fresh)")
-                return value, False
+                return deepcopy(value), False
 
             # Expired but within stale window?
             stale_ttl = self._normalize_ttl(stale_ttl, self.TTL_INSIGHTS_STALE)
             stale_deadline = expires_at + stale_ttl
-            if now <= stale_deadline:
+            if now < stale_deadline:
                 logger.debug("Cache hit (stale)")
-                return value, True
+                return deepcopy(value), True
 
             # Beyond stale window — treat as miss
             del self._store[key]
@@ -197,9 +199,9 @@ class DashboardCache:
 
         key = self._key(symbol, data_type)
         ttl = self._normalize_ttl(ttl, 0)
-        expires_at = time.time() + ttl
+        expires_at = time.monotonic() + ttl
         with self._lock:
-            self._store[key] = (expires_at, value)
+            self._store[key] = (expires_at, deepcopy(value))
         logger.debug("Cache set")
 
     def invalidate(self, symbol: str) -> None:
@@ -209,7 +211,7 @@ class DashboardCache:
         Args:
             symbol: 资产代码
         """
-        prefix = f"dashboard:{symbol.upper()}:"
+        prefix = f"dashboard:{symbol.strip().upper()}:"
         with self._lock:
             keys_to_delete = [k for k in self._store if k.startswith(prefix)]
 
@@ -250,10 +252,10 @@ class DashboardCache:
         Returns:
             dict: 包含缓存条目数量和各类型统计
         """
-        now = time.time()
+        now = time.monotonic()
         with self._lock:
             total = len(self._store)
-            expired = sum(1 for _, (exp, _) in self._store.items() if now > exp)
+            expired = sum(1 for _, (exp, _) in self._store.items() if now >= exp)
             active = total - expired
 
             # 按数据类型统计
@@ -278,11 +280,11 @@ class DashboardCache:
         Returns:
             int: 清理的条目数量
         """
-        now = time.time()
+        now = time.monotonic()
         with self._lock:
             expired_keys = [
                 key for key, (expires_at, _) in self._store.items()
-                if now > expires_at
+                if now >= expires_at
             ]
 
             for key in expired_keys:

@@ -9,6 +9,70 @@ from backend.dashboard.cache import DashboardCache
 from backend.dashboard.insights_engine import InsightsOrchestrator
 
 
+def test_dashboard_cache_detaches_values_on_write():
+    cache = DashboardCache()
+    payload = {"rows": [{"price": 100.0}]}
+    cache.set("AAPL", "snapshot", payload)
+    payload["rows"][0]["price"] = 0.0
+
+    assert cache.get("AAPL", "snapshot")["rows"][0]["price"] == 100.0
+
+
+@pytest.mark.parametrize("ttl", [0, 10])
+def test_dashboard_cache_expiry_boundary_is_not_fresh(monkeypatch, ttl):
+    now = [100.0]
+    monkeypatch.setattr(cache_module.time, "monotonic", lambda: now[0])
+    cache = DashboardCache()
+    for ticker in ("AAPL", "MSFT", "AMD"):
+        cache.set(ticker, "snapshot", {"price": 100}, ttl=ttl)
+    now[0] += ttl
+
+    assert cache.stats()["expired_entries"] == 3
+    assert cache.get("AAPL", "snapshot") is None
+    assert cache.get_with_stale("MSFT", "snapshot", stale_ttl=10) == ({"price": 100}, True)
+    assert cache.cleanup() == 2
+
+
+def test_dashboard_cache_stale_window_expires_at_its_deadline(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr(cache_module.time, "monotonic", lambda: now[0])
+    cache = DashboardCache()
+    cache.set("AAPL", "snapshot", {"price": 100}, ttl=10)
+    now[0] = 120.0
+
+    assert cache.get_with_stale("AAPL", "snapshot", stale_ttl=10) == (None, False)
+
+
+def test_dashboard_cache_symbol_whitespace_does_not_split_keys_or_invalidation():
+    cache = DashboardCache()
+    cache.set(" aapl ", "snapshot", {"price": 100})
+    cache.set("MSFT", "snapshot", {"price": 200})
+
+    assert cache.get("AAPL", "snapshot") == {"price": 100}
+    assert cache.get_with_stale(" aapl ", "snapshot") == ({"price": 100}, False)
+    cache.invalidate(" aapl ")
+    assert cache.get("AAPL", "snapshot") is None
+    assert cache.get("MSFT", "snapshot") == {"price": 200}
+
+
+@pytest.mark.parametrize("reader, elapsed", [("get", 0), ("get_with_stale", 0), ("get_with_stale", 11)])
+def test_dashboard_cache_reads_cannot_mutate_other_requests(monkeypatch, reader, elapsed):
+    now = {"value": 100.0}
+    monkeypatch.setattr(cache_module.time, "monotonic", lambda: now["value"])
+    cache = DashboardCache()
+    cache.set("AAPL", "snapshot", {"rows": [{"price": 100.0}]}, ttl=10)
+    now["value"] += elapsed
+
+    def read():
+        result = getattr(cache, reader)("AAPL", "snapshot")
+        return result if reader == "get" else result[0]
+
+    payload = read()
+    payload["rows"][0]["price"] = 0.0
+
+    assert read()["rows"][0]["price"] == 100.0
+
+
 def test_dashboard_failure_marker_roundtrip():
     marker = dashboard_router_module._make_failure_marker("peers_unavailable")
     assert dashboard_router_module._is_failure_marker(marker) is True
@@ -138,28 +202,41 @@ def test_insights_collect_data_ignores_failure_marker():
 
 @pytest.mark.parametrize("invalid_ttl", [float("nan"), float("inf"), -1, True, False])
 def test_dashboard_cache_invalid_ttl_expires_immediately(monkeypatch, invalid_ttl):
-    monkeypatch.setattr(cache_module.time, "time", lambda: 100.0)
+    monkeypatch.setattr(cache_module.time, "monotonic", lambda: 100.0)
     cache = DashboardCache()
 
     cache.set("AAPL", "snapshot", {"price": 1}, ttl=invalid_ttl)
 
-    monkeypatch.setattr(cache_module.time, "time", lambda: 100.1)
+    monkeypatch.setattr(cache_module.time, "monotonic", lambda: 100.1)
     assert cache.get("AAPL", "snapshot") is None
 
 
 @pytest.mark.parametrize("invalid_ttl", [float("nan"), float("inf"), -1, True, False])
 def test_dashboard_cache_invalid_stale_ttl_uses_bounded_default(monkeypatch, invalid_ttl):
-    monkeypatch.setattr(cache_module.time, "time", lambda: 100.0)
+    monkeypatch.setattr(cache_module.time, "monotonic", lambda: 100.0)
     cache = DashboardCache()
     cache.set("AAPL", "insights", {"ok": True}, ttl=1)
 
-    monkeypatch.setattr(cache_module.time, "time", lambda: 100.0 + 1 + cache.TTL_INSIGHTS_STALE + 0.1)
+    monkeypatch.setattr(cache_module.time, "monotonic", lambda: 100.0 + 1 + cache.TTL_INSIGHTS_STALE + 0.1)
     assert cache.get_with_stale("AAPL", "insights", stale_ttl=invalid_ttl) == (None, False)
+
+
+def test_wall_clock_changes_do_not_expire_or_extend_cache_entries(monkeypatch):
+    from types import SimpleNamespace
+    wall, elapsed = [1000.0], [100.0]
+    monkeypatch.setattr(cache_module, "time", SimpleNamespace(time=lambda: wall[0], monotonic=lambda: elapsed[0]))
+    cache = DashboardCache()
+    cache.set("AAPL", "snapshot", {"price": 100}, ttl=60)
+    wall[0] += 10000
+    assert cache.get("AAPL", "snapshot") == {"price": 100}
+    wall[0] -= 20000
+    elapsed[0] += 61
+    assert cache.get("AAPL", "snapshot") is None
 
 
 def test_dashboard_cache_concurrent_get_on_expired_key_does_not_raise(monkeypatch):
     """DashboardCache.get 是 check-then-act 且全类零锁：
-    `entry = self._store.get(key)` → `if time.time() > expires_at` →
+    `entry = self._store.get(key)` → `if time.monotonic() > expires_at` →
     `del self._store[key]`。两个线程读到同一条过期 entry 后都会走到 del，
     第二个抛未捕获的 KeyError 出 get()。
 
@@ -168,7 +245,7 @@ def test_dashboard_cache_concurrent_get_on_expired_key_does_not_raise(monkeypatc
     兄弟模块 backend/orchestration/cache.py 对同一类操作持 threading.RLock，
     本类 Lock 出现 0 次。
 
-    用时间函数做闸：get() 先读 entry、后调 time.time()，所以在 time.time()
+    用时间函数做闸：get() 先读 entry、后调 time.monotonic()，所以在 time.monotonic()
     处挂住第一个线程，可确定性地让两个线程都已持有同一条 entry。
     """
     import threading
@@ -176,8 +253,8 @@ def test_dashboard_cache_concurrent_get_on_expired_key_does_not_raise(monkeypatc
     cache = DashboardCache()
     cache.set("AAPL", "snapshot", {"price": 1}, ttl=60)
 
-    # expires_at 由上面的真实 epoch 决定，闸函数必须返回相对真实时钟的未来时刻
-    expired_at = cache_module.time.time() + 10_000.0
+    # expires_at 使用单调时钟，闸函数必须返回相对同一时钟的未来时刻
+    expired_at = cache_module.time.monotonic() + 10_000.0
     first_in = threading.Event()
     proceed = threading.Event()
 
@@ -189,7 +266,7 @@ def test_dashboard_cache_concurrent_get_on_expired_key_does_not_raise(monkeypatc
         # 远超 expires_at，两个线程都判过期
         return expired_at
 
-    monkeypatch.setattr(cache_module.time, "time", gated_time)
+    monkeypatch.setattr(cache_module.time, "monotonic", gated_time)
 
     errors: list[BaseException] = []
     results: list[object] = []

@@ -11,12 +11,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timezone, timedelta
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-MarketType = Literal["cn", "us", "hk"]
+MarketType = Literal["cn", "us", "hk", "crypto"]
 
 
 class TradingHoursCache:
@@ -28,11 +29,9 @@ class TradingHoursCache:
     CN_AFTERNOON_START = time(13, 0)
     CN_AFTERNOON_END = time(15, 0)
 
-    # 美股交易时间：09:30-16:00 ET（夏令时 13:30-20:00 UTC，冬令时 14:30-21:00 UTC）
-    # 取并集 13:30-21:00 UTC。旧值 21:30-04:00 是"北京时间的美股时段"被误标成 UTC，
-    # 导致真实盘中恒判盘后（quote TTL 30 分钟陈旧）、美股收盘后的夜里反而判交易中。
-    US_START = time(13, 30)  # UTC
-    US_END = time(21, 0)  # UTC
+    # 美股交易时间：09:30-16:00 ET，按纽约时区处理夏令时。
+    US_START = time(9, 30)
+    US_END = time(16, 0)
 
     # 港股交易时间：09:30-12:00, 13:00-16:00 (UTC+8)
     HK_MORNING_START = time(9, 30)
@@ -52,6 +51,8 @@ class TradingHoursCache:
         Returns:
             TTL秒数
         """
+        if market == "crypto":
+            return cls._get_trading_ttl(data_type)
         now_utc = datetime.now(timezone.utc)
 
         # A股特殊处理：检查节假日
@@ -60,7 +61,7 @@ class TradingHoursCache:
             from datetime import timedelta
             cn_time = now_utc + timedelta(hours=8)
             if is_cn_holiday(cn_time):
-                return cls._get_weekend_ttl(data_type)
+                return cls._cap_closed_ttl(market, now_utc, cls._get_weekend_ttl(data_type))
 
         is_trading = cls._is_trading_hours(market, now_utc)
         # 周末判定必须按市场本地日期：UTC 周日 = 北京周一 00:00-08:00，
@@ -76,18 +77,47 @@ class TradingHoursCache:
 
         # 周末/节假日：超长缓存
         if is_weekend:
-            return cls._get_weekend_ttl(data_type)
+            return cls._cap_closed_ttl(market, now_utc, cls._get_weekend_ttl(data_type))
 
         # 交易时段内：短缓存
         if is_trading:
             return cls._get_trading_ttl(data_type)
 
         # 盘后时段：长缓存
-        return cls._get_afterhours_ttl(data_type)
+        return cls._cap_closed_ttl(market, now_utc, cls._get_afterhours_ttl(data_type))
+
+    @classmethod
+    def _cap_closed_ttl(cls, market: MarketType, now_utc: datetime, ttl: int) -> int:
+        """休市缓存不能把旧报价带进下一次交易时段。"""
+        from backend.services.cn_holiday import is_cn_holiday
+
+        zone = ZoneInfo("America/New_York") if market == "us" else timezone(timedelta(hours=8))
+        local_date = now_utc.astimezone(zone).date()
+        starts = (time(9, 30), time(13, 0)) if market in {"cn", "hk"} else (time(9, 30),)
+        for offset in range(15):
+            trading_date = local_date + timedelta(days=offset)
+            if trading_date.weekday() >= 5 or market == "cn" and is_cn_holiday(trading_date):
+                continue
+            for start in starts:
+                opening = datetime.combine(trading_date, start, tzinfo=zone)
+                remaining = (opening.astimezone(timezone.utc) - now_utc).total_seconds()
+                if remaining > 0:
+                    return min(ttl, int(remaining))
+        return ttl
 
     @classmethod
     def _is_trading_hours(cls, market: MarketType, now_utc: datetime) -> bool:
         """判断当前是否在交易时间内"""
+        if market == "crypto":
+            return True
+        zone = ZoneInfo("America/New_York") if market == "us" else timezone(timedelta(hours=8))
+        local_date = now_utc.astimezone(zone).date()
+        if local_date.weekday() >= 5:
+            return False
+        if market == "cn":
+            from backend.services.cn_holiday import is_cn_holiday
+            if is_cn_holiday(local_date):
+                return False
         if market == "cn":
             return cls._is_cn_trading(now_utc)
         elif market == "us":
@@ -103,15 +133,17 @@ class TradingHoursCache:
         cn_time = now_utc + timedelta(hours=8)
         t = cn_time.time()
 
-        morning = cls.CN_MORNING_START <= t <= cls.CN_MORNING_END
-        afternoon = cls.CN_AFTERNOON_START <= t <= cls.CN_AFTERNOON_END
+        morning = cls.CN_MORNING_START <= t < cls.CN_MORNING_END
+        afternoon = cls.CN_AFTERNOON_START <= t < cls.CN_AFTERNOON_END
         return morning or afternoon
 
     @classmethod
     def _is_us_trading(cls, now_utc: datetime) -> bool:
-        """美股交易时段判断（UTC时间，13:30-21:00 不跨日）"""
-        t = now_utc.time()
-        return cls.US_START <= t <= cls.US_END
+        """美股交易时段判断（纽约本地时间）"""
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+        t = now_utc.astimezone(ZoneInfo("America/New_York")).time()
+        return cls.US_START <= t < cls.US_END
 
     @classmethod
     def _is_hk_trading(cls, now_utc: datetime) -> bool:
@@ -120,8 +152,8 @@ class TradingHoursCache:
         hk_time = now_utc + timedelta(hours=8)
         t = hk_time.time()
 
-        morning = cls.HK_MORNING_START <= t <= cls.HK_MORNING_END
-        afternoon = cls.HK_AFTERNOON_START <= t <= cls.HK_AFTERNOON_END
+        morning = cls.HK_MORNING_START <= t < cls.HK_MORNING_END
+        afternoon = cls.HK_AFTERNOON_START <= t < cls.HK_AFTERNOON_END
         return morning or afternoon
 
     @classmethod
@@ -160,10 +192,13 @@ class TradingHoursCache:
     @classmethod
     def detect_market(cls, symbol: str) -> MarketType:
         """根据股票代码检测市场类型"""
-        symbol_upper = symbol.upper()
+        symbol_upper = symbol.strip().upper()
+
+        if symbol_upper.endswith(("-USD", "-USDT", "-BTC", "-ETH", "-BUSD")):
+            return "crypto"
 
         # A股判断
-        if symbol_upper.endswith(".SS") or symbol_upper.endswith(".SZ") or symbol_upper.endswith(".BJ"):
+        if symbol_upper.endswith((".SS", ".SH", ".SZ", ".BJ")):
             return "cn"
 
         # 港股判断

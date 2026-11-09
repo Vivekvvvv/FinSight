@@ -134,7 +134,7 @@ class CircuitBreaker:
                 if state.half_open_successes >= self.half_open_success_threshold:
                     # Fully recovered
                     state = _CircuitState(state=CLOSED)
-            else:
+            elif state.state == CLOSED:
                 # Normal success in CLOSED state, reset failures
                 # (Optional: implementation choice to reset failures on any success)
                 state.failures = 0

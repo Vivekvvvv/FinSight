@@ -17,6 +17,20 @@ if PROJECT_ROOT not in sys.path:
 from backend.services import CircuitBreaker
 
 
+def test_late_success_does_not_erase_an_open_circuit_cooldown(monkeypatch):
+    clock = {"now": 100.0}
+    monkeypatch.setattr(time, "monotonic", lambda: clock["now"])
+    cb = CircuitBreaker(failure_threshold=1, recovery_timeout=60)
+    cb.record_failure("alpha")
+    clock["now"] = 110.0
+    cb.record_success("alpha")
+
+    assert cb.get_state("alpha")["opened_at_ts"] == 100.0
+    assert cb.can_call("alpha") is False
+    clock["now"] = 160.0
+    assert cb.can_call("alpha") is True
+
+
 def test_non_finite_recovery_timeout_falls_back(monkeypatch):
     direct = CircuitBreaker(recovery_timeout=float("inf"))
     assert direct.recovery_timeout == 300.0
