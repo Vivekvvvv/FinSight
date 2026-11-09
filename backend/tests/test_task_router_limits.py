@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -10,6 +12,63 @@ from backend.security.auth import Principal, get_current_user
 class _ReportStore:
     def list_reports(self, **_kwargs):
         return []
+
+
+@pytest.mark.parametrize("source", ["reports", "positions"])
+def test_malformed_task_source_rows_do_not_remove_valid_tasks(source):
+    from types import SimpleNamespace
+
+    reports = [{"ticker": "AAPL", "report_id": "r1", "generated_at": datetime.now().isoformat()}]
+    positions = [{"ticker": "AAPL", "shares": 1}]
+    if source == "reports":
+        reports = [None, "bad", {}, {"ticker": ["BAD"]}] + reports
+    else:
+        positions = [None, "bad", {}, {"ticker": {"bad": True}}] + positions
+    calls = []
+    def price(ticker):
+        calls.append(ticker)
+        return {"price": 100}
+    principal = Principal(user_id="task-user", role="user", auth_type="api_key")
+    app = FastAPI()
+    app.include_router(create_task_router(TaskRouterDeps(
+        resolve_thread_id=lambda value: value,
+        get_report_index_store=lambda: SimpleNamespace(list_reports=lambda **kwargs: reports),
+        get_portfolio_positions=lambda _sid: positions,
+        get_stock_price=price,
+    )))
+    app.dependency_overrides[get_current_user] = lambda: principal
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/tasks/daily", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    assert response.json()["watchlist"] == ["AAPL"]
+    assert calls == ["AAPL"]
+    assert any(task["category"] == "review" and task["report_id"] == "r1" for task in response.json()["tasks"])
+
+
+@pytest.mark.parametrize("failure", [{"error": "failed"}, {"success": False}, {"status": " ERROR "}])
+def test_failed_report_metadata_cannot_mark_daily_analysis_done(failure):
+    from types import SimpleNamespace
+
+    reports = [{**failure, "ticker": "AAPL", "report_id": "failed", "generated_at": datetime.now().isoformat()}]
+    principal = Principal(user_id="task-user", role="user", auth_type="api_key")
+    app = FastAPI()
+    app.include_router(create_task_router(TaskRouterDeps(
+        resolve_thread_id=lambda value: value,
+        get_report_index_store=lambda: SimpleNamespace(list_reports=lambda **kwargs: reports),
+        get_portfolio_positions=lambda _sid: [{"ticker": "AAPL", "shares": 1}],
+        get_stock_price=lambda _ticker: {"price": 100},
+    )))
+    app.dependency_overrides[get_current_user] = lambda: principal
+
+    with TestClient(app) as client:
+        response = client.get("/api/tasks/daily", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    tasks = response.json()["tasks"]
+    assert any(task["category"] == "generate" for task in tasks)
+    assert all(task["category"] != "review" for task in tasks)
 
 
 def test_daily_tasks_rejects_oversized_watchlist_before_price_fetch():
@@ -214,3 +273,57 @@ def test_daily_tasks_naive_generated_at_uses_real_age_not_999():
     assert all(task["category"] != "reanalyze" for task in tasks)
     # 应改为生成"查看最新报告"任务
     assert any(task["category"] == "review" for task in tasks)
+
+
+def test_daily_tasks_uses_newest_report_for_each_ticker():
+    class LatestReportStore:
+        def list_reports(self, **kwargs):
+            return [
+                {"ticker": "AAPL", "report_id": "new", "generated_at": datetime.now().isoformat()},
+                {"ticker": "aapl", "report_id": "old", "generated_at": "2020-01-01T00:00:00Z"},
+            ]
+
+    principal = Principal(user_id="task-user", role="user", auth_type="api_key")
+    app = FastAPI()
+    app.include_router(create_task_router(TaskRouterDeps(
+        resolve_thread_id=lambda value: value,
+        get_report_index_store=lambda: LatestReportStore(),
+        get_portfolio_positions=lambda session: [{"ticker": "AAPL", "shares": 1}],
+        get_stock_price=lambda ticker: {"price": 100},
+    )))
+    app.dependency_overrides[get_current_user] = lambda: principal
+
+    with TestClient(app) as client:
+        response = client.get("/api/tasks/daily", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    tasks = response.json()["tasks"]
+    assert all(task["category"] != "reanalyze" for task in tasks)
+    assert any(task["report_id"] == "new" and task["category"] == "review" for task in tasks)
+
+
+@pytest.mark.parametrize("quote", [
+    {"price": 100, "change_percent": -20, "ticker": "TSLA"},
+    {"data": {"price": 100, "change_percent": -20, "symbol": "TSLA"}},
+    {"price": 100, "change_percent": -20, "freshness_status": "cached"},
+    {"data": {"price": 100, "change_percent": -20, "freshness_status": "demo"}},
+])
+def test_daily_tasks_do_not_emit_anomalies_from_unusable_quote_metadata(quote):
+    principal = Principal(user_id="task-user", role="user", auth_type="api_key")
+    app = FastAPI()
+    app.include_router(create_task_router(TaskRouterDeps(
+        resolve_thread_id=lambda value: value,
+        get_report_index_store=lambda: _ReportStore(),
+        get_portfolio_positions=lambda session: [{"ticker": "AAPL", "shares": 1}],
+        get_stock_price=lambda ticker: quote,
+    )))
+    app.dependency_overrides[get_current_user] = lambda: principal
+
+    with TestClient(app) as client:
+        response = client.get("/api/tasks/daily", params={"session_id": principal.session_id})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["degraded"] is True
+    assert data["quotes_unavailable"] == ["AAPL"]
+    assert all(task["category"] != "anomaly" for task in data["tasks"])

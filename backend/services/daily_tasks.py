@@ -5,6 +5,8 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
+from backend.utils.quote import safe_int, safe_float
+
 
 # 研报过期阈值 (天)
 REPORT_STALE_DAYS = 3
@@ -23,7 +25,8 @@ def _days_since(iso_str: str | None) -> int | None:
         # 与 task_router / reports_to_review 的修复一致。
         if dt.tzinfo is None:
             dt = dt.astimezone(timezone.utc)
-        return (datetime.now(timezone.utc) - dt).days
+        days = (datetime.now(timezone.utc) - dt).days
+        return days if days >= 0 else None
     except Exception:
         return None
 
@@ -58,25 +61,43 @@ def generate_daily_tasks(
         任务列表, 每条含 id / title / category / priority / action_url / icon / execution_params
     """
     tasks: list[dict[str, Any]] = []
+    watchlist = list(dict.fromkeys(ticker.strip().upper() for ticker in watchlist if isinstance(ticker, str) and ticker.strip()))
 
     # --- 1. 研报时效检查 ---
     ticker_last_report: dict[str, dict[str, Any]] = {}
+    ticker_last_time: dict[str, datetime | None] = {}
     for r in reports:
-        t = r.get("ticker")
-        if t and t not in ticker_last_report:
+        if (not isinstance(r, dict) or r.get("error") or r.get("success") is False
+            or str(r.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            continue
+        raw_ticker = r.get("ticker")
+        t = raw_ticker.strip().upper() if isinstance(raw_ticker, str) else ""
+        symbol = r.get("symbol")
+        if symbol is not None and (not isinstance(symbol, str) or symbol.strip().upper() != t):
+            continue
+        report_time = None
+        try:
+            report_time = datetime.fromisoformat(r.get("generated_at").replace("Z", "+00:00")).astimezone(timezone.utc)
+            if report_time > datetime.now(timezone.utc):
+                report_time = None
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            pass
+        if t and (t not in ticker_last_report or report_time is not None
+                  and (ticker_last_time[t] is None or report_time > ticker_last_time[t])):
             ticker_last_report[t] = r
+            ticker_last_time[t] = report_time
 
     for ticker in watchlist:
         last = ticker_last_report.get(ticker)
         if last:
             days = _days_since(last.get("generated_at"))
-            if days is not None and days >= REPORT_STALE_DAYS:
+            if days is None or days >= REPORT_STALE_DAYS:
                 # 过期研报 → 重新分析
                 tasks.append({
                     "id": _stable_task_id(ticker=ticker, category="reanalyze"),
-                    "title": f"{ticker} 研报已 {days} 天未更新 — 建议刷新",
+                    "title": f"{ticker} 研报更新时间未知 — 建议刷新" if days is None else f"{ticker} 研报已 {days} 天未更新 — 建议刷新",
                     "category": "reanalyze",
-                    "priority": 1 if days >= 7 else 2,
+                    "priority": 1 if days is not None and days >= 7 else 2,
                     "action_url": f"/chat?query=分析 {ticker} 最新情况",
                     "icon": "AlertTriangle",
                     "execution_params": {
@@ -87,7 +108,8 @@ def generate_daily_tasks(
                 })
             else:
                 # 近期研报 → 查看 (无需执行)
-                report_id = last.get("report_id", "")
+                raw_report_id = last.get("report_id")
+                report_id = raw_report_id.strip() if isinstance(raw_report_id, str) else ""
                 generated = last.get("generated_at", "")[:10]
                 tasks.append({
                     "id": _stable_task_id(ticker=ticker, category="review"),
@@ -115,6 +137,8 @@ def generate_daily_tasks(
             })
 
     # --- 2. 新闻任务 (导航型，无需执行) ---
+    parsed_count = safe_int(news_count, 0) or 0
+    news_count = parsed_count if safe_float(news_count) == parsed_count else 0
     if news_count > 0:
         tickers_str = ", ".join(watchlist[:3]) if watchlist else "市场"
         tasks.append({
@@ -128,6 +152,7 @@ def generate_daily_tasks(
         })
 
     # --- 3. 风险偏好特定任务 ---
+    risk_preference = risk_preference.strip().lower() if isinstance(risk_preference, str) else "balanced"
     if risk_preference == "conservative":
         tasks.append({
             "id": _stable_task_id(category="risk"),

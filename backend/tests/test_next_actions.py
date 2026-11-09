@@ -3,6 +3,159 @@
 from backend.services.next_actions import generate_next_actions
 
 
+def test_alert_actions_normalize_optional_tickers_and_use_safe_fallback_routes():
+    for ticker in ([], {}, True, 123, "  "):
+        actions = generate_next_actions(None, [], [], [{"id": "a", "ticker": ticker}])
+        item = next(item for item in actions if item["type"] == "check_alert")
+        assert item["target_route"] == "/alerts"
+        assert item["related_symbol"] is None
+    item = next(item for item in generate_next_actions(None, [], [], [{"id": "a", "ticker": " aapl "}])
+                if item["type"] == "check_alert")
+    assert item["target_route"] == "/dashboard/AAPL"
+
+
+def test_refresh_actions_ignore_identifierless_reports_before_limiting():
+    rows = [{"report_id": value} for value in (None, "", " ", [], True, 123)]
+    rows.append({"report_id": "valid"})
+    actions = generate_next_actions(None, [], rows, [])
+    assert [item["id"] for item in actions if item["type"] == "refresh_report"] == ["refresh_valid"]
+
+
+def test_watchlist_reason_values_cannot_escape_as_nontext_actions():
+    for reason in ([], {"bad": True}, 123, "  "):
+        actions = generate_next_actions(None, [{"ticker": "AAPL", "priority": 5,
+                                               "research_status": "reviewing", "watch_reason": reason}], [], [])
+        selected = [item for item in actions if item["type"] in {"focus_watchlist", "research_review"}]
+        assert len(selected) == 2
+        assert all(isinstance(item["reason"], str) and item["reason"].strip() for item in selected)
+
+
+def test_alert_reason_is_always_nonempty_text():
+    for title in ([], {"bad": True}, 123, "  "):
+        actions = generate_next_actions(None, [], [], [{"id": "a1", "ticker": "AAPL", "title": title}])
+        item = next(item for item in actions if item["type"] == "check_alert")
+        assert isinstance(item["reason"], str) and item["reason"].strip()
+        assert item["reason"] == "触发价格或新闻提醒"
+
+
+def test_duplicate_recommendations_do_not_hide_other_instruments():
+    rows = [{"ticker": "AAPL", "priority": 5}, {"ticker": " aapl ", "priority": 5},
+            {"ticker": "MSFT", "priority": 4}]
+    actions = generate_next_actions(None, rows, [], [])
+    assert [item["related_symbol"] for item in actions if item["type"] == "focus_watchlist"] == ["AAPL", "MSFT"]
+
+
+def test_failed_position_rows_cannot_create_loss_actions():
+    rows = [{"ticker": "BAD", "cost_basis": 1000, "unrealized_pnl": -200, **failure}
+            for failure in ({"success": False}, {"error": "bad"}, {"status": " Failed "})]
+    rows.append({"ticker": "AAPL", "cost_basis": 1000, "unrealized_pnl": -200})
+    actions = generate_next_actions({"positions": rows}, [], [], [])
+    assert [item["related_symbol"] for item in actions if item["type"] == "risk_check"] == ["AAPL"]
+
+
+def test_failed_watchlist_items_do_not_create_focus_or_research_actions():
+    rows = [{"ticker": "BAD", "priority": 5, "research_status": "reviewing", **failure}
+            for failure in ({"success": False}, {"error": "bad"}, {"status": " Failed "})]
+    rows.append({"ticker": "AAPL", "priority": 5})
+    actions = generate_next_actions(None, rows, [], [])
+    assert [item["related_symbol"] for item in actions if item["type"] == "focus_watchlist"] == ["AAPL"]
+    assert all(item["type"] != "research_review" for item in actions)
+
+
+def test_failed_alerts_do_not_displace_valid_alert_actions():
+    rows = [{"id": "bad", "ticker": "AAPL", **failure} for failure in
+            ({"success": False}, {"error": "bad"}, {"status": " Failed "})]
+    rows.append({"id": "valid", "ticker": "AAPL"})
+    actions = generate_next_actions(None, [], [], rows)
+    assert [item["id"] for item in actions if item["type"] == "check_alert"] == ["alert_valid"]
+
+
+def test_failed_reports_cannot_displace_actionable_refresh_recommendations():
+    rows = [{"report_id": "bad", **failure} for failure in
+            ({"success": False}, {"error": "bad"}, {"status": " Failed "})]
+    rows.append({"report_id": "valid", "ticker": "AAPL"})
+    actions = generate_next_actions(None, [], rows, [])
+    assert [item["id"] for item in actions if item["type"] == "refresh_report"] == ["refresh_valid"]
+
+
+def test_risk_actions_require_normalized_string_position_tickers():
+    positions = [{"ticker": value, "cost_basis": 1000, "unrealized_pnl": -200}
+                 for value in (None, "", " ", [], True, 123)]
+    positions.append({"ticker": " aapl ", "cost_basis": 1000, "unrealized_pnl": -200})
+    actions = generate_next_actions({"positions": positions}, [], [], [])
+    risks = [item for item in actions if item["type"] == "risk_check"]
+    assert [item["related_symbol"] for item in risks] == ["AAPL"]
+    assert risks[0]["target_route"] == "/dashboard/AAPL"
+    assert positions[-1]["ticker"] == " aapl "
+
+
+def test_action_watchlist_requires_normalized_string_tickers():
+    rows = [{"ticker": value, "priority": 5, "research_status": "reviewing"}
+            for value in (None, "", " ", [], True, 123)]
+    rows.append({"ticker": " aapl ", "priority": 5, "research_status": "reviewing"})
+    actions = generate_next_actions(None, rows, [], [])
+    focus = [item for item in actions if item["type"] in {"focus_watchlist", "research_review"}]
+    assert [item["related_symbol"] for item in focus] == ["AAPL", "AAPL"]
+    assert rows[-1]["ticker"] == " aapl "
+
+
+def test_loss_amount_normalization_keeps_valid_actions():
+    positions = [
+        {"ticker": "AAPL", "unrealized_pnl": "-110", "cost_basis": "1000"},
+        {"ticker": "BAD", "unrealized_pnl": "-inf", "cost_basis": 1000},
+        {"ticker": "BOOL", "unrealized_pnl": -1, "cost_basis": True},
+    ]
+    actions = generate_next_actions({"positions": positions}, [], [], [])
+    risks = [action for action in actions if action["type"] == "risk_check"]
+    assert [action["related_symbol"] for action in risks] == ["AAPL"]
+    assert risks[0]["severity"] == "high"
+
+
+def test_overflowing_loss_percentage_does_not_escape_into_risk_text():
+    actions = generate_next_actions({"positions": [
+        {"ticker": "OVERFLOW", "unrealized_pnl": -1e308, "cost_basis": 1e-308},
+        {"ticker": "TEXT_OVERFLOW", "unrealized_pnl": -1e307, "cost_basis": 1},
+        {"ticker": "AAPL", "unrealized_pnl": -110, "cost_basis": 1000},
+    ]}, [], [], [])
+
+    risks = [action for action in actions if action["type"] == "risk_check"]
+    assert [action["related_symbol"] for action in risks] == ["AAPL"]
+    assert risks[0]["reason"] == "持仓亏损 -11.0%"
+
+
+def test_malformed_recommendation_rows_do_not_remove_healthy_actions():
+    portfolio = {"positions": [None, {"ticker": "AAPL", "cost_basis": 1000, "unrealized_pnl": -110}]}
+    actions = generate_next_actions(
+        portfolio,
+        [None, "bad", {"ticker": "AAPL", "priority": 5}],
+        [None, {"report_id": "r1", "ticker": "AAPL"}],
+        [None, {"id": "a1", "ticker": "AAPL"}],
+    )
+    assert {action["type"] for action in actions} == {"risk_check", "focus_watchlist", "refresh_report", "check_alert"}
+    assert portfolio["positions"][0] is None
+
+
+def test_malformed_alert_severity_uses_valid_default():
+    for raw, expected in (({}, "medium"), ([], "medium"), (None, "medium"), (" HIGH ", "high"), ("invalid", "medium")):
+        actions = generate_next_actions(None, [], [], [{"ticker": "AAPL", "id": "a1", "severity": raw}])
+        alert = next(action for action in actions if action["type"] == "check_alert")
+        assert alert["severity"] == expected
+
+
+def test_malformed_review_reasons_preserve_valid_reason_text():
+    for raw, expected in ((["数据过期", None, {}], "数据过期"), ("手动复查", "手动复查"), (None, "数据可能过期")):
+        actions = generate_next_actions(None, [], [{"report_id": "r1", "_review_reasons": raw}], [])
+        action = next(action for action in actions if action["type"] == "refresh_report")
+        assert action["reason"] == expected
+
+
+def test_highest_priority_before_limit_is_not_hidden_by_earlier_items():
+    watchlist = [{"ticker": "FIRST", "priority": 4}, {"ticker": "SECOND", "priority": 4}, {"ticker": "TOP", "priority": 5}]
+    actions = generate_next_actions(None, watchlist, [], [])
+    focus = [action["related_symbol"] for action in actions if action["type"] == "focus_watchlist"]
+    assert focus == ["TOP", "FIRST"]
+
+
 def test_empty_state_recommendations():
     """空态：推荐添加自选和持仓"""
     actions = generate_next_actions(

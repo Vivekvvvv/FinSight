@@ -100,12 +100,22 @@ class TaskGenerator:
         expires_at = self._task_expiry_iso()
 
         for pos in ctx.portfolio:
-            ticker = str(pos.get("ticker", "")).strip().upper()
+            if (pos.get("error") or pos.get("success") is False
+                or str(pos.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
+            raw_ticker = pos.get("ticker")
+            ticker = raw_ticker.strip().upper() if isinstance(raw_ticker, str) else ""
             if not ticker:
                 continue
 
             snap = ctx.snapshots.get(ticker, {})
             report = ctx.recent_reports.get(ticker, {})
+            if (report.get("error") or report.get("success") is False
+                or str(report.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                report = {}
+            if any(value is not None and str(value).strip().upper() != ticker
+                   for value in (report.get("ticker"), report.get("symbol"))):
+                report = {}
 
             # Rule 1: Price anomaly (daily drop exceeds threshold)
             self._check_price_anomaly(tasks, ticker, snap, expires_at=expires_at)
@@ -143,7 +153,11 @@ class TaskGenerator:
         )
 
         # Rule 6: Rebalance suggestion (if portfolio has 3+ positions)
-        if len(ctx.portfolio) >= _MIN_POSITIONS_FOR_REBALANCE:
+        held_tickers = {p["ticker"].strip().upper() for p in ctx.portfolio
+                        if isinstance(p.get("ticker"), str) and p["ticker"].strip()
+                        and not p.get("error") and p.get("success") is not False
+                        and str(p.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}}
+        if len(held_tickers) >= _MIN_POSITIONS_FOR_REBALANCE:
             tasks.append(
                 AITask(
                     id=self._hash("rebalance"),
@@ -169,9 +183,14 @@ class TaskGenerator:
     def _check_price_anomaly(
         self, tasks: list[AITask], ticker: str, snap: dict, *, expires_at: str
     ) -> None:
-        change_pct = snap.get("change_percent")
-        if change_pct is None:
-            change_pct = snap.get("change_pct")
+        if (snap.get("error") or snap.get("success") is False
+            or str(snap.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return
+        if any(value is not None and str(value).strip().upper() != ticker
+               for value in (snap.get("ticker"), snap.get("symbol"))):
+            return
+        change_pct = next((value for value in (safe_float(snap.get("change_percent")), safe_float(snap.get("change_pct")))
+                           if value is not None and value >= -100), None)
         if change_pct is not None and change_pct < _PRICE_DROP_THRESHOLD:
             tasks.append(
                 AITask(
@@ -195,15 +214,16 @@ class TaskGenerator:
     def _check_stale_report(
         self, tasks: list[AITask], ticker: str, report: dict, *, expires_at: str
     ) -> None:
-        report_age_days = report.get("age_days")
-        if report_age_days is not None and report_age_days > _REPORT_STALE_DAYS:
+        report_age_days = safe_float(report.get("age_days"))
+        if report and (report_age_days is None or report_age_days < 0 or report_age_days >= _REPORT_STALE_DAYS):
             tasks.append(
                 AITask(
                     id=self._hash(f"reanalyze:{ticker}"),
                     title=f"\u66f4\u65b0 {ticker} \u5206\u6790\u62a5\u544a",
                     category="reanalyze",
                     priority=2,
-                    reason=f"\u4e0a\u6b21\u5206\u6790\u8ddd\u4eca {report_age_days} \u5929\uff0c\u5efa\u8bae\u66f4\u65b0",
+                    reason=(f"\u4e0a\u6b21\u5206\u6790\u8ddd\u4eca {report_age_days:g} \u5929\uff0c\u5efa\u8bae\u66f4\u65b0"
+                        if report_age_days is not None and report_age_days >= 0 else "报告更新时间未知，建议更新"),
                     icon="refresh-cw",
                     action_url=f"/chat?query=\u91cd\u65b0\u5206\u6790%20{ticker}%20\u6700\u65b0\u60c5\u51b5",
                     execution_params={
@@ -242,11 +262,12 @@ class TaskGenerator:
     def _check_recent_report(
         self, tasks: list[AITask], ticker: str, report: dict, *, expires_at: str
     ) -> None:
-        report_id = str(report.get("report_id", "")).strip()
+        raw_report_id = report.get("report_id")
+        report_id = raw_report_id.strip() if isinstance(raw_report_id, str) else ""
         if not report_id:
             return
-        report_age_days = report.get("age_days")
-        if isinstance(report_age_days, (int, float)) and report_age_days > _REPORT_STALE_DAYS:
+        report_age_days = safe_float(report.get("age_days"))
+        if report_age_days is None or report_age_days < 0 or report_age_days >= _REPORT_STALE_DAYS:
             return
         tasks.append(
             AITask(
@@ -280,25 +301,42 @@ class TaskGenerator:
         estimated_by_cost: list[str] = []
 
         for pos in portfolio:
-            ticker = str(pos.get("ticker", "")).strip().upper()
+            if (pos.get("error") or pos.get("success") is False
+                or str(pos.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
+            raw_ticker = pos.get("ticker")
+            ticker = raw_ticker.strip().upper() if isinstance(raw_ticker, str) else ""
             shares = safe_float(pos.get("shares")) or 0.0
             if not ticker or shares <= 0:
                 continue
 
             snapshot = snapshots.get(ticker, {})
-            price = (
-                safe_float(snapshot.get("price"))
-                or safe_float(snapshot.get("close"))
-                or safe_float(pos.get("avg_cost"))
-            )
+            if (snapshot.get("error") or snapshot.get("success") is False
+                or str(snapshot.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                snapshot = {}
+            if any(value is not None and str(value).strip().upper() != ticker
+                   for value in (snapshot.get("ticker"), snapshot.get("symbol"))):
+                snapshot = {}
+            market_price = safe_float(snapshot.get("price"))
+            close_price = safe_float(snapshot.get("close"))
+            price = next((value for value in (market_price, close_price, safe_float(pos.get("avg_cost")))
+                if value is not None and value > 0), None)
             if price is None or price <= 0:
-                continue
-            if safe_float(snapshot.get("price")) is None and safe_float(snapshot.get("close")) is None:
+                logger.warning("[Tasks] concentration unavailable: missing position valuation")
+                return
+            if not any(value is not None and value > 0 for value in (market_price, close_price)):
                 estimated_by_cost.append(ticker)
 
-            position_values[ticker] = shares * price
+            value = safe_float(shares * price)
+            if value is None:
+                logger.warning("[Tasks] concentration unavailable: position valuation overflow")
+                return
+            position_values[ticker] = position_values.get(ticker, 0.0) + value
 
-        total_value = sum(position_values.values())
+        total_value = safe_float(sum(position_values.values()))
+        if total_value is None:
+            logger.warning("[Tasks] concentration unavailable: total valuation overflow")
+            return
         if total_value <= 0:
             return
 
@@ -338,6 +376,8 @@ class TaskGenerator:
         self, tasks: list[AITask], max_tasks: int = _MAX_TASKS
     ) -> list[AITask]:
         """Remove duplicate task IDs, sort by priority (1=highest), truncate."""
+        if max_tasks <= 0:
+            return []
         seen: set[str] = set()
         unique: list[AITask] = []
         for t in tasks:

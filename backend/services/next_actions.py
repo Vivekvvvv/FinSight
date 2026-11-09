@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 from typing import Any
+from backend.tools._item import iter_dict_items
 
-from backend.utils.quote import safe_int
+from backend.utils.quote import safe_float, safe_int
 
 
 def _safe_priority(value: Any) -> int:
@@ -40,15 +41,35 @@ def generate_next_actions(
     - related_symbol: 关联代码（可选）
     """
     actions: list[dict[str, Any]] = []
+    watchlist_items = [{**w, "ticker": w["ticker"].strip().upper()} for w in iter_dict_items(watchlist_items)
+                      if isinstance(w.get("ticker"), str) and w["ticker"].strip()
+                      and not w.get("error") and w.get("success") is not False
+                      and str(w.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
+    reports_to_review = [r for r in iter_dict_items(reports_to_review)
+                         if isinstance(r.get("report_id"), str) and r["report_id"].strip()
+                         and not r.get("error") and r.get("success") is not False
+                         and str(r.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
+    alert_events = [r for r in iter_dict_items(alert_events)
+                    if not r.get("error") and r.get("success") is not False
+                    and str(r.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
+    portfolio_summary = dict(portfolio_summary) if isinstance(portfolio_summary, dict) else None
+    if portfolio_summary is not None:
+        portfolio_summary["positions"] = [{**p, "ticker": p["ticker"].strip().upper()}
+                                          for p in iter_dict_items(portfolio_summary.get("positions"))
+                                          if isinstance(p.get("ticker"), str) and p["ticker"].strip()
+                                          and not p.get("error") and p.get("success") is not False
+                                          and str(p.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}]
 
     # 规则1：持仓亏损风险检查
     if portfolio_summary and portfolio_summary.get("positions"):
         for pos in portfolio_summary["positions"]:
             ticker = pos.get("ticker", "")
-            unrealized_pnl = pos.get("unrealized_pnl")
-            cost_basis = pos.get("cost_basis")
+            unrealized_pnl = safe_float(pos.get("unrealized_pnl"))
+            cost_basis = safe_float(pos.get("cost_basis"))
             if unrealized_pnl is not None and cost_basis and cost_basis > 0:
                 pnl_pct = unrealized_pnl / cost_basis
+                if safe_float(pnl_pct * 100) is None:
+                    continue
                 if pnl_pct < -0.05:  # 亏损超过 5%
                     severity = "high" if pnl_pct < -0.10 else "medium"
                     actions.append({
@@ -67,7 +88,8 @@ def generate_next_actions(
         report_id = rpt.get("report_id", "")
         as_of = rpt.get("as_of", "")
         reasons = rpt.get("_review_reasons", [])
-        reason_text = "；".join(reasons) if reasons else "数据可能过期"
+        reasons = [reasons] if isinstance(reasons, str) else reasons if isinstance(reasons, list) else []
+        reason_text = "；".join(reason.strip() for reason in reasons if isinstance(reason, str) and reason.strip()) or "数据可能过期"
         actions.append({
             "id": f"refresh_{report_id}",
             "type": "refresh_report",
@@ -80,9 +102,14 @@ def generate_next_actions(
 
     # 规则3：告警事件提醒（最多取前 2 个）
     for alert in alert_events[:2]:
-        ticker = alert.get("ticker", "")
-        title = alert.get("title", "")
-        severity = alert.get("severity", "medium")
+        raw_ticker = alert.get("ticker")
+        ticker = raw_ticker.strip().upper() if isinstance(raw_ticker, str) else ""
+        title = alert.get("title")
+        title = title.strip() if isinstance(title, str) else ""
+        raw_severity = alert.get("severity")
+        severity = raw_severity.strip().lower() if isinstance(raw_severity, str) else "medium"
+        if severity not in {"low", "medium", "high", "critical"}:
+            severity = "medium"
         actions.append({
             "id": f"alert_{alert.get('id', ticker)}",
             "type": "check_alert",
@@ -119,9 +146,16 @@ def generate_next_actions(
 
     # 规则6：高优先级自选提醒
     high_priority_watchlist = [w for w in watchlist_items if _safe_priority(w.get("priority")) >= 4]
+    high_priority_watchlist.sort(key=lambda w: _safe_priority(w.get("priority")), reverse=True)
+    unique_focus = {}
+    for w in high_priority_watchlist:
+        unique_focus.setdefault(w["ticker"], w)
+    high_priority_watchlist = list(unique_focus.values())
     for w in high_priority_watchlist[:2]:
         ticker = w.get("ticker", "")
-        reason = w.get("watch_reason") or "高优先级标的"
+        raw_reason = w.get("watch_reason")
+        reason = raw_reason.strip() if isinstance(raw_reason, str) else ""
+        reason = reason or "高优先级标的"
         actions.append({
             "id": f"focus_{ticker}",
             "type": "focus_watchlist",
@@ -147,7 +181,8 @@ def generate_next_actions(
             "id": f"research_status_{ticker}_{status}",
             "type": "research_review",
             "title": title_map[status],
-            "reason": w.get("watch_reason") or "该标的仍处于研究流程中，需要补充证据或更新结论。",
+            "reason": (w["watch_reason"].strip() if isinstance(w.get("watch_reason"), str) else "")
+                      or "该标的仍处于研究流程中，需要补充证据或更新结论。",
             "severity": "medium" if status == "reviewing" else "low",
             "target_route": f"/dossier/{ticker}",
             "related_symbol": ticker,

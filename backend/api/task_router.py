@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.security.auth import Principal, get_current_user, require_matching_identity
 from backend.services.task_generator import TaskContext, TaskGenerator
-from backend.utils.quote import parse_quote_payload, safe_float
+from backend.tools._item import iter_dict_items
+from backend.utils.quote import declared_quote_freshness, parse_quote_payload, safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ _MAX_TICKER_LENGTH = 32
 
 
 def _normalize_ticker(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
     ticker = str(value or "").strip().upper()
     return ticker if ticker and len(ticker) <= _MAX_TICKER_LENGTH else None
 
@@ -55,7 +58,7 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
             raise HTTPException(status_code=422, detail="Invalid session_id") from exc
 
         store = deps.get_report_index_store()
-        reports = store.list_reports(session_id=normalized_session, limit=20)
+        reports = list(iter_dict_items(store.list_reports(session_id=normalized_session, limit=20)))
 
         report_tickers = {
             ticker
@@ -71,8 +74,11 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
 
         recent_reports: dict[str, dict[str, Any]] = {}
         for report in reports:
+            if (report.get("error") or report.get("success") is False
+                or str(report.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
             ticker = _normalize_ticker(report.get("ticker"))
-            if not ticker:
+            if not ticker or ticker in recent_reports:
                 continue
 
             generated_at = report.get("generated_at") or report.get("created_at", "")
@@ -105,7 +111,7 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
             raise HTTPException(status_code=503, detail="Portfolio data unavailable") from exc
 
         positions_by_ticker: dict[str, dict[str, Any]] = {}
-        for position in stored_positions:
+        for position in iter_dict_items(stored_positions):
             ticker = _normalize_ticker(position.get("ticker"))
             shares = safe_float(position.get("shares")) or 0.0
             avg_cost = safe_float(position.get("avg_cost"))
@@ -134,7 +140,10 @@ def create_task_router(deps: TaskRouterDeps) -> APIRouter:
         async def _fetch_snapshot(ticker: str) -> tuple[str, dict[str, Any]]:
             try:
                 raw_payload = await asyncio.to_thread(deps.get_stock_price, ticker)
-                parsed = parse_quote_payload(raw_payload) or {}
+                parsed = (
+                    parse_quote_payload(raw_payload, expected_ticker=ticker) or {}
+                    if declared_quote_freshness(raw_payload) in (None, "live") else {}
+                )
                 if not parsed:
                     # 解析不出价格 = 这次没取到；不能从 snapshots 里静默消失，
                     # 否则价格异动任务凭空少掉（项目规则 2）。
