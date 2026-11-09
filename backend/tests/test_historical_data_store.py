@@ -4,9 +4,119 @@ tests/test_historical_data_store.py
 单元测试：A股历史K线数据下载与缓存
 """
 import math
+import sqlite3
 import pytest
 import sys
 from types import SimpleNamespace
+
+
+@pytest.mark.parametrize("field", ["ticker", "symbol"])
+def test_unrelated_fallback_bars_cannot_be_cached_under_the_requested_stock(store, monkeypatch, field):
+    monkeypatch.setattr(store, "_fetch_baostock", lambda *args: [])
+    rows = [{"time": "2025-01-02", "close": 100},
+            {"time": "2025-01-03", "close": 999, field: "000001.SZ"}]
+    monkeypatch.setattr("backend.tools.get_stock_historical_data", lambda *args, **kwargs: {"kline_data": rows})
+    result = store.fetch_and_cache_kline("600519.SH", "2025-01-01", "2025-01-03")
+    assert [row["close"] for row in result] == [100]
+
+
+@pytest.mark.parametrize("failure", [{"error": "bad row"}, {"success": False}, {"status": " Failed "}])
+def test_failed_fallback_bars_cannot_overwrite_valid_cached_prices(store, monkeypatch, failure):
+    monkeypatch.setattr(store, "_fetch_baostock", lambda *args: [])
+    rows = [{"time": "2025-01-02", "close": 100},
+            {"time": "2025-01-03", "close": 999, **failure}]
+    monkeypatch.setattr("backend.tools.get_stock_historical_data", lambda *args, **kwargs: {"kline_data": rows})
+    result = store.fetch_and_cache_kline("600519.SH", "2025-01-01", "2025-01-03")
+    assert [row["close"] for row in result] == [100]
+
+
+def test_kline_cleaning_preserves_the_original_provider_rows():
+    from backend.services.historical_data_store import _clean
+    row = {"date": "2025-01-02", "close": "100"}
+    assert _clean([row])[0]["close"] == 100
+    assert row == {"date": "2025-01-02", "close": "100"}
+
+
+@pytest.mark.parametrize("field", ["symbol", "ticker"])
+def test_historical_cache_rejects_fallback_for_a_different_instrument(store, monkeypatch, field):
+    monkeypatch.setattr(store, "_fetch_baostock", lambda *args: [])
+    monkeypatch.setattr("backend.tools.get_stock_historical_data", lambda *args, **kwargs:
+                        {field: "000001.SZ", "kline_data": [{"time": "2025-01-02", "close": 100}]})
+    diagnostics = {}
+    assert store.fetch_and_cache_kline("600519.SH", "2025-01-01", "2025-01-03", diagnostics=diagnostics) == []
+    assert diagnostics["fallback_reason"] == "upstream_error"
+
+
+@pytest.mark.parametrize("status", ["failed", " Error ", "unavailable"])
+def test_historical_cache_rejects_failed_fallback_statuses(store, monkeypatch, status):
+    monkeypatch.setattr(store, "_fetch_baostock", lambda *args: [])
+    monkeypatch.setattr("backend.tools.get_stock_historical_data", lambda *args, **kwargs:
+                        {"status": status, "kline_data": [{"time": "2025-01-02", "close": 100}]})
+    diagnostics = {}
+    assert store.fetch_and_cache_kline("600519.SH", "2025-01-01", "2025-01-03", diagnostics=diagnostics) == []
+    assert diagnostics["fallback_reason"] == "upstream_error"
+
+
+def test_clean_kline_isolates_unusable_rows_and_dates():
+    from backend.services.historical_data_store import _clean
+
+    rows = [
+        {"date": "2025-01-02", "close": 100.0},
+        None,
+        {"date": None, "close": 80.0},
+        {"date": "not-a-date", "close": 90.0},
+        {"date": "2025-02-30", "close": 95.0},
+        {"date": "2025-01-03", "close": 105.0},
+    ]
+
+    assert [row["date"] for row in _clean(rows)] == ["2025-01-02", "2025-01-03"]
+
+
+def test_clean_kline_uses_one_valid_bar_per_day():
+    from backend.services.historical_data_store import _clean
+
+    result = _clean([
+        {"date": "2025-01-02", "close": 100.0},
+        {"date": "2025-01-03", "close": 110.0},
+        {"date": "20250102", "close": 105.0},
+        {"date": "2025-01-02", "close": -1.0},
+    ])
+
+    assert [(row["date"], row["close"]) for row in result] == [("2025-01-02", 105.0), ("2025-01-03", 110.0)]
+    assert result[0]["is_suspicious"] is False
+
+
+@pytest.mark.parametrize("payload", [None, False, 7, {}, {"kline_data": "bad"}, {
+    "success": False, "kline_data": [{"time": "2025-01-02", "close": 100.0}],
+}])
+def test_failed_or_unusable_history_response_is_not_cached(store, monkeypatch, payload):
+    monkeypatch.setattr(store, "_fetch_baostock", lambda *args: [])
+    monkeypatch.setattr("backend.tools.get_stock_historical_data", lambda *args, **kwargs: payload)
+    writes = []
+    monkeypatch.setattr(store, "_write_cache", lambda *args, **kwargs: writes.append(args))
+    diagnostics = {}
+
+    result = store.fetch_and_cache_kline("600519.SH", "2025-01-01", "2025-01-03", diagnostics=diagnostics)
+
+    assert result == []
+    assert diagnostics["fallback_reason"] == "upstream_error"
+    assert writes == []
+
+
+def test_failed_kline_batch_rolls_back_every_row(tmp_path, monkeypatch):
+    from backend.services import historical_data_store as module
+
+    monkeypatch.setattr(module, "_DB_PATH", str(tmp_path / "atomic-kline.db"))
+    monkeypatch.setattr(module, "_table_ready", False)
+    original = {"date": "2025-01-02", "close": 100.0}
+    module._write_cache("600519.SH", [original], "qfq")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        module._write_cache("600519.SH", [{**original, "close": 200.0}, {"date": None, "close": 300.0}], "qfq")
+
+    with module._conn() as conn:
+        assert conn.execute("SELECT close FROM kline_cache").fetchall() == [(100.0,)]
+        assert conn.execute("SELECT fetched_start, fetched_end FROM kline_fetch_meta").fetchall() == [("2025-01-02", "2025-01-02")]
 
 
 # ── _to_bs_code 测试 ──────────────────────────────────────────────────────────
@@ -99,6 +209,53 @@ def test_adjust_flag_unknown_defaults_to_3():
     assert _adjust_flag("unknown") == "3"
 
 
+def test_baostock_partial_query_failure_discards_incomplete_rows(monkeypatch, caplog):
+    from backend.services.historical_data_store import _fetch_baostock
+
+    class Query:
+        error_code = "0"
+        calls = 0
+
+        def next(self):
+            self.calls += 1
+            if self.calls == 1:
+                return True
+            self.error_code = "PRIVATE_QUERY_FAILURE"
+            return False
+
+        def get_row_data(self):
+            return ["2025-01-02", "100", "101", "99", "100", "1000"]
+
+    monkeypatch.setitem(sys.modules, "baostock", SimpleNamespace(
+        login=lambda: None, query_history_k_data_plus=lambda **kwargs: Query(), logout=lambda: None,
+    ))
+
+    assert _fetch_baostock("600519.SH", "2025-01-01", "2025-01-03", "qfq") == []
+    assert "PRIVATE_QUERY_FAILURE" not in caplog.text
+    assert "拉取失败" in caplog.text
+
+
+def test_complete_baostock_rows_survive_logout_failure(monkeypatch, caplog):
+    from backend.services.historical_data_store import _fetch_baostock
+
+    available = iter([True, False])
+    query = SimpleNamespace(error_code="0", next=lambda: next(available),
+        get_row_data=lambda: ["2025-01-02", "100", "101", "99", "100", "1000"])
+
+    def logout():
+        raise RuntimeError("PRIVATE_LOGOUT_FAILURE")
+
+    monkeypatch.setitem(sys.modules, "baostock", SimpleNamespace(
+        login=lambda: None, query_history_k_data_plus=lambda **kwargs: query, logout=logout,
+    ))
+
+    rows = _fetch_baostock("600519.SH", "2025-01-01", "2025-01-03", "qfq")
+
+    assert len(rows) == 1 and rows[0]["close"] == 100.0
+    assert "PRIVATE_LOGOUT_FAILURE" not in caplog.text
+    assert "logout" in caplog.text.lower()
+
+
 def test_baostock_fetch_error_log_is_redacted(monkeypatch, caplog):
     from backend.services.historical_data_store import _fetch_baostock
 
@@ -182,8 +339,8 @@ def test_clean_replaces_invalid_non_finite_and_negative_volume():
     from backend.services.historical_data_store import _clean
 
     rows = [
-        {"date": "2024-01-01", "open": 10, "high": 11, "low": 9, "close": 10, "volume": value}
-        for value in ("bad", "nan", "inf", -1, None, 0, "12.5")
+        {"date": f"2024-01-{index + 1:02}", "open": 10, "high": 11, "low": 9, "close": 10, "volume": value}
+        for index, value in enumerate(("bad", "nan", "inf", -1, None, 0, "12.5"))
     ]
 
     result = _clean(rows)

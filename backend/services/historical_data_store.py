@@ -36,7 +36,7 @@ def _conn() -> Iterator[sqlite3.Connection]:
     # report_index_migrate/release_drills 已证实的缺陷类）。保持
     # with-conn 语义：正常退出 commit、异常 rollback，再关闭。
     os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
-    c = sqlite3.connect(_DB_PATH, timeout=30, isolation_level=None)
+    c = sqlite3.connect(_DB_PATH, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     try:
         yield c
@@ -136,7 +136,12 @@ def _fetch_baostock(ticker: str, start: str, end: str, adjust: str) -> list[dict
                 "close": safe_float(row[4]),
                 "volume": safe_float(row[5]),
             })
-        bs.logout()
+        if rs.error_code != "0":
+            raise RuntimeError("baostock query failed")
+        try:
+            bs.logout()
+        except Exception:
+            logger.warning("baostock logout failed")
         return rows
     except ImportError:
         logger.warning("baostock 未安装")
@@ -156,14 +161,24 @@ def _clean(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # 过滤 close 为空、不可解析、非有限或非正的行。
     valid = []
     for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            row_date = date.fromisoformat(row.get("date"))
+        except (TypeError, ValueError):
+            continue
         close = safe_float(row.get("close"))
         if close is None:
             continue
         if close > 0:
+            row = dict(row)
+            row["date"] = row_date.isoformat()
             row["close"] = close
             valid.append(row)
     if not valid:
         return []
+
+    valid = list({row["date"]: row for row in valid}.values())
 
     # 排序
     valid.sort(key=lambda x: x["date"])
@@ -358,7 +373,12 @@ def fetch_and_cache_kline(
             # `or []` 把它压成"这只票没有历史数据"。两者后果不同：前者是上游/网络
             # 故障（历史缓存不该被写成"已拉到、为空"），后者是标的真的没有数据
             # （项目规则 2）。kdata=[] 的生产者仍按"无数据"处理。
-            if isinstance(payload, dict) and payload.get("error"):
+            if (not isinstance(payload, dict) or payload.get("error")
+                or payload.get("success") is False
+                or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}
+                or not isinstance(payload.get("kline_data"), list)
+                or any(value is not None and str(value).strip().upper() != ticker.strip().upper()
+                       for value in (payload.get("symbol"), payload.get("ticker")))):
                 logger.warning('historical fallback upstream error')
                 if diagnostics is not None:
                     diagnostics["fallback_reason"] = "upstream_error"
@@ -374,6 +394,10 @@ def fetch_and_cache_kline(
                  "high": p.get("high"), "low": p.get("low"),
                  "close": p.get("close"), "volume": p.get("volume")}
                 for p in kdata if isinstance(p, dict) and p.get("close")
+                and not p.get("error") and p.get("success") is not False
+                and str(p.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+                and not any(value is not None and str(value).strip().upper() != ticker.strip().upper()
+                            for value in (p.get("ticker"), p.get("symbol")))
             ]
         except Exception as exc:
             logger.warning('historical fallback failed')
