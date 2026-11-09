@@ -42,10 +42,14 @@ def fetch_concept_map(*, keyword: str = "", limit: int = 20) -> dict[str, Any]:
         )
         if getattr(resp, "status_code", 0) == 200:
             payload = resp.json()
-            if isinstance(payload, dict):
+            if (isinstance(payload, dict) and not payload.get("error") and payload.get("success") is not False
+                and str(payload.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}
+                and payload.get("rc") in (None, 0)):
                 fetch_ok = True
                 data = payload.get("data")
                 diff = data.get("diff") if isinstance(data, dict) else None
+                if data is not None and (not isinstance(data, dict) or not isinstance(diff, list)):
+                    fetch_ok = False
                 if isinstance(diff, list):
                     rows = list(iter_dict_items(diff))
     except Exception as exc:

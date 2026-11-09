@@ -7,6 +7,24 @@ from fastapi.testclient import TestClient
 from backend.api import cn_market_router as cn_market_router_module
 
 
+def test_cn_market_invalid_or_failed_status_payloads_return_502(monkeypatch):
+    client = _build_client()
+    for invalid in (None, [], {"status": " Failed ", "items": []}, {"status": "unavailable"}):
+        monkeypatch.setattr(cn_market_router_module, "fetch_fund_flow", lambda **kwargs: invalid)
+        response = client.get("/api/cn/market/fund-flow")
+        assert response.status_code == 502
+
+
+def test_failed_cn_market_sources_return_502_across_all_endpoints(monkeypatch):
+    sources = ("fetch_fund_flow", "fetch_northbound", "fetch_limit_board", "fetch_lhb", "fetch_concept_map")
+    for source in sources:
+        monkeypatch.setattr(cn_market_router_module, source, lambda **kwargs: {"success": False, "error": "offline"})
+    client = _build_client()
+    for endpoint in ("fund-flow", "northbound", "limit-board", "lhb", "concept"):
+        response = client.get("/api/cn/market/" + endpoint)
+        assert response.status_code == 502
+
+
 def _build_client() -> TestClient:
     app = FastAPI()
     app.include_router(cn_market_router_module.cn_market_router)

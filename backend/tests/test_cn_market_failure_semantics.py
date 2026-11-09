@@ -13,6 +13,65 @@ from __future__ import annotations
 from typing import Any
 
 
+def test_malformed_concept_containers_cannot_be_reported_as_empty_results(monkeypatch):
+    from backend.tools import concept_map as module
+    for data in ({"diff": "bad"}, {"diff": {}}, ["bad"], 123):
+        monkeypatch.setattr(module, "_http_get", lambda *args, **kwargs: _Resp(payload={"data": data}))
+        assert module.fetch_concept_map()["success"] is False
+
+
+def test_concept_board_business_failure_cannot_appear_as_success(monkeypatch):
+    from backend.tools import concept_map as module
+    for failure in ({"success": False}, {"error": "offline"}, {"status": " Failed "}, {"rc": 1}):
+        monkeypatch.setattr(module, "_http_get", lambda *args, **kwargs: _Resp(payload={"data": None, **failure}))
+        assert module.fetch_concept_map()["success"] is False
+
+
+def test_lhb_invalid_result_shapes_cannot_appear_as_genuine_empty_data(monkeypatch):
+    from backend.tools import cn_market_board as module
+    for result in ({"data": "bad"}, {"data": {}}, [], 123):
+        monkeypatch.setattr(module, "_http_get", lambda *args, **kwargs: _Resp(payload={"result": result}))
+        assert module.fetch_lhb()["success"] is False
+
+
+def test_lhb_business_failure_cannot_be_reported_as_success(monkeypatch):
+    from backend.tools import cn_market_board as module
+    for failure in ({"success": False}, {"error": "offline"}, {"status": " Failed "}):
+        monkeypatch.setattr(module, "_http_get", lambda *args, **kwargs: _Resp(payload={"result": None, **failure}))
+        assert module.fetch_lhb()["success"] is False
+
+
+def test_malformed_board_rows_container_is_unavailable_not_a_valid_empty_list(monkeypatch):
+    from backend.tools import cn_market_board as module
+    for data in ({"diff": "bad"}, {"diff": {}}, ["bad"], None):
+        payload = {"data": data} if data is not None else None
+        monkeypatch.setattr(module, "_http_get", lambda *args, **kwargs: _Resp(payload=payload))
+        assert module.fetch_limit_board()["success"] is False
+
+
+def test_limit_board_business_failure_cannot_appear_as_an_empty_market_day(monkeypatch):
+    from backend.tools import cn_market_board as module
+    for failure in ({"success": False}, {"error": "offline"}, {"status": " Failed "}, {"rc": 1}):
+        monkeypatch.setattr(module, "_http_get", lambda *args, **kwargs: _Resp(payload={"data": None, **failure}))
+        assert module.fetch_limit_board()["success"] is False
+
+
+def test_malformed_flow_rows_container_is_unavailable_not_a_valid_empty_list(monkeypatch):
+    from backend.tools import cn_market_flow as module
+    for data in ({"diff": "bad"}, {"diff": {}}, ["bad"], None):
+        payload = {"data": data} if data is not None else None
+        monkeypatch.setattr(module, "_http_get", lambda *args, **kwargs: _Resp(payload=payload))
+        assert module.fetch_fund_flow()["success"] is False
+
+
+def test_flow_business_failure_cannot_appear_as_an_empty_market_day(monkeypatch):
+    from backend.tools import cn_market_flow as module
+    for failure in ({"success": False}, {"error": "offline"}, {"status": " Failed "}, {"rc": 1}):
+        monkeypatch.setattr(module, "_http_get", lambda *args, **kwargs: _Resp(payload={"data": None, **failure}))
+        assert module.fetch_fund_flow()["success"] is False
+        assert module.fetch_northbound()["success"] is False
+
+
 class _Resp:
     def __init__(self, status_code: int = 200, payload: Any = None):
         self.status_code = status_code

@@ -41,9 +41,16 @@ def _eastmoney_list(*, fs: str, fields: str, limit: int = 20) -> list[dict[str, 
         if getattr(resp, "status_code", 0) != 200:
             return None
         payload = resp.json()
-        data = payload.get("data") if isinstance(payload, dict) else None
-        rows = data.get("diff") if isinstance(data, dict) else None
-        return rows if isinstance(rows, list) else []
+        if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}
+            or payload.get("rc") not in (None, 0)):
+            return None
+        data = payload.get("data")
+        if data is None:
+            return []
+        if not isinstance(data, dict) or not isinstance(data.get("diff"), list):
+            return None
+        return data["diff"]
     except Exception as exc:
         logger.info("cn market eastmoney list failed: %s", type(exc).__name__)
         return None
