@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from backend.api.research_router import router as research_router
 
@@ -39,6 +40,117 @@ def _client() -> TestClient:
     app = FastAPI()
     app.include_router(research_router)
     return TestClient(app)
+
+
+def test_financials_analysis_unavailable_returns_503(monkeypatch):
+    from backend import tools
+    from backend.services import financials_analyzer
+
+    async def unavailable(**kwargs):
+        return {"status": "error", "error": "PRIVATE_ANALYSIS_ERROR"}
+
+    monkeypatch.setattr(financials_analyzer, "analyze_financials", unavailable)
+    monkeypatch.setattr(tools, "get_financial_statements", lambda _ticker: {"revenue": 100})
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {})
+
+    with _client() as client:
+        response = client.post("/api/research/financials/analyze", json={"ticker": "AAPL"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Financial analysis unavailable"
+    assert "PRIVATE_ANALYSIS_ERROR" not in response.text
+
+
+@pytest.mark.parametrize("payload", ["invalid", [1], True, {"success": False, "revenue": 100},
+                                    {"status": " FAILED ", "revenue": 100}])
+def test_unavailable_financial_source_returns_422_before_analysis(monkeypatch, payload):
+    from backend import tools
+    from backend.services import financials_analyzer
+
+    calls = []
+    async def analyze(**kwargs):
+        calls.append(kwargs)
+        return {"status": "success"}
+
+    monkeypatch.setattr(tools, "get_financial_statements", lambda _ticker: payload)
+    monkeypatch.setattr(tools, "get_company_info", lambda _ticker: {})
+    monkeypatch.setattr(financials_analyzer, "analyze_financials", analyze)
+
+    response = _client().post("/api/research/financials/analyze", json={"ticker": "AAPL"})
+
+    assert response.status_code == 422
+    assert calls == []
+
+
+@pytest.mark.parametrize("failure", [
+    {"error": "PRIVATE_PROVIDER_ERROR"}, {"success": False},
+    {"status": " FAILED "}, {"status": "unavailable"},
+])
+def test_news_sentiment_rejects_failed_provider_envelopes(monkeypatch, failure):
+    from backend import tools
+    from backend.services import news_sentiment
+
+    calls = []
+    async def analyze(*args, **kwargs):
+        calls.append(args)
+        return []
+
+    monkeypatch.setattr(tools, "get_company_news", lambda _ticker: {**failure, "news": [{"title": "retained"}]})
+    monkeypatch.setattr(news_sentiment, "analyze_news_sentiment", analyze)
+
+    response = _client().post("/api/research/news/sentiment", json={"ticker": "AAPL"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "News data unavailable"
+    assert "PRIVATE_PROVIDER_ERROR" not in response.text
+    assert calls == []
+
+
+def test_explicit_empty_news_does_not_trigger_provider_fetch(monkeypatch):
+    from backend import tools
+
+    def unexpected_fetch(_ticker):
+        pytest.fail("explicit empty news must not fetch unrelated headlines")
+
+    monkeypatch.setattr(tools, "get_company_news", unexpected_fetch)
+
+    response = _client().post("/api/research/news/sentiment", json={"ticker": "AAPL", "news": []})
+
+    assert response.status_code == 200
+    assert response.json()["news"] == []
+    assert response.json()["aggregate"]["positive"] == 0
+
+
+@pytest.mark.parametrize("payload", [None, "unavailable", {"news": "invalid"}, {"news": {"title": "invalid"}}])
+def test_malformed_fetched_news_is_unavailable(monkeypatch, payload):
+    from backend import tools
+    from backend.services import news_sentiment
+
+    calls = []
+    async def analyze(*args, **kwargs):
+        calls.append(args)
+        return []
+
+    monkeypatch.setattr(tools, "get_company_news", lambda _ticker: payload)
+    monkeypatch.setattr(news_sentiment, "analyze_news_sentiment", analyze)
+
+    response = _client().post("/api/research/news/sentiment", json={"ticker": "AAPL"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "News data unavailable"
+    assert calls == []
+
+
+@pytest.mark.parametrize("payload", [[], {"news": []}, {"items": []}, {"data": []}])
+def test_genuinely_empty_provider_news_remains_a_success(monkeypatch, payload):
+    from backend import tools
+
+    monkeypatch.setattr(tools, "get_company_news", lambda _ticker: payload)
+
+    response = _client().post("/api/research/news/sentiment", json={"ticker": "AAPL"})
+
+    assert response.status_code == 200
+    assert response.json()["news"] == []
 
 
 def test_news_sentiment_surfaces_fetch_failure_instead_of_neutral(monkeypatch):

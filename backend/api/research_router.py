@@ -183,7 +183,9 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
         except Exception as exc:
             logger.warning("company info unavailable")
 
-        if not financials or financials.get("error"):
+        if (not isinstance(financials, dict) or not financials or financials.get("error")
+            or financials.get("success") is False
+            or str(financials.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
             raise HTTPException(status_code=422, detail="无法获取该股票财报数据，请确认代码正确")
 
         result = await _analyze(
@@ -191,6 +193,8 @@ async def analyze_financials(request: FinancialsAnalyzeRequest):
             financials=financials,
             company_info=company_info,
         )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=503, detail="Financial analysis unavailable")
         return result
 
     except HTTPException:
@@ -220,14 +224,20 @@ async def news_sentiment(request: NewsSentimentRequest):
 
         news_list = request.news
         news_fetch_failed = False
-        if not news_list:
+        if news_list is None:
             try:
                 raw = get_company_news(request.ticker)
                 # 不同工具返回格式不一，兼容处理
                 if isinstance(raw, dict):
-                    news_list = raw.get("news") or raw.get("items") or raw.get("data") or []
+                    if (raw.get("error") or raw.get("success") is False
+                        or str(raw.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                        news_fetch_failed = True
+                    else:
+                        news_list = raw.get("news") or raw.get("items") or raw.get("data") or []
                 elif isinstance(raw, list):
                     news_list = raw
+                if not isinstance(news_list, list):
+                    news_fetch_failed = True
             except Exception as exc:
                 logger.warning("获取新闻失败")
                 # 拉取失败不能伪装成“没有新闻”：下面会返回中性 0 分，
@@ -297,12 +307,16 @@ async def smart_qa(request: SmartQARequest):
                 # 【最新行情】永远注不进 /qa 的 prompt。按真实返回类型判错
                 # （同 :93-100 company_info、:123-130 news）。
                 if isinstance(quote, dict):
-                    if not quote.get("error"):
-                        price = quote.get("price") or quote.get("current_price", "N/A")
+                    price = next((value for value in (safe_float(quote.get("price")), safe_float(quote.get("current_price")))
+                                  if value is not None and value > 0), None)
+                    if (not quote.get("error") and quote.get("success") is not False and price is not None
+                        and not any(value is not None and str(value).strip().upper() != ticker
+                                    for value in (quote.get("ticker"), quote.get("symbol")))
+                        and str(quote.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}):
                         # change_percent=0.0（平盘）是真实值，`or` 会把它当缺失
                         # 顶替成 change_pct/"N/A"——平盘日显示"涨跌幅 N/A%"。
-                        _chg = quote.get("change_percent")
-                        change = _chg if _chg is not None else quote.get("change_pct", "N/A")
+                        change = next((value for value in (safe_float(quote.get("change_percent")), safe_float(quote.get("change_pct")))
+                                       if value is not None and value >= -100), "N/A")
                         context_parts.append(f"【最新行情】{ticker} 现价 {price}，涨跌幅 {change}%")
                     else:
                         unavailable.append("最新行情")
@@ -324,11 +338,23 @@ async def smart_qa(request: SmartQARequest):
                 raw_news = get_company_news(ticker)
                 news_items: List[Any] = []
                 if isinstance(raw_news, dict):
+                    if (raw_news.get("error") or raw_news.get("success") is False
+                        or str(raw_news.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                        raise ValueError("news data unavailable")
                     news_items = raw_news.get("news") or raw_news.get("items") or []
                 elif isinstance(raw_news, list):
                     news_items = raw_news
+                else:
+                    raise ValueError("invalid news data")
+                if not isinstance(news_items, list):
+                    raise ValueError("invalid news list")
                 if news_items:
-                    titles = [n.get("title", "") for n in news_items[:3] if n.get("title")]
+                    titles = [n["title"].strip() for n in news_items
+                              if isinstance(n, dict) and isinstance(n.get("title"), str) and n["title"].strip()
+                              and not n.get("error") and n.get("success") is not False
+                              and str(n.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"}][:3]
+                    if not titles:
+                        raise ValueError("news titles unavailable")
                     context_parts.append("【今日相关新闻】\n" + "\n".join(f"- {t}" for t in titles))
             except Exception as exc:
                 logger.warning("company news unavailable")

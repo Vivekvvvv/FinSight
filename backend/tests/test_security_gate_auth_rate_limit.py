@@ -442,9 +442,8 @@ def test_financials_analysis_fallback_redacts_llm_error(monkeypatch, caplog):
             json={"ticker": "AAPL"},
         )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "error"
-    assert response.json()["error"] == "Internal server error"
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Financial analysis unavailable"
     assert "private financials provider detail" not in response.text
     assert "private financials provider detail" not in caplog.text
     assert "[FinancialsAnalyzer] 分析失败" in caplog.text
@@ -475,9 +474,8 @@ def test_financials_analysis_json_parse_fallback_redacts_error(monkeypatch, capl
         )
 
     body = response.json()
-    assert response.status_code == 200
-    assert body["status"] == "error"
-    assert body["error"] == "Internal server error"
+    assert response.status_code == 503
+    assert body["detail"] == "Financial analysis unavailable"
     assert "not-json-private-fragment" not in response.text
     assert "解析LLM响应失败" not in response.text
     assert "not-json-private-fragment" not in caplog.text
@@ -508,9 +506,8 @@ def test_financials_analysis_non_finite_json_falls_back(monkeypatch, caplog):
             json={"ticker": "AAPL"},
         )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "error"
-    assert response.json()["error"] == "Internal server error"
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Financial analysis unavailable"
     assert "NaN" not in response.text
     assert "[FinancialsAnalyzer] 分析失败" in caplog.text
 
@@ -803,7 +800,7 @@ def test_analyze_news_sentiment_skips_non_dict_items(monkeypatch):
 def test_aggregate_sentiment_tolerates_non_string_labels():
     """sentiments[i]（LLM 裸 JSON）原样 update 进 enriched——{"sentiment": {"a":1}}
     /{"impact_level": ["h"]} 这类 unhashable 值让 counts.get/weight_map.get
-    TypeError，端点 500。非 str 标签归 neutral/默认权重。"""
+    TypeError，端点 500。非 str 情绪标签不计入实测中性。"""
     from backend.services.news_sentiment import aggregate_sentiment
 
     agg = aggregate_sentiment([
@@ -811,4 +808,4 @@ def test_aggregate_sentiment_tolerates_non_string_labels():
         {"title": "b", "sentiment": "positive", "impact_level": "high"},
     ])
     assert agg["positive"] == 1
-    assert agg["neutral"] == 1
+    assert agg["neutral"] == 0

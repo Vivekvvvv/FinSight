@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from backend.utils.strict_json import json_loads_strict
+from backend.utils.quote import safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +76,30 @@ async def analyze_financials(
     Returns:
         结构化财报分析字典
     """
-    company_name = (company_info or {}).get("name", ticker)
+    if (not isinstance(financials, dict) or not financials
+        or financials.get("error") or financials.get("success") is False
+        or str(financials.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+        logger.warning("[FinancialsAnalyzer] 财报数据不可用")
+        return _fallback_result(ticker, "Internal server error")
+
+    if any(value is not None and str(value).strip().upper() != ticker.strip().upper()
+           for value in (financials.get("ticker"), financials.get("symbol"))):
+        return _fallback_result(ticker, "Internal server error")
+
+    company_info = company_info if isinstance(company_info, dict) else {}
+    if any(value is not None and str(value).strip().upper() != ticker.strip().upper()
+           for value in (company_info.get("ticker"), company_info.get("symbol"))):
+        return _fallback_result(ticker, "Internal server error")
+    raw_name = company_info.get("name")
+    company_name = raw_name.strip() if isinstance(raw_name, str) else ""
+    company_name = company_name or ticker
 
     # 截断过大的财报数据，避免超token
-    financials_str = json.dumps(financials, ensure_ascii=False, indent=2)
+    try:
+        financials_str = json.dumps(financials, ensure_ascii=False, indent=2, allow_nan=False)
+    except (TypeError, ValueError, OverflowError):
+        logger.warning("[FinancialsAnalyzer] 财报数据不可用")
+        return _fallback_result(ticker, "Internal server error")
     if len(financials_str) > 8000:
         financials_str = financials_str[:8000] + "\n... (已截断)"
 
@@ -102,6 +123,30 @@ async def analyze_financials(
             text = "\n".join(lines[1:-1])
 
         result = json_loads_strict(text)
+        if (not isinstance(result, dict) or result.get("error") or result.get("success") is False
+            or str(result.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            raise ValueError("financial analysis failed")
+        if any(value is not None and str(value).strip().upper() != ticker.strip().upper()
+               for value in (result.get("ticker"), result.get("symbol"))):
+            raise ValueError("financial analysis instrument mismatch")
+        rating = result.get("overall_rating") if isinstance(result, dict) else None
+        score = safe_float(rating.get("score")) if isinstance(rating, dict) else None
+        if score is None or not 1 <= score <= 10:
+            raise ValueError("invalid financial analysis rating")
+        rating["score"] = score
+        label = rating.get("label")
+        label = label.strip() if isinstance(label, str) else ""
+        rating["label"] = label if label in {"优秀", "良好", "一般", "较差"} else "未评级"
+        summary = rating.get("summary")
+        rating["summary"] = summary.strip()[:50] if isinstance(summary, str) else ""
+        for section in ("revenue_analysis", "profitability", "cash_flow"):
+            if not isinstance(result.get(section), dict):
+                result[section] = {}
+        for section, maximum in (("risk_factors", 5), ("investment_highlights", 3)):
+            value = result.get(section)
+            items = value.get("list") if isinstance(value, dict) else None
+            result[section] = {"list": [item.strip() for item in items if isinstance(item, str) and item.strip()][:maximum]
+                               if isinstance(items, list) else []}
         result["ticker"] = ticker
         result["status"] = "success"
         return result
