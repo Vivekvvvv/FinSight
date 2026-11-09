@@ -140,7 +140,10 @@ def test_backtest_engine_failure_is_not_reported_as_success(monkeypatch):
         {"ticker": "A" * 33, "strategy": "ma_cross"},
         {"ticker": "AAPL", "strategy": "ma_cross", "params": {"period": {"nested": 1}}},
         {"ticker": "AAPL", "strategy": "ma_cross", "params": {"period": "not-a-number"}},
+        {"ticker": "AAPL", "strategy": "ma_cross", "params": {"period": 10**400}},
         {"ticker": "AAPL", "strategy": "ma_cross", "initial_cash": "inf"},
+        {"ticker": "AAPL", "strategy": "ma_cross", "fee_bps": 10000},
+        {"ticker": "AAPL", "strategy": "ma_cross", "slippage_bps": 10000},
         {"ticker": "AAPL", "strategy": "ma_cross", "start_date": "2024-99-99"},
         {
             "ticker": "AAPL",

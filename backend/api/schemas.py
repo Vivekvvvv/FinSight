@@ -264,10 +264,10 @@ class BacktestRequest(BaseModel):
         100000.0, gt=0, allow_inf_nan=False, description="initial cash",
     )
     fee_bps: Optional[float] = Field(
-        None, ge=0, allow_inf_nan=False, description="fee basis points",
+        None, ge=0, lt=10000, allow_inf_nan=False, description="fee basis points",
     )
     slippage_bps: Optional[float] = Field(
-        None, ge=0, allow_inf_nan=False, description="slippage basis points",
+        None, ge=0, lt=10000, allow_inf_nan=False, description="slippage basis points",
     )
     t_plus_one: bool = Field(True, description="enable T+1 sell restriction")
     market: Optional[Literal["US", "CN", "HK"]] = Field(None, description="market hint")
@@ -308,7 +308,7 @@ class BacktestRequest(BaseModel):
                 raise ValueError("backtest parameter value is too long")
             try:
                 number = float(item)
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, OverflowError) as exc:
                 raise ValueError("backtest parameters must be numeric") from exc
             if not math.isfinite(number):
                 raise ValueError("backtest parameters must be finite")

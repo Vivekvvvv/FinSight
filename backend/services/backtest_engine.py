@@ -1,12 +1,17 @@
 ﻿from __future__ import annotations
 
+import logging
 import math
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from backend.services.backtest_strategies import SUPPORTED_STRATEGIES, build_strategy_signals
 from backend.tools import fetch_cn_hk_kline, get_stock_historical_data
+from backend.tools.cn_hk_market import detect_market
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,14 +39,15 @@ class BacktestEngine:
 
     @staticmethod
     def list_strategies() -> list[dict[str, Any]]:
-        return list(SUPPORTED_STRATEGIES)
+        return deepcopy(SUPPORTED_STRATEGIES)
 
     @staticmethod
     def _parse_date(value: str | None) -> datetime | None:
         if not value:
             return None
         try:
-            return datetime.fromisoformat(str(value).split("T")[0])
+            parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+            return datetime(parsed.year, parsed.month, parsed.day)
         except Exception:
             return None
 
@@ -65,45 +71,64 @@ class BacktestEngine:
         return output
 
     @staticmethod
-    def _normalize_points(raw: list[dict[str, Any]]) -> list[PricePoint]:
-        points: list[PricePoint] = []
+    def _normalize_points(raw: list[dict[str, Any]], ticker: str | None = None) -> list[PricePoint]:
+        by_time: dict[str, PricePoint] = {}
         for item in raw:
-            if not isinstance(item, dict):
+            if (not isinstance(item, dict) or item.get("error") or item.get("success") is False
+                or str(item.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
+            if ticker and any(value is not None and str(value).strip().upper() != ticker.strip().upper()
+                              for value in (item.get("symbol"), item.get("ticker"))):
                 continue
             close = BacktestEngine._finite_number(item.get("close"))
             if close is None or close <= 0:
                 continue  # 停牌/脏数据的 0 价 bar：入回测会在买入路径 cash/(0*...) 除零 500
             ts = str(item.get("time") or "").strip()
-            if not ts:
+            parsed_date = BacktestEngine._parse_date(ts)
+            if parsed_date is None:
                 continue
-            points.append(PricePoint(time=ts, close=close))
+            ts = parsed_date.date().isoformat()
+            by_time[ts] = PricePoint(time=ts, close=close)
+        points = list(by_time.values())
         points.sort(key=lambda p: p.time)
         return points
 
     def _load_series(self, ticker: str, market: str | None = None) -> tuple[list[PricePoint], str]:
-        payload = get_stock_historical_data(ticker, period="5y", interval="1d")
-        if isinstance(payload, dict):
+        try:
+            payload = get_stock_historical_data(ticker, period="5y", interval="1d")
+        except Exception:
+            logger.warning("[Backtest] primary historical provider failed")
+            payload = None
+        if (isinstance(payload, dict) and payload.get("success") is not False and not payload.get("error")
+            and str(payload.get("status") or "").strip().lower() not in {"error", "failed", "unavailable"} and not any(
+            value is not None and str(value).strip().upper() != ticker.strip().upper()
+            for value in (payload.get("symbol"), payload.get("ticker"))
+        )):
             kline = payload.get("kline_data")
             if isinstance(kline, list):
-                points = self._normalize_points(kline)
+                points = self._normalize_points(kline, ticker)
                 if points:
                     return points, str(payload.get("source") or "historical")
 
-        market_norm = str(market or "").strip().upper()
+        market_norm = str(market or "").strip().upper() or detect_market(ticker)
         if market_norm in {"CN", "HK"}:
-            fallback = fetch_cn_hk_kline(ticker, limit=1200)
+            try:
+                fallback = fetch_cn_hk_kline(ticker, limit=1200)
+            except Exception:
+                logger.warning("[Backtest] CN/HK historical provider failed")
+                fallback = None
             if isinstance(fallback, list):
-                points = self._normalize_points(fallback)
+                points = self._normalize_points(fallback, ticker)
                 if points:
                     return points, "eastmoney_kline"
 
         return [], "unavailable"
 
     @staticmethod
-    def _max_drawdown(equity_curve: list[dict[str, Any]]) -> float:
+    def _max_drawdown(equity_curve: list[dict[str, Any]], initial_equity: float | None = None) -> float:
         if not equity_curve:
             return 0.0
-        peak = float(equity_curve[0]["equity"])
+        peak = float(initial_equity) if initial_equity is not None else float(equity_curve[0]["equity"])
         worst = 0.0
         for item in equity_curve:
             equity = float(item["equity"])
@@ -131,6 +156,15 @@ class BacktestEngine:
         symbol = str(ticker or "").strip().upper()
         if not symbol:
             return {"success": False, "error": "ticker is required"}
+        strategy_norm = str(strategy or "").strip().lower()
+        if strategy_norm not in {"ma_cross", "macd", "macd_strategy", "rsi", "rsi_mean_reversion", "rsi_mr"}:
+            return {"success": False, "error": "unsupported_strategy"}
+
+        start = self._parse_date(start_date)
+        end = self._parse_date(end_date)
+        if ((start_date is not None and start is None) or (end_date is not None and end is None)
+                or (start is not None and end is not None and start > end)):
+            return {"success": False, "error": "invalid_date_range"}
 
         points, source = self._load_series(symbol, market=market)
         points = self._filter_by_date(points, start_date, end_date)
@@ -144,7 +178,10 @@ class BacktestEngine:
             }
 
         closes = [point.close for point in points]
-        signal_payload = build_strategy_signals(strategy, closes, params)
+        try:
+            signal_payload = build_strategy_signals(strategy, closes, params)
+        except ValueError:
+            return {"success": False, "error": "invalid_strategy_params"}
         signals = signal_payload.get("signals") or []
         if len(signals) != len(points):
             return {"success": False, "error": "signal_length_mismatch"}
@@ -153,6 +190,8 @@ class BacktestEngine:
         slippage_value = self._finite_number(self.default_slippage_bps if slippage_bps is None else slippage_bps)
         cash = self._finite_number(initial_cash)
         if fee_value is None or slippage_value is None or cash is None or cash <= 0:
+            return {"success": False, "error": "invalid_numeric_input"}
+        if not (0 <= fee_value < 10000 and 0 <= slippage_value < 10000):
             return {"success": False, "error": "invalid_numeric_input"}
         fee_rate = max(0.0, fee_value) / 10000.0
         slippage_rate = max(0.0, slippage_value) / 10000.0
@@ -167,10 +206,10 @@ class BacktestEngine:
 
         for idx, point in enumerate(points):
             signal_idx = idx - 1 if t_plus_one else idx
-            try:
-                target = int(signals[signal_idx]) if signal_idx >= 0 else 0
-            except (TypeError, ValueError, OverflowError):
+            target_value = self._finite_number(signals[signal_idx]) if signal_idx >= 0 else 0.0
+            if target_value not in (0.0, 1.0):
                 return {"success": False, "error": "invalid_strategy_signals"}
+            target = int(target_value)
             price = float(point.close)
 
             can_sell = True
@@ -182,6 +221,8 @@ class BacktestEngine:
                 qty = cash / (buy_price * (1 + fee_rate))
                 cost = qty * buy_price
                 fee = cost * fee_rate
+                if qty <= 0 or not all(math.isfinite(value) for value in (buy_price, qty, cost, fee)):
+                    return {"success": False, "error": "invalid_backtest_calculation"}
                 cash -= cost + fee
                 shares = qty
                 buy_index = idx
@@ -200,6 +241,8 @@ class BacktestEngine:
                 proceeds = shares * sell_price
                 fee = proceeds * fee_rate
                 realized = proceeds - fee
+                if not all(math.isfinite(value) for value in (sell_price, proceeds, fee, realized)):
+                    return {"success": False, "error": "invalid_backtest_calculation"}
 
                 buy_trade = next((item for item in reversed(trades) if item.get("type") == "buy"), None)
                 if isinstance(buy_trade, dict):
@@ -227,11 +270,15 @@ class BacktestEngine:
                 shares = 0.0
 
             equity = cash + shares * price
+            if not math.isfinite(equity):
+                return {"success": False, "error": "invalid_backtest_calculation"}
             equity_curve.append({"time": point.time, "equity": equity, "price": price, "position": int(shares > 0)})
 
         final_equity = float(equity_curve[-1]["equity"])
         total_return = (final_equity / initial_cash_value - 1.0) * 100.0
-        max_dd = self._max_drawdown(equity_curve)
+        if not math.isfinite(total_return):
+            return {"success": False, "error": "invalid_backtest_calculation"}
+        max_dd = self._max_drawdown(equity_curve, initial_cash_value)
         win_rate = (wins / closed_trades * 100.0) if closed_trades > 0 else 0.0
 
         return {

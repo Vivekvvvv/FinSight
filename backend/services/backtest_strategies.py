@@ -38,10 +38,17 @@ def _ema(values: list[float], period: int) -> list[float]:
         return []
     period = max(1, _int_value(period, 1))
     k = 2 / (period + 1)
+    if k <= 0:
+        raise ValueError("EMA period exceeds numeric range")
     out: list[float] = [values[0]]
     for value in values[1:]:
         out.append(value * k + out[-1] * (1 - k))
     return out
+
+
+def _window_mean(values: list[float], period: int) -> float:
+    scale = max((abs(value) for value in values), default=0.0)
+    return math.fsum(value / scale for value in values) / period * scale if scale else 0.0
 
 
 def _rsi(values: list[float], period: int = 14) -> list[float | None]:
@@ -59,10 +66,10 @@ def _rsi(values: list[float], period: int = 14) -> list[float | None]:
     for idx in range(period, len(values)):
         window_gains = gains[idx - period + 1 : idx + 1]
         window_losses = losses[idx - period + 1 : idx + 1]
-        avg_gain = sum(window_gains) / period
-        avg_loss = sum(window_losses) / period
+        avg_gain = _window_mean(window_gains, period)
+        avg_loss = _window_mean(window_losses, period)
         if avg_loss == 0:
-            output[idx] = 100.0
+            output[idx] = 50.0 if avg_gain == 0 else 100.0
             continue
         rs = avg_gain / avg_loss
         output[idx] = 100.0 - (100.0 / (1.0 + rs))
@@ -76,8 +83,8 @@ def ma_cross_signals(closes: list[float], *, short_window: int = 20, long_window
     for idx in range(len(closes)):
         if idx + 1 < long_window:
             continue
-        short_ma = sum(closes[idx - short_window + 1 : idx + 1]) / short_window
-        long_ma = sum(closes[idx - long_window + 1 : idx + 1]) / long_window
+        short_ma = _window_mean(closes[idx - short_window + 1 : idx + 1], short_window)
+        long_ma = _window_mean(closes[idx - long_window + 1 : idx + 1], long_window)
         signals[idx] = 1 if short_ma > long_ma else 0
     return {
         "name": "ma_cross",
@@ -114,6 +121,8 @@ def rsi_mean_reversion_signals(
     oversold: float = 30.0,
     overbought: float = 70.0,
 ) -> dict[str, Any]:
+    if not (0 <= oversold < overbought <= 100):
+        raise ValueError("RSI thresholds must satisfy 0 <= oversold < overbought <= 100")
     rsi_values = _rsi(closes, period)
     signals: list[int] = [0 for _ in closes]
     holding = 0
