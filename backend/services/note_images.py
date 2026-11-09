@@ -52,10 +52,12 @@ _IMAGE_STORE_LOCK = threading.RLock()
 def _get_image_dir(user_id: str, note_id: str) -> Path:
     """获取笔记图片存储目录"""
     # 安全检查：防止路径遍历攻击
-    if ".." in user_id or "/" in user_id or "\\" in user_id:
-        raise ValueError(f"Invalid user_id: {user_id}")
-    if ".." in note_id or "/" in note_id or "\\" in note_id:
-        raise ValueError(f"Invalid note_id: {note_id}")
+    if (not isinstance(user_id, str) or not user_id or user_id.endswith((".", " "))
+            or ".." in user_id or any(char in user_id for char in '/\\:\x00<>"|?*')):
+        raise ValueError("Invalid user_id")
+    if (not isinstance(note_id, str) or not note_id or note_id.endswith((".", " "))
+            or ".." in note_id or any(char in note_id for char in '/\\:\x00<>"|?*')):
+        raise ValueError("Invalid note_id")
 
     return _IMAGES_ROOT / user_id / note_id
 

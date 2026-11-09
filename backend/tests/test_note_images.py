@@ -166,3 +166,24 @@ def test_save_image_cleans_temp_file_when_atomic_replace_fails(tmp_path, monkeyp
 
     image_dir = tmp_path / "alice" / "note1"
     assert list(image_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize("field", ["user_id", "note_id"])
+@pytest.mark.parametrize("component", ["", ".", "alice.", "alice ", "C:", "C:outside", "alice:secret", "bad\x00id"])
+def test_image_directory_rejects_components_that_alias_or_escape_on_windows(tmp_path, monkeypatch, field, component):
+    from backend.services import note_images
+
+    monkeypatch.setattr(note_images, "_IMAGES_ROOT", tmp_path)
+    identifiers = {"user_id": "alice", "note_id": "note1", field: component}
+
+    with pytest.raises(ValueError, match=f"Invalid {field}"):
+        note_images._get_image_dir(**identifiers)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("user_id", ["user-1", "alice_2", "user.3"])
+def test_image_directory_keeps_valid_identifier_components(tmp_path, monkeypatch, user_id):
+    from backend.services import note_images
+
+    monkeypatch.setattr(note_images, "_IMAGES_ROOT", tmp_path)
+    assert note_images._get_image_dir(user_id, "note1") == tmp_path / user_id / "note1"
