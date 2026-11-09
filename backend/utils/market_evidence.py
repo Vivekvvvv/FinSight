@@ -18,7 +18,8 @@ _CACHED_WORST = {"cached", "stale", "demo", "fallback"}
 
 
 def normalize_market_freshness(source: str, raw: Any = None, *, cached: bool = False) -> str:
-    freshness = str(raw or "").strip()
+    source = str(source or "").strip().lower()
+    freshness = str(raw or "").strip().lower()
     if source in DEMO_SOURCES:
         return "demo"
     if cached or source in CACHED_SOURCES:
@@ -27,6 +28,8 @@ def normalize_market_freshness(source: str, raw: Any = None, *, cached: bool = F
         return freshness if freshness in _CACHED_WORST else "cached"
     if freshness in _KNOWN_FRESHNESS:
         return freshness
+    if raw is not None:
+        return "unknown"
     if source in FALLBACK_SOURCES:
         return "fallback"
     if source and source != "unknown":
@@ -35,12 +38,15 @@ def normalize_market_freshness(source: str, raw: Any = None, *, cached: bool = F
 
 
 def normalize_market_fallback_level(source: str, raw: Any = None, *, cached: bool = False) -> int:
+    source = str(source or "").strip().lower()
     # 缓存/演示数据一律算最高降级级别，不能被载荷里写入时的 0 覆盖。
     if source in DEMO_SOURCES or cached or source in CACHED_SOURCES:
         return 2
     try:
         if raw is not None and not isinstance(raw, bool):
-            return max(0, int(raw))
+            level = int(raw)
+            if level in (0, 1, 2) and float(raw) == level:
+                return level
     except (TypeError, ValueError, OverflowError):
         pass
     if source in FALLBACK_SOURCES:
@@ -51,20 +57,21 @@ def normalize_market_fallback_level(source: str, raw: Any = None, *, cached: boo
 def build_market_evidence(payload: dict[str, Any] | None, fallback_source: str = "unknown", *, cached: bool = False) -> dict[str, Any]:
     data = payload or {}
     source = str(data.get("source") or fallback_source or "unknown").strip() or "unknown"
-    freshness = normalize_market_freshness(source, data.get("freshness_status") or data.get("freshnessStatus"), cached=cached)
-    fallback_level = normalize_market_fallback_level(source, data.get("fallback_level") or data.get("fallbackLevel"), cached=cached)
+    freshness = normalize_market_freshness(source, data.get("freshness_status", data.get("freshnessStatus")), cached=cached)
+    fallback_level = normalize_market_fallback_level(source, data.get("fallback_level", data.get("fallbackLevel")), cached=cached)
     as_of = data.get("as_of") or data.get("asOf")
     # 载荷自带 error / success=False 表示这次取数失败。此时 source 只是工具名
     # （如 "financials"），normalize 会把它当未知来源回落成 live，对外把一次
     # 失败标成实时数据（项目规则 2）。
-    is_failed = bool(data.get("error")) or data.get("success") is False
+    is_failed = (bool(data.get("error")) or data.get("success") is False
+                 or str(data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"})
     if is_failed:
         if freshness == "live":
             freshness = "unknown"
         fallback_level = max(fallback_level, 1)
         # 失败载荷没有任何观测发生：盖请求时刻的 as_of 会让客户端把它当成
         # "刚更新的数据"。只有成功取数才补当前时间。
-    elif as_of is None:
+    elif as_of is None and freshness == "live":
         as_of = utc_now_iso()
     return {
         "source": source,
@@ -86,12 +93,8 @@ def attach_market_evidence(payload: Any, fallback_source: str = "unknown", *, ca
     result.setdefault("as_of", evidence["as_of"])
     # 缓存/演示命中时，载荷自带的 freshness/fallback_level 是写入时的旧标签
     # （例如 "live"/0），setdefault 会把它留下来，对外伪造成实时数据。
-    if cached or evidence["source"] in DEMO_SOURCES or evidence["source"] in CACHED_SOURCES:
-        result["freshness_status"] = evidence["freshness_status"]
-        result["fallback_level"] = evidence["fallback_level"]
-    else:
-        result.setdefault("freshness_status", evidence["freshness_status"])
-        result.setdefault("fallback_level", evidence["fallback_level"])
+    result["freshness_status"] = evidence["freshness_status"]
+    result["fallback_level"] = evidence["fallback_level"]
     result["evidence"] = evidence
     return result
 
@@ -102,13 +105,18 @@ def attach_financials_evidence(payload: Any, fallback_source: str = "financials"
     result = dict(payload)
     inner = result.get("data")
     if isinstance(inner, dict):
+        inner = {
+            **{key: result[key] for key in ("as_of", "asOf", "freshness_status", "freshnessStatus", "fallback_level", "fallbackLevel") if key in result},
+            **inner,
+        }
         source = str(result.get("source") or inner.get("source") or fallback_source)
+        if (result.get("error") or result.get("success") is False
+            or str(result.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            inner = {**inner, "success": False}
         enriched_inner = attach_market_evidence(inner, fallback_source=source, cached=cached)
         result["data"] = enriched_inner
         result["evidence"] = build_market_evidence(enriched_inner, fallback_source=source, cached=cached)
-        result.setdefault("source", result["evidence"]["source"])
-        result.setdefault("as_of", result["evidence"]["as_of"])
-        result.setdefault("freshness_status", result["evidence"]["freshness_status"])
-        result.setdefault("fallback_level", result["evidence"]["fallback_level"])
+        for key in ("source", "as_of", "freshness_status", "fallback_level"):
+            result[key] = result["evidence"][key]
         return result
     return attach_market_evidence(result, fallback_source=fallback_source, cached=cached)

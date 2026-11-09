@@ -5,6 +5,19 @@ from __future__ import annotations
 from backend.tools._item import iter_attr_items, iter_dict_items, num_or, num_or_none, text_or
 
 
+def test_oversized_integer_uses_numeric_fallback():
+    huge = 10 ** 1000
+    assert num_or(huge, 7.0) == 7.0
+    assert num_or_none(huge) is None
+
+
+def test_non_iterable_containers_do_not_abort_provider_fallbacks():
+    for raw in (1, 3.14, True, object()):
+        assert list(iter_dict_items(raw)) == []
+        assert list(iter_attr_items(raw, "title")) == []
+    assert list(iter_dict_items(iter([{"title": "ok"}, None]))) == [{"title": "ok"}]
+
+
 def test_iter_dict_items_skips_poison_entries():
     """上游列表混入 str/None/list/int 毒条目时按条跳过，不毁整批——
     同 fix(search)/fix(news) 系列里 isinstance(x, dict) 守卫的缺陷类。"""

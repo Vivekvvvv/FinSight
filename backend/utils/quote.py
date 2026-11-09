@@ -62,29 +62,37 @@ def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
         return default
 
 
-def parse_quote_payload(payload: Any) -> dict[str, Any] | None:
+def parse_quote_payload(payload: Any, *, expected_ticker: str | None = None) -> dict[str, Any] | None:
     """Parse raw quote payload into ``{price, change, change_percent}``."""
     if payload is None:
         return None
 
     if isinstance(payload, dict):
+        if (payload.get("error") or payload.get("success") is False
+            or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if expected_ticker is not None and any(
+            value is not None and str(value).strip().upper() != expected_ticker.strip().upper()
+            for value in (payload.get("ticker"), payload.get("symbol"))
+        ):
+            return None
         nested = payload.get("data")
         if nested is not None:
-            inner = parse_quote_payload(nested)
-            if inner:
-                return inner
+            inner = parse_quote_payload(nested, expected_ticker=expected_ticker)
+            return inner
 
         price = safe_float(payload.get("price"))
-        if price is not None:
+        if price is not None and price > 0:
+            change_pct = safe_float(payload.get("change_percent"))
             return {
                 "price": price,
                 "change": safe_float(payload.get("change")),
-                "change_percent": safe_float(payload.get("change_percent")),
+                "change_percent": change_pct if change_pct is not None and change_pct >= -100 else None,
             }
         return None
 
     text = str(payload)
-    price_match = re.search(r"Current Price:\s*\$([0-9.,]+)", text, re.IGNORECASE)
+    price_match = re.search(r"Current Price:\s*\$([+-]?[0-9.,]+)", text, re.IGNORECASE)
     # 兜底/涨跌额正则须允许千分位逗号并在使用时剥除，否则 "$1,234.56" 在逗号处
     # 截断成 "1" → price=1.0（约 1000× 低估）；change "-1,234.5" → "-1"（R41）。
     fallback_price_match = re.search(r"\$([0-9][0-9,]*(?:\.[0-9]+)?)", text)
@@ -97,13 +105,14 @@ def parse_quote_payload(payload: Any) -> dict[str, Any] | None:
         else (fallback_price_match.group(1).replace(",", "") if fallback_price_match else None)
     )
     price = safe_float(price_text) if price_text else None
-    if price is None:
+    if price is None or price <= 0:
         return None
 
+    change_pct = safe_float(pct_match.group(1)) if pct_match else None
     return {
         "price": price,
         "change": safe_float(change_match.group(1).replace(",", "")) if change_match else None,
-        "change_percent": safe_float(pct_match.group(1)) if pct_match else None,
+        "change_percent": change_pct if change_pct is not None and change_pct >= -100 else None,
     }
 
 
@@ -116,13 +125,32 @@ def fallback_quote_yfinance(ticker: str) -> dict[str, Any] | None:
         if hist is None or hist.empty:
             return None
 
+        hist = hist.loc[~hist.index.duplicated(keep="last")].sort_index()
+        latest = hist.iloc[-1]
+        error = latest.get("error")
+        if (error and not (isinstance(error, float) and math.isnan(error)) or latest.get("success") is False
+            or str(latest.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+            return None
+        if any(value is not None and not (isinstance(value, float) and math.isnan(value))
+               and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+               for value in (latest.get("ticker"), latest.get("symbol"))):
+            return None
         close = safe_float(hist["Close"].iloc[-1])
-        if close is None:
+        if close is None or close <= 0:
             return None
 
         prev_close = safe_float(hist["Close"].iloc[-2]) if len(hist) > 1 else None
-        change = (close - prev_close) if prev_close not in (None, 0.0) else None
-        change_pct = ((change / prev_close) * 100.0) if change is not None and prev_close else None
+        if len(hist) > 1:
+            previous = hist.iloc[-2]
+            error = previous.get("error")
+            if (error and not (isinstance(error, float) and math.isnan(error)) or previous.get("success") is False
+                or str(previous.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}
+                or any(value is not None and not (isinstance(value, float) and math.isnan(value))
+                       and (not isinstance(value, str) or value.strip().upper() != ticker.strip().upper())
+                       for value in (previous.get("ticker"), previous.get("symbol")))):
+                prev_close = None
+        change = (close - prev_close) if prev_close is not None and prev_close > 0 else None
+        change_pct = safe_float((change / prev_close) * 100.0) if change is not None and prev_close else None
         result = {
             "price": close,
             "change": change,
@@ -156,7 +184,7 @@ def _payload_meta(payload: Any) -> dict[str, Any]:
         return {}
     nested = payload.get("data")
     if isinstance(nested, dict):
-        return {**payload, **nested}
+        return {**payload, **_payload_meta(nested)}
     return payload
 
 
@@ -213,13 +241,18 @@ def resolve_live_quote(
         except Exception:
             raw_payload = None
 
-        parsed = parse_quote_payload(raw_payload)
+        parsed = parse_quote_payload(raw_payload, expected_ticker=ticker)
+        meta = _payload_meta(raw_payload)
+        if parsed and any(
+            value is not None and str(value).strip().upper() != ticker.strip().upper()
+            for value in (meta.get("ticker"), meta.get("symbol"))
+        ):
+            parsed = None
         if parsed:
-            meta = _payload_meta(raw_payload)
             freshness = _meta_freshness(meta) or "live"
             upstream_level = _meta_fallback_level(meta)
             parsed["source"] = "tools_bridge"
-            parsed["as_of"] = _meta_as_of(meta) or _now_iso()
+            parsed["as_of"] = _meta_as_of(meta) or (_now_iso() if freshness == "live" else None)
             parsed["freshness_status"] = freshness
             parsed["fallback_level"] = (
                 upstream_level if upstream_level is not None
@@ -229,7 +262,7 @@ def resolve_live_quote(
 
     fallback = fallback_quote_yfinance(ticker)
     if fallback:
-        fallback.setdefault("as_of", _now_iso())
+        fallback.setdefault("as_of", None)
         fallback.setdefault("freshness_status", _freshness_status(fallback.get("source", "yfinance_fallback")))
         fallback.setdefault("fallback_level", _fallback_level(fallback.get("source", "yfinance_fallback")))
         return fallback, raw_payload

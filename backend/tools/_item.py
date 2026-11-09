@@ -27,9 +27,13 @@ def iter_dict_items(items: Iterable[Any] | None) -> Iterator[dict]:
     代替各 provider 循环里重复的 ``if not isinstance(x, dict): continue``。
     ``items`` 为 None 或不可迭代时产出空迭代，由调用方自行区分"空"与"坏"。
     """
-    if not items:
+    if items is None:
         return
-    for item in items:
+    try:
+        iterator = iter(items)
+    except TypeError:
+        return
+    for item in iterator:
         if isinstance(item, dict):
             yield item
 
@@ -58,7 +62,7 @@ def num_or(value: Any, default: float = 0.0) -> float:
         return default
     try:
         n = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     if n != n or n in (float("inf"), float("-inf")):  # NaN / ±inf
         return default
@@ -71,9 +75,13 @@ def iter_attr_items(items: Iterable[Any] | None, *required_attrs: str) -> Iterat
     等价于各循环里的 ``hasattr(x, 'title') and hasattr(x, 'url')`` 手工守卫，
     缺属性的毒条目按条跳过而不是毁整批。``items`` 为 None/空时产出空迭代。
     """
-    if not items:
+    if items is None:
         return
-    for item in items:
+    try:
+        iterator = iter(items)
+    except TypeError:
+        return
+    for item in iterator:
         if item is None:
             continue
         if all(hasattr(item, attr) for attr in required_attrs):
@@ -86,7 +94,7 @@ def num_or_none(value: Any) -> Optional[float]:
         return None
     try:
         n = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if n != n or n in (float("inf"), float("-inf")):
         return None
