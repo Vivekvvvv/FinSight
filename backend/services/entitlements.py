@@ -310,8 +310,8 @@ def reset_entitlements_service_for_tests() -> None:
 # ── Usage view ────────────────────────────────────────────────────
 #
 # 把 "用户已用的数量" 集中到一个 helper, 避免每个 router 自己重新查表。
-# 当前覆盖三类配额: max_reports_per_day / max_alerts / max_portfolio_positions。
-# (max_watchlist 与 max_deep_research_per_day 暂未接 — 留 TODO)
+# 当前覆盖报告、订阅、持仓与自选列表配额。
+# (max_deep_research_per_day 暂未接 — 留 TODO)
 #
 # 设计原则: 单点失败不应让整个 entitlements 接口挂掉; 任意子查询异常时
 # 该项 fallback 到 0, 调用方仍能看到 limit 而非 503。但"回退 0"必须显式标出
@@ -413,11 +413,24 @@ def build_usage_view(
         # 一份干净的持仓清单数出来的（项目规则 2）。
         result["max_portfolio_positions"]["fallback_reason"] = "usage_count_partial"
 
-    # 4) 静态项: 其余配额返回 used=0 + limit (前端展示用)
-    for quota_key in ("max_watchlist", "max_deep_research_per_day"):
-        result[quota_key] = _quota_entry(
-                plan=plan, used=0, limit=safe_int(limits.get(quota_key), 0) or 0
-        )
+    # 4) max_watchlist：与写入时的额度检查使用同一份用户画像。
+    watchlist_used = 0
+    try:
+        from backend.services.memory import MemoryService
+
+        profile = MemoryService().get_user_profile(user_id)
+        watchlist_used = len(profile.watchlist)
+    except Exception:
+        logger.error('build_usage_view: count watchlist failed; fallback 0')
+        degraded_quota_keys.append("max_watchlist")
+    result["max_watchlist"] = _quota_entry(
+        plan=plan, used=watchlist_used, limit=safe_int(limits.get("max_watchlist"), 0) or 0
+    )
+
+    # 深度研究计量尚未接入，保留原有展示契约。
+    result["max_deep_research_per_day"] = _quota_entry(
+        plan=plan, used=0, limit=safe_int(limits.get("max_deep_research_per_day"), 0) or 0
+    )
 
     # 5) 降级标记: 只标"计数失败"的项, 真·零使用不标。
     for quota_key in degraded_quota_keys:

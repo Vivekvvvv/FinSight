@@ -8,6 +8,8 @@ import sys
 import logging
 from pathlib import Path
 
+import pytest
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -75,6 +77,94 @@ def test_usage_counts_actual_subscriptions(tmp_path, monkeypatch):
     assert usage["max_alerts"]["used"] == 2
     assert usage["max_alerts"]["remaining"] == 1  # free limit=3
     assert usage["max_alerts"]["percent"] == 67
+
+
+@pytest.mark.parametrize("count", [0, 2, 5])
+def test_usage_counts_stored_watchlist_and_respects_user_isolation(
+    tmp_path, monkeypatch, count
+):
+    _configure_storage(tmp_path)
+    from backend.services.memory import MemoryService, UserProfile
+    from backend.services.entitlements import build_usage_view
+
+    monkeypatch.setenv("MEMORY_STORAGE_PATH", str(tmp_path / "memory"))
+    memory = MemoryService()
+    assert memory.update_user_profile(
+        UserProfile(user_id="watchlist_usage", watchlist=[f"STOCK{i}" for i in range(count)])
+    )
+    assert memory.update_user_profile(
+        UserProfile(user_id="other_user", watchlist=["AAPL", "MSFT", "NVDA"])
+    )
+
+    entry = build_usage_view("watchlist_usage")["max_watchlist"]
+
+    assert entry["used"] == count
+    assert entry["limit"] == 5
+    assert entry["remaining"] == 5 - count
+    assert entry["percent"] == count * 20
+    assert entry["allowed"] is (count < 5)
+    assert "fallback_reason" not in entry
+
+
+def test_usage_watchlist_read_failure_is_marked_and_does_not_hide_other_usage(
+    tmp_path, monkeypatch, caplog
+):
+    _configure_storage(tmp_path)
+    from backend.services import memory, subscription_service
+    from backend.services.entitlements import build_usage_view
+
+    def fail(_self, _user_id):
+        raise OSError("private watchlist storage detail")
+
+    class SubService:
+        def get_subscriptions(self, **_kwargs):
+            return [{"ticker": "AAPL"}, {"ticker": "MSFT"}]
+
+    monkeypatch.setenv("MEMORY_STORAGE_PATH", str(tmp_path / "memory"))
+    monkeypatch.setattr(memory.MemoryService, "get_user_profile", fail)
+    monkeypatch.setattr(subscription_service, "get_subscription_service", lambda: SubService())
+
+    with caplog.at_level(logging.ERROR, logger="backend.services.entitlements"):
+        usage = build_usage_view("watchlist_usage")
+
+    assert usage["max_watchlist"]["used"] == 0
+    assert usage["max_watchlist"]["fallback_reason"] == "usage_count_unavailable"
+    assert usage["max_alerts"]["used"] == 2
+    assert "fallback_reason" not in usage["max_alerts"]
+    assert "private watchlist storage detail" not in caplog.text
+    assert "count watchlist failed" in caplog.text
+
+
+@pytest.mark.parametrize("endpoint", ["/api/me/usage", "/api/me/entitlements"])
+def test_usage_api_reports_exhausted_watchlist_quota(tmp_path, monkeypatch, endpoint):
+    _configure_storage(tmp_path)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api.entitlements_router import create_entitlements_router
+    from backend.security.auth import Principal, get_current_user
+    from backend.services.memory import MemoryService, UserProfile, WatchlistLimitExceeded
+
+    monkeypatch.setenv("MEMORY_STORAGE_PATH", str(tmp_path / "memory"))
+    memory = MemoryService()
+    assert memory.update_user_profile(
+        UserProfile(user_id="watchlist_api", watchlist=["AAPL", "MSFT", "NVDA", "TSLA", "AMZN"])
+    )
+    with pytest.raises(WatchlistLimitExceeded):
+        memory.add_to_watchlist("watchlist_api", "GOOGL", max_watchlist=5)
+
+    app = FastAPI()
+    app.include_router(create_entitlements_router())
+    app.dependency_overrides[get_current_user] = lambda: Principal(
+        user_id="watchlist_api", email=None, role="user", auth_type="api_key"
+    )
+    with TestClient(app) as client:
+        response = client.get(endpoint)
+
+    assert response.status_code == 200
+    entry = response.json()["usage"]["max_watchlist"]
+    assert entry["used"] == 5
+    assert entry["remaining"] == 0
+    assert entry["allowed"] is False
 
 
 def test_api_me_entitlements_returns_usage(tmp_path, monkeypatch):
