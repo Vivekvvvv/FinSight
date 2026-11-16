@@ -37,9 +37,9 @@ def _connect(db_path: Path | str) -> Iterator[sqlite3.Connection]:
     # 裸 Connection 作 with ctxmanager 只提交不关闭，句柄泄漏到外层函数结束
     # （Windows 上还会挡住 os.replace）。保持 with-conn 语义后关闭。
     conn = sqlite3.connect(str(db_path), timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
     try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         yield conn
         conn.commit()
     except BaseException:

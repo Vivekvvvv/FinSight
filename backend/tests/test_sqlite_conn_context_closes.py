@@ -111,6 +111,33 @@ def test_historical_connection_closes_when_journal_setup_fails(tmp_path, monkeyp
     assert connection.closed is True
 
 
+@pytest.mark.parametrize("statement", ["PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=30000"])
+def test_monitoring_connection_closes_when_setup_fails(tmp_path, monkeypatch, statement):
+    from backend.services import monitoring_storage as module
+
+    class BrokenConnection:
+        closed = False
+
+        def execute(self, sql):
+            if sql == statement:
+                raise sqlite3.OperationalError("simulated monitoring setup failure")
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    connection = BrokenConnection()
+    monkeypatch.setattr(module.sqlite3, "connect", lambda *_args, **_kwargs: connection)
+
+    with pytest.raises(sqlite3.OperationalError, match="monitoring setup failure"):
+        with module._connect(tmp_path / "monitoring.sqlite"):
+            pytest.fail("failed connection setup must not yield")
+
+    assert connection.closed is True
+
+
 def test_db_file_can_be_replaced_after_with(tmp_path):
     """Windows 冒烟断言：with 退出后文件未被占用，可 os.replace。"""
     import os
