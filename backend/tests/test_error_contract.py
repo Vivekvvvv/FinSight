@@ -1586,6 +1586,29 @@ def test_user_router_persist_failure_is_not_reported_as_success(path, request_kw
     assert response.json() == {"success": False, "error": "Internal server error"}
 
 
+def test_watchlist_metadata_write_failure_returns_500_and_preserves_profile(tmp_path, monkeypatch):
+    from backend.services.memory import MemoryService, UserProfile
+
+    service = MemoryService(storage_path=str(tmp_path))
+    assert service.add_to_watchlist("test-user", "AAPL", note="original") is True
+    profile_path = tmp_path / "test-user.json"
+    original = profile_path.read_bytes()
+
+    def fail_replace(_source, _target):
+        raise PermissionError("private storage failure")
+
+    monkeypatch.setattr("backend.services.memory.os.replace", fail_replace)
+    with _user_client(service, UserProfile) as client:
+        response = client.post("/api/user/watchlist/update", json={"ticker": "AAPL", "note": "changed"})
+        missing = client.post("/api/user/watchlist/update", json={"ticker": "MSFT", "note": "missing"})
+
+    assert response.status_code == 500
+    assert response.json() == {"success": False, "error": "Internal server error"}
+    assert missing.status_code == 404
+    assert profile_path.read_bytes() == original
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
 @pytest.mark.parametrize(
     ("path", "payload", "expected_error"),
     [

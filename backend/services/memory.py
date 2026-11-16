@@ -296,7 +296,7 @@ class MemoryService:
             profile = self.get_user_profile(user_id)
             if not any(item.strip().upper() == clean_ticker for item in profile.watchlist):
                 return False
-            return self.add_to_watchlist(
+            if not self.add_to_watchlist(
                 user_id,
                 clean_ticker,
                 name=name,
@@ -306,7 +306,9 @@ class MemoryService:
                 priority=priority,
                 watch_reason=watch_reason,
                 research_status=research_status,
-            )
+            ):
+                raise OSError("Failed to persist watchlist metadata")
+            return True
 
     def remove_from_watchlist(self, user_id: str, ticker: str) -> bool:
         """取消关注"""
