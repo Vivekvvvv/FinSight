@@ -277,6 +277,31 @@ def test_count_reports_since_returns_zero_when_empty(tmp_path, monkeypatch):
     assert count == 0
 
 
+@pytest.mark.parametrize("since", ["2026-05-18T00:00:00+00:00", "2026-05-18T08:00:00+08:00"])
+def test_report_quota_counts_actual_instants_across_timezone_offsets(tmp_path, monkeypatch, since):
+    from backend.services.report_index import ReportIndexStore
+
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "timezone.sqlite"))
+    store = ReportIndexStore()
+    session_id = "private:timezone-user:default"
+    dates = [
+        "2026-05-18T01:00:00+08:00",  # UTC 前一天，不计入。
+        "2026-05-17T23:30:00-02:00",  # UTC 当天，计入。
+        "2026-05-18T00:00:00Z",       # 边界时刻，计入。
+        "2026-05-17T23:59:59Z",       # 边界之前，不计入。
+    ]
+    for index, generated_at in enumerate(dates):
+        store.upsert_report(session_id=session_id, report={
+            "report_id": f"timezone-{index}", "generated_at": generated_at,
+        })
+        assert store.count_reports_since(session_id=session_id, since=since) == [0, 1, 2, 2][index]
+    store.upsert_report(session_id="private:other:default", report={
+        "report_id": "other-timezone", "generated_at": "2026-05-18T12:00:00Z",
+    })
+
+    assert store.count_reports_since(session_id=session_id, since=since) == 2
+
+
 def test_usage_fallback_logs_do_not_expose_exception_details(
     tmp_path, monkeypatch, caplog
 ):

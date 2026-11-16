@@ -735,7 +735,8 @@ class ReportIndexStore:
             sql += " AND session_id = ?"
             args.append(session_id)
         if since:
-            sql += " AND generated_at >= ?"
+            # ISO 文本的时区偏移不同，须按实际时刻比较，避免误计 UTC 当日配额。
+            sql += " AND julianday(generated_at) >= julianday(?)"
             args.append(since.strip())
         if not include_blocked:
             sql += " AND publishable = 1"
