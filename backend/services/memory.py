@@ -307,15 +307,18 @@ class MemoryService:
         clean_ticker = str(ticker or "").strip().upper()
         with _PROFILE_LOCK:
             profile = self.get_user_profile(user_id)
-            # 同时清理 ticker(原样) 与 标准化形式,避免遗留旧数据
-            removed = False
-            for variant in {ticker, clean_ticker}:
-                if variant in profile.watchlist:
-                    profile.watchlist.remove(variant)
-                    removed = True
+            # 画像接口可保存旧格式，删除时清理同一代码的所有大小写、空格与重复记录。
+            remaining = [
+                item for item in profile.watchlist
+                if item.strip().upper() != clean_ticker
+            ]
+            removed = len(remaining) != len(profile.watchlist)
+            profile.watchlist = remaining
             if isinstance(profile.watchlist_meta, dict):
-                profile.watchlist_meta.pop(clean_ticker, None)
-                profile.watchlist_meta.pop(ticker, None)
+                for variant in list(profile.watchlist_meta):
+                    if variant.strip().upper() == clean_ticker:
+                        profile.watchlist_meta.pop(variant)
+                        removed = True
             if removed:
                 return self.update_user_profile(profile)
             return True

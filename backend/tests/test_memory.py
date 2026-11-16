@@ -268,6 +268,109 @@ def test_user_router_enforces_watchlist_quota_without_blocking_duplicates(memory
     assert profile_overflow.json()["detail"]["quota"] == "max_watchlist"
 
 
+@pytest.mark.parametrize(
+    "stored_tickers, remove_ticker",
+    [
+        (["aapl"], "AAPL"),
+        ([" aApL "], "AAPL"),
+        (["AAPL", "AAPL"], "AAPL"),
+        (["aapl", "AAPL", " aApL "], " aapl "),
+    ],
+)
+def test_watchlist_remove_legacy_variants_releases_quota(
+    memory_service, tmp_path, monkeypatch, stored_tickers, remove_ticker
+):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.api.user_router import UserRouterDeps, create_user_router
+    from backend.security.auth import Principal, get_current_user
+    from backend.services import entitlements
+
+    monkeypatch.setattr(entitlements, "PLANS_FILE", tmp_path / "plans.json")
+    entitlements.reset_entitlements_service_for_tests()
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: Principal(
+        user_id="legacy-quota-user", role="user", auth_type="api_key"
+    )
+    app.include_router(create_user_router(UserRouterDeps(
+        memory_service=memory_service, user_profile_cls=UserProfile,
+    )))
+    other_tickers = ["AAPLX", "TSLA", "AMZN", "GOOGL"][:5 - len(stored_tickers)]
+    other_meta = {ticker: {"note": "keep"} for ticker in other_tickers}
+    other_profile = UserProfile(user_id="other-user", watchlist=["aapl"])
+    assert memory_service.update_user_profile(other_profile) is True
+    other_user_data = (tmp_path / "other-user.json").read_bytes()
+
+    try:
+        with TestClient(app) as client:
+            # 画像接口可以合法写入旧格式，满额时删除必须真正释放名额。
+            saved = client.post("/api/user/profile", json={"profile": {
+                "watchlist": stored_tickers + other_tickers,
+                "watchlist_meta": {
+                    **{ticker: {"note": "remove"} for ticker in stored_tickers},
+                    **other_meta,
+                },
+                "preferences": {"theme": "dark"},
+            }})
+            assert saved.status_code == 200
+            blocked = client.post("/api/user/watchlist/add", json={"ticker": "NVDA"})
+            assert blocked.status_code == 429
+            assert blocked.json()["detail"]["current"] == 5
+
+            removed = client.post("/api/user/watchlist/remove", json={"ticker": remove_ticker})
+            assert removed.status_code == 200
+            assert removed.json()["success"] is True
+            persisted = memory_service.get_user_profile("legacy-quota-user")
+            assert persisted.watchlist == other_tickers
+            assert persisted.watchlist_meta == other_meta
+            assert persisted.preferences == {"theme": "dark"}
+            assert (tmp_path / "other-user.json").read_bytes() == other_user_data
+
+            added = client.post("/api/user/watchlist/add", json={"ticker": "NVDA"})
+            assert added.status_code == 200
+            assert client.post("/api/user/watchlist/remove", json={"ticker": remove_ticker}).status_code == 200
+            assert memory_service.get_user_profile("legacy-quota-user").watchlist == other_tickers + ["NVDA"]
+    finally:
+        entitlements.reset_entitlements_service_for_tests()
+
+
+@pytest.mark.parametrize("stored_tickers", [[], ["aapl", " AAPL "]])
+def test_watchlist_remove_variants_preserves_data_on_write_failure(
+    memory_service, tmp_path, monkeypatch, stored_tickers
+):
+    user_id = "remove-failure-user"
+    profile = UserProfile(
+        user_id=user_id,
+        watchlist=stored_tickers + ["MSFT"],
+        watchlist_meta={
+            "aapl": {"note": "remove"},
+            " AAPL ": {"note": "remove"},
+            "MSFT": {"note": "keep"},
+        },
+    )
+    assert memory_service.update_user_profile(profile) is True
+    profile_path = tmp_path / f"{user_id}.json"
+    original_data = profile_path.read_bytes()
+
+    def fail_replace(_source, _target):
+        raise PermissionError("simulated write failure")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr("backend.services.memory.os.replace", fail_replace)
+        assert memory_service.remove_from_watchlist(user_id, "AAPL") is False
+
+    assert profile_path.read_bytes() == original_data
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert memory_service.remove_from_watchlist(user_id, "AAPL") is True
+    persisted = memory_service.get_user_profile(user_id)
+    assert persisted.watchlist == ["MSFT"]
+    assert persisted.watchlist_meta == {"MSFT": {"note": "keep"}}
+    after_removal = profile_path.read_bytes()
+    assert memory_service.remove_from_watchlist(user_id, "AAPL") is True
+    assert profile_path.read_bytes() == after_removal
+
+
 def test_profile_save_error_log_is_redacted(memory_service, monkeypatch, caplog):
     profile = UserProfile(user_id="save_error_user")
 
