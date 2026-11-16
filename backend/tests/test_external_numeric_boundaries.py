@@ -369,7 +369,7 @@ NUMERIC_BOUNDARY_ROUNDS_601_700 = [
     ("R657", "backend/services/entitlements.py", "build_usage_view", 'safe_int(limits.get("max_reports_per_day"), 0) or 0', 1),
     ("R658", "backend/services/entitlements.py", "build_usage_view", 'safe_int(limits.get("max_alerts"), 0) or 0', 1),
     ("R659", "backend/services/entitlements.py", "build_usage_view", 'safe_int(limits.get("max_portfolio_positions"), 0) or 0', 1),
-    ("R660", "backend/services/entitlements.py", "build_usage_view", "safe_int(limits.get(quota_key), 0) or 0", 1),
+    ("R660", "backend/services/entitlements.py", "build_usage_view", 'safe_int(limits.get("max_watchlist"), 0) or 0', 1),
     ("R661", "backend/services/entitlements.py", "_quota_entry", "safe_int(used, 0) or 0", 1),
     ("R662", "backend/services/entitlements.py", "_quota_entry", "normalized_limit = safe_int(limit, 0) or 0", 1),
     ("R663", "backend/tools/authoritative_feeds.py", "get_authoritative_media_news", "safe_int(max_results, 8) or 8", 1),

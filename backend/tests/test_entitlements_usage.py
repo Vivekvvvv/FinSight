@@ -46,6 +46,28 @@ def test_build_usage_view_returns_all_quota_keys(tmp_path):
         assert entry["plan"] == "free"
 
 
+@pytest.mark.parametrize("quota_key", ["max_watchlist", "max_deep_research_per_day"])
+@pytest.mark.parametrize("limit", [None, True, "invalid", float("nan"), float("inf"), float("-inf")])
+def test_unmetered_and_watchlist_usage_reject_invalid_limits(monkeypatch, quota_key, limit):
+    from types import SimpleNamespace
+    from backend.services import entitlements, memory, portfolio_store, report_index, subscription_service
+
+    service = SimpleNamespace(get_plan=lambda *_args, **_kwargs: "free")
+    monkeypatch.setitem(entitlements.PLAN_LIMITS, "free", {quota_key: limit})
+    monkeypatch.setattr(entitlements, "get_entitlements_service", lambda: service)
+    monkeypatch.setattr(memory.MemoryService, "get_user_profile", lambda *_args: SimpleNamespace(watchlist=[]))
+    monkeypatch.setattr(portfolio_store, "get_positions", lambda *_args: [])
+    monkeypatch.setattr(report_index, "get_report_index_store", lambda: SimpleNamespace(count_reports_since=lambda **_kwargs: 0))
+    monkeypatch.setattr(subscription_service, "get_subscription_service", lambda: SimpleNamespace(get_subscriptions=lambda **_kwargs: []))
+
+    entry = entitlements.build_usage_view("invalid_limits")[quota_key]
+
+    assert entry == {
+        "plan": "free", "used": 0, "limit": 0,
+        "remaining": 0, "percent": 100, "allowed": False,
+    }
+
+
 def test_usage_admin_unlimited(tmp_path):
     _configure_storage(tmp_path)
     from backend.services.entitlements import build_usage_view
