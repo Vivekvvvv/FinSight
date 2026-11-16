@@ -37,8 +37,8 @@ def _conn() -> Iterator[sqlite3.Connection]:
     # with-conn 语义：正常退出 commit、异常 rollback，再关闭。
     os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
     c = sqlite3.connect(_DB_PATH, timeout=30)
-    c.execute("PRAGMA journal_mode=WAL")
     try:
+        c.execute("PRAGMA journal_mode=WAL")
         yield c
         c.commit()
     except BaseException:
