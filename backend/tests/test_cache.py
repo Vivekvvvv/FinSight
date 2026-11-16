@@ -267,6 +267,40 @@ def test_max_entries_eviction():
     assert len(cache._cache) <= cache.MAX_ENTRIES + 1
 
 
+@pytest.mark.parametrize("mutate_source", [True, False])
+def test_cached_nested_data_is_isolated_from_callers(mutate_source):
+    cache = DataCache()
+    payload = {"rows": [{"price": 100.0, "tags": ["original"]}]}
+    cache.set("price:AAPL", payload, ttl=60)
+    caller_data = payload if mutate_source else cache.get("price:AAPL")
+
+    caller_data["rows"][0]["price"] = 0.0
+    caller_data["rows"][0]["tags"].append("changed")
+
+    assert cache.get("price:AAPL") == {"rows": [{"price": 100.0, "tags": ["original"]}]}
+
+
+def test_orchestrator_results_cannot_mutate_cached_quote():
+    from backend.orchestration import DataSource, ToolOrchestrator
+
+    calls = []
+
+    def fetch_quote(_ticker):
+        calls.append(True)
+        return {"price": 100.0, "change_percent": 1.0}
+
+    orchestrator = ToolOrchestrator()
+    orchestrator.sources["price"] = [DataSource("test_source", fetch_quote, 1, 60)]
+    first = orchestrator.fetch("price", "AAPL")
+    first.data["price"] = 0.0
+    cached = orchestrator.fetch("price", "AAPL")
+    assert cached.cached is True
+    assert cached.data["price"] == 100.0
+    cached.data["price"] = 1.0
+    assert orchestrator.fetch("price", "AAPL").data["price"] == 100.0
+    assert calls == [True]
+
+
 def run_all_tests():
     """运行所有测试"""
     print("=" * 60)

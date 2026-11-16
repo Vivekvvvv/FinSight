@@ -4,6 +4,7 @@ DataCache - 智能数据缓存模块
 负责缓存 API 响应，减少重复请求
 """
 
+from copy import deepcopy
 from typing import Any, Optional, Dict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -96,7 +97,7 @@ class DataCache:
             self._stats['hits'] += 1
             if entry.is_negative:
                 self._stats['negative_hits'] += 1
-            return entry.data
+            return deepcopy(entry.data)
     
     def set(
         self,
@@ -131,7 +132,7 @@ class DataCache:
             if len(self._cache) >= self.MAX_ENTRIES and key not in self._cache:
                 self._evict_locked()
             self._cache[key] = CacheEntry(
-                data=data,
+                data=deepcopy(data),
                 created_at=datetime.now(),
                 ttl_seconds=ttl,
                 is_negative=is_negative,
