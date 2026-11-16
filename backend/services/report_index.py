@@ -408,10 +408,10 @@ class ReportIndexStore:
             sql += " AND (title LIKE ? OR summary LIKE ? OR ticker LIKE ? OR user_note LIKE ?)"
             args.extend([like, like, like, like])
         if date_from:
-            sql += " AND generated_at >= ?"
+            sql += " AND julianday(generated_at) >= julianday(?)"
             args.append(date_from.strip())
         if date_to:
-            sql += " AND generated_at <= ?"
+            sql += " AND julianday(generated_at) <= julianday(?)"
             args.append(date_to.strip())
         if tag:
             sql += " AND tags_json LIKE ?"
@@ -430,12 +430,12 @@ class ReportIndexStore:
 
         # Sorting
         _SORT_MAP = {
-            "generated_at_desc": "generated_at DESC",
-            "generated_at_asc":  "generated_at ASC",
+            "generated_at_desc": "julianday(generated_at) DESC",
+            "generated_at_asc":  "julianday(generated_at) ASC",
             "confidence_desc":   "confidence_score DESC NULLS LAST",
             "updated_at_desc":   "updated_at DESC",
         }
-        order = _SORT_MAP.get(str(sort_by or ""), "generated_at DESC")
+        order = _SORT_MAP.get(str(sort_by or ""), "julianday(generated_at) DESC")
         sql += f" ORDER BY {order} LIMIT ?"
         args.append(max(1, min(500, safe_int(limit, 100) or 100)))
 

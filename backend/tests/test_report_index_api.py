@@ -5,6 +5,44 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+@pytest.mark.parametrize(
+    ("filters", "expected"),
+    [
+        ({"date_from": "2026-05-18T00:00:00+00:00"}, ["utc", "late"]),
+        ({"date_from": "2026-05-18T08:00:00+08:00"}, ["utc", "late"]),
+        ({"date_to": "2026-05-18T00:00:00+00:00"}, ["early", "utc"]),
+        ({"date_to": "2026-05-18T08:00:00+08:00"}, ["early", "utc"]),
+        ({"date_from": "2026-05-18"}, ["utc", "late"]),
+        ({"date_to": "2026-05-18"}, ["early", "utc"]),
+        ({"sort_by": "generated_at_asc"}, ["early", "utc", "late"]),
+        ({"sort_by": "generated_at_desc"}, ["late", "utc", "early"]),
+        ({"sort_by": "unknown"}, ["late", "utc", "early"]),
+        ({}, ["late", "utc", "early"]),
+    ],
+)
+def test_report_list_compares_actual_timestamps(tmp_path, monkeypatch, filters, expected):
+    from backend.services.report_index import ReportIndexStore
+
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "reports.sqlite"))
+    store = ReportIndexStore()
+    for report_id, generated_at in [
+        ("early", "2026-05-18T01:00:00+08:00"),
+        ("late", "2026-05-17T23:30:00-02:00"),
+        ("utc", "2026-05-18T00:00:00Z"),
+    ]:
+        store.upsert_report(
+            session_id="timezone-test",
+            report={"report_id": report_id, "generated_at": generated_at},
+        )
+
+    rows = store.list_reports(session_id="timezone-test", **filters)
+    ids = [row["report_id"] for row in rows]
+    if "date_from" in filters or "date_to" in filters:
+        assert sorted(ids) == sorted(expected)
+    else:
+        assert ids == expected
+
+
 def _load_main_module():
     import backend.api.main as main
 
