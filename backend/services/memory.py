@@ -237,7 +237,11 @@ class MemoryService:
             return False
         with _PROFILE_LOCK:
             profile = self.get_user_profile(user_id)
-            if clean_ticker not in profile.watchlist:
+            ticker_key = next(
+                (item for item in profile.watchlist if item.strip().upper() == clean_ticker),
+                clean_ticker,
+            )
+            if ticker_key not in profile.watchlist:
                 if max_watchlist is not None and max_watchlist >= 0 and len(profile.watchlist) >= max_watchlist:
                     raise WatchlistLimitExceeded(
                         limit=max_watchlist,
@@ -245,7 +249,9 @@ class MemoryService:
                     )
                 profile.watchlist.append(clean_ticker)
             # merge metadata (None values do not overwrite existing fields)
-            existing = profile.watchlist_meta.get(clean_ticker, {}) if isinstance(profile.watchlist_meta, dict) else {}
+            existing = profile.watchlist_meta.get(
+                ticker_key, profile.watchlist_meta.get(ticker_key.strip(), profile.watchlist_meta.get(clean_ticker, {}))
+            ) if isinstance(profile.watchlist_meta, dict) else {}
             # 毒条目值（present-None/str）会让 dict(existing) 抛 TypeError/
             # ValueError——毒化后连 API 修复路径都被堵死；归 {} 让 merge 照常
             if not isinstance(existing, dict):
@@ -268,7 +274,7 @@ class MemoryService:
             if "added_at" not in merged:
                 merged["added_at"] = datetime.now().isoformat()
             merged["updated_at"] = datetime.now().isoformat()
-            profile.watchlist_meta[clean_ticker] = merged
+            profile.watchlist_meta[ticker_key] = merged
             return self.update_user_profile(profile)
 
     def update_watchlist_meta(
@@ -288,7 +294,7 @@ class MemoryService:
         clean_ticker = str(ticker or "").strip().upper()
         with _PROFILE_LOCK:
             profile = self.get_user_profile(user_id)
-            if clean_ticker not in profile.watchlist:
+            if not any(item.strip().upper() == clean_ticker for item in profile.watchlist):
                 return False
             return self.add_to_watchlist(
                 user_id,
@@ -330,7 +336,7 @@ class MemoryService:
         items: List[Dict[str, Any]] = []
         for ticker in profile.watchlist:
             ticker_key = str(ticker).strip()
-            entry = meta.get(ticker_key, {})
+            entry = meta.get(ticker, meta.get(ticker_key, {}))
             if not entry and ticker_key.upper() != ticker_key:
                 entry = meta.get(ticker_key.upper(), {})
             # watchlist_meta 顶层校验只保证 dict、不验条目值——profile 保存 API

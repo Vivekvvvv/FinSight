@@ -335,6 +335,32 @@ def test_watchlist_remove_legacy_variants_releases_quota(
         entitlements.reset_entitlements_service_for_tests()
 
 
+@pytest.mark.parametrize("stored_ticker", ["aapl", " aApL "])
+@pytest.mark.parametrize("operation", ["add", "update"])
+def test_existing_legacy_watchlist_item_can_be_updated_at_quota(
+    memory_service, stored_ticker, operation
+):
+    user_id = "legacy-update-user"
+    profile = UserProfile(
+        user_id=user_id, watchlist=[stored_ticker, "MSFT"],
+        watchlist_meta={stored_ticker: {"name": "Apple", "tags": ["tech"], "note": "old"}},
+    )
+    assert memory_service.update_user_profile(profile) is True
+
+    if operation == "add":
+        success = memory_service.add_to_watchlist(user_id, "AAPL", note="new", max_watchlist=2)
+    else:
+        success = memory_service.update_watchlist_meta(user_id, "AAPL", note="new")
+
+    assert success is True
+    persisted = memory_service.get_user_profile(user_id)
+    assert persisted.watchlist == [stored_ticker, "MSFT"]
+    item = memory_service.list_watchlist_items(user_id)[0]
+    assert item["name"] == "Apple"
+    assert item["tags"] == ["tech"]
+    assert item["note"] == "new"
+
+
 @pytest.mark.parametrize("stored_tickers", [[], ["aapl", " AAPL "]])
 def test_watchlist_remove_variants_preserves_data_on_write_failure(
     memory_service, tmp_path, monkeypatch, stored_tickers
