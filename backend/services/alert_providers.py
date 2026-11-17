@@ -459,7 +459,7 @@ _CACHE_TTL = 300  # seconds
 
 
 def _get_cached_snapshot(ticker: str) -> Optional[PriceSnapshot]:
-    now = time.time()
+    now = time.monotonic()
     snap_ts = _PRICE_CACHE.get(ticker.upper())
     if not snap_ts:
         return None
@@ -484,4 +484,4 @@ def _get_cached_snapshot(ticker: str) -> Optional[PriceSnapshot]:
 
 
 def _set_cache_snapshot(ticker: str, snapshot: PriceSnapshot) -> None:
-    _PRICE_CACHE[ticker.upper()] = (snapshot, time.time())
+    _PRICE_CACHE[ticker.upper()] = (snapshot, time.monotonic())

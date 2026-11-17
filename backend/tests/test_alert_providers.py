@@ -358,6 +358,23 @@ def _mock_fetchers(monkeypatch, snapshots):
     return calls
 
 
+@pytest.mark.parametrize("wall_jump", [-3600, 3600])
+def test_alert_price_cache_ttl_ignores_wall_clock_jumps(monkeypatch, wall_jump):
+    clock = {"wall": 10_000.0, "mono": 1000.0}
+    snapshot = providers.PriceSnapshot("AAPL", 105.0, 5.0)
+    calls = _mock_fetchers(monkeypatch, [snapshot, None, None, None])
+    monkeypatch.setattr(providers.time, "time", lambda: clock["wall"])
+    monkeypatch.setattr(providers.time, "monotonic", lambda: clock["mono"])
+    assert providers.fetch_price_snapshot("AAPL") is snapshot
+    clock["wall"] += wall_jump
+    clock["mono"] += 30
+    assert providers.fetch_price_snapshot("AAPL") is snapshot
+    assert len(calls) == 1
+    clock["mono"] += providers._CACHE_TTL
+    assert providers.fetch_price_snapshot("AAPL") is snapshot
+    assert len(calls) == 2
+
+
 def test_snapshot_fallback_prefers_complete_quote_after_price_only_result(monkeypatch):
     partial = providers.PriceSnapshot("AAPL", 105.0, None)
     complete = providers.PriceSnapshot("AAPL", 105.0, 5.0)
@@ -409,7 +426,7 @@ def test_mismatched_cached_quote_is_evicted_before_source_fallback(monkeypatch, 
     complete = providers.PriceSnapshot("AAPL", 105.0, 5.0)
     calls = _mock_fetchers(monkeypatch, [complete, None, None, None])
     providers._PRICE_CACHE["AAPL"] = (
-        providers.PriceSnapshot(cached_ticker, 300.0, 10.0), providers.time.time(),
+        providers.PriceSnapshot(cached_ticker, 300.0, 10.0), providers.time.monotonic(),
     )
 
     snapshot = providers.fetch_price_snapshot("AAPL")
@@ -422,7 +439,7 @@ def test_mismatched_cached_quote_is_evicted_before_source_fallback(monkeypatch, 
 def test_matching_cached_ticker_accepts_case_and_spaces_without_fetch(monkeypatch):
     calls = _mock_fetchers(monkeypatch, [None, None, None, None])
     snapshot = providers.PriceSnapshot(" aapl ", 105.0, 5.0)
-    providers._PRICE_CACHE["AAPL"] = (snapshot, providers.time.time())
+    providers._PRICE_CACHE["AAPL"] = (snapshot, providers.time.monotonic())
 
     assert providers.fetch_price_snapshot("AAPL") == snapshot
     assert calls == []
@@ -443,7 +460,7 @@ def test_invalid_quote_numbers_do_not_block_source_fallback(monkeypatch, origin,
     sources = [invalid, complete, None, None] if origin == "provider" else [complete, None, None, None]
     calls = _mock_fetchers(monkeypatch, sources)
     if origin == "cache":
-        providers._PRICE_CACHE["AAPL"] = (invalid, providers.time.time())
+        providers._PRICE_CACHE["AAPL"] = (invalid, providers.time.monotonic())
 
     assert providers.fetch_price_snapshot("AAPL") is complete
     assert calls == (["_fetch_with_stooq", "_fetch_with_yfinance"] if origin == "provider" else ["_fetch_with_stooq"])
@@ -468,7 +485,7 @@ def test_overflowing_yfinance_percentage_falls_back_to_healthy_quote(monkeypatch
 def test_valid_cached_quote_numbers_keep_cache_hit(monkeypatch, change_percent):
     calls = _mock_fetchers(monkeypatch, [None, None, None, None])
     snapshot = providers.PriceSnapshot("AAPL", 105.0, change_percent)
-    providers._PRICE_CACHE["AAPL"] = (snapshot, providers.time.time())
+    providers._PRICE_CACHE["AAPL"] = (snapshot, providers.time.monotonic())
 
     assert providers.fetch_price_snapshot("AAPL") is snapshot
     assert calls == []
@@ -479,7 +496,7 @@ def test_price_only_cache_allows_percentage_fallback_without_extending_its_age(m
     partial = providers.PriceSnapshot("AAPL", 105.0, None)
     complete = providers.PriceSnapshot("AAPL", 110.0, 10.0) if available else None
     calls = _mock_fetchers(monkeypatch, [None, complete, None, None])
-    monkeypatch.setattr(providers.time, "time", lambda: 1000.0)
+    monkeypatch.setattr(providers.time, "monotonic", lambda: 1000.0)
     providers._PRICE_CACHE["AAPL"] = (partial, 900.0)
 
     result = providers.fetch_price_snapshot("AAPL")
