@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from fastapi.testclient import TestClient
 from backend.api import auth_identity
 
@@ -287,3 +288,44 @@ def test_rag_auth_cache_hashes_tokens_and_enforces_capacity(monkeypatch):
     assert len(main._auth_identity_cache) == 2
     assert all(token not in main._auth_identity_cache for token in raw_tokens)
     assert all(len(key) == 64 for key in main._auth_identity_cache)
+
+
+@pytest.mark.parametrize('wall_jump', [-3600, 3600])
+@pytest.mark.parametrize('initially_authorized', [True, False])
+def test_rag_auth_cache_ttl_ignores_wall_clock_jumps(monkeypatch, wall_jump, initially_authorized):
+    clock = {'wall': 10_000.0, 'mono': 1000.0}
+    calls = []
+    monkeypatch.setenv('SUPABASE_URL', 'https://supabase.test')
+    monkeypatch.setenv('SUPABASE_PUBLISHABLE_KEY', 'test-key')
+    monkeypatch.setenv('RAG_OBSERVABILITY_AUTH_CACHE_SECONDS', '60')
+    monkeypatch.setattr(auth_identity, '_auth_identity_cache', {})
+    monkeypatch.setattr(auth_identity.time, 'time', lambda: clock['wall'])
+    monkeypatch.setattr(auth_identity.time, 'monotonic', lambda: clock['mono'])
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"id":"user-1"}'
+
+    def lookup(*_args, **_kwargs):
+        authorized = initially_authorized if not calls else not initially_authorized
+        calls.append(authorized)
+        if not authorized:
+            raise auth_identity.urllib_error.HTTPError('https://supabase.test', 401, 'Unauthorized', {}, None)
+        return Response()
+
+    monkeypatch.setattr(auth_identity.urllib_request, 'urlopen', lookup)
+    initial = auth_identity._fetch_supabase_user_identity('test-token')
+    assert bool(initial) is initially_authorized
+    clock['wall'] += wall_jump
+    clock['mono'] += 30
+    assert auth_identity._fetch_supabase_user_identity('test-token') == initial
+    assert len(calls) == 1
+    clock['mono'] += 30
+    assert bool(auth_identity._fetch_supabase_user_identity('test-token')) is not initially_authorized
+    assert len(calls) == 2

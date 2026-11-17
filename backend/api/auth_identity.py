@@ -126,7 +126,7 @@ def _fetch_supabase_user_identity(token: str) -> Optional[Dict[str, Any]]:
     if not normalized:
         return None
 
-    now = time.time()
+    now = time.monotonic()
     cache_key = _auth_token_cache_key(normalized)
     with _auth_identity_lock:
         _prune_auth_identity_cache(now, incoming_key=cache_key)
