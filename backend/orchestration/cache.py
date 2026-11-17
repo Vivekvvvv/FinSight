@@ -7,11 +7,12 @@ DataCache - 智能数据缓存模块
 from copy import deepcopy
 from typing import Any, Optional, Dict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 import threading
 import math
 import os
 import random
+import time
 
 
 @dataclass
@@ -23,10 +24,11 @@ class CacheEntry:
     hits: int = 0
     is_negative: bool = False
     reason: Optional[str] = None
+    created_monotonic: float = field(default_factory=lambda: time.monotonic())
     
     def is_expired(self) -> bool:
         """检查是否过期"""
-        return datetime.now() > self.created_at + timedelta(seconds=self.ttl_seconds)
+        return time.monotonic() - self.created_monotonic >= self.ttl_seconds
 
 
 class DataCache:
@@ -146,7 +148,7 @@ class DataCache:
             del self._cache[k]
         if len(self._cache) >= self.MAX_ENTRIES:
             evict_count = max(1, self.MAX_ENTRIES // 10)
-            oldest = sorted(self._cache.items(), key=lambda kv: kv[1].created_at)[:evict_count]
+            oldest = sorted(self._cache.items(), key=lambda kv: kv[1].created_monotonic)[:evict_count]
             for k, _ in oldest:
                 del self._cache[k]
 

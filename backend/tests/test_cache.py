@@ -36,6 +36,67 @@ def test_cache_rejects_boolean_ttl(value):
         cache.set("key", "value", ttl=value)
 
 
+@pytest.mark.parametrize("wall_jump", [-3600, 3600])
+def test_cache_ttl_ignores_wall_clock_jumps(monkeypatch, wall_jump):
+    from datetime import datetime, timedelta
+    from backend.orchestration import cache as module
+
+    clock = {"wall": datetime(2026, 11, 17, 12), "mono": 1000.0}
+
+    class FakeDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock["wall"]
+
+    monkeypatch.setattr(module, "datetime", FakeDatetime)
+    monkeypatch.setattr(time, "monotonic", lambda: clock["mono"])
+    monkeypatch.setenv("CACHE_JITTER_RATIO", "0")
+    cache = DataCache()
+    cache.set("price:AAPL", {"price": 100}, ttl=60)
+    clock["wall"] += timedelta(seconds=wall_jump)
+    clock["mono"] += 30
+    assert cache.get("price:AAPL") == {"price": 100}
+    clock["mono"] += 31
+    assert cache.get("price:AAPL") is None
+
+
+def test_cache_evicts_oldest_entry_after_wall_clock_rollback(monkeypatch):
+    from datetime import datetime, timedelta
+    from backend.orchestration import cache as module
+
+    clock = {"wall": datetime(2026, 11, 17, 12), "mono": 1000.0}
+
+    class FakeDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock["wall"]
+
+    monkeypatch.setattr(module, "datetime", FakeDatetime)
+    monkeypatch.setattr(time, "monotonic", lambda: clock["mono"])
+    monkeypatch.setenv("CACHE_JITTER_RATIO", "0")
+    cache = DataCache()
+    cache.MAX_ENTRIES = 2
+    cache.set("old", "old", ttl=300)
+    clock["wall"] -= timedelta(hours=1)
+    clock["mono"] += 30
+    cache.set("recent", "recent", ttl=300)
+    cache.set("new", "new", ttl=300)
+    assert cache.get("old") is None
+    assert cache.get("recent") == "recent"
+    assert cache.get("new") == "new"
+
+
+def test_cache_expiry_boundary_uses_elapsed_time(monkeypatch):
+    monkeypatch.setenv("CACHE_JITTER_RATIO", "0")
+    clock = {"mono": 1000.0}
+    monkeypatch.setattr(time, "monotonic", lambda: clock["mono"])
+    cache = DataCache()
+    cache.set("key", "value", ttl=60)
+    clock["mono"] += 60
+    assert "key" not in cache
+    assert cache.cleanup_expired() == 1
+
+
 def test_basic_set_get():
     """测试基本的 set/get 操作"""
     cache = DataCache()
