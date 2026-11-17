@@ -145,10 +145,10 @@ class ReportIndexStore:
         # 外层函数结束，Windows 上还会挡住 os.replace（report_index_rollback
         # 回滚目标正是本库）。保持 with-conn 语义（正常 commit/异常 rollback）后关闭。
         conn = sqlite3.connect(self._path, check_same_thread=False, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
         try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
             yield conn
             conn.commit()
         except BaseException:

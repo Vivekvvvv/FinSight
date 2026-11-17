@@ -138,6 +138,50 @@ def test_monitoring_connection_closes_when_setup_fails(tmp_path, monkeypatch, st
     assert connection.closed is True
 
 
+@pytest.mark.parametrize(
+    ("module_name", "statement"),
+    [
+        ("research_notes", "PRAGMA journal_mode=WAL"),
+        ("research_notes", "PRAGMA foreign_keys=ON"),
+        ("research_notes", "PRAGMA busy_timeout=30000"),
+        ("notes_rag", "PRAGMA journal_mode=WAL"),
+        ("report_index", "PRAGMA journal_mode=WAL"),
+        ("report_index", "PRAGMA busy_timeout=30000"),
+    ],
+)
+def test_note_and_report_connections_close_when_setup_fails(tmp_path, monkeypatch, module_name, statement):
+    import importlib
+
+    module = importlib.import_module(f"backend.services.{module_name}")
+    if module_name == "report_index":
+        monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "reports.sqlite"))
+        store = module.ReportIndexStore()
+        connect = store._connect
+    else:
+        monkeypatch.setattr(module, "_DB_PATH", tmp_path / "notes.sqlite")
+        connect = module._conn if module_name == "notes_rag" else module._connect
+
+    class BrokenConnection:
+        closed = False
+
+        def execute(self, sql):
+            if sql == statement:
+                raise sqlite3.OperationalError("simulated database setup failure")
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    connection = BrokenConnection()
+    monkeypatch.setattr(module.sqlite3, "connect", lambda *_args, **_kwargs: connection)
+    with pytest.raises(sqlite3.OperationalError, match="database setup failure"):
+        with connect():
+            pytest.fail("failed connection setup must not yield")
+    assert connection.closed is True
+
+
 def test_db_file_can_be_replaced_after_with(tmp_path):
     """Windows 冒烟断言：with 退出后文件未被占用，可 os.replace。"""
     import os

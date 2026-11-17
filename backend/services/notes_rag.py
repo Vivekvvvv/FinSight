@@ -36,8 +36,8 @@ def _conn() -> Iterator[sqlite3.Connection]:
     # （Windows 上还会挡住 os.replace）。保持 with-conn 语义后关闭。
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(str(_DB_PATH), timeout=30, isolation_level=None)
-    c.execute("PRAGMA journal_mode=WAL")
     try:
+        c.execute("PRAGMA journal_mode=WAL")
         yield c
         c.commit()
     except BaseException:
