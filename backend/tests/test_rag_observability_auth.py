@@ -329,3 +329,63 @@ def test_rag_auth_cache_ttl_ignores_wall_clock_jumps(monkeypatch, wall_jump, ini
     clock['mono'] += 30
     assert bool(auth_identity._fetch_supabase_user_identity('test-token')) is not initially_authorized
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize('changed_setting', ['SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY'])
+@pytest.mark.parametrize('initially_authorized', [True, False])
+def test_auth_cache_does_not_reuse_identity_after_config_change(monkeypatch, changed_setting, initially_authorized):
+    monkeypatch.setenv('SUPABASE_URL', 'https://supabase.test')
+    monkeypatch.setenv('SUPABASE_PUBLISHABLE_KEY', 'test-key')
+    monkeypatch.setattr(auth_identity, '_auth_identity_cache', {})
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"id":"user-1"}'
+
+    def lookup(request, **_kwargs):
+        authorized = initially_authorized if not calls else not initially_authorized
+        calls.append((request.full_url, request.get_header('Apikey')))
+        if not authorized:
+            raise auth_identity.urllib_error.HTTPError(request.full_url, 401, 'Unauthorized', {}, None)
+        return Response()
+
+    monkeypatch.setattr(auth_identity.urllib_request, 'urlopen', lookup)
+    assert bool(auth_identity._fetch_supabase_user_identity('test-token')) is initially_authorized
+    replacement = 'https://replacement.test' if changed_setting == 'SUPABASE_URL' else 'replacement-key'
+    monkeypatch.setenv(changed_setting, replacement)
+    assert bool(auth_identity._fetch_supabase_user_identity('test-token')) is not initially_authorized
+    assert len(calls) == 2
+    assert calls[-1][0 if changed_setting == 'SUPABASE_URL' else 1] == (
+        replacement + '/auth/v1/user' if changed_setting == 'SUPABASE_URL' else replacement
+    )
+    assert all('test-token' not in key and 'replacement-key' not in key for key in auth_identity._auth_identity_cache)
+
+
+def test_auth_cache_cannot_bypass_removed_upstream_configuration(monkeypatch):
+    monkeypatch.setenv('SUPABASE_URL', 'https://supabase.test')
+    monkeypatch.setenv('SUPABASE_PUBLISHABLE_KEY', 'test-key')
+    monkeypatch.setattr(auth_identity, '_auth_identity_cache', {})
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"id":"user-1"}'
+
+    monkeypatch.setattr(auth_identity.urllib_request, 'urlopen', lambda *_args, **_kwargs: Response())
+    assert auth_identity._fetch_supabase_user_identity('test-token')['user_id'] == 'user-1'
+    for setting in ('SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'VITE_SUPABASE_URL', 'VITE_SUPABASE_PUBLISHABLE_KEY'):
+        monkeypatch.delenv(setting, raising=False)
+    with pytest.raises(RuntimeError, match='auth not configured'):
+        auth_identity._fetch_supabase_user_identity('test-token')

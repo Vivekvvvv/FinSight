@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import time
 from threading import Lock
@@ -126,17 +127,17 @@ def _fetch_supabase_user_identity(token: str) -> Optional[Dict[str, Any]]:
     if not normalized:
         return None
 
+    supabase_url, publishable_key = _resolve_supabase_auth_config()
+    if not supabase_url or not publishable_key:
+        raise RuntimeError("RAG diagnostics auth not configured")
+
     now = time.monotonic()
-    cache_key = _auth_token_cache_key(normalized)
+    cache_key = _auth_token_cache_key(json.dumps([supabase_url, publishable_key, normalized]))
     with _auth_identity_lock:
         _prune_auth_identity_cache(now, incoming_key=cache_key)
         cached = _auth_identity_cache.get(cache_key)
         if cached:
             return cached[1]
-
-    supabase_url, publishable_key = _resolve_supabase_auth_config()
-    if not supabase_url or not publishable_key:
-        raise RuntimeError("RAG diagnostics auth not configured")
 
     request_obj = urllib_request.Request(
         f"{supabase_url}/auth/v1/user",
