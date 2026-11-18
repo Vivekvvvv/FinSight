@@ -414,8 +414,18 @@ class ReportIndexStore:
             sql += " AND julianday(generated_at) <= julianday(?)"
             args.append(date_to.strip())
         if tag:
-            sql += " AND tags_json LIKE ?"
-            args.append(f'%"{tag.strip()}"%')
+            sql += """
+                AND EXISTS (
+                    SELECT 1 FROM json_each(
+                        CASE WHEN json_valid(tags_json) THEN
+                            CASE WHEN json_type(tags_json) = 'array'
+                                 THEN tags_json ELSE '[]' END
+                        ELSE '[]' END
+                    )
+                    WHERE type = 'text' AND value = ?
+                )
+            """
+            args.append(tag.strip())
         if source_type:
             sql += " AND source_type = ?"
             args.append(source_type.strip())

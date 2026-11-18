@@ -50,6 +50,41 @@ def _load_main_module():
     return main
 
 
+@pytest.mark.parametrize(
+    ("tag", "other"),
+    [
+        ("growth%", "growth-stock"),
+        ("tech_ai", "tech-ai"),
+        ('CEO "quote"', "CEO quote"),
+        ("folder\\report", "folder/report"),
+        ("AI", "ai"),
+        ("财报", "财报分析"),
+    ],
+)
+def test_report_tag_filter_matches_literal_json_array_element(tmp_path, monkeypatch, tag, other):
+    from backend.services.report_index import ReportIndexStore
+
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "reports.sqlite"))
+    store = ReportIndexStore()
+    for report_id, tags in [("match", [tag]), ("other", [other]), ("empty", [])]:
+        store.upsert_report(session_id="tag-test", report={"report_id": report_id, "tags": tags})
+    store.upsert_report(session_id="other-session", report={"report_id": "private", "tags": [tag]})
+    assert [row["report_id"] for row in store.list_reports(session_id="tag-test", tag=tag)] == ["match"]
+
+
+def test_report_tag_filter_ignores_corrupt_and_non_array_tags(tmp_path, monkeypatch):
+    from backend.services.report_index import ReportIndexStore
+
+    monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(tmp_path / "reports.sqlite"))
+    store = ReportIndexStore()
+    for report_id in ("valid", "corrupt", "object", "scalar"):
+        store.upsert_report(session_id="tag-test", report={"report_id": report_id, "tags": ["ai"]})
+    with store._connect() as conn:
+        for report_id, raw in [("corrupt", '{broken "ai"'), ("object", '{"tag":"ai"}'), ("scalar", '"ai"')]:
+            conn.execute("UPDATE report_index SET tags_json=? WHERE report_id=?", (raw, report_id))
+    assert [row["report_id"] for row in store.list_reports(session_id="tag-test", tag="ai")] == ["valid"]
+
+
 def test_report_index_list_replay_and_favorite_flow(tmp_path, monkeypatch):
     sqlite_path = tmp_path / "report_index.sqlite"
     monkeypatch.setenv("REPORT_INDEX_SQLITE_PATH", str(sqlite_path))
