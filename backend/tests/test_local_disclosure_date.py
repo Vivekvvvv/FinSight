@@ -7,6 +7,41 @@ from __future__ import annotations
 import backend.tools.local_disclosure as ld
 
 
+def test_local_filings_search_failure_is_not_reported_as_no_filings(monkeypatch, caplog):
+    def fail_search(_query):
+        raise TimeoutError("PRIVATE_SEARCH_TOKEN")
+
+    monkeypatch.setattr(ld, "search", fail_search)
+    payload = ld.get_local_market_filings("600519.SS")
+    assert payload["count"] == 0
+    assert payload["error"] == "search_failed"
+    assert "PRIVATE_SEARCH_TOKEN" not in str(payload)
+    assert "PRIVATE_SEARCH_TOKEN" not in caplog.text
+
+
+def test_local_filings_successful_empty_search_is_not_a_failure(monkeypatch):
+    monkeypatch.setattr(ld, "search", lambda _query: "")
+    payload = ld.get_local_market_filings("600519.SS")
+    assert payload["count"] == 0
+    assert payload["error"] is None
+
+
+def test_local_filings_partial_failure_preserves_valid_filings(monkeypatch):
+    calls = []
+
+    def search(_query):
+        calls.append(_query)
+        if len(calls) == 1:
+            raise TimeoutError("upstream unavailable")
+        return "[2026-11-18 annual report](https://www.cninfo.com.cn/report)"
+
+    monkeypatch.setattr(ld, "search", search)
+    payload = ld.get_local_market_filings("600519.SS", limit=1)
+    assert payload["count"] == 1
+    assert payload["error"] is None
+    assert payload["filings"][0]["filing_date"] == "2026-11-18"
+
+
 def test_extract_date_rejects_impossible_iso_month_day():
     assert ld._extract_date("公告版本 2026.13.45 最终稿") is None
 

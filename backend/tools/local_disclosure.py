@@ -196,10 +196,12 @@ def get_local_market_filings(ticker: str, limit: int = 8) -> dict[str, Any]:
 
     rows: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
+    successful_searches = 0
 
     for query in _build_queries(ticker_norm, market):
         try:
             raw = search(query)
+            successful_searches += 1
         except Exception as exc:
             logger.info("[LocalDisclosure] Search failed: %s", type(exc).__name__)
             continue
@@ -252,7 +254,7 @@ def get_local_market_filings(ticker: str, limit: int = 8) -> dict[str, Any]:
         "source": "local_disclosure_free",
         "filings": rows,
         "count": len(rows),
-        "error": None,
+        "error": None if successful_searches else "search_failed",
     }
 
 
