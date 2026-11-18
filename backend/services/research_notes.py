@@ -354,7 +354,8 @@ def search_notes(
     Returns:
         匹配的笔记列表
     """
-    search_pattern = f"%{query}%"
+    escaped_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    search_pattern = f"%{escaped_query}%"
 
     with _db_lock, _connect() as conn:
         rows = conn.execute("""
@@ -365,7 +366,7 @@ def search_notes(
             WHERE session_id = ? AND user_id = ?
               AND deleted = 0
               AND (? IS NULL OR ticker = ? COLLATE NOCASE)
-              AND (title LIKE ? OR content LIKE ?)
+              AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')
             ORDER BY updated_at DESC
             LIMIT ? OFFSET ?
         """, (session_id, user_id, ticker or None, ticker or None, search_pattern, search_pattern, limit, offset)).fetchall()

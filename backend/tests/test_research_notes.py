@@ -3,7 +3,44 @@
 
 使用项目实际数据库，测试后清理数据
 """
+import pytest
+
 from backend.services import research_notes
+
+
+@pytest.mark.parametrize("query, other", [
+    ("10%", "100"),
+    ("profit_margin", "profitXmargin"),
+    ("\\", "plain"),
+    ("\\%_", "\\other"),
+    ("增长", "营收"),
+    ("O'Reilly", "Reilly"),
+])
+@pytest.mark.parametrize("field", ["title", "content"])
+def test_search_notes_matches_literal_keyword(tmp_path, monkeypatch, query, other, field):
+    monkeypatch.setattr(research_notes, "_DB_PATH", tmp_path / "notes.db")
+    with research_notes._db_lock, research_notes._connect() as conn:
+        for note_id, text, session, user, deleted in [
+            ("match", query, "session", "user", 0),
+            ("other", other, "session", "user", 0),
+            ("private", query, "session", "other", 0),
+            ("other_session", query, "other", "user", 0),
+            ("deleted", query, "session", "user", 1),
+        ]:
+            conn.execute(
+                """
+                INSERT INTO research_notes (
+                    note_id, session_id, user_id, title, content, deleted, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, '2026-11-18T00:00:00+00:00', '2026-11-18T00:00:00+00:00')
+                """,
+                (note_id, session, user,
+                 f"prefix {text} suffix" if field == "title" else "note",
+                 f"prefix {text} suffix" if field == "content" else "", deleted),
+            )
+
+    hits = research_notes.search_notes("session", "user", query)
+
+    assert [note["note_id"] for note in hits] == ["match"]
 
 
 def test_parse_tags_sanitizes_corrupt_and_legacy_values(caplog):
