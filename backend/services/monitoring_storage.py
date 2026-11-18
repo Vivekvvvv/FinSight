@@ -307,8 +307,12 @@ class MonitoringStorage:
                 SELECT
                     COUNT(*) as total_records,
                     COUNT(DISTINCT source_name) as source_count,
-                    MIN(timestamp) as oldest_record,
-                    MAX(timestamp) as newest_record
+                    (SELECT timestamp FROM health_records
+                     WHERE julianday(timestamp) IS NOT NULL
+                     ORDER BY julianday(timestamp), id LIMIT 1) as oldest_record,
+                    (SELECT timestamp FROM health_records
+                     WHERE julianday(timestamp) IS NOT NULL
+                     ORDER BY julianday(timestamp) DESC, id LIMIT 1) as newest_record
                 FROM health_records
             """)
             row = cursor.fetchone()

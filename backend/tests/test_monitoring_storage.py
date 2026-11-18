@@ -81,6 +81,39 @@ def test_monitoring_windows_compare_instants_across_timestamp_formats(tmp_path, 
         assert remaining == set(timestamps[1:])
 
 
+@pytest.mark.parametrize("timestamps, oldest, newest", [
+    ([], None, None),
+    (["2026-11-17T12:00:00"], "2026-11-17T12:00:00", "2026-11-17T12:00:00"),
+    (["invalid"], None, None),
+    (["invalid", "2026-11-17T12:00:00"], "2026-11-17T12:00:00", "2026-11-17T12:00:00"),
+    (["2026-11-17T20:30:00+09:00", "2026-11-17T10:30:00-02:00"],
+     "2026-11-17T20:30:00+09:00", "2026-11-17T10:30:00-02:00"),
+    (["2026-11-17T12:00:00", "2026-11-17T12:00:00.100000+00:00",
+      "2026-11-17T13:00:00+01:00"],
+     "2026-11-17T12:00:00", "2026-11-17T12:00:00.100000+00:00"),
+])
+def test_stats_report_chronological_timestamp_extremes(tmp_path, timestamps, oldest, newest):
+    store = MonitoringStorage(tmp_path / "monitoring.db")
+    with _connect(store.db_path) as conn:
+        conn.executemany(
+            """
+            INSERT INTO health_records (
+                timestamp, source_name, status, success_rate,
+                avg_response_time_ms, total_requests, success_count,
+                failure_count, consecutive_failures, is_healthy
+            ) VALUES (?, 'source', 'healthy', 99.0, 30.0, 10, 10, 0, 0, 1)
+            """,
+            [(stamp,) for stamp in timestamps],
+        )
+
+    stats = store.get_stats()
+
+    assert stats["total_records"] == len(timestamps)
+    assert stats["source_count"] == int(bool(timestamps))
+    assert stats["oldest_record"] == oldest
+    assert stats["newest_record"] == newest
+
+
 def test_saved_timestamp_is_timezone_aware(tmp_path):
     store = MonitoringStorage(tmp_path / "mon.db")
     store.save_health_snapshot(_snapshot())
