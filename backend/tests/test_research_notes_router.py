@@ -18,6 +18,48 @@ from backend.security.auth import Principal, get_current_user
 from backend.services import research_notes
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method, path, kwargs, service_name, result", [
+    ("POST", "/api/research-notes", {"json": {"session_id": "s", "title": "note"}}, "create_note", "note_test"),
+    ("GET", "/api/research-notes", {"params": {"session_id": "s"}}, "list_notes", []),
+    ("GET", "/api/research-notes", {"params": {"session_id": "s", "q": "note"}}, "search_notes", []),
+    ("GET", "/api/research-notes/note_test", {}, "get_note", {"user_id": "user"}),
+    ("PUT", "/api/research-notes/note_test", {"json": {"title": "updated"}}, "update_note", True),
+    ("DELETE", "/api/research-notes/note_test", {}, "delete_note", True),
+    ("POST", "/api/research-notes/note_test/images", {"files": {"file": ("test.png", b"image", "image/png")}}, "get_note", {"user_id": "user"}),
+])
+async def test_notes_storage_runs_outside_event_loop(monkeypatch, method, path, kwargs, service_name, result):
+    import threading
+    import httpx
+    from fastapi import FastAPI
+    from backend.api.research_notes_router import ResearchNotesRouterDeps, create_research_notes_router
+    from backend.services import note_images
+
+    loop_thread = threading.get_ident()
+    calls = []
+
+    def store_call(*_args, **_kwargs):
+        calls.append(threading.get_ident())
+        return result
+
+    async def save_image(**_kwargs):
+        return "/image.png"
+
+    monkeypatch.setattr(research_notes, "get_note", lambda _id: {"user_id": "user"})
+    monkeypatch.setattr(research_notes, service_name, store_call)
+    monkeypatch.setattr(note_images, "delete_all_images", lambda *_args: None)
+    monkeypatch.setattr(note_images, "save_image", save_image)
+    test_app = FastAPI()
+    test_app.include_router(create_research_notes_router(ResearchNotesRouterDeps(resolve_thread_id=lambda value: value)))
+    test_app.dependency_overrides[get_current_user] = lambda: Principal(user_id="user", auth_type="api_key")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.request(method, path, **kwargs)
+
+    assert response.status_code == 200
+    assert calls
+    assert all(thread_id != loop_thread for thread_id in calls)
+
+
 @pytest.mark.parametrize("query", [None, "增长"])
 @pytest.mark.parametrize("ticker, offset, expected", [
     (None, 0, ["nvda"]),

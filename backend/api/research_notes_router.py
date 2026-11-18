@@ -2,6 +2,7 @@
 """Research Notes API Router"""
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Annotated, Any, Callable, Optional
@@ -66,7 +67,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
     router = APIRouter(tags=["Research Notes"])
 
     @router.post("/api/research-notes")
-    async def create_note(
+    def create_note(
         req: CreateNoteRequest,
         current_user: Principal = Depends(get_current_user),
     ):
@@ -105,7 +106,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/research-notes")
-    async def list_notes(
+    def list_notes(
         session_id: str,
         user_id: str = "default_user",
         ticker: Optional[str] = Query(None, max_length=32),
@@ -164,7 +165,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
     # 注意：必须注册在 GET /api/research-notes/{note_id} 之前，
     # 否则 "semantic-search" 会被当作 note_id 匹配而永远 404。
     @router.get("/api/research-notes/semantic-search")
-    async def semantic_search(
+    def semantic_search(
         session_id: str,
         user_id: str = "default_user",
         q: str = Query("", max_length=2048),
@@ -217,7 +218,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/research-notes/{note_id}")
-    async def get_note(
+    def get_note(
         note_id: NoteIdPath,
         current_user: Principal = Depends(get_current_user),
     ):
@@ -244,7 +245,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.put("/api/research-notes/{note_id}")
-    async def update_note(
+    def update_note(
         note_id: NoteIdPath,
         req: UpdateNoteRequest,
         current_user: Principal = Depends(get_current_user),
@@ -286,7 +287,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.delete("/api/research-notes/{note_id}")
-    async def delete_note(
+    def delete_note(
         note_id: NoteIdPath,
         current_user: Principal = Depends(get_current_user),
     ):
@@ -330,7 +331,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
         """上传图片到笔记"""
         try:
             # 验证笔记存在和权限
-            note = research_notes.get_note(note_id)
+            note = await asyncio.to_thread(research_notes.get_note, note_id)
             if not note:
                 raise HTTPException(status_code=404, detail="Note not found")
 
@@ -358,7 +359,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/notes/images/{user_id}/{note_id}/{filename}")
-    async def get_image(
+    def get_image(
         user_id: UserIdPath,
         note_id: NoteIdPath,
         filename: ImageFilenamePath,
@@ -390,7 +391,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.get("/api/research-notes/{note_id}/images")
-    async def list_note_images(
+    def list_note_images(
         note_id: NoteIdPath,
         current_user: Principal = Depends(get_current_user),
     ):
@@ -420,7 +421,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.delete("/api/research-notes/{note_id}/images/{filename}")
-    async def delete_image(
+    def delete_image(
         note_id: NoteIdPath,
         filename: ImageFilenamePath,
         current_user: Principal = Depends(get_current_user),
@@ -452,7 +453,7 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
             raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     @router.post("/api/research-notes/vectorize-all")
-    async def vectorize_all(
+    def vectorize_all(
         session_id: str,
         user_id: str,
         current_user: Principal = Depends(get_current_user),
