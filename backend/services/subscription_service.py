@@ -176,7 +176,9 @@ class SubscriptionService:
                     valid_events = []
                     for event in iter_dict_items(sub.get("recent_events") or []):
                         try:
-                            self._to_utc_naive(self._parse_iso(str(event.get("triggered_at") or "")))
+                            triggered_at = self._to_utc_naive(self._parse_iso(str(event.get("triggered_at") or "")))
+                            if triggered_at is None:
+                                raise ValueError("invalid alert event timestamp")
                         except (ValueError, OverflowError):
                             if self.subscriptions_file.exists():
                                 backup_path = self.subscriptions_file.with_name(

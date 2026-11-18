@@ -923,8 +923,15 @@ def test_read_subscription_snapshot_cannot_modify_persisted_user_settings(monkey
     assert saved["recent_events"][0]["metadata"]["nested"]["levels"] == ["high"]
 
 
-@pytest.mark.parametrize("timestamp", ["0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-14:00"])
-def test_overflowing_stored_event_is_backed_up_without_losing_subscriptions(monkeypatch, tmp_path, caplog, timestamp):
+@pytest.mark.parametrize("timestamp", [
+    None,
+    "",
+    "not-a-date",
+    "2026-02-30T00:00:00",
+    "0001-01-01T00:00:00+14:00",
+    "9999-12-31T23:59:59-14:00",
+])
+def test_invalid_stored_event_is_backed_up_without_losing_subscriptions(monkeypatch, tmp_path, caplog, timestamp):
     from backend.services import subscription_service as subs
 
     storage_path = tmp_path / "subscriptions.json"
@@ -954,7 +961,8 @@ def test_overflowing_stored_event_is_backed_up_without_losing_subscriptions(monk
     assert len(list(tmp_path.glob("*.corrupt"))) == 1
 
 
-def test_overflowing_event_backup_failure_does_not_overwrite_storage(monkeypatch, tmp_path):
+@pytest.mark.parametrize("timestamp", [None, "", "not-a-date", "9999-12-31T23:59:59-14:00"])
+def test_invalid_event_backup_failure_does_not_overwrite_storage(monkeypatch, tmp_path, timestamp):
     from backend.services import subscription_service as subs
 
     storage_path = tmp_path / "subscriptions.json"
@@ -963,7 +971,7 @@ def test_overflowing_event_backup_failure_does_not_overwrite_storage(monkeypatch
     email = "alice@example.invalid"
     assert service.subscribe(email, "AAPL", price_threshold=3.0)
     payload = json.loads(storage_path.read_text(encoding="utf-8"))
-    payload[email][0]["recent_events"] = [{"triggered_at": "9999-12-31T23:59:59-14:00"}]
+    payload[email][0]["recent_events"] = [{"triggered_at": timestamp}]
     storage_path.write_text(json.dumps(payload), encoding="utf-8")
     before = storage_path.read_bytes()
     replace = subs.os.replace
@@ -978,4 +986,28 @@ def test_overflowing_event_backup_failure_does_not_overwrite_storage(monkeypatch
         subs.SubscriptionService()
 
     assert storage_path.read_bytes() == before
+    assert list(tmp_path.glob("*.corrupt")) == []
+
+
+def test_expired_stored_event_is_pruned_without_corrupt_backup(monkeypatch, tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from backend.services import subscription_service as subs
+
+    storage_path = tmp_path / "subscriptions.json"
+    monkeypatch.setattr(subs, "SUBSCRIPTIONS_FILE", storage_path)
+    service = subs.SubscriptionService()
+    email = "alice@example.invalid"
+    assert service.subscribe(email, "AAPL")
+    assert service.record_alert_event(email, "AAPL", "news", title="current event")
+    payload = json.loads(storage_path.read_text(encoding="utf-8"))
+    expired_at = datetime.now(timezone.utc) - timedelta(days=subs.ALERT_EVENTS_TTL_DAYS + 1)
+    payload[email][0]["recent_events"].append({
+        "triggered_at": expired_at.isoformat(), "title": "expired event",
+    })
+    storage_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    reloaded = subs.SubscriptionService()
+
+    assert [event["title"] for event in reloaded.list_alert_events(email)] == ["current event"]
+    assert reloaded.get_subscriptions(email)[0]["ticker"] == "AAPL"
     assert list(tmp_path.glob("*.corrupt")) == []
