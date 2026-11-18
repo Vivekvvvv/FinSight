@@ -1,6 +1,25 @@
 from __future__ import annotations
 
+import pytest
+
 from backend.tools import us_screener
+
+
+@pytest.mark.parametrize("failure", [{"error": "bad"}, {"success": False}, {"status": " Failed "}])
+def test_nasdaq_failed_rows_cannot_supply_screener_candidates(monkeypatch, failure):
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"data": {"rows": [{**_row(9), **failure}, _row(1)]}}
+
+    monkeypatch.setattr(us_screener, "_CACHE", {"expires_at": 0.0, "items": None})
+    monkeypatch.setattr(us_screener, "_http_get", lambda *_args, **_kwargs: Response())
+    result = us_screener.nasdaq_screen_stocks(
+        filters={}, limit=1, page=1, sort_by="price", sort_order="desc",
+    )
+    assert result["total"] == 1
+    assert [row["symbol"] for row in result["items"]] == ["REAL001"]
 
 
 def _row(index: int) -> dict[str, str]:

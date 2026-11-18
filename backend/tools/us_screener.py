@@ -31,6 +31,9 @@ def _number(value: Any) -> float | None:
 
 
 def _build_item(row: dict[str, Any]) -> dict[str, Any] | None:
+    if (row.get("error") or row.get("success") is False
+        or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+        return None
     symbol = str(row.get("symbol") or "").strip().upper()
     if not symbol:
         return None
