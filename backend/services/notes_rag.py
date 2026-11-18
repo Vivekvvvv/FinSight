@@ -83,7 +83,7 @@ def _embed(text: str) -> list[float] | None:
     if not embedder:
         return None
     try:
-        result = embedder.embed_texts([text])
+        result = embedder.encode([text])
         vecs = result.dense
         if vecs and vecs[0]:
             if any(isinstance(value, bool) for value in vecs[0]):

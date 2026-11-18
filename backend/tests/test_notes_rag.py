@@ -47,6 +47,46 @@ def test_cosine_opposite_vectors():
     assert abs(_cosine(v, neg) - (-1.0)) < 1e-9
 
 
+def test_notes_embedding_uses_real_embedding_service(monkeypatch):
+    from backend.rag.embedder import EmbeddingService
+    from backend.services import notes_rag
+
+    service = EmbeddingService(force_backend="hash")
+    monkeypatch.setattr(notes_rag, "_get_embedder", lambda: service)
+
+    vector = notes_rag._embed("AAPL revenue growth")
+
+    assert vector is not None
+    assert len(vector) == service.dim
+    assert all(math.isfinite(value) for value in vector)
+    assert any(value != 0 for value in vector)
+
+
+def test_real_embedding_roundtrip_preserves_note_search_isolation(tmp_path, monkeypatch):
+    from backend.rag.embedder import EmbeddingService
+    from backend.services import notes_rag, research_notes
+
+    db_path = tmp_path / "notes.db"
+    monkeypatch.setattr(notes_rag, "_DB_PATH", db_path)
+    monkeypatch.setattr(research_notes, "_DB_PATH", db_path)
+    monkeypatch.setattr(notes_rag, "_table_ready", False)
+    service = EmbeddingService(force_backend="hash")
+    monkeypatch.setattr(notes_rag, "_get_embedder", lambda: service)
+    expected = research_notes.create_note("session", "user", "AAPL revenue growth")
+    research_notes.create_note("session", "other-user", "AAPL revenue growth")
+    research_notes.create_note("other-session", "user", "AAPL revenue growth")
+    deleted = research_notes.create_note("session", "user", "AAPL revenue growth")
+    assert research_notes.delete_note(deleted)
+
+    hits = notes_rag.semantic_search_notes("session", "user", "AAPL revenue growth")
+
+    assert notes_rag.notes_semantic_search_available("AAPL revenue growth")
+    assert [note["note_id"] for note in hits] == [expected]
+    assert hits[0]["similarity"] == pytest.approx(1.0)
+    with notes_rag._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM notes_vectors").fetchone()[0] == 4
+
+
 # ── vectorize_note 测试 ────────────────────────────────────────────────────────
 
 def test_vectorize_note_returns_false_when_embedder_unavailable():
@@ -93,7 +133,7 @@ def test_notes_embedding_error_log_is_redacted(monkeypatch, caplog):
     secret = "PRIVATE postgres://notes:secret@db/embed"
 
     class _FailingEmbedder:
-        def embed_texts(self, _texts):
+        def encode(self, _texts):
             raise RuntimeError(secret)
 
     caplog.set_level("DEBUG")
@@ -111,7 +151,7 @@ def test_embed_rejects_invalid_vectors(monkeypatch, vector):
     import backend.services.notes_rag as rag_module
 
     embedder = MagicMock()
-    embedder.embed_texts.return_value.dense = [vector]
+    embedder.encode.return_value.dense = [vector]
     monkeypatch.setattr(rag_module, "_get_embedder", lambda: embedder)
 
     assert rag_module._embed("text") is None
@@ -121,7 +161,7 @@ def test_embed_rejects_boolean_vector_components(monkeypatch):
     import backend.services.notes_rag as rag_module
 
     embedder = MagicMock()
-    embedder.embed_texts.return_value.dense = [[True, 0.1]]
+    embedder.encode.return_value.dense = [[True, 0.1]]
     monkeypatch.setattr(rag_module, "_get_embedder", lambda: embedder)
 
     assert rag_module._embed("text") is None
