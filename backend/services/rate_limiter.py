@@ -174,7 +174,9 @@ class LLMRateLimiter:
     def _record_agent_usage(self, agent_name: str | None) -> None:
         """记录 agent 使用一次令牌"""
         if agent_name:
-            self._agent_usage[agent_name].append(time.monotonic())
+            now = time.monotonic()
+            self._prune_agent_window(agent_name, now)
+            self._agent_usage[agent_name].append(now)
 
     # ------------------------------------------------------------------
     # 公开接口

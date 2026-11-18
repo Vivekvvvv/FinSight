@@ -40,6 +40,22 @@ def _make_limiter(**kwargs) -> LLMRateLimiter:
     return LLMRateLimiter(**defaults)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_agent_usage_discards_expired_grants_on_global_bucket_path(monkeypatch, enabled):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(time, "monotonic", lambda: clock["now"])
+    limiter = _make_limiter(enabled=enabled, burst_capacity=10, agent_window_seconds=60.0)
+    assert await limiter.acquire(timeout=0.0, agent_name="price") is True
+    clock["now"] += 30
+    assert await limiter.acquire(timeout=0.0, agent_name="price") is True
+    assert limiter._agent_usage["price"] == [1000.0, 1030.0]
+    clock["now"] += 30
+    assert await limiter.acquire(timeout=0.0, agent_name="price") is True
+    assert limiter._agent_usage["price"] == [1030.0, 1060.0]
+    assert limiter.snapshot()["agent_stats"]["price"]["usage_in_window"] == 2
+
+
 @pytest.mark.parametrize(
     ("field", "value", "expected"),
     [
