@@ -337,6 +337,9 @@ def search_notes(
     user_id: str,
     query: str,
     limit: int = 20,
+    *,
+    ticker: Optional[str] = None,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     """搜索笔记（标题和内容）
 
@@ -345,6 +348,8 @@ def search_notes(
         user_id: 用户 ID
         query: 搜索关键词
         limit: 返回数量限制
+        ticker: 筛选标的（可选）
+        offset: 偏移量
 
     Returns:
         匹配的笔记列表
@@ -359,10 +364,11 @@ def search_notes(
             FROM research_notes
             WHERE session_id = ? AND user_id = ?
               AND deleted = 0
+              AND (? IS NULL OR ticker = ? COLLATE NOCASE)
               AND (title LIKE ? OR content LIKE ?)
             ORDER BY updated_at DESC
-            LIMIT ?
-        """, (session_id, user_id, search_pattern, search_pattern, limit)).fetchall()
+            LIMIT ? OFFSET ?
+        """, (session_id, user_id, ticker or None, ticker or None, search_pattern, search_pattern, limit, offset)).fetchall()
 
         result = []
         for row in rows:

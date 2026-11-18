@@ -135,6 +135,8 @@ def create_research_notes_router(deps: ResearchNotesRouterDeps) -> APIRouter:
                     user_id=effective_user_id,
                     query=q,
                     limit=limit,
+                    ticker=ticker,
+                    offset=offset,
                 )
             else:
                 notes = research_notes.list_notes(

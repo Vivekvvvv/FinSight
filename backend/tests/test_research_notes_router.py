@@ -18,6 +18,54 @@ from backend.security.auth import Principal, get_current_user
 from backend.services import research_notes
 
 
+@pytest.mark.parametrize("query", [None, "增长"])
+@pytest.mark.parametrize("ticker, offset, expected", [
+    (None, 0, ["nvda"]),
+    (None, 1, ["aapl_new"]),
+    ("aapl", 0, ["aapl_new"]),
+    ("AAPL", 1, ["aapl_old"]),
+    ("AAPL", 2, []),
+])
+def test_note_search_respects_ticker_and_pagination(tmp_path, monkeypatch, query, ticker, offset, expected):
+    from fastapi import FastAPI
+    from backend.api.research_notes_router import ResearchNotesRouterDeps, create_research_notes_router
+
+    monkeypatch.setattr(research_notes, "_DB_PATH", tmp_path / "notes.db")
+    with research_notes._db_lock, research_notes._connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO research_notes (
+                note_id, session_id, user_id, ticker, title, content, deleted, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, '2026-11-18T00:00:00+00:00', ?)
+            """,
+            [
+                ("aapl_old", "session", "user", "aapl", "增长", "", 0, "2026-11-18T01:00:00+00:00"),
+                ("aapl_new", "session", "user", "AAPL", "分析", "增长", 0, "2026-11-18T02:00:00+00:00"),
+                ("nvda", "session", "user", "NVDA", "增长", "", 0, "2026-11-18T03:00:00+00:00"),
+                ("deleted", "session", "user", "AAPL", "增长", "", 1, "2026-11-18T04:00:00+00:00"),
+                ("other_user", "session", "other", "AAPL", "增长", "", 0, "2026-11-18T05:00:00+00:00"),
+                ("other_session", "other", "user", "AAPL", "增长", "", 0, "2026-11-18T06:00:00+00:00"),
+            ],
+        )
+    test_app = FastAPI()
+    test_app.include_router(create_research_notes_router(ResearchNotesRouterDeps(resolve_thread_id=lambda value: value)))
+    test_app.dependency_overrides[get_current_user] = lambda: Principal(
+        user_id="user", email="notes@example.invalid", role="user", auth_type="api_key",
+    )
+    params = {"session_id": "session", "limit": 1, "offset": offset}
+    if query is not None:
+        params["q"] = query
+    if ticker is not None:
+        params["ticker"] = ticker
+    with TestClient(test_app) as test_client:
+        response = test_client.get("/api/research-notes", params=params)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [note["note_id"] for note in payload["notes"]] == expected
+    assert payload["count"] == len(expected)
+
+
 @pytest.fixture()
 def client():
     with TestClient(app) as test_client:
