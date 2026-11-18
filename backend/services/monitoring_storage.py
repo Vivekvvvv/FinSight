@@ -201,8 +201,8 @@ class MonitoringStorage:
                         avg_response_time_ms, total_requests, success_count,
                         failure_count, consecutive_failures, is_healthy
                     FROM health_records
-                    WHERE source_name = ? AND timestamp >= ?
-                    ORDER BY timestamp DESC
+                    WHERE source_name = ? AND julianday(timestamp) >= julianday(?)
+                    ORDER BY julianday(timestamp) DESC
                 """, (source_name, cutoff))
             else:
                 cursor = conn.execute("""
@@ -211,8 +211,8 @@ class MonitoringStorage:
                         avg_response_time_ms, total_requests, success_count,
                         failure_count, consecutive_failures, is_healthy
                     FROM health_records
-                    WHERE timestamp >= ?
-                    ORDER BY timestamp DESC
+                    WHERE julianday(timestamp) >= julianday(?)
+                    ORDER BY julianday(timestamp) DESC
                 """, (cutoff,))
 
             return [dict(row) for row in cursor.fetchall()]
@@ -255,7 +255,7 @@ class MonitoringStorage:
                     AVG(avg_response_time_ms) as avg_response_time_ms,
                     COUNT(*) as sample_count
                 FROM health_records
-                WHERE source_name = ? AND timestamp >= ?
+                WHERE source_name = ? AND julianday(timestamp) >= julianday(?)
                 GROUP BY hour
                 ORDER BY hour DESC
             """, (source_name, cutoff))
@@ -281,7 +281,7 @@ class MonitoringStorage:
         with _lock, _connect(self.db_path) as conn:
             cursor = conn.execute("""
                 DELETE FROM health_records
-                WHERE timestamp < ?
+                WHERE julianday(timestamp) < julianday(?)
             """, (cutoff,))
             conn.commit()
             deleted = cursor.rowcount

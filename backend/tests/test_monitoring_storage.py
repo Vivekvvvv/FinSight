@@ -4,14 +4,17 @@
 timestamp 列是全库最后一个 naive-UTC 持久化点（datetime.utcnow()）：任何
 aware 侧比较（datetime.now(timezone.utc) - parsed）都会 TypeError——与
 daily_tasks/reports_to_review/risk_lens 修过的 naive/aware 缺陷同类。
-写入与 cutoff 统一改 aware 后，旧 naive 行必须仍能被 days 窗口读到
-（同列混合格式，字符串比较方向兼容）。
+写入与 cutoff 统一改 aware 后，旧 naive 行必须仍能被 days 窗口读到；
+同列混合格式和时区偏移时，窗口与排序按实际时刻比较。
 """
 from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
+import backend.services.monitoring_storage as monitoring_storage
 from backend.services.monitoring_storage import MonitoringStorage, _connect
 
 
@@ -28,6 +31,54 @@ def _snapshot(rate: float = 95.0) -> dict:
             "is_healthy": True,
         }
     }
+
+
+@pytest.mark.parametrize("operation", ["trend", "hourly", "cleanup"])
+def test_monitoring_windows_compare_instants_across_timestamp_formats(tmp_path, monkeypatch, operation):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 18, 12, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(monitoring_storage, "datetime", FixedDatetime)
+    db = tmp_path / "monitoring.db"
+    store = MonitoringStorage(db)
+    timestamps = [
+        "2026-11-17T20:30:00+09:00",  # 窗口前，字符串却排在边界之后
+        "2026-11-17T12:00:00",        # 旧版 naive UTC，恰好等于边界
+        "2026-11-17T12:00:00+00:00",
+        "2026-11-17T10:00:00-02:00",  # 与边界同一时刻
+        "2026-11-17T10:30:00-02:00",  # 边界后，字符串却排在边界之前
+        "2026-11-17T20:15:00+08:00",  # 比上一条更早，不能按字符串排序
+    ]
+    with _connect(db) as conn:
+        conn.executemany(
+            """
+            INSERT INTO health_records (
+                timestamp, source_name, status, success_rate,
+                avg_response_time_ms, total_requests, success_count,
+                failure_count, consecutive_failures, is_healthy
+            ) VALUES (?, 'source', 'healthy', 99.0, 30.0, 10, 10, 0, 0, 1)
+            """,
+            [(stamp,) for stamp in timestamps],
+        )
+
+    if operation == "trend":
+        for source in (None, "source"):
+            rows = store.get_trend(source_name=source, days=1)
+            assert len(rows) == 5
+            assert [row["timestamp"] for row in rows[:2]] == [timestamps[4], timestamps[5]]
+            assert {row["timestamp"] for row in rows[2:]} == set(timestamps[1:4])
+    elif operation == "hourly":
+        assert store.get_hourly_aggregation("source", hours=24) == [{
+            "hour": "2026-11-17 12:00", "avg_success_rate": 99.0,
+            "avg_response_time_ms": 30.0, "sample_count": 5,
+        }]
+    else:
+        assert store.cleanup_old_records(keep_days=1) == 1
+        with _connect(db) as conn:
+            remaining = {row[0] for row in conn.execute("SELECT timestamp FROM health_records")}
+        assert remaining == set(timestamps[1:])
 
 
 def test_saved_timestamp_is_timezone_aware(tmp_path):
@@ -69,7 +120,7 @@ def test_trend_still_reads_legacy_naive_rows(tmp_path):
 
 
 def test_cleanup_respects_mixed_naive_aware_timestamps(tmp_path):
-    """cleanup 的 timestamp < cutoff 比较对 naive/aware 混合行方向一致。"""
+    """cleanup 按实际时刻清理，兼容旧 naive UTC 与新 aware 行。"""
     db = tmp_path / "mon.db"
     store = MonitoringStorage(db)
     old_naive = (datetime.now(timezone.utc) - timedelta(days=60)).replace(
