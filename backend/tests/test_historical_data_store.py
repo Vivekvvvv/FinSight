@@ -476,6 +476,33 @@ def test_c2_adjusted_cache_expires_after_ttl(store):
     assert store._read_cache("600519.SS", "2024-01-02", "2024-01-03", "none") is not None
 
 
+@pytest.mark.parametrize("adjust", ["qfq", "hfq", "none"])
+@pytest.mark.parametrize("expired", [False, True])
+def test_partial_refresh_cannot_make_expired_adjusted_prices_fresh(store, adjust, expired):
+    store._write_cache(
+        "600519.SS", _bars("2024-01-02", "2024-01-10"), adjust,
+        declared_start="2024-01-02", declared_end="2024-01-10",
+    )
+    if expired:
+        with store._lock, store._conn() as conn:
+            conn.execute("UPDATE kline_fetch_meta SET updated_at='2000-01-01 00:00:00'")
+
+    refreshed = [{**bar, "close": 20.0} for bar in _bars("2024-01-08", "2024-01-10", "2024-01-19")]
+    store._write_cache(
+        "600519.SS", refreshed, adjust,
+        declared_start="2024-01-08", declared_end="2024-01-19",
+    )
+
+    narrow = store._read_cache("600519.SS", "2024-01-08", "2024-01-19", adjust)
+    assert narrow is not None
+    assert [bar["close"] for bar in narrow] == [20.0, 20.0, 20.0]
+    broad = store._read_cache("600519.SS", "2024-01-02", "2024-01-19", adjust)
+    if expired and adjust != "none":
+        assert broad is None, "局部刷新不能把未刷新的过期复权价格变成新鲜缓存"
+    else:
+        assert broad is not None
+
+
 def test_c2_no_meta_means_miss(store):
     """存量库只有 bar 无声明区间：判未命中，重拉一次自然补齐 meta。"""
     store._ensure_table()

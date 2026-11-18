@@ -303,9 +303,14 @@ def _write_cache(
 
         new_start = declared_start or min(r["date"] for r in rows)
         new_end = declared_end or max(r["date"] for r in rows)
+        stale_before = (
+            datetime.now(timezone.utc) - timedelta(days=_ADJUSTED_REFRESH_TTL_DAYS)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        # 局部刷新只能合并仍有效的复权区间，不能给未刷新的过期价格续期。
         old = c.execute(
-            "SELECT fetched_start, fetched_end FROM kline_fetch_meta WHERE ticker=? AND adjust=?",
-            (ticker.upper(), adjust),
+            "SELECT fetched_start, fetched_end FROM kline_fetch_meta WHERE ticker=? AND adjust=? "
+            "AND (? = 'none' OR updated_at >= ?)",
+            (ticker.upper(), adjust, adjust, stale_before),
         ).fetchone()
         if old:
             try:
