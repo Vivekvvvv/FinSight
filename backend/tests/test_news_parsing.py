@@ -6,6 +6,8 @@ Tests for news parsing utilities.
 
 from datetime import datetime
 
+import pytest
+
 from backend import tools
 from backend.tools.utils import _normalize_published_date
 
@@ -13,6 +15,20 @@ from backend.tools.utils import _normalize_published_date
 def test_normalize_published_date_rejects_booleans():
     assert _normalize_published_date(True) is None
     assert _normalize_published_date(False) is None
+
+
+@pytest.mark.parametrize("value", ["2026-02-30", "2026-13-01", "2026-00-10", "2025-02-29T12:00:00Z"])
+def test_normalize_published_date_rejects_impossible_calendar_dates(value):
+    assert _normalize_published_date(value) is None
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("2024-02-29", "2024-02-29"),
+    ("2026-11-18T12:00:00Z", "2026-11-18"),
+    (" 2026-11-18 ", "2026-11-18"),
+])
+def test_normalize_published_date_preserves_valid_calendar_dates(value, expected):
+    assert _normalize_published_date(value) == expected
 
 
 def test_format_search_news_items_detects_recent_items():

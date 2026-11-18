@@ -19,6 +19,10 @@ def _normalize_published_date(value: Any) -> Optional[str]:
         if "T" in cleaned:
             cleaned = cleaned.split("T")[0]
         if re.match(r"^\d{4}-\d{2}-\d{2}$", cleaned):
+            try:
+                datetime.strptime(cleaned, "%Y-%m-%d")
+            except ValueError:
+                return None
             return cleaned
     return None
 
