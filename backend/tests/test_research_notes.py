@@ -8,6 +8,31 @@ import pytest
 from backend.services import research_notes
 
 
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("vectorized", [False, True])
+def test_note_vectorization_failure_is_logged_without_losing_note(
+    tmp_path, monkeypatch, caplog, operation, vectorized,
+):
+    from backend.services import notes_rag
+
+    monkeypatch.setattr(research_notes, "_DB_PATH", tmp_path / "notes.db")
+    monkeypatch.setattr(notes_rag, "vectorize_note", lambda *_args: True)
+    note_id = research_notes.create_note("session", "user", "original")
+    caplog.clear()
+    monkeypatch.setattr(notes_rag, "vectorize_note", lambda *_args: vectorized)
+
+    if operation == "create":
+        note_id = research_notes.create_note("session", "user", "saved title")
+    else:
+        assert research_notes.update_note(note_id, title="saved title") is True
+
+    assert research_notes.get_note(note_id)["title"] == "saved title"
+    failures = [record for record in caplog.records if "vectorization failed" in record.message]
+    assert len(failures) == (0 if vectorized else 1)
+    if failures:
+        assert failures[0].levelname == "WARNING"
+
+
 @pytest.mark.parametrize("query, other", [
     ("10%", "100"),
     ("profit_margin", "profitXmargin"),
