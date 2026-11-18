@@ -267,10 +267,12 @@ def get_earnings_call_transcripts(ticker: str, limit: int = 6) -> dict[str, Any]
     rows: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
     queries = _build_market_queries(ticker_norm, market)
+    successful_searches = 0
 
     for query in queries:
         try:
             raw = search(query)
+            successful_searches += 1
         except Exception as exc:
             logger.info("[Transcript] Search failed: %s", type(exc).__name__)
             continue
@@ -317,7 +319,7 @@ def get_earnings_call_transcripts(ticker: str, limit: int = 6) -> dict[str, Any]
         "transcripts": rows,
         "count": len(rows),
         "searched_queries": queries,
-        "error": None,
+        "error": None if successful_searches else "search_failed",
     }
 
 

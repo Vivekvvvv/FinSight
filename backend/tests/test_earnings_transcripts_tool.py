@@ -2,6 +2,45 @@
 import backend.tools.earnings_transcripts as transcripts_mod
 
 
+def test_transcript_search_failure_is_not_reported_as_no_results(monkeypatch, caplog):
+    secret = "PRIVATE_SEARCH_TOKEN"
+
+    def fail_search(_query):
+        raise TimeoutError(secret)
+
+    monkeypatch.setattr(transcripts_mod, "search", fail_search)
+    payload = transcripts_mod.get_earnings_call_transcripts("AAPL")
+
+    assert payload["count"] == 0
+    assert payload["error"] == "search_failed"
+    assert secret not in str(payload)
+    assert secret not in caplog.text
+
+
+def test_transcript_successful_empty_search_is_not_a_failure(monkeypatch):
+    monkeypatch.setattr(transcripts_mod, "search", lambda _query: "")
+    payload = transcripts_mod.get_earnings_call_transcripts("AAPL")
+    assert payload["count"] == 0
+    assert payload["error"] is None
+
+
+def test_transcript_partial_search_failure_preserves_valid_results(monkeypatch):
+    calls = []
+
+    def search(_query):
+        calls.append(_query)
+        if len(calls) == 1:
+            raise TimeoutError("upstream unavailable")
+        return "[AAPL earnings call transcript](https://www.fool.com/transcript/aapl)"
+
+    monkeypatch.setattr(transcripts_mod, "search", search)
+    monkeypatch.setattr(transcripts_mod, "_maybe_enrich_snippet", lambda _url, snippet: snippet)
+    payload = transcripts_mod.get_earnings_call_transcripts("AAPL", limit=1)
+    assert payload["count"] == 1
+    assert payload["error"] is None
+    assert payload["transcripts"][0]["url"] == "https://www.fool.com/transcript/aapl"
+
+
 def test_get_earnings_call_transcripts_cn_market_builds_cn_queries(monkeypatch):
     captured_queries: list[str] = []
 
