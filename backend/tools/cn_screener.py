@@ -90,8 +90,6 @@ def _fetch_page(*, fs: str, fid: str, po: int, page: int) -> list[dict[str, Any]
             diff = data.get("diff") if isinstance(data, dict) else None
             if isinstance(diff, list):
                 return list(iter_dict_items(diff))
-            if data is not None:
-                return []
         except Exception as exc:
             logger.info("eastmoney screener page failed: %s", type(exc).__name__)
     return None

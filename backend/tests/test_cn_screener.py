@@ -70,6 +70,23 @@ def test_eastmoney_volume_conversion_stays_finite_and_nonnegative(monkeypatch, m
     json.dumps(result, allow_nan=False)
 
 
+@pytest.mark.parametrize("data", [{}, {"diff": None}, {"diff": {}}, {"diff": "bad"}])
+def test_malformed_eastmoney_rows_cannot_be_reported_as_a_successful_empty_screen(monkeypatch, data):
+    monkeypatch.setattr(mod, "_http_get", lambda *a, **k: _Resp({"data": data}))
+    assert mod.eastmoney_screen_stocks(
+        market="CN", filters={}, limit=1, page=1, sort_by="price", sort_order="desc",
+    ) is None
+
+
+def test_successful_empty_eastmoney_screen_remains_available(monkeypatch):
+    monkeypatch.setattr(mod, "_http_get", lambda *a, **k: _Resp({"data": {"diff": []}}))
+    result = mod.eastmoney_screen_stocks(
+        market="CN", filters={}, limit=1, page=1, sort_by="price", sort_order="desc",
+    )
+    assert result["success"] is True
+    assert result["items"] == []
+
+
 def test_cn_full_market_rows_parsed(monkeypatch):
     monkeypatch.setattr(mod, "_http_get", lambda *a, **k: _Resp({"data": {"diff": _cn_rows()}}))
 
