@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from backend.tools import cn_screener as mod
 
 
@@ -29,6 +31,27 @@ def _cn_rows() -> list[dict[str, Any]]:
         {"f12": "300750", "f13": "0", "f14": "宁德时代", "f2": 210.0, "f3": 2.8,
          "f5": 300000, "f9": 28.0, "f20": 9.2e11, "f23": 5.5, "f8": 1.2, "f62": 6.0e8, "f100": "电池"},
     ]
+
+
+@pytest.mark.parametrize("failure", [{"error": "bad"}, {"success": False}, {"status": " Failed "}])
+def test_failed_eastmoney_row_cannot_displace_valid_candidate(monkeypatch, failure):
+    rows = [{**_cn_rows()[0], **failure}, _cn_rows()[1]]
+    monkeypatch.setattr(mod, "_http_get", lambda *a, **k: _Resp({"data": {"diff": rows}}))
+    result = mod.eastmoney_screen_stocks(
+        market="CN", filters={}, limit=1, page=1, sort_by="price", sort_order="desc",
+    )
+    assert [item["symbol"] for item in result["items"]] == ["000001.SZ"]
+
+
+@pytest.mark.parametrize("layer", ["payload", "data"])
+@pytest.mark.parametrize("failure", [{"error": "bad"}, {"success": False}, {"status": " Failed "}])
+def test_failed_eastmoney_envelope_cannot_publish_retained_candidates(monkeypatch, layer, failure):
+    data = {"diff": _cn_rows(), **(failure if layer == "data" else {})}
+    payload = {"data": data, **(failure if layer == "payload" else {})}
+    monkeypatch.setattr(mod, "_http_get", lambda *a, **k: _Resp(payload))
+    assert mod.eastmoney_screen_stocks(
+        market="CN", filters={}, limit=1, page=1, sort_by="price", sort_order="desc",
+    ) is None
 
 
 def test_cn_full_market_rows_parsed(monkeypatch):

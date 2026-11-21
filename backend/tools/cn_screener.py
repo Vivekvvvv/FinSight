@@ -80,9 +80,13 @@ def _fetch_page(*, fs: str, fid: str, po: int, page: int) -> list[dict[str, Any]
             if getattr(resp, "status_code", 0) != 200:
                 continue
             payload = resp.json()
-            if not isinstance(payload, dict):
+            if (not isinstance(payload, dict) or payload.get("error") or payload.get("success") is False
+                or str(payload.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
                 continue
             data = payload.get("data")
+            if isinstance(data, dict) and (data.get("error") or data.get("success") is False
+                or str(data.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+                continue
             diff = data.get("diff") if isinstance(data, dict) else None
             if isinstance(diff, list):
                 return list(iter_dict_items(diff))
@@ -104,6 +108,9 @@ def _to_symbol(code: str, market_id: str, market: str) -> str:
 
 
 def _build_item(row: dict[str, Any], market: str) -> dict[str, Any] | None:
+    if (row.get("error") or row.get("success") is False
+        or str(row.get("status") or "").strip().lower() in {"error", "failed", "unavailable"}):
+        return None
     code = str(row.get("f12") or "").strip()
     if not code:
         return None
