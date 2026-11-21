@@ -272,6 +272,8 @@ def get_earnings_call_transcripts(ticker: str, limit: int = 6) -> dict[str, Any]
     for query in queries:
         try:
             raw = search(query)
+            if isinstance(raw, str) and raw.startswith("Search error:"):
+                continue
             successful_searches += 1
         except Exception as exc:
             logger.info("[Transcript] Search failed: %s", type(exc).__name__)

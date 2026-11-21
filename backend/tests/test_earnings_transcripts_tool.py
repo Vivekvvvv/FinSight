@@ -2,6 +2,35 @@
 import backend.tools.earnings_transcripts as transcripts_mod
 
 
+def test_transcript_real_search_failure_text_is_not_success(monkeypatch):
+    import importlib
+
+    search_mod = importlib.import_module("backend.tools.search")
+    monkeypatch.setattr(search_mod, "EXA_API_KEY", "")
+    monkeypatch.setattr(search_mod, "TAVILY_API_KEY", "")
+    monkeypatch.setattr(search_mod, "WIKIPEDIA_AVAILABLE", False)
+    monkeypatch.setattr(search_mod, "DDGS_AVAILABLE", False)
+    monkeypatch.setattr(transcripts_mod, "search", search_mod.search)
+
+    payload = transcripts_mod.get_earnings_call_transcripts("AAPL")
+    assert payload["count"] == 0
+    assert payload["error"] == "search_failed"
+
+
+def test_transcript_search_failure_text_keeps_later_valid_result(monkeypatch):
+    replies = iter([
+        "Search error: 所有搜索源均失败，无法获取搜索结果。",
+        "[AAPL earnings call transcript](https://www.fool.com/transcript/aapl)",
+    ])
+    monkeypatch.setattr(transcripts_mod, "search", lambda _query: next(replies))
+    monkeypatch.setattr(transcripts_mod, "_maybe_enrich_snippet", lambda _url, snippet: snippet)
+
+    payload = transcripts_mod.get_earnings_call_transcripts("AAPL", limit=1)
+    assert payload["count"] == 1
+    assert payload["error"] is None
+    assert payload["transcripts"][0]["url"] == "https://www.fool.com/transcript/aapl"
+
+
 def test_transcript_search_failure_is_not_reported_as_no_results(monkeypatch, caplog):
     secret = "PRIVATE_SEARCH_TOKEN"
 

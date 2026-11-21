@@ -7,6 +7,34 @@ from __future__ import annotations
 import backend.tools.local_disclosure as ld
 
 
+def test_local_filings_real_search_failure_text_is_not_success(monkeypatch):
+    import importlib
+
+    search_mod = importlib.import_module("backend.tools.search")
+    monkeypatch.setattr(search_mod, "EXA_API_KEY", "")
+    monkeypatch.setattr(search_mod, "TAVILY_API_KEY", "")
+    monkeypatch.setattr(search_mod, "WIKIPEDIA_AVAILABLE", False)
+    monkeypatch.setattr(search_mod, "DDGS_AVAILABLE", False)
+    monkeypatch.setattr(ld, "search", search_mod.search)
+
+    payload = ld.get_local_market_filings("600519.SS")
+    assert payload["count"] == 0
+    assert payload["error"] == "search_failed"
+
+
+def test_local_filings_search_failure_text_keeps_later_valid_result(monkeypatch):
+    replies = iter([
+        "Search error: 所有搜索源均失败，无法获取搜索结果。",
+        "[2026-11-21 annual report](https://www.cninfo.com.cn/report)",
+    ])
+    monkeypatch.setattr(ld, "search", lambda _query: next(replies))
+
+    payload = ld.get_local_market_filings("600519.SS", limit=1)
+    assert payload["count"] == 1
+    assert payload["error"] is None
+    assert payload["filings"][0]["filing_date"] == "2026-11-21"
+
+
 def test_local_filings_search_failure_is_not_reported_as_no_filings(monkeypatch, caplog):
     def fail_search(_query):
         raise TimeoutError("PRIVATE_SEARCH_TOKEN")

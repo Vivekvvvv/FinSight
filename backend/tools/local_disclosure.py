@@ -201,6 +201,8 @@ def get_local_market_filings(ticker: str, limit: int = 8) -> dict[str, Any]:
     for query in _build_queries(ticker_norm, market):
         try:
             raw = search(query)
+            if isinstance(raw, str) and raw.startswith("Search error:"):
+                continue
             successful_searches += 1
         except Exception as exc:
             logger.info("[LocalDisclosure] Search failed: %s", type(exc).__name__)
