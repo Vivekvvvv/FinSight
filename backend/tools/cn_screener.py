@@ -116,8 +116,10 @@ def _build_item(row: dict[str, Any], market: str) -> dict[str, Any] | None:
         return None
     symbol = _to_symbol(code, str(row.get("f13") or "").strip(), market)
     volume = safe_float(row.get("f5"))
+    if volume is not None and volume < 0:
+        volume = None
     if market == "CN" and volume is not None:
-        volume *= 100  # A股 f5 单位是手（100 股），统一转股数与美股口径一致
+        volume = safe_float(volume * 100)  # A股 f5 单位是手（100 股），统一转股数与美股口径一致
     sector = str(row.get("f100") or "").strip() or None
     return {
         "symbol": symbol,

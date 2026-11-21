@@ -54,6 +54,22 @@ def test_failed_eastmoney_envelope_cannot_publish_retained_candidates(monkeypatc
     ) is None
 
 
+@pytest.mark.parametrize("market, volume, expected", [
+    ("CN", 1e308, None), ("CN", -1, None), ("HK", -1, None),
+    ("CN", 0, 0.0), ("CN", 25, 2500.0), ("HK", 25, 25.0),
+])
+def test_eastmoney_volume_conversion_stays_finite_and_nonnegative(monkeypatch, market, volume, expected):
+    import json
+
+    row = {**_cn_rows()[0], "f5": volume}
+    monkeypatch.setattr(mod, "_http_get", lambda *a, **k: _Resp({"data": {"diff": [row]}}))
+    result = mod.eastmoney_screen_stocks(
+        market=market, filters={}, limit=1, page=1, sort_by="volume", sort_order="desc",
+    )
+    assert result["items"][0]["volume"] == expected
+    json.dumps(result, allow_nan=False)
+
+
 def test_cn_full_market_rows_parsed(monkeypatch):
     monkeypatch.setattr(mod, "_http_get", lambda *a, **k: _Resp({"data": {"diff": _cn_rows()}}))
 
